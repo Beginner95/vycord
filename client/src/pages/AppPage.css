@@ -1,0 +1,125 @@
+.app-page {
+  width: 100vw;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-base);
+}
+
+.app-page .app-layout {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+}
+
+/* ── Modal ── */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 17, 23, 0.5);
+  backdrop-filter: blur(6px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  animation: fadeIn 0.15s var(--ease-out);
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.modal {
+  background: var(--bg-primary);
+  border-radius: var(--radius-xl);
+  padding: 32px;
+  width: 90%;
+  max-width: 440px;
+  box-shadow: var(--shadow-xl);
+  border: 1px solid var(--border-subtle);
+  animation: scaleIn 0.2s var(--ease-out);
+}
+
+@keyframes scaleIn {
+  from { opacity: 0; transform: scale(0.95); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+.modal h2 {
+  font-size: 20px;
+  font-weight: 700;
+  margin-bottom: 20px;
+  color: var(--text-primary);
+  letter-spacing: -0.01em;
+}
+
+.modal .form-group {
+  margin-bottom: 18px;
+}
+
+.modal .form-group label {
+  display: block;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin-bottom: 6px;
+}
+
+.modal .form-group input {
+  width: 100%;
+  padding: 11px 14px;
+  border: 1.5px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background: var(--bg-base);
+  color: var(--text-primary);
+  font-size: 14px;
+  outline: none;
+  transition: border-color var(--transition), box-shadow var(--transition);
+}
+
+.modal .form-group input:focus {
+  border-color: var(--brand-color);
+  box-shadow: 0 0 0 3px var(--brand-subtle);
+  background: var(--bg-primary);
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 24px;
+}
+
+.modal-actions button {
+  padding: 9px 20px;
+  border: 1.5px solid var(--border-color);
+  border-radius: var(--radius-md);
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--transition);
+}
+
+.modal-actions button:not(.primary) {
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  border-color: var(--border-color);
+}
+
+.modal-actions button:not(.primary):hover {
+  background: var(--bg-hover);
+  border-color: var(--text-muted);
+}
+
+.modal-actions button.primary {
+  background: var(--brand-color);
+  color: var(--text-inverse);
+  border: 1.5px solid var(--brand-color);
+}
+
+.modal-actions button.primary:hover {
+  background: var(--brand-hover);
+  border-color: var(--brand-hover);
+  box-shadow: 0 2px 8px rgba(99, 102, 241, 0.25);
+}

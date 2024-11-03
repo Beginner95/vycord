@@ -1,0 +1,222 @@
+.channel-sidebar {
+  width: 260px;
+  min-width: 260px;
+  background: var(--bg-primary);
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid var(--border-subtle);
+}
+
+.channel-header {
+  height: 56px;
+  padding: 0 20px;
+  display: flex;
+  align-items: center;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.channel-header h2 {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  letter-spacing: -0.01em;
+}
+
+.no-server-message {
+  padding: 32px 20px;
+  color: var(--text-muted);
+  font-size: 14px;
+  text-align: center;
+  line-height: 1.6;
+}
+
+.channel-list {
+  flex: 1;
+  padding: 12px 10px;
+  overflow-y: auto;
+}
+
+.channel-category {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 8px 6px;
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.channel {
+  padding: 7px 10px;
+  margin: 2px 0;
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  transition: all var(--transition);
+}
+
+.channel::before {
+  content: '#';
+  font-size: 16px;
+  font-weight: 600;
+  opacity: 0.5;
+  flex-shrink: 0;
+}
+
+.channel:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.channel.active {
+  background: var(--bg-active);
+  color: var(--brand-600);
+  font-weight: 600;
+}
+
+.channel.active::before {
+  opacity: 1;
+  color: var(--brand-color);
+}
+
+.channel.voice::before {
+  content: '';
+  opacity: 1;
+  font-size: 14px;
+}
+
+.channel.voice {
+  color: var(--text-secondary);
+}
+
+.channel.voice::after {
+  content: '🎙';
+  margin-left: auto;
+  font-size: 13px;
+  opacity: 0.7;
+}
+
+.channel.voice:hover::after,
+.channel.voice.active::after {
+  opacity: 1;
+}
+
+.channel.voice.active {
+  color: var(--green-600);
+}
+
+/* ── User Panel ── */
+.user-panel {
+  height: 64px;
+  padding: 0 12px;
+  background: var(--bg-secondary);
+  border-top: 1px solid var(--border-subtle);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.user-info {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.user-avatar.small {
+  width: 36px;
+  height: 36px;
+  min-width: 36px;
+  border-radius: var(--radius-full);
+  background: linear-gradient(135deg, var(--brand-300), var(--brand-500));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-inverse);
+  position: relative;
+}
+
+.user-avatar.small::after {
+  content: '';
+  position: absolute;
+  bottom: -1px;
+  right: -1px;
+  width: 11px;
+  height: 11px;
+  border-radius: var(--radius-full);
+  background: var(--green-color);
+  border: 2.5px solid var(--bg-secondary);
+}
+
+.user-details {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.user-tag {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.user-status-text {
+  font-size: 11px;
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.nc-badge {
+  background: var(--green-50);
+  color: var(--green-600);
+  font-size: 9px;
+  padding: 1px 5px;
+  border-radius: var(--radius-sm);
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  border: 1px solid rgba(34, 197, 94, 0.2);
+}
+
+.user-actions {
+  display: flex;
+  gap: 4px;
+}
+
+.settings-btn,
+.logout-btn {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 15px;
+  padding: 6px;
+  border-radius: var(--radius-sm);
+  transition: all var(--transition);
+}
+
+.settings-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.logout-btn:hover {
+  background: var(--red-50);
+  color: var(--red-500);
+}

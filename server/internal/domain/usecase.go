@@ -1,0 +1,32 @@
+package domain
+
+import "github.com/google/uuid"
+
+type AuthUseCase interface {
+	Register(username, email, password string) (*User, string, error)
+	Login(email, password string) (*User, string, error)
+	ValidateToken(tokenString string) (*User, error)
+}
+
+type UserUseCase interface {
+	GetByID(id uuid.UUID) (*User, error)
+	Search(query string, limit int) ([]*User, error)
+	UpdateStatus(id uuid.UUID, status UserStatus) error
+	GetOnlineUserIDs() []uuid.UUID
+}
+
+type ServerUseCase interface {
+	CreateServer(name string, ownerID uuid.UUID) (*Server, error)
+	GetServer(id uuid.UUID) (*Server, error)
+	GetUserServers(userID uuid.UUID) ([]*Server, error)
+	JoinServer(serverID, userID uuid.UUID) error
+	LeaveServer(serverID, userID uuid.UUID) error
+	SearchServers(query string, limit int) ([]*Server, error)
+	CreateChannel(serverID uuid.UUID, name string, channelType ChannelType) (*Channel, error)
+	GetChannels(serverID uuid.UUID) ([]*Channel, error)
+}
+
+type MessageUseCase interface {
+	CreateMessage(channelID, userID uuid.UUID, content string) (*Message, error)
+	GetMessages(channelID uuid.UUID, limit, offset int) ([]*Message, error)
+}

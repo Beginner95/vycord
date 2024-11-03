@@ -1,0 +1,425 @@
+package handler
+
+import (
+	"encoding/json"
+	"log/slog"
+	"net/http"
+
+	"github.com/google/uuid"
+	"github.com/gorilla/websocket"
+	"github.com/vycord/server/internal/delivery/ws"
+	"github.com/vycord/server/internal/domain"
+)
+
+var upgrader = websocket.Upgrader{
+	ReadBufferSize:  4096,
+	WriteBufferSize: 4096,
+	CheckOrigin: func(r *http.Request) bool {
+		return true
+	},
+}
+
+type WebSocketHandler struct {
+	hub         *ws.Hub
+	authUseCase domain.AuthUseCase
+	callUseCase domain.CallUseCase
+	log         *slog.Logger
+}
+
+func NewWebSocketHandler(hub *ws.Hub, authUseCase domain.AuthUseCase, callUseCase domain.CallUseCase, log *slog.Logger) *WebSocketHandler {
+	return &WebSocketHandler{
+		hub:         hub,
+		authUseCase: authUseCase,
+		callUseCase: callUseCase,
+		log:         log,
+	}
+}
+
+func (h *WebSocketHandler) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
+	token := r.URL.Query().Get("token")
+	if token == "" {
+		http.Error(w, "missing token", http.StatusUnauthorized)
+		return
+	}
+
+	user, err := h.authUseCase.ValidateToken(token)
+	if err != nil {
+		http.Error(w, "invalid token", http.StatusUnauthorized)
+		return
+	}
+
+	conn, err := upgrader.Upgrade(w, r, nil)
+	if err != nil {
+		h.log.Error("failed to upgrade connection", "error", err)
+		return
+	}
+
+	client := &ws.Client{
+		UserID: user.ID,
+		Conn:   conn,
+		Send:   make(chan []byte, 512),
+	}
+
+	h.hub.RegisterClient(client)
+
+	// Update user status to online
+	_ = h.callUseCase // just to avoid unused import warning
+	// Note: status update would go through userUseCase, but we keep it simple for now
+	// The Hub tracks online users inherently
+
+	go h.writePump(client)
+	go h.readPump(client)
+}
+
+func (h *WebSocketHandler) readPump(client *ws.Client) {
+	defer func() {
+		h.hub.UnregisterClient(client)
+		client.Conn.Close()
+	}()
+
+	for {
+		_, message, err := client.Conn.ReadMessage()
+		if err != nil {
+			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseNormalClosure) {
+				h.log.Error("websocket error", "error", err, "user_id", client.UserID)
+			}
+			break
+		}
+
+		var msg ws.Message
+		if err := json.Unmarshal(message, &msg); err != nil {
+			h.log.Warn("failed to parse message", "error", err, "user_id", client.UserID)
+			continue
+		}
+
+		h.handleMessage(client, &msg)
+	}
+}
+
+func (h *WebSocketHandler) writePump(client *ws.Client) {
+	defer func() {
+		client.Conn.Close()
+	}()
+
+	for {
+		message, ok := <-client.Send
+		if !ok {
+			client.Conn.WriteMessage(websocket.CloseMessage, []byte{})
+			return
+		}
+
+		w, err := client.Conn.NextWriter(websocket.TextMessage)
+		if err != nil {
+			return
+		}
+		w.Write(message)
+
+		if err := w.Close(); err != nil {
+			return
+		}
+	}
+}
+
+func (h *WebSocketHandler) handleMessage(client *ws.Client, msg *ws.Message) {
+	switch msg.Type {
+	case "chat_message":
+		h.handleChatMessage(client, msg)
+	case "typing":
+		h.handleTyping(client, msg)
+	case "call_start":
+		h.handleCallStart(client, msg)
+	case "call_accept":
+		h.handleCallAccept(client, msg)
+	case "call_reject":
+		h.handleCallReject(client, msg)
+	case "call_end":
+		h.handleCallEnd(client, msg)
+	case "webrtc_offer":
+		h.handleWebRTCOffer(client, msg)
+	case "webrtc_answer":
+		h.handleWebRTCAnswer(client, msg)
+	case "webrtc_ice_candidate":
+		h.handleWebRTCICECandidate(client, msg)
+	case "ping":
+		h.handlePing(client)
+	default:
+		h.log.Warn("unknown message type", "type", msg.Type, "user_id", client.UserID)
+	}
+}
+
+func (h *WebSocketHandler) handleChatMessage(client *ws.Client, msg *ws.Message) {
+	h.hub.BroadcastMessage(&ws.Message{
+		Type:    "chat_message",
+		Payload: msg.Payload,
+	})
+}
+
+func (h *WebSocketHandler) handleTyping(client *ws.Client, msg *ws.Message) {
+	h.hub.BroadcastMessage(&ws.Message{
+		Type:    "typing",
+		Payload: msg.Payload,
+	})
+}
+
+// --- Call Signalling ---
+
+func (h *WebSocketHandler) handleCallStart(client *ws.Client, msg *ws.Message) {
+	var payload struct {
+		ReceiverID string `json:"receiver_id"`
+	}
+	if err := json.Unmarshal(msg.Payload, &payload); err != nil {
+		h.sendError(client, "invalid call_start payload")
+		return
+	}
+
+	receiverID, err := uuid.Parse(payload.ReceiverID)
+	if err != nil {
+		h.sendError(client, "invalid receiver_id")
+		return
+	}
+
+	call, err := h.callUseCase.StartCall(client.UserID, receiverID)
+	if err != nil {
+		h.sendError(client, err.Error())
+		return
+	}
+
+	// Notify receiver
+	h.hub.SendToUser(receiverID, &ws.Message{
+		Type: "incoming_call",
+		Payload: mustMarshal(map[string]interface{}{
+			"call_id":   call.ID.String(),
+			"caller_id": call.CallerID.String(),
+		}),
+	})
+
+	// Confirm to caller
+	h.hub.SendToUser(client.UserID, &ws.Message{
+		Type: "call_started",
+		Payload: mustMarshal(map[string]interface{}{
+			"call_id": call.ID.String(),
+		}),
+	})
+}
+
+func (h *WebSocketHandler) handleCallAccept(client *ws.Client, msg *ws.Message) {
+	var payload struct {
+		CallID string `json:"call_id"`
+	}
+	if err := json.Unmarshal(msg.Payload, &payload); err != nil {
+		h.sendError(client, "invalid call_accept payload")
+		return
+	}
+
+	callID, err := uuid.Parse(payload.CallID)
+	if err != nil {
+		h.sendError(client, "invalid call_id")
+		return
+	}
+
+	if err := h.callUseCase.AcceptCall(callID); err != nil {
+		h.sendError(client, err.Error())
+		return
+	}
+
+	// Get call to find caller
+	call, err := h.callUseCase.GetActiveCall(client.UserID)
+	if err != nil {
+		h.sendError(client, "failed to get call")
+		return
+	}
+
+	// Notify caller that call was accepted
+	h.hub.SendToUser(call.CallerID, &ws.Message{
+		Type: "call_accepted",
+		Payload: mustMarshal(map[string]interface{}{
+			"call_id": call.ID.String(),
+		}),
+	})
+
+	h.hub.SendToUser(client.UserID, &ws.Message{
+		Type: "call_accepted",
+		Payload: mustMarshal(map[string]interface{}{
+			"call_id": call.ID.String(),
+		}),
+	})
+}
+
+func (h *WebSocketHandler) handleCallReject(client *ws.Client, msg *ws.Message) {
+	var payload struct {
+		CallID string `json:"call_id"`
+	}
+	if err := json.Unmarshal(msg.Payload, &payload); err != nil {
+		h.sendError(client, "invalid call_reject payload")
+		return
+	}
+
+	callID, err := uuid.Parse(payload.CallID)
+	if err != nil {
+		h.sendError(client, "invalid call_id")
+		return
+	}
+
+	call, err := h.callUseCase.GetActiveCall(client.UserID)
+	if err != nil {
+		h.sendError(client, "failed to get call")
+		return
+	}
+
+	if err := h.callUseCase.RejectCall(callID); err != nil {
+		h.sendError(client, err.Error())
+		return
+	}
+
+	// Notify caller
+	h.hub.SendToUser(call.CallerID, &ws.Message{
+		Type: "call_rejected",
+		Payload: mustMarshal(map[string]interface{}{
+			"call_id": callID.String(),
+		}),
+	})
+}
+
+func (h *WebSocketHandler) handleCallEnd(client *ws.Client, msg *ws.Message) {
+	var payload struct {
+		CallID string `json:"call_id"`
+	}
+	if err := json.Unmarshal(msg.Payload, &payload); err != nil {
+		h.sendError(client, "invalid call_end payload")
+		return
+	}
+
+	callID, err := uuid.Parse(payload.CallID)
+	if err != nil {
+		h.sendError(client, "invalid call_id")
+		return
+	}
+
+	call, err := h.callUseCase.GetActiveCall(client.UserID)
+	if err != nil {
+		h.sendError(client, "failed to get call")
+		return
+	}
+
+	if err := h.callUseCase.EndCall(callID); err != nil {
+		h.sendError(client, err.Error())
+		return
+	}
+
+	// Notify other party
+	otherID := call.CallerID
+	if otherID == client.UserID {
+		otherID = call.ReceiverID
+	}
+	h.hub.SendToUser(otherID, &ws.Message{
+		Type: "call_ended",
+		Payload: mustMarshal(map[string]interface{}{
+			"call_id": callID.String(),
+		}),
+	})
+
+	h.hub.SendToUser(client.UserID, &ws.Message{
+		Type: "call_ended",
+		Payload: mustMarshal(map[string]interface{}{
+			"call_id": callID.String(),
+		}),
+	})
+}
+
+// --- WebRTC Signalling ---
+
+func (h *WebSocketHandler) handleWebRTCOffer(client *ws.Client, msg *ws.Message) {
+	var payload struct {
+		TargetUserID string          `json:"target_user_id"`
+		SDP          json.RawMessage `json:"sdp"`
+	}
+	if err := json.Unmarshal(msg.Payload, &payload); err != nil {
+		h.sendError(client, "invalid webrtc_offer payload")
+		return
+	}
+
+	targetID, err := uuid.Parse(payload.TargetUserID)
+	if err != nil {
+		h.sendError(client, "invalid target_user_id")
+		return
+	}
+
+	// Forward offer to target
+	h.hub.SendToUser(targetID, &ws.Message{
+		Type: "webrtc_offer",
+		Payload: mustMarshal(map[string]interface{}{
+			"from_user_id": client.UserID.String(),
+			"sdp":          payload.SDP,
+		}),
+	})
+}
+
+func (h *WebSocketHandler) handleWebRTCAnswer(client *ws.Client, msg *ws.Message) {
+	var payload struct {
+		TargetUserID string          `json:"target_user_id"`
+		SDP          json.RawMessage `json:"sdp"`
+	}
+	if err := json.Unmarshal(msg.Payload, &payload); err != nil {
+		h.sendError(client, "invalid webrtc_answer payload")
+		return
+	}
+
+	targetID, err := uuid.Parse(payload.TargetUserID)
+	if err != nil {
+		h.sendError(client, "invalid target_user_id")
+		return
+	}
+
+	// Forward answer to target
+	h.hub.SendToUser(targetID, &ws.Message{
+		Type: "webrtc_answer",
+		Payload: mustMarshal(map[string]interface{}{
+			"from_user_id": client.UserID.String(),
+			"sdp":          payload.SDP,
+		}),
+	})
+}
+
+func (h *WebSocketHandler) handleWebRTCICECandidate(client *ws.Client, msg *ws.Message) {
+	var payload struct {
+		TargetUserID string          `json:"target_user_id"`
+		Candidate    json.RawMessage `json:"candidate"`
+	}
+	if err := json.Unmarshal(msg.Payload, &payload); err != nil {
+		h.sendError(client, "invalid webrtc_ice_candidate payload")
+		return
+	}
+
+	targetID, err := uuid.Parse(payload.TargetUserID)
+	if err != nil {
+		h.sendError(client, "invalid target_user_id")
+		return
+	}
+
+	// Forward ICE candidate to target
+	h.hub.SendToUser(targetID, &ws.Message{
+		Type: "webrtc_ice_candidate",
+		Payload: mustMarshal(map[string]interface{}{
+			"from_user_id": client.UserID.String(),
+			"candidate":    payload.Candidate,
+		}),
+	})
+}
+
+func (h *WebSocketHandler) handlePing(client *ws.Client) {
+	h.hub.SendToUser(client.UserID, &ws.Message{Type: "pong"})
+}
+
+func (h *WebSocketHandler) sendError(client *ws.Client, errMsg string) {
+	h.hub.SendToUser(client.UserID, &ws.Message{
+		Type: "error",
+		Payload: mustMarshal(map[string]string{
+			"message": errMsg,
+		}),
+	})
+}
+
+func mustMarshal(v interface{}) json.RawMessage {
+	data, _ := json.Marshal(v)
+	return data
+}
