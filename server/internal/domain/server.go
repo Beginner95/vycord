@@ -55,6 +55,9 @@ type ServerRepository interface {
 	Update(id uuid.UUID, updates map[string]interface{}) error
 	Delete(id uuid.UUID) error
 	Search(query string, limit, offset int) ([]*Server, error)
+	AddMember(serverID, userID uuid.UUID) error
+	RemoveMember(serverID, userID uuid.UUID) error
+	IsMember(serverID, userID uuid.UUID) (bool, error)
 }
 
 type ChannelRepository interface {

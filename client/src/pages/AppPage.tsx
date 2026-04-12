@@ -57,33 +57,36 @@ export function AppPage() {
 
   const loadServers = async () => {
     try {
-      const data = await apiService.getServers() as Server[];
+      type UserWithLastVisited = { last_server_id?: string; last_channel_id?: string };
+      const [data, me] = await Promise.all([
+        apiService.getServers() as Promise<Server[]>,
+        apiService.getMe() as Promise<UserWithLastVisited>,
+      ]);
+
       setServers(data);
       if (data.length === 0) return;
 
-      // Try to restore last visited server/channel
-      const lastServer = useServerStore.getState().getLastServer();
-      const lastChannel = useServerStore.getState().getLastChannel();
+      const lastServerId = me?.last_server_id;
+      const lastChannelId = me?.last_channel_id;
 
-      if (lastServer) {
-        const server = data.find((s) => s.id === lastServer.serverId);
+      if (lastServerId) {
+        const server = data.find((s) => s.id === lastServerId);
         if (server) {
           setCurrentServer(server);
           const channelsData = await apiService.getChannels(server.id) as Channel[];
           setChannels(channelsData);
 
-          // Try to restore last channel
-          if (lastChannel) {
-            const channel = channelsData.find((c) => c.id === lastChannel.channelId);
+          if (lastChannelId) {
+            const channel = channelsData.find((c) => c.id === lastChannelId);
             if (channel) {
               setCurrentChannel(channel);
+              wsService.send('join_channel', { channel_id: channel.id });
               const messages = await apiService.getMessages(channel.id);
               setMessages(messages as Message[]);
               return;
             }
           }
 
-          // Fallback: select first text channel
           const textChannel = channelsData.find((c) => c.type === 'text');
           if (textChannel) {
             handleSelectChannel(textChannel);
@@ -116,6 +119,13 @@ export function AppPage() {
 
   const handleSelectChannel = async (channel: Channel) => {
     setCurrentChannel(channel);
+
+    // Notify server which channel we're viewing for targeted message routing
+    wsService.send('join_channel', { channel_id: channel.id });
+
+    // Persist to DB (fire-and-forget)
+    const currentSrv = useServerStore.getState().currentServer;
+    apiService.updateLastVisited(currentSrv?.id ?? null, channel.id).catch(() => {});
 
     // If voice channel, join group call
     if (channel.type === 'voice' && user) {

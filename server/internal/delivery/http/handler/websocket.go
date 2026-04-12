@@ -23,14 +23,16 @@ type WebSocketHandler struct {
 	hub         *ws.Hub
 	authUseCase domain.AuthUseCase
 	callUseCase domain.CallUseCase
+	userUseCase domain.UserUseCase
 	log         *slog.Logger
 }
 
-func NewWebSocketHandler(hub *ws.Hub, authUseCase domain.AuthUseCase, callUseCase domain.CallUseCase, log *slog.Logger) *WebSocketHandler {
+func NewWebSocketHandler(hub *ws.Hub, authUseCase domain.AuthUseCase, callUseCase domain.CallUseCase, userUseCase domain.UserUseCase, log *slog.Logger) *WebSocketHandler {
 	return &WebSocketHandler{
 		hub:         hub,
 		authUseCase: authUseCase,
 		callUseCase: callUseCase,
+		userUseCase: userUseCase,
 		log:         log,
 	}
 }
@@ -62,10 +64,9 @@ func (h *WebSocketHandler) HandleWebSocket(w http.ResponseWriter, r *http.Reques
 
 	h.hub.RegisterClient(client)
 
-	// Update user status to online
-	_ = h.callUseCase // just to avoid unused import warning
-	// Note: status update would go through userUseCase, but we keep it simple for now
-	// The Hub tracks online users inherently
+	if err := h.userUseCase.UpdateStatus(user.ID, domain.StatusOnline); err != nil {
+		h.log.Warn("failed to set user online", "user_id", user.ID, "error", err)
+	}
 
 	go h.writePump(client)
 	go h.readPump(client)
@@ -75,6 +76,9 @@ func (h *WebSocketHandler) readPump(client *ws.Client) {
 	defer func() {
 		h.hub.UnregisterClient(client)
 		client.Conn.Close()
+		if err := h.userUseCase.UpdateStatus(client.UserID, domain.StatusOffline); err != nil {
+			h.log.Warn("failed to set user offline", "user_id", client.UserID, "error", err)
+		}
 	}()
 
 	for {
@@ -122,6 +126,8 @@ func (h *WebSocketHandler) writePump(client *ws.Client) {
 
 func (h *WebSocketHandler) handleMessage(client *ws.Client, msg *ws.Message) {
 	switch msg.Type {
+	case "join_channel":
+		h.handleJoinChannel(client, msg)
 	case "chat_message":
 		h.handleChatMessage(client, msg)
 	case "typing":
@@ -147,18 +153,50 @@ func (h *WebSocketHandler) handleMessage(client *ws.Client, msg *ws.Message) {
 	}
 }
 
+func (h *WebSocketHandler) handleJoinChannel(client *ws.Client, msg *ws.Message) {
+	var payload struct {
+		ChannelID string `json:"channel_id"`
+	}
+	if err := json.Unmarshal(msg.Payload, &payload); err != nil {
+		return
+	}
+	if payload.ChannelID == "" {
+		h.hub.SetClientChannel(client.UserID, nil)
+		return
+	}
+	channelID, err := uuid.Parse(payload.ChannelID)
+	if err != nil {
+		return
+	}
+	h.hub.SetClientChannel(client.UserID, &channelID)
+}
+
 func (h *WebSocketHandler) handleChatMessage(client *ws.Client, msg *ws.Message) {
-	h.hub.BroadcastMessage(&ws.Message{
-		Type:    "chat_message",
-		Payload: msg.Payload,
-	})
+	var payload struct {
+		ChannelID string `json:"channel_id"`
+	}
+	if err := json.Unmarshal(msg.Payload, &payload); err == nil && payload.ChannelID != "" {
+		channelID, err := uuid.Parse(payload.ChannelID)
+		if err == nil {
+			h.hub.SendToChannel(channelID, &ws.Message{Type: "chat_message", Payload: msg.Payload})
+			return
+		}
+	}
+	h.hub.BroadcastMessage(&ws.Message{Type: "chat_message", Payload: msg.Payload})
 }
 
 func (h *WebSocketHandler) handleTyping(client *ws.Client, msg *ws.Message) {
-	h.hub.BroadcastMessage(&ws.Message{
-		Type:    "typing",
-		Payload: msg.Payload,
-	})
+	var payload struct {
+		ChannelID string `json:"channel_id"`
+	}
+	if err := json.Unmarshal(msg.Payload, &payload); err == nil && payload.ChannelID != "" {
+		channelID, err := uuid.Parse(payload.ChannelID)
+		if err == nil {
+			h.hub.SendToChannel(channelID, &ws.Message{Type: "typing", Payload: msg.Payload})
+			return
+		}
+	}
+	h.hub.BroadcastMessage(&ws.Message{Type: "typing", Payload: msg.Payload})
 }
 
 // --- Call Signalling ---

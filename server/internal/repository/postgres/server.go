@@ -181,6 +181,47 @@ func (r *serverRepository) Delete(id uuid.UUID) error {
 	return nil
 }
 
+func (r *serverRepository) AddMember(serverID, userID uuid.UUID) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	query := `
+		INSERT INTO server_members (server_id, user_id, role, joined_at)
+		VALUES ($1, $2, 'member', NOW())
+		ON CONFLICT (server_id, user_id) DO NOTHING
+	`
+	_, err := r.db.Exec(ctx, query, serverID, userID)
+	if err != nil {
+		return fmt.Errorf("failed to add member: %w", err)
+	}
+	return nil
+}
+
+func (r *serverRepository) RemoveMember(serverID, userID uuid.UUID) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	query := `DELETE FROM server_members WHERE server_id = $1 AND user_id = $2`
+	_, err := r.db.Exec(ctx, query, serverID, userID)
+	if err != nil {
+		return fmt.Errorf("failed to remove member: %w", err)
+	}
+	return nil
+}
+
+func (r *serverRepository) IsMember(serverID, userID uuid.UUID) (bool, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	query := `SELECT EXISTS(SELECT 1 FROM server_members WHERE server_id = $1 AND user_id = $2)`
+	var exists bool
+	err := r.db.QueryRow(ctx, query, serverID, userID).Scan(&exists)
+	if err != nil {
+		return false, fmt.Errorf("failed to check membership: %w", err)
+	}
+	return exists, nil
+}
+
 func (r *serverRepository) Search(query string, limit, offset int) ([]*domain.Server, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()

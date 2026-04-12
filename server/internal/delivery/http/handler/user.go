@@ -51,6 +51,45 @@ func (h *UserHandler) GetUserByID(w http.ResponseWriter, r *http.Request) {
 	h.sendJSON(w, http.StatusOK, user)
 }
 
+func (h *UserHandler) UpdateLastVisited(w http.ResponseWriter, r *http.Request) {
+	userID := r.Context().Value("user_id").(uuid.UUID)
+
+	var req struct {
+		ServerID  *string `json:"server_id"`
+		ChannelID *string `json:"channel_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		h.sendError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	var serverID, channelID *uuid.UUID
+	if req.ServerID != nil {
+		id, err := uuid.Parse(*req.ServerID)
+		if err != nil {
+			h.sendError(w, http.StatusBadRequest, "invalid server_id")
+			return
+		}
+		serverID = &id
+	}
+	if req.ChannelID != nil {
+		id, err := uuid.Parse(*req.ChannelID)
+		if err != nil {
+			h.sendError(w, http.StatusBadRequest, "invalid channel_id")
+			return
+		}
+		channelID = &id
+	}
+
+	if err := h.userUseCase.UpdateLastVisited(userID, serverID, channelID); err != nil {
+		h.log.Error("failed to update last visited", "error", err)
+		h.sendError(w, http.StatusInternalServerError, "failed to update last visited")
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func (h *UserHandler) SearchUsers(w http.ResponseWriter, r *http.Request) {
 	query := r.URL.Query().Get("q")
 	if query == "" {

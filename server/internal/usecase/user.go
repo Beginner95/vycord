@@ -56,3 +56,10 @@ func (uc *userUseCase) GetOnlineUserIDs() []uuid.UUID {
 	// This is a stub - actual implementation gets online IDs from Hub
 	return nil
 }
+
+func (uc *userUseCase) UpdateLastVisited(id uuid.UUID, serverID, channelID *uuid.UUID) error {
+	if err := uc.userRepo.UpdateLastVisited(id, serverID, channelID); err != nil {
+		return fmt.Errorf("failed to update last visited: %w", err)
+	}
+	return nil
+}

@@ -54,7 +54,8 @@ func (r *userRepository) GetByID(id uuid.UUID) (*domain.User, error) {
 	defer cancel()
 
 	query := `
-		SELECT id, username, email, password_hash, avatar_url, status, created_at, updated_at
+		SELECT id, username, email, password_hash, avatar_url, status,
+		       last_server_id, last_channel_id, created_at, updated_at
 		FROM users
 		WHERE id = $1
 	`
@@ -67,6 +68,8 @@ func (r *userRepository) GetByID(id uuid.UUID) (*domain.User, error) {
 		&user.Password,
 		&user.AvatarURL,
 		&user.Status,
+		&user.LastServerID,
+		&user.LastChannelID,
 		&user.CreatedAt,
 		&user.UpdatedAt,
 	)
@@ -216,6 +219,22 @@ func (r *userRepository) Search(query string, limit, offset int) ([]*domain.User
 	}
 
 	return users, nil
+}
+
+func (r *userRepository) UpdateLastVisited(id uuid.UUID, serverID, channelID *uuid.UUID) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	query := `
+		UPDATE users
+		SET last_server_id = $1, last_channel_id = $2, updated_at = $3
+		WHERE id = $4
+	`
+	_, err := r.db.Exec(ctx, query, serverID, channelID, time.Now(), id)
+	if err != nil {
+		return fmt.Errorf("failed to update last visited: %w", err)
+	}
+	return nil
 }
 
 func joinStrings(strs []string, sep string) string {

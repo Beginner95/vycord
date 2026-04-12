@@ -13,6 +13,7 @@ type UserUseCase interface {
 	Search(query string, limit int) ([]*User, error)
 	UpdateStatus(id uuid.UUID, status UserStatus) error
 	GetOnlineUserIDs() []uuid.UUID
+	UpdateLastVisited(id uuid.UUID, serverID, channelID *uuid.UUID) error
 }
 
 type ServerUseCase interface {

@@ -17,7 +17,7 @@ const DEFAULT_SETTINGS: AudioSettings = {
   volume: 0.5,
 };
 
-const SETTINGS_KEY = 'discrod_audio_settings';
+const SETTINGS_KEY = 'vycord_audio_settings';
 
 class AudioService {
   private ctx: AudioContext | null = null;

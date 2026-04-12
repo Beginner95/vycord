@@ -1,8 +1,8 @@
 import { create } from 'zustand';
 import type { User, AuthState } from '@/types';
 
-const TOKEN_KEY = 'discrod_token';
-const USER_KEY = 'discrod_user';
+const TOKEN_KEY = 'vycord_token';
+const USER_KEY = 'vycord_user';
 
 function getStoredUser(): User | null {
   const raw = localStorage.getItem(USER_KEY);

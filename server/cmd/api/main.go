@@ -69,7 +69,7 @@ func main() {
 	serverHandler := handler.NewServerHandler(serverUseCase, log)
 	messageHandler := handler.NewMessageHandler(messageUseCase, log)
 	onlineUsersHandler := handler.NewOnlineUsersHandler(hub, userRepo, log)
-	wsHandler := handler.NewWebSocketHandler(hub, authUseCase, callUseCase, log)
+	wsHandler := handler.NewWebSocketHandler(hub, authUseCase, callUseCase, userUseCase, log)
 
 	// Setup router
 	router := http.NewServeMux()
@@ -84,6 +84,7 @@ func main() {
 
 	// User routes
 	router.HandleFunc("GET /api/v1/users/online", authMid.RequireAuth(onlineUsersHandler.GetOnlineUsers))
+	router.HandleFunc("PUT /api/v1/users/me/last-visited", authMid.RequireAuth(userHandler.UpdateLastVisited))
 	router.HandleFunc("GET /api/v1/users", authMid.RequireAuth(userHandler.SearchUsers))
 	router.HandleFunc("GET /api/v1/users/{id}", authMid.RequireAuth(userHandler.GetUserByID))
 

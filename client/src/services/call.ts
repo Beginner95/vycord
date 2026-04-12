@@ -11,6 +11,7 @@ class CallService {
   private localStream: MediaStream | null = null;
   private remoteStream: MediaStream | null = null;
   private currentCallId: string | null = null;
+  private remoteUserId: string | null = null;
   private isInCall = false;
   private callbacks: WebRTCCallbacks | null = null;
   private pendingOffer: RTCSessionDescriptionInit | null = null;
@@ -42,6 +43,8 @@ class CallService {
 
   async startCall(receiverId: string): Promise<string | null> {
     try {
+      this.remoteUserId = receiverId;
+
       // Get local media stream
       this.localStream = await navigator.mediaDevices.getUserMedia({
         audio: true,
@@ -123,9 +126,8 @@ class CallService {
       const answer = await this.peerConnection!.createAnswer();
       await this.peerConnection!.setLocalDescription(answer);
 
-      // We need the caller ID to send the answer
       wsService.send('webrtc_answer', {
-        target_user_id: '', // Will be filled by caller ID from context
+        target_user_id: this.remoteUserId ?? '',
         sdp: this.peerConnection!.localDescription,
       });
     }
@@ -178,9 +180,8 @@ class CallService {
 
     this.peerConnection.onicecandidate = (event) => {
       if (event.candidate) {
-        // Send ICE candidate to peer (target will be filled by caller)
         wsService.send('webrtc_ice_candidate', {
-          target_user_id: '',
+          target_user_id: this.remoteUserId ?? '',
           candidate: event.candidate,
         });
       }
@@ -200,7 +201,7 @@ class CallService {
   private handleIncomingCall = (payload: unknown): void => {
     const data = payload as { call_id: string; caller_id: string };
     this.currentCallId = data.call_id;
-    // The UI should show an incoming call notification
+    this.remoteUserId = data.caller_id;
   };
 
   private handleCallStarted = (payload: unknown): void => {
@@ -225,6 +226,10 @@ class CallService {
 
   private handleWebRTCOffer = (payload: unknown): void => {
     const data = payload as { from_user_id: string; sdp: RTCSessionDescriptionInit };
+
+    if (!this.remoteUserId && data.from_user_id) {
+      this.remoteUserId = data.from_user_id;
+    }
 
     if (this.peerConnection) {
       this.peerConnection.setRemoteDescription(data.sdp).catch(console.error);
@@ -263,6 +268,7 @@ class CallService {
     }
     this.remoteStream = null;
     this.currentCallId = null;
+    this.remoteUserId = null;
     this.isInCall = false;
     this.pendingOffer = null;
   }

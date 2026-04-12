@@ -119,25 +119,37 @@ func (uc *serverUseCase) GetUserServers(userID uuid.UUID) ([]*domain.Server, err
 }
 
 func (uc *serverUseCase) JoinServer(serverID, userID uuid.UUID) error {
-	// Verify server exists
 	server, err := uc.serverRepo.GetByID(serverID)
 	if err != nil {
 		return fmt.Errorf("server not found: %w", err)
 	}
 
-	// Don't allow owner to "join" their own server
 	if server.OwnerID == userID {
 		return fmt.Errorf("user is the owner of this server")
 	}
 
-	// TODO: INSERT INTO server_members (server_id, user_id, role, joined_at)
-	// For now, return success
-	return nil
+	isMember, err := uc.serverRepo.IsMember(serverID, userID)
+	if err != nil {
+		return fmt.Errorf("failed to check membership: %w", err)
+	}
+	if isMember {
+		return fmt.Errorf("user is already a member")
+	}
+
+	return uc.serverRepo.AddMember(serverID, userID)
 }
 
 func (uc *serverUseCase) LeaveServer(serverID, userID uuid.UUID) error {
-	// TODO: DELETE FROM server_members WHERE server_id = $1 AND user_id = $2
-	return nil
+	server, err := uc.serverRepo.GetByID(serverID)
+	if err != nil {
+		return fmt.Errorf("server not found: %w", err)
+	}
+
+	if server.OwnerID == userID {
+		return fmt.Errorf("owner cannot leave their own server")
+	}
+
+	return uc.serverRepo.RemoveMember(serverID, userID)
 }
 
 func (uc *serverUseCase) SearchServers(query string, limit int) ([]*domain.Server, error) {

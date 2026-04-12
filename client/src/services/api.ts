@@ -2,7 +2,7 @@ const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8080';
 
 class ApiService {
   private getToken(): string | null {
-    return localStorage.getItem('discrod_token');
+    return localStorage.getItem('vycord_token');
   }
 
   private getHeaders(): HeadersInit {
@@ -123,6 +123,16 @@ class ApiService {
 
   async getMessages(channelId: string, limit = 50, offset = 0) {
     return this.request(`/api/v1/channels/${channelId}/messages?limit=${limit}&offset=${offset}`);
+  }
+
+  async updateLastVisited(serverId: string | null, channelId: string | null) {
+    return this.request('/api/v1/users/me/last-visited', {
+      method: 'PUT',
+      body: JSON.stringify({
+        server_id: serverId,
+        channel_id: channelId,
+      }),
+    });
   }
 
   // Online users

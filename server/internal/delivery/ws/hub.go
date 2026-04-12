@@ -24,10 +24,11 @@ type Message struct {
 }
 
 type Client struct {
-	UserID uuid.UUID
-	Conn   *websocket.Conn
-	Send   chan []byte
-	Hub    *Hub
+	UserID           uuid.UUID
+	CurrentChannelID *uuid.UUID
+	Conn             *websocket.Conn
+	Send             chan []byte
+	Hub              *Hub
 }
 
 func NewHub(log *slog.Logger) *Hub {
@@ -181,6 +182,30 @@ func (h *Hub) UnregisterClient(client *Client) {
 
 func (h *Hub) BroadcastMessage(message *Message) {
 	h.broadcast <- message
+}
+
+// SetClientChannel updates the channel a client is currently viewing.
+func (h *Hub) SetClientChannel(userID uuid.UUID, channelID *uuid.UUID) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if client, ok := h.clients[userID]; ok {
+		client.CurrentChannelID = channelID
+	}
+}
+
+// SendToChannel delivers a message to all clients currently viewing the given channel.
+func (h *Hub) SendToChannel(channelID uuid.UUID, message *Message) {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	for _, client := range h.clients {
+		if client.CurrentChannelID != nil && *client.CurrentChannelID == channelID {
+			select {
+			case client.Send <- mustMarshal(message):
+			default:
+				h.log.Warn("failed to send channel message to user", "user_id", client.UserID)
+			}
+		}
+	}
 }
 
 func mustMarshal(v interface{}) []byte {
