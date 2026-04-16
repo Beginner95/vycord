@@ -4,12 +4,53 @@ import { callService } from '@/services/call';
 import { audioService } from '@/services/audio';
 import './CallUI.css';
 
+function useMicLevel(stream: MediaStream | null, isMuted: boolean): number {
+  const [level, setLevel] = useState(0);
+  const rafRef = useRef(0);
+  const ctxRef = useRef<AudioContext | null>(null);
+
+  useEffect(() => {
+    if (!stream || isMuted) {
+      setLevel(0);
+      return;
+    }
+
+    const ctx = new AudioContext();
+    const analyser = ctx.createAnalyser();
+    analyser.fftSize = 256;
+    const source = ctx.createMediaStreamSource(stream);
+    source.connect(analyser);
+    ctxRef.current = ctx;
+
+    const data = new Uint8Array(analyser.frequencyBinCount);
+    const tick = () => {
+      analyser.getByteFrequencyData(data);
+      const avg = data.reduce((a, b) => a + b, 0) / data.length;
+      setLevel(avg / 128); // 0–1, normalised
+      rafRef.current = requestAnimationFrame(tick);
+    };
+    rafRef.current = requestAnimationFrame(tick);
+
+    return () => {
+      cancelAnimationFrame(rafRef.current);
+      source.disconnect();
+      ctx.close();
+    };
+  }, [stream, isMuted]);
+
+  return level;
+}
+
 export function CallUI() {
   const { user } = useAuthStore();
   const [incomingCall, setIncomingCall] = useState<{ callId: string; callerId: string } | null>(null);
   const [activeCall, setActiveCall] = useState<{ callId: string } | null>(null);
   const [isMuted, setIsMuted] = useState(false);
   const [isVideoOff, setIsVideoOff] = useState(false);
+  const micLevel = useMicLevel(
+    activeCall ? callService.localStreamState : null,
+    isMuted,
+  );
   const [error, setError] = useState<string | null>(null);
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
   const localVideoRef = useRef<HTMLVideoElement>(null);
@@ -143,7 +184,7 @@ export function CallUI() {
                 <CallTimer />
               </div>
             </div>
-            <div className="local-video">
+            <div className={`local-video ${micLevel > 0.05 ? 'speaking' : ''}`}>
               <video
                 ref={localVideoRef}
                 autoPlay
@@ -152,6 +193,7 @@ export function CallUI() {
               />
               {user && (
                 <div className="local-video-label">
+                  {!isMuted && micLevel > 0.05 && <span className="mic-dot" />}
                   {user.username} (You)
                 </div>
               )}
@@ -159,13 +201,18 @@ export function CallUI() {
           </div>
 
           <div className="call-controls">
-            <button
-              className={`control-btn ${isMuted ? 'active' : ''}`}
-              onClick={handleToggleMute}
-              title={isMuted ? 'Unmute' : 'Mute'}
+            <div
+              className="mic-btn-wrap"
+              style={{ '--mic-level': micLevel } as React.CSSProperties}
             >
-              {isMuted ? '🔇' : '🎤'}
-            </button>
+              <button
+                className={`control-btn ${isMuted ? 'active' : ''}`}
+                onClick={handleToggleMute}
+                title={isMuted ? 'Unmute' : 'Mute'}
+              >
+                {isMuted ? '🔇' : '🎤'}
+              </button>
+            </div>
             <button
               className={`control-btn ${isVideoOff ? 'active' : ''}`}
               onClick={handleToggleVideo}

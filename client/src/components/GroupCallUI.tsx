@@ -3,6 +3,41 @@ import { useAuthStore } from '@/stores/authStore';
 import { groupCallService } from '@/services/groupCall';
 import './GroupCallUI.css';
 
+function useMicLevel(stream: MediaStream | null, isMuted: boolean): number {
+  const [level, setLevel] = useState(0);
+  const rafRef = useRef(0);
+
+  useEffect(() => {
+    if (!stream || isMuted) {
+      setLevel(0);
+      return;
+    }
+
+    const ctx = new AudioContext();
+    const analyser = ctx.createAnalyser();
+    analyser.fftSize = 256;
+    const source = ctx.createMediaStreamSource(stream);
+    source.connect(analyser);
+
+    const data = new Uint8Array(analyser.frequencyBinCount);
+    const tick = () => {
+      analyser.getByteFrequencyData(data);
+      const avg = data.reduce((a, b) => a + b, 0) / data.length;
+      setLevel(avg / 128);
+      rafRef.current = requestAnimationFrame(tick);
+    };
+    rafRef.current = requestAnimationFrame(tick);
+
+    return () => {
+      cancelAnimationFrame(rafRef.current);
+      source.disconnect();
+      ctx.close();
+    };
+  }, [stream, isMuted]);
+
+  return level;
+}
+
 interface RemoteParticipant {
   userId: string;
   stream: MediaStream | null;
@@ -76,6 +111,11 @@ export function GroupCallUI() {
     setParticipants([]);
   }, []);
 
+  const micLevel = useMicLevel(
+    isInGroupCall ? groupCallService.localStreamState : null,
+    isMuted,
+  );
+
   const handleToggleMute = useCallback(() => {
     const muted = groupCallService.toggleMuteAudio();
     setIsMuted(muted);
@@ -104,7 +144,7 @@ export function GroupCallUI() {
 
       <div className="video-grid">
         {/* Local video */}
-        <div className={`video-tile ${isVideoOff ? 'video-off' : ''}`}>
+        <div className={`video-tile ${isVideoOff ? 'video-off' : ''} ${micLevel > 0.05 ? 'speaking' : ''}`}>
           <video
             ref={localVideoRef}
             autoPlay
@@ -113,6 +153,7 @@ export function GroupCallUI() {
           />
           {isVideoOff && <div className="video-off-placeholder">📷</div>}
           <div className="video-label">
+            {!isMuted && micLevel > 0.05 && <span className="mic-dot" />}
             {user?.username} (You)
           </div>
         </div>
@@ -136,13 +177,18 @@ export function GroupCallUI() {
       </div>
 
       <div className="call-controls">
-        <button
-          className={`control-btn ${isMuted ? 'active' : ''}`}
-          onClick={handleToggleMute}
-          title={isMuted ? 'Unmute' : 'Mute'}
+        <div
+          className="mic-btn-wrap"
+          style={{ '--mic-level': micLevel } as React.CSSProperties}
         >
-          {isMuted ? '🔇' : '🎤'}
-        </button>
+          <button
+            className={`control-btn ${isMuted ? 'active' : ''}`}
+            onClick={handleToggleMute}
+            title={isMuted ? 'Unmute' : 'Mute'}
+          >
+            {isMuted ? '🔇' : '🎤'}
+          </button>
+        </div>
         <button
           className={`control-btn ${isVideoOff ? 'active' : ''}`}
           onClick={handleToggleVideo}
