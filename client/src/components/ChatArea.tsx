@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, type FormEvent } from 'react';
 import { useMessageStore } from '@/stores/messageStore';
+import type { Message } from '@/types';
 import { apiService } from '@/services/api';
 import { wsService } from '@/services/websocket';
 import { audioService } from '@/services/audio';
@@ -12,7 +13,7 @@ interface ChatAreaProps {
 }
 
 export function ChatArea({ channel, user }: ChatAreaProps) {
-  const { messages } = useMessageStore();
+  const { messages, addMessage } = useMessageStore();
   const [input, setInput] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -97,10 +98,8 @@ export function ChatArea({ channel, user }: ChatAreaProps) {
     if (!channel || !input.trim() || !user) return;
 
     try {
-      await apiService.createMessage(channel.id, input.trim());
-      // Don't call addMessage() here — the server broadcasts the message
-      // back via WebSocket, which triggers the ws.on('chat_message') handler
-      // that adds it to the store. This prevents duplicates.
+      const msg = await apiService.createMessage(channel.id, input.trim()) as Message;
+      addMessage(msg);
       setInput('');
     } catch (err) {
       console.error('Failed to send message:', err);

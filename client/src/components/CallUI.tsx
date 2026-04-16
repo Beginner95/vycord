@@ -96,6 +96,13 @@ export function CallUI() {
     setIsVideoOff(off);
   };
 
+  // Show local stream as soon as call becomes active (don't wait for remote stream)
+  useEffect(() => {
+    if (activeCall && localVideoRef.current && callService.localStreamState) {
+      localVideoRef.current.srcObject = callService.localStreamState;
+    }
+  }, [activeCall]);
+
   // If no active call or incoming call, don't render anything
   if (!activeCall && !incomingCall) {
     return null;

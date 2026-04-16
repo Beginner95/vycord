@@ -7,17 +7,20 @@ import (
 	"strconv"
 
 	"github.com/google/uuid"
+	"github.com/vycord/server/internal/delivery/ws"
 	"github.com/vycord/server/internal/domain"
 )
 
 type MessageHandler struct {
 	messageUseCase domain.MessageUseCase
+	hub            *ws.Hub
 	log            *slog.Logger
 }
 
-func NewMessageHandler(messageUseCase domain.MessageUseCase, log *slog.Logger) *MessageHandler {
+func NewMessageHandler(messageUseCase domain.MessageUseCase, hub *ws.Hub, log *slog.Logger) *MessageHandler {
 	return &MessageHandler{
 		messageUseCase: messageUseCase,
+		hub:            hub,
 		log:            log,
 	}
 }
@@ -52,6 +55,13 @@ func (h *MessageHandler) CreateMessage(w http.ResponseWriter, r *http.Request) {
 		h.sendError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+
+	// Broadcast to all clients currently viewing this channel
+	payload, _ := json.Marshal(msg)
+	h.hub.SendToChannel(channelID, &ws.Message{
+		Type:    "chat_message",
+		Payload: payload,
+	})
 
 	h.sendJSON(w, http.StatusCreated, msg)
 }

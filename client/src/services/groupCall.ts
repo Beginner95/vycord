@@ -37,11 +37,18 @@ class GroupCallService {
     this.currentRoomId = roomId;
 
     try {
-      // Get local media
-      this.localStream = await navigator.mediaDevices.getUserMedia({
-        audio: true,
-        video: true,
-      });
+      // Get local media; fall back to audio-only if camera is busy or unavailable
+      try {
+        this.localStream = await navigator.mediaDevices.getUserMedia({
+          audio: true,
+          video: true,
+        });
+      } catch {
+        this.localStream = await navigator.mediaDevices.getUserMedia({
+          audio: true,
+          video: false,
+        });
+      }
 
       // Connect to SFU
       const wsUrl = `${SFU_URL}/ws?user_id=${userId}&room_id=${roomId}`;

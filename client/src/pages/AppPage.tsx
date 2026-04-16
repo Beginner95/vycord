@@ -40,6 +40,8 @@ export function AppPage() {
     const unsubscribe = wsService.on('chat_message', (payload) => {
       const msg = payload as Record<string, unknown>;
       if (currentChannel && msg.channel_id === currentChannel.id) {
+        // Own messages are added optimistically via HTTP response in ChatArea — skip to avoid duplicates
+        if (user && msg.user_id === user.id) return;
         const fullMsg: Message = {
           id: msg.id as string,
           channel_id: msg.channel_id as string,
@@ -53,7 +55,7 @@ export function AppPage() {
     });
 
     return () => unsubscribe();
-  }, [currentChannel]);
+  }, [currentChannel, user]);
 
   const loadServers = async () => {
     try {
@@ -100,6 +102,22 @@ export function AppPage() {
     } catch (err) {
       console.error('Failed to load servers:', err);
     }
+  };
+
+  const handleJoinServer = async (server: Server) => {
+    try {
+      await apiService.joinServer(server.id);
+    } catch (err: unknown) {
+      // Ignore "already a member" or "owner" errors — proceed to select the server
+      const msg = err instanceof Error ? err.message : '';
+      if (!msg.includes('already') && !msg.includes('owner')) {
+        console.error('Failed to join server:', err);
+        return;
+      }
+    }
+    // Add to sidebar if not already there
+    setServers((prev) => (prev.find((s) => s.id === server.id) ? prev : [...prev, server]));
+    handleSelectServer(server);
   };
 
   const handleSelectServer = async (server: Server) => {
@@ -167,7 +185,7 @@ export function AppPage() {
           currentServer={currentServer}
           onSelectServer={handleSelectServer}
           onCreateServer={() => setShowCreateServer(true)}
-          onJoinServer={handleSelectServer}
+          onJoinServer={handleJoinServer}
         />
 
         <ChannelSidebar

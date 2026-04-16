@@ -1,3 +1,5 @@
+import { useAuthStore } from '@/stores/authStore';
+
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8080';
 
 class ApiService {
@@ -27,6 +29,12 @@ class ApiService {
         ...options.headers,
       },
     });
+
+    if (response.status === 401) {
+      useAuthStore.getState().logout();
+      window.location.href = '/login';
+      throw new Error('Unauthorized');
+    }
 
     if (!response.ok) {
       const error = await response.json().catch(() => ({ error: response.statusText }));

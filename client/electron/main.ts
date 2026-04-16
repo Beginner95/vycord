@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, Tray, Menu } from 'electron';
+import { app, BrowserWindow, ipcMain, Tray, Menu, session } from 'electron';
 import * as path from 'path';
 
 // __dirname is available via CommonJS module output
@@ -101,6 +101,15 @@ ipcMain.handle('get-app-version', () => {
 
 app.whenReady().then(() => {
   try {
+    // Grant camera and microphone permissions for WebRTC
+    session.defaultSession.setPermissionRequestHandler((_webContents, permission, callback) => {
+      if (permission === 'media') {
+        callback(true);
+      } else {
+        callback(false);
+      }
+    });
+
     createWindow();
     createTray();
   } catch (err) {

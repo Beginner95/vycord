@@ -68,6 +68,11 @@ func (h *WebSocketHandler) HandleWebSocket(w http.ResponseWriter, r *http.Reques
 		h.log.Warn("failed to set user online", "user_id", user.ID, "error", err)
 	}
 
+	// Clean up stale calls left from previous sessions (e.g. app crash / disconnect)
+	if err := h.callUseCase.EndAllActiveCalls(user.ID); err != nil {
+		h.log.Warn("failed to cleanup stale calls", "user_id", user.ID, "error", err)
+	}
+
 	go h.writePump(client)
 	go h.readPump(client)
 }

@@ -15,6 +15,7 @@ class CallService {
   private isInCall = false;
   private callbacks: WebRTCCallbacks | null = null;
   private pendingOffer: RTCSessionDescriptionInit | null = null;
+  private remoteDescriptionSet = false;
 
   private readonly iceServers: RTCConfiguration = {
     iceServers: [
@@ -118,10 +119,15 @@ class CallService {
       wsService.send('call_accept', { call_id: this.currentCallId });
     }
 
-    // Send answer if we have a pending offer
-    if (this.pendingOffer && this.currentCallId) {
-      await this.peerConnection!.setRemoteDescription(this.pendingOffer);
-      this.pendingOffer = null;
+    // Send answer if we have a pending offer or remote description was already set
+    // (race condition: offer may arrive before or after createPeerConnection())
+    const hasPendingOffer = !!(this.pendingOffer || this.remoteDescriptionSet);
+    if (hasPendingOffer && this.currentCallId) {
+      if (this.pendingOffer) {
+        await this.peerConnection!.setRemoteDescription(this.pendingOffer);
+        this.pendingOffer = null;
+      }
+      this.remoteDescriptionSet = false;
 
       const answer = await this.peerConnection!.createAnswer();
       await this.peerConnection!.setLocalDescription(answer);
@@ -202,12 +208,22 @@ class CallService {
     const data = payload as { call_id: string; caller_id: string };
     this.currentCallId = data.call_id;
     this.remoteUserId = data.caller_id;
+    window.dispatchEvent(
+      new CustomEvent('discrod:incoming_call', {
+        detail: { callId: data.call_id, callerId: data.caller_id },
+      })
+    );
   };
 
   private handleCallStarted = (payload: unknown): void => {
     const data = payload as { call_id: string };
     this.currentCallId = data.call_id;
     this.isInCall = true;
+    window.dispatchEvent(
+      new CustomEvent('discrod:call_started', {
+        detail: { callId: data.call_id },
+      })
+    );
   };
 
   private handleCallAccepted = (): void => {
@@ -217,6 +233,7 @@ class CallService {
   private handleCallRejected = (): void => {
     this.cleanup();
     this.callbacks?.onError('Call was rejected');
+    window.dispatchEvent(new CustomEvent('discrod:call_rejected'));
   };
 
   private handleCallEnded = (): void => {
@@ -233,6 +250,7 @@ class CallService {
 
     if (this.peerConnection) {
       this.peerConnection.setRemoteDescription(data.sdp).catch(console.error);
+      this.remoteDescriptionSet = true;
     } else {
       this.pendingOffer = data.sdp;
     }
@@ -271,6 +289,7 @@ class CallService {
     this.remoteUserId = null;
     this.isInCall = false;
     this.pendingOffer = null;
+    this.remoteDescriptionSet = false;
   }
 
   get isInCallState(): boolean {

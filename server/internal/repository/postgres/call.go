@@ -122,6 +122,23 @@ func (r *callRepository) UpdateStatus(id uuid.UUID, status domain.CallStatus) er
 	return nil
 }
 
+func (r *callRepository) EndAllActiveByUser(userID uuid.UUID) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	query := `
+		UPDATE calls
+		SET status = 'ended', ended_at = NOW()
+		WHERE (caller_id = $1 OR receiver_id = $1)
+		  AND status IN ('ringing', 'active')
+	`
+	_, err := r.db.Exec(ctx, query, userID)
+	if err != nil {
+		return fmt.Errorf("failed to end stale calls: %w", err)
+	}
+	return nil
+}
+
 func (r *callRepository) SetEndTime(id uuid.UUID) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()

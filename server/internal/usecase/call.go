@@ -105,3 +105,7 @@ func (uc *callUseCase) GetActiveCall(userID uuid.UUID) (*domain.Call, error) {
 
 	return call, nil
 }
+
+func (uc *callUseCase) EndAllActiveCalls(userID uuid.UUID) error {
+	return uc.callRepo.EndAllActiveByUser(userID)
+}

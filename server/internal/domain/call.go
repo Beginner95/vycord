@@ -27,6 +27,7 @@ type CallRepository interface {
 	GetActiveByUser(userID uuid.UUID) (*Call, error)
 	UpdateStatus(id uuid.UUID, status CallStatus) error
 	SetEndTime(id uuid.UUID) error
+	EndAllActiveByUser(userID uuid.UUID) error
 }
 
 type CallUseCase interface {
@@ -35,4 +36,5 @@ type CallUseCase interface {
 	RejectCall(callID uuid.UUID) error
 	EndCall(callID uuid.UUID) error
 	GetActiveCall(userID uuid.UUID) (*Call, error)
+	EndAllActiveCalls(userID uuid.UUID) error
 }
