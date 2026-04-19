@@ -99,6 +99,18 @@ export function GroupCallUI() {
     }
   }, [isInGroupCall]);
 
+  // Attach remote streams after React commits the video elements to DOM
+  useEffect(() => {
+    participants.forEach((p) => {
+      if (p.stream) {
+        const videoEl = remoteVideoRefs.current.get(p.userId);
+        if (videoEl && videoEl.srcObject !== p.stream) {
+          videoEl.srcObject = p.stream;
+        }
+      }
+    });
+  }, [participants]);
+
   const handleJoinGroupCall = useCallback(async (roomId: string) => {
     if (!user) return;
     await groupCallService.joinGroupCall(roomId, user.id);

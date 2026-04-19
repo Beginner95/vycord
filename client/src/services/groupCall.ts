@@ -142,8 +142,8 @@ class GroupCallService {
     }
   }
 
-  private async createPeerForUser(userId: string): Promise<void> {
-    if (this.remotePeers.has(userId)) return;
+  private createPeerConnection(userId: string): RTCPeerConnection {
+    const remoteStream = new MediaStream();
 
     const pc = new RTCPeerConnection({
       iceServers: [
@@ -151,8 +151,6 @@ class GroupCallService {
         { urls: 'stun:stun1.l.google.com:19302' },
       ],
     });
-
-    const remoteStream = new MediaStream();
 
     pc.ontrack = (event) => {
       remoteStream.addTrack(event.track);
@@ -172,7 +170,6 @@ class GroupCallService {
       }
     };
 
-    // Add local stream tracks
     if (this.localStream) {
       this.localStream.getTracks().forEach((track) => {
         pc.addTrack(track, this.localStream!);
@@ -185,7 +182,14 @@ class GroupCallService {
       peerConnection: pc,
     });
 
-    // Create and send offer
+    return pc;
+  }
+
+  private async createPeerForUser(userId: string): Promise<void> {
+    if (this.remotePeers.has(userId)) return;
+
+    const pc = this.createPeerConnection(userId);
+
     const offer = await pc.createOffer();
     await pc.setLocalDescription(offer);
 
@@ -201,7 +205,13 @@ class GroupCallService {
 
   private async handleOffer(payload: { from_user_id: string; sdp: RTCSessionDescriptionInit }): Promise<void> {
     const { from_user_id, sdp } = payload;
-    const peer = this.remotePeers.get(from_user_id);
+
+    let peer = this.remotePeers.get(from_user_id);
+    if (!peer || !peer.peerConnection) {
+      // Peer joined before we got peer_joined notification — create connection on demand
+      this.createPeerConnection(from_user_id);
+      peer = this.remotePeers.get(from_user_id);
+    }
 
     if (peer && peer.peerConnection) {
       await peer.peerConnection.setRemoteDescription(sdp);

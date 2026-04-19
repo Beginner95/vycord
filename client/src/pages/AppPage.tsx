@@ -116,7 +116,10 @@ export function AppPage() {
       }
     }
     // Add to sidebar if not already there
-    setServers((prev) => (prev.find((s) => s.id === server.id) ? prev : [...prev, server]));
+    const current = useServerStore.getState().servers;
+    if (!current.find((s) => s.id === server.id)) {
+      setServers([...current, server]);
+    }
     handleSelectServer(server);
   };
 

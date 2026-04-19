@@ -13,7 +13,16 @@ type CORSConfig struct {
 
 func DefaultCORS() *CORSConfig {
 	return &CORSConfig{
-		AllowedOrigins: []string{"http://localhost:3000", "http://localhost:5173"},
+		AllowedOrigins: []string{
+			"http://localhost:3000",
+			"http://localhost:5173",
+			"http://localhost",
+			"http://localhost:80",
+			"http://192.168.1.109",
+			"http://192.168.1.109:80",
+			"https://192.168.1.109",
+			"https://192.168.1.109:443",
+		},
 		AllowedMethods: []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
 		AllowedHeaders: []string{"Content-Type", "Authorization"},
 	}

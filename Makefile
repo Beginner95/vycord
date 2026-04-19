@@ -35,6 +35,9 @@ migrate-create: ## Create a new migration (usage: make migrate-create NAME=xxx)
 	@echo "Created: server/migrations/$(NAME).down.sql"
 
 docker-up: ## Start docker services (postgres, redis)
+	@docker compose up -d postgres redis
+
+docker-up-all: ## Start all docker services including frontend
 	@docker compose up -d
 
 docker-down: ## Stop docker services
@@ -42,6 +45,12 @@ docker-down: ## Stop docker services
 
 docker-logs: ## Show docker logs
 	@docker compose logs -f
+
+build-client: ## Build frontend docker image
+	@docker compose build client
+
+run-client: ## Run frontend in docker (rebuilds if needed)
+	@docker compose up -d client
 
 install-deps: ## Install Go dependencies
 	@cd server && go mod download

@@ -208,22 +208,12 @@ class CallService {
     const data = payload as { call_id: string; caller_id: string };
     this.currentCallId = data.call_id;
     this.remoteUserId = data.caller_id;
-    window.dispatchEvent(
-      new CustomEvent('discrod:incoming_call', {
-        detail: { callId: data.call_id, callerId: data.caller_id },
-      })
-    );
   };
 
   private handleCallStarted = (payload: unknown): void => {
     const data = payload as { call_id: string };
     this.currentCallId = data.call_id;
     this.isInCall = true;
-    window.dispatchEvent(
-      new CustomEvent('discrod:call_started', {
-        detail: { callId: data.call_id },
-      })
-    );
   };
 
   private handleCallAccepted = (): void => {
@@ -233,7 +223,6 @@ class CallService {
   private handleCallRejected = (): void => {
     this.cleanup();
     this.callbacks?.onError('Call was rejected');
-    window.dispatchEvent(new CustomEvent('discrod:call_rejected'));
   };
 
   private handleCallEnded = (): void => {

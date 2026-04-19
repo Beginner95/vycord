@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useAuthStore } from '@/stores/authStore';
 import { callService } from '@/services/call';
 import { audioService } from '@/services/audio';
@@ -43,8 +43,9 @@ function useMicLevel(stream: MediaStream | null, isMuted: boolean): number {
 
 export function CallUI() {
   const { user } = useAuthStore();
-  const [incomingCall, setIncomingCall] = useState<{ callId: string; callerId: string } | null>(null);
-  const [activeCall, setActiveCall] = useState<{ callId: string } | null>(null);
+  const [incomingCall, setIncomingCall] = useState<{ call_id: string; caller_id: string } | null>(null);
+  const [activeCall, setActiveCall] = useState<{ call_id: string } | null>(null);
+  const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
   const [isMuted, setIsMuted] = useState(false);
   const [isVideoOff, setIsVideoOff] = useState(false);
   const micLevel = useMicLevel(
@@ -58,9 +59,7 @@ export function CallUI() {
   useEffect(() => {
     callService.init({
       onRemoteStream: (stream) => {
-        if (remoteVideoRef.current) {
-          remoteVideoRef.current.srcObject = stream;
-        }
+        setRemoteStream(stream);
         if (localVideoRef.current && callService.localStreamState) {
           localVideoRef.current.srcObject = callService.localStreamState;
         }
@@ -70,6 +69,7 @@ export function CallUI() {
         audioService.playCallEnded();
         setActiveCall(null);
         setIncomingCall(null);
+        setRemoteStream(null);
         setIsMuted(false);
         setIsVideoOff(false);
       },
@@ -80,10 +80,9 @@ export function CallUI() {
       },
     });
 
-    // Listen for incoming call events on WebSocket
     const handleIncoming = (e: CustomEvent) => {
-      audioService.startRingtone();
       setIncomingCall(e.detail);
+      try { audioService.startRingtone(); } catch (_) {}
     };
     window.addEventListener('discrod:incoming_call', handleIncoming as EventListener);
 
@@ -109,13 +108,13 @@ export function CallUI() {
     };
   }, []);
 
-  const handleAcceptCall = async () => {
+  const handleAcceptCall = useCallback(async () => {
     await callService.acceptCall();
     if (incomingCall) {
-      setActiveCall({ callId: incomingCall.callId });
+      setActiveCall({ call_id: incomingCall.call_id });
     }
     setIncomingCall(null);
-  };
+  }, [incomingCall]);
 
   const handleRejectCall = () => {
     callService.rejectCall();
@@ -137,12 +136,18 @@ export function CallUI() {
     setIsVideoOff(off);
   };
 
-  // Show local stream as soon as call becomes active (don't wait for remote stream)
   useEffect(() => {
     if (activeCall && localVideoRef.current && callService.localStreamState) {
       localVideoRef.current.srcObject = callService.localStreamState;
     }
   }, [activeCall]);
+
+  // Attach remote stream after video element is mounted
+  useEffect(() => {
+    if (remoteStream && remoteVideoRef.current) {
+      remoteVideoRef.current.srcObject = remoteStream;
+    }
+  }, [remoteStream, activeCall]);
 
   // If no active call or incoming call, don't render anything
   if (!activeCall && !incomingCall) {

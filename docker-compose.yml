@@ -29,6 +29,24 @@ services:
       timeout: 5s
       retries: 5
 
+  client:
+    build:
+      context: ./client
+      dockerfile: Dockerfile
+      args:
+        VITE_API_URL: ${VITE_API_URL:-http://localhost:8080}
+        VITE_WS_URL: ${VITE_WS_URL:-ws://localhost:8080}
+        VITE_SFU_URL: ${VITE_SFU_URL:-ws://localhost:8081}
+    container_name: vycord-client
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./certs:/etc/nginx/certs:ro
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+
 volumes:
   postgres_data:
   redis_data:
