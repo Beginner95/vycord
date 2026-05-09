@@ -51,14 +51,14 @@ class ApiService {
 
   // Auth
   async register(username: string, email: string, password: string) {
-    return this.request<{ token: string; user: any }>('/api/v1/auth/register', {
+    return this.request<{ token: string; user: User }>('/api/v1/auth/register', {
       method: 'POST',
       body: JSON.stringify({ username, email, password }),
     });
   }
 
   async login(email: string, password: string) {
-    return this.request<{ token: string }>('/api/v1/auth/login', {
+    return this.request<{ token: string; user: User }>('/api/v1/auth/login', {
       method: 'POST',
       body: JSON.stringify({ email, password }),
     });

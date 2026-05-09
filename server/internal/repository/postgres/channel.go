@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -108,6 +109,11 @@ func (r *channelRepository) GetByServerID(serverID uuid.UUID) ([]*domain.Channel
 	return channels, nil
 }
 
+var allowedChannelColumns = map[string]string{
+	"name":     "name",
+	"position": "position",
+}
+
 func (r *channelRepository) Update(id uuid.UUID, updates map[string]interface{}) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -117,9 +123,17 @@ func (r *channelRepository) Update(id uuid.UUID, updates map[string]interface{})
 	argIdx := 1
 
 	for key, value := range updates {
-		setClauses = append(setClauses, fmt.Sprintf("%s = $%d", key, argIdx))
+		colName, ok := allowedChannelColumns[key]
+		if !ok {
+			continue
+		}
+		setClauses = append(setClauses, fmt.Sprintf("%s = $%d", colName, argIdx))
 		args = append(args, value)
 		argIdx++
+	}
+
+	if len(setClauses) == 0 {
+		return fmt.Errorf("no valid columns to update")
 	}
 
 	setClauses = append(setClauses, fmt.Sprintf("updated_at = $%d", argIdx))
@@ -127,7 +141,7 @@ func (r *channelRepository) Update(id uuid.UUID, updates map[string]interface{})
 
 	query := fmt.Sprintf(
 		"UPDATE channels SET %s WHERE id = $%d",
-		joinStrings(setClauses, ", "),
+		strings.Join(setClauses, ", "),
 		argIdx+1,
 	)
 	args = append(args, id)

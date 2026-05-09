@@ -4,8 +4,14 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
+	"regexp"
 
 	"github.com/vycord/server/internal/domain"
+)
+
+var (
+	emailRegex    = regexp.MustCompile(`^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$`)
+	usernameRegex = regexp.MustCompile(`^[a-zA-Z0-9_-]{3,30}$`)
 )
 
 type AuthHandler struct {
@@ -38,8 +44,18 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if len(req.Password) < 6 {
-		h.sendError(w, http.StatusBadRequest, "password must be at least 6 characters")
+	if !usernameRegex.MatchString(req.Username) {
+		h.sendError(w, http.StatusBadRequest, "username must be 3-30 characters, alphanumeric, underscore or hyphen only")
+		return
+	}
+
+	if !emailRegex.MatchString(req.Email) {
+		h.sendError(w, http.StatusBadRequest, "invalid email format")
+		return
+	}
+
+	if len(req.Password) < 8 {
+		h.sendError(w, http.StatusBadRequest, "password must be at least 8 characters")
 		return
 	}
 

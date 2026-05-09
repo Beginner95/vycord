@@ -1,2 +1,37 @@
+# Environment
 .env
-bin
+.env.local
+.env.*.local
+
+# Build outputs
+bin/
+dist/
+electron-dist/
+release/
+
+# Logs
+*.log
+logs/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Dependencies
+node_modules/
+
+# Test coverage
+coverage/
+
+# Docker
+docker-compose.override.yml
+
+# Certificates
+certs/*.pem
+certs/*.key

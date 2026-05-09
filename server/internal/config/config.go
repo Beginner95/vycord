@@ -20,9 +20,14 @@ type Config struct {
 }
 
 func New() (*Config, error) {
+	jwtSecret := getEnv("JWT_SECRET", "")
+	if jwtSecret == "" {
+		return nil, fmt.Errorf("JWT_SECRET environment variable is required")
+	}
+
 	cfg := &Config{
-		ServerPort:   getEnv("SERVER_PORT", "8080"),
-		JWTSecret:    getEnv("JWT_SECRET", "change-me-in-production"),
+		ServerPort:    getEnv("SERVER_PORT", "8080"),
+		JWTSecret:     jwtSecret,
 		JWTExpiration: parseDuration(getEnv("JWT_EXPIRATION", "24h")),
 		PostgresUser: getEnv("POSTGRES_USER", "mydiscrod"),
 		PostgresPass: getEnv("POSTGRES_PASSWORD", "mydiscrod_secret"),

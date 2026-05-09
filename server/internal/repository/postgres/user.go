@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -148,19 +149,36 @@ func (r *userRepository) GetByUsername(username string) (*domain.User, error) {
 	return user, nil
 }
 
+// allowedUpdateColumns maps accepted input keys to literal SQL column names.
+// The SQL column name (map value) is always a developer-controlled string —
+// never user input - so it is safe to interpolate into the query.
+var allowedUpdateColumns = map[string]string{
+	"status":          "status",
+	"avatar_url":      "avatar_url",
+	"last_server_id":  "last_server_id",
+	"last_channel_id": "last_channel_id",
+}
+
 func (r *userRepository) Update(id uuid.UUID, updates map[string]interface{}) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	// Build dynamic update query
 	setClauses := []string{}
 	args := []interface{}{}
 	argIdx := 1
 
 	for key, value := range updates {
-		setClauses = append(setClauses, fmt.Sprintf("%s = $%d", key, argIdx))
+		colName, ok := allowedUpdateColumns[key]
+		if !ok {
+			continue
+		}
+		setClauses = append(setClauses, fmt.Sprintf("%s = $%d", colName, argIdx))
 		args = append(args, value)
 		argIdx++
+	}
+
+	if len(setClauses) == 0 {
+		return fmt.Errorf("no valid columns to update")
 	}
 
 	setClauses = append(setClauses, fmt.Sprintf("updated_at = $%d", argIdx))
@@ -168,7 +186,7 @@ func (r *userRepository) Update(id uuid.UUID, updates map[string]interface{}) er
 
 	query := fmt.Sprintf(
 		"UPDATE users SET %s WHERE id = $%d",
-		joinStrings(setClauses, ", "),
+		strings.Join(setClauses, ", "),
 		argIdx+1,
 	)
 	args = append(args, id)
@@ -235,15 +253,4 @@ func (r *userRepository) UpdateLastVisited(id uuid.UUID, serverID, channelID *uu
 		return fmt.Errorf("failed to update last visited: %w", err)
 	}
 	return nil
-}
-
-func joinStrings(strs []string, sep string) string {
-	result := ""
-	for i, s := range strs {
-		if i > 0 {
-			result += sep
-		}
-		result += s
-	}
-	return result
 }
