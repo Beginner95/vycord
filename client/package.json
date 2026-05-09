@@ -12,7 +12,8 @@
     "dev:electron:start": "cross-env NODE_ENV=development electron electron-dist/main.cjs",
     "dev:electron": "npm run dev:electron:build && npm run dev:electron:start",
     "dev": "concurrently -k \"npm run dev:vite\" \"wait-on http://localhost:3000 && npm run dev:electron\"",
-    "build:vite": "tsc && vite build",
+    "copy-audio-assets": "node -e \"const {cpSync}=require('fs');const src='node_modules/@cc-livekit/audio-pipeline-plugin/dist/';const dst='public/audio/';require('fs').mkdirSync(dst,{recursive:true});['AudioPipelineWorklet.js','AudioPipelineWorker.js','deepfilter.wasm','rnnoise.wasm','soundtouch.wasm'].forEach(f=>cpSync(src+f,dst+f));\"",
+    "build:vite": "npm run copy-audio-assets && tsc && vite build",
     "build:electron-main": "tsc -p electron/tsconfig.json --outDir electron-dist --declaration false --declarationMap false --sourceMap false && mv electron-dist/main.js electron-dist/main.cjs && mv electron-dist/preload.js electron-dist/preload.cjs",
     "build": "npm run build:vite && npm run build:electron-main",
     "dist": "npm run build && electron-builder",
@@ -24,6 +25,7 @@
     "zustand": "^5.0.12"
   },
   "devDependencies": {
+    "@cc-livekit/audio-pipeline-plugin": "^1.1.9",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.1",

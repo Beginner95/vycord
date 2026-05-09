@@ -10,15 +10,18 @@ interface SettingsProps {
 
 export function Settings({ isOpen, onClose }: SettingsProps) {
   const [noiseCancellation, setNoiseCancellation] = useState(false);
+  const [ncLoading, setNcLoading] = useState(false);
   const [isSupported, setIsSupported] = useState(true);
   const [msgSound, setMsgSound] = useState(true);
   const [callSound, setCallSound] = useState(true);
   const [volume, setVolume] = useState(0.5);
+  const [testStreamId, setTestStreamId] = useState<string | null>(null);
 
   useEffect(() => {
     setIsSupported(NoiseCancellationService.isSupported());
     const unsub = noiseCancellationService.onStateChange((state) => {
       setNoiseCancellation(state.isEnabled);
+      setNcLoading(state.isLoading);
     });
     return unsub;
   }, []);
@@ -31,14 +34,16 @@ export function Settings({ isOpen, onClose }: SettingsProps) {
   }, [isOpen]);
 
   const handleToggleNoiseCancellation = async () => {
+    if (ncLoading) return;
     const next = !noiseCancellation;
     try {
       if (next) {
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        setTestStreamId(stream.id);
         await noiseCancellationService.enableNoiseCancellation(stream);
-        // State is updated via onStateChange listener
       } else {
-        noiseCancellationService.disableNoiseCancellation('default');
+        noiseCancellationService.disableNoiseCancellation(testStreamId ?? '');
+        setTestStreamId(null);
       }
     } catch (err) {
       console.error('Failed to toggle noise cancellation:', err);
@@ -157,15 +162,19 @@ export function Settings({ isOpen, onClose }: SettingsProps) {
 
             <div className="setting-item">
               <div className="setting-info">
-                <label>Noise Cancellation</label>
-                <p className="setting-description">Reduce background noise using AI-powered noise suppression</p>
+                <label>Noise Cancellation (DeepFilterNet3)</label>
+                <p className="setting-description">
+                  {ncLoading
+                    ? 'Loading DeepFilterNet3 model...'
+                    : 'AI noise suppression — removes background noise from your mic'}
+                </p>
               </div>
               <label className="toggle-switch">
                 <input
                   type="checkbox"
                   checked={noiseCancellation}
                   onChange={handleToggleNoiseCancellation}
-                  disabled={!isSupported}
+                  disabled={!isSupported || ncLoading}
                 />
                 <span className="toggle-slider"></span>
               </label>
@@ -173,7 +182,7 @@ export function Settings({ isOpen, onClose }: SettingsProps) {
 
             {!isSupported && (
               <p className="setting-warning">
-                Noise cancellation is not supported in your browser
+                Noise cancellation requires AudioWorklet support (Chrome/Edge/Firefox 76+)
               </p>
             )}
 

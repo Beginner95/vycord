@@ -1,4 +1,5 @@
 import { wsService } from './websocket';
+import { noiseCancellationService } from './noiseCancellation';
 
 interface WebRTCCallbacks {
   onRemoteStream: (stream: MediaStream) => void;
@@ -47,10 +48,11 @@ class CallService {
       this.remoteUserId = receiverId;
 
       // Get local media stream
-      this.localStream = await navigator.mediaDevices.getUserMedia({
+      const rawStream = await navigator.mediaDevices.getUserMedia({
         audio: true,
         video: true,
       });
+      this.localStream = await noiseCancellationService.applyToStream(rawStream);
 
       // Create peer connection
       this.createPeerConnection();
@@ -98,10 +100,11 @@ class CallService {
   async acceptCall(): Promise<void> {
     if (!this.localStream) {
       try {
-        this.localStream = await navigator.mediaDevices.getUserMedia({
+        const rawStream = await navigator.mediaDevices.getUserMedia({
           audio: true,
           video: true,
         });
+        this.localStream = await noiseCancellationService.applyToStream(rawStream);
       } catch (err) {
         this.callbacks?.onError('Failed to access microphone/camera');
         return;

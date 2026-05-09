@@ -1,3 +1,5 @@
+import { noiseCancellationService } from './noiseCancellation';
+
 const SFU_URL = import.meta.env.VITE_SFU_URL || 'ws://localhost:8081';
 
 interface GroupCallCallbacks {
@@ -38,17 +40,19 @@ class GroupCallService {
 
     try {
       // Get local media; fall back to audio-only if camera is busy or unavailable
+      let rawStream: MediaStream;
       try {
-        this.localStream = await navigator.mediaDevices.getUserMedia({
+        rawStream = await navigator.mediaDevices.getUserMedia({
           audio: true,
           video: true,
         });
       } catch {
-        this.localStream = await navigator.mediaDevices.getUserMedia({
+        rawStream = await navigator.mediaDevices.getUserMedia({
           audio: true,
           video: false,
         });
       }
+      this.localStream = await noiseCancellationService.applyToStream(rawStream);
 
       // Connect to SFU
       const wsUrl = `${SFU_URL}/ws?user_id=${userId}&room_id=${roomId}`;

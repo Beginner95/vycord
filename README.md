@@ -195,7 +195,7 @@ users ──< servers ──< channels ──< messages
 | | |
 | WebRTC 1-1 calls | 🚧 TODO |
 | WebRTC group calls (SFU) | 🚧 TODO |
-| DeepFilterNet noise cancellation | 🚧 TODO |
+| DeepFilterNet noise cancellation | ✅ Done |
 | Screen sharing | 🚧 TODO |
 | File uploads | 🚧 TODO |
 | Windows 11 installer | 🚧 TODO |

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
@@ -9,6 +10,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/joho/godotenv"
 	"github.com/vycord/server/internal/config"
 	"github.com/vycord/server/internal/delivery/http/handler"
 	"github.com/vycord/server/internal/delivery/http/middleware"
@@ -19,6 +21,25 @@ import (
 )
 
 func main() {
+	// Load .env file from project root
+	envPath := os.Getenv("ENV_PATH")
+	if envPath == "" {
+		// Try common locations
+		if _, err := os.Stat("../.env"); err == nil {
+			envPath = "../.env"
+		} else if _, err := os.Stat("../../.env"); err == nil {
+			envPath = "../../.env"
+		} else if _, err := os.Stat(".env"); err == nil {
+			envPath = ".env"
+		}
+	}
+	
+	if envPath != "" {
+		if err := godotenv.Load(envPath); err != nil {
+			fmt.Println("Warning: Failed to load .env file:", err)
+		}
+	}
+
 	// Initialize logger
 	log := logger.New(slog.LevelInfo)
 
