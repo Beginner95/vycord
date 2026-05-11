@@ -209,6 +209,9 @@
   padding: 6px;
   border-radius: var(--radius-sm);
   transition: all var(--transition);
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .settings-btn:hover {
