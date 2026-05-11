@@ -23,9 +23,31 @@ interface CallNotif {
   callerName: string;
 }
 
+let _audioCtx: AudioContext | null = null;
+
+function getAudioCtx(): AudioContext {
+  if (!_audioCtx || _audioCtx.state === 'closed') {
+    _audioCtx = new AudioContext();
+  }
+  return _audioCtx;
+}
+
+// Разблокируем AudioContext при первом взаимодействии пользователя
+if (typeof window !== 'undefined') {
+  const unlockAudio = () => {
+    getAudioCtx().resume().catch(() => {});
+  };
+  window.addEventListener('pointerdown', unlockAudio, { once: false });
+  window.addEventListener('keydown', unlockAudio, { once: false });
+}
+
 function playCallSound() {
   try {
-    const ctx = new AudioContext();
+    const ctx = getAudioCtx();
+    if (ctx.state === 'suspended') {
+      ctx.resume().catch(() => {});
+    }
+
     const gain = ctx.createGain();
     gain.connect(ctx.destination);
 
@@ -44,7 +66,7 @@ function playCallSound() {
     play(880, ctx.currentTime);
     play(1174, ctx.currentTime + 0.18);
   } catch {
-    // AudioContext может быть заблокирован браузером
+    // ignore
   }
 }
 
@@ -96,6 +118,7 @@ export function AppPage() {
   useEffect(() => {
     const unsubscribe = wsService.on('voice_call_ring', (payload) => {
       const p = payload as Record<string, unknown>;
+      console.log('[VoiceRing] received', p, 'server match:', p.server_id === currentServer?.id);
       if (
         p.server_id === currentServer?.id &&
         p.caller_id !== user?.id &&
