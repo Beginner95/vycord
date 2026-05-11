@@ -153,6 +153,8 @@ func (h *WebSocketHandler) handleMessage(client *ws.Client, msg *ws.Message) {
 		h.handleWebRTCICECandidate(client, msg)
 	case "voice_call_ring":
 		h.handleVoiceCallRing(client, msg)
+	case "voice_call_cancel":
+		h.handleVoiceCallCancel(client, msg)
 	case "ping":
 		h.handlePing(client)
 	default:
@@ -453,6 +455,10 @@ func (h *WebSocketHandler) handleWebRTCICECandidate(client *ws.Client, msg *ws.M
 
 func (h *WebSocketHandler) handleVoiceCallRing(client *ws.Client, msg *ws.Message) {
 	h.hub.BroadcastMessage(&ws.Message{Type: "voice_call_ring", Payload: msg.Payload})
+}
+
+func (h *WebSocketHandler) handleVoiceCallCancel(client *ws.Client, msg *ws.Message) {
+	h.hub.BroadcastMessage(&ws.Message{Type: "voice_call_cancel", Payload: msg.Payload})
 }
 
 func (h *WebSocketHandler) handlePing(client *ws.Client) {

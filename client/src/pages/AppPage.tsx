@@ -78,6 +78,8 @@ export function AppPage() {
   const [mobilePanel, setMobilePanel] = useState<MobilePanel>('servers');
   const [callNotif, setCallNotif] = useState<CallNotif | null>(null);
   const stopRingtoneRef = useRef<(() => void) | null>(null);
+  const callNotifRef = useRef<CallNotif | null>(null);
+  useEffect(() => { callNotifRef.current = callNotif; }, [callNotif]);
 
   useEffect(() => {
     return () => { stopRingtoneRef.current?.(); };
@@ -142,6 +144,18 @@ export function AppPage() {
     });
     return () => unsubscribe();
   }, [currentServer, user]);
+
+  useEffect(() => {
+    const unsubscribe = wsService.on('voice_call_cancel', (payload) => {
+      const p = payload as Record<string, unknown>;
+      if (callNotifRef.current?.channelId === p.channel_id) {
+        stopRingtoneRef.current?.();
+        stopRingtoneRef.current = null;
+        setCallNotif(null);
+      }
+    });
+    return () => unsubscribe();
+  }, []);
 
   const loadServers = async () => {
     try {
