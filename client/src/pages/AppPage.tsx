@@ -14,12 +14,15 @@ import { GroupCallUI } from '@/components/GroupCallUI';
 import type { Server, Channel, Message } from '@/types';
 import './AppPage.css';
 
+type MobilePanel = 'servers' | 'channels' | 'chat' | 'members';
+
 export function AppPage() {
   const { user, token, logout } = useAuthStore();
   const { servers, setServers, setCurrentServer, currentServer, setChannels, channels, currentChannel, setCurrentChannel } = useServerStore();
   const { setMessages } = useMessageStore();
   const [showCreateServer, setShowCreateServer] = useState(false);
   const [newServerName, setNewServerName] = useState('');
+  const [mobilePanel, setMobilePanel] = useState<MobilePanel>('servers');
 
   // Reconnect WebSocket on mount if already authenticated (page reload)
   useEffect(() => {
@@ -125,10 +128,10 @@ export function AppPage() {
 
   const handleSelectServer = async (server: Server) => {
     setCurrentServer(server);
+    setMobilePanel('channels');
     try {
       const data = await apiService.getChannels(server.id) as Channel[];
       setChannels(data);
-      // Select first text channel
       const textChannel = data.find((c) => c.type === 'text');
       if (textChannel) {
         handleSelectChannel(textChannel);
@@ -140,6 +143,7 @@ export function AppPage() {
 
   const handleSelectChannel = async (channel: Channel) => {
     setCurrentChannel(channel);
+    setMobilePanel('chat');
 
     // Notify server which channel we're viewing for targeted message routing
     wsService.send('join_channel', { channel_id: channel.id });
@@ -182,7 +186,7 @@ export function AppPage() {
   return (
     <div className="app-page">
       <TitleBar />
-      <div className="app-layout">
+      <div className="app-layout" data-mobile-panel={mobilePanel}>
         <ServerList
           servers={servers}
           currentServer={currentServer}
@@ -198,14 +202,17 @@ export function AppPage() {
           onSelectChannel={handleSelectChannel}
           user={user}
           onLogout={logout}
+          onMobileBack={() => setMobilePanel('servers')}
         />
 
         <ChatArea
           channel={currentChannel}
           user={user}
+          onMobileBack={() => setMobilePanel('channels')}
+          onShowMembers={() => setMobilePanel('members')}
         />
 
-        <UserList />
+        <UserList onMobileBack={() => setMobilePanel('chat')} />
       </div>
 
       {showCreateServer && (

@@ -223,3 +223,49 @@
   background: var(--red-50);
   color: var(--red-500);
 }
+
+/* ── Mobile Back Button (hidden on desktop) ── */
+.mobile-back-btn {
+  display: none;
+}
+
+@media (max-width: 768px) {
+  .channel-sidebar {
+    width: 100vw;
+    min-width: 100vw;
+  }
+
+  .channel-header {
+    gap: 10px;
+  }
+
+  .mobile-back-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: none;
+    border: none;
+    color: var(--text-secondary);
+    cursor: pointer;
+    padding: 6px;
+    border-radius: var(--radius-sm);
+    transition: all var(--transition);
+    flex-shrink: 0;
+  }
+
+  .mobile-back-btn:hover {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+  }
+
+  .channel {
+    padding: 12px 14px;
+    font-size: 15px;
+  }
+
+  .user-panel {
+    height: 72px;
+    padding: 0 16px;
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+}

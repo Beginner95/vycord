@@ -91,3 +91,58 @@
   background: var(--green-50);
   transform: scale(1.1);
 }
+
+.user-list-mobile-header {
+  display: none;
+}
+
+@media (max-width: 768px) {
+  .user-list {
+    width: 100vw;
+    min-width: 100vw;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .user-list-mobile-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 16px 16px 12px;
+    border-bottom: 1px solid var(--border-subtle);
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--text-primary);
+    background: var(--bg-primary);
+    position: sticky;
+    top: 0;
+    z-index: 10;
+  }
+
+  .mobile-back-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: none;
+    border: none;
+    color: var(--text-secondary);
+    cursor: pointer;
+    padding: 6px;
+    border-radius: var(--radius-sm);
+    transition: all var(--transition);
+    flex-shrink: 0;
+  }
+
+  .mobile-back-btn:hover {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+  }
+
+  .user-item {
+    padding: 12px 16px;
+  }
+
+  .call-user-btn {
+    opacity: 1;
+  }
+}
