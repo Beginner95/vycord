@@ -7,16 +7,17 @@ import (
 )
 
 type Config struct {
-	ServerPort   string
-	JWTSecret    string
+	ServerPort    string
+	JWTSecret     string
 	JWTExpiration time.Duration
-	PostgresUser string
-	PostgresPass string
-	PostgresDB   string
-	PostgresPort string
-	RedisHost    string
-	RedisPort    string
-	ClientURL    string
+	PostgresHost  string
+	PostgresUser  string
+	PostgresPass  string
+	PostgresDB    string
+	PostgresPort  string
+	RedisHost     string
+	RedisPort     string
+	ClientURL     string
 }
 
 func New() (*Config, error) {
@@ -29,13 +30,14 @@ func New() (*Config, error) {
 		ServerPort:    getEnv("SERVER_PORT", "8080"),
 		JWTSecret:     jwtSecret,
 		JWTExpiration: parseDuration(getEnv("JWT_EXPIRATION", "24h")),
-		PostgresUser: getEnv("POSTGRES_USER", "mydiscrod"),
-		PostgresPass: getEnv("POSTGRES_PASSWORD", "mydiscrod_secret"),
-		PostgresDB:   getEnv("POSTGRES_DB", "mydiscrod"),
-		PostgresPort: getEnv("POSTGRES_PORT", "5432"),
-		RedisHost:    getEnv("REDIS_HOST", "localhost"),
-		RedisPort:    getEnv("REDIS_PORT", "6379"),
-		ClientURL:    getEnv("CLIENT_URL", "http://localhost:3000"),
+		PostgresHost:  getEnv("POSTGRES_HOST", "localhost"),
+		PostgresUser:  getEnv("POSTGRES_USER", "mydiscrod"),
+		PostgresPass:  getEnv("POSTGRES_PASSWORD", "mydiscrod_secret"),
+		PostgresDB:    getEnv("POSTGRES_DB", "mydiscrod"),
+		PostgresPort:  getEnv("POSTGRES_PORT", "5432"),
+		RedisHost:     getEnv("REDIS_HOST", "localhost"),
+		RedisPort:     getEnv("REDIS_PORT", "6379"),
+		ClientURL:     getEnv("CLIENT_URL", "http://localhost:3000"),
 	}
 
 	return cfg, nil
@@ -47,9 +49,10 @@ func (c *Config) ServerAddr() string {
 
 func (c *Config) PostgresDSN() string {
 	return fmt.Sprintf(
-		"postgres://%s:%s@localhost:%s/%s?sslmode=disable",
+		"postgres://%s:%s@%s:%s/%s?sslmode=disable",
 		c.PostgresUser,
 		c.PostgresPass,
+		c.PostgresHost,
 		c.PostgresPort,
 		c.PostgresDB,
 	)
