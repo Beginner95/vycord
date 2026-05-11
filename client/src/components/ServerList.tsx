@@ -33,11 +33,15 @@ export function ServerList({ servers, currentServer, onSelectServer, onCreateSer
   return (
     <>
       <aside className="server-list">
+        <div className="server-list-mobile-header">
+          <span>Servers</span>
+        </div>
         <div
           className={`server-icon home ${!currentServer ? 'active' : ''}`}
           title="Home"
         >
-          🏠
+          <span className="server-icon-symbol">🏠</span>
+          <span className="server-icon-name">Home</span>
         </div>
         <div className="server-divider" />
         {servers.map((server) => (
@@ -50,15 +54,18 @@ export function ServerList({ servers, currentServer, onSelectServer, onCreateSer
             {server.icon_url ? (
               <img src={server.icon_url} alt={server.name} />
             ) : (
-              server.name.charAt(0).toUpperCase()
+              <span className="server-icon-symbol">{server.name.charAt(0).toUpperCase()}</span>
             )}
+            <span className="server-icon-name">{server.name}</span>
           </div>
         ))}
         <div className="server-icon add" onClick={onCreateServer} title="Create a Server">
-          +
+          <span className="server-icon-symbol">+</span>
+          <span className="server-icon-name">Create Server</span>
         </div>
         <div className="server-icon search" onClick={() => setSearchOpen(true)} title="Explore Servers">
-          🔍
+          <span className="server-icon-symbol">🔍</span>
+          <span className="server-icon-name">Explore Servers</span>
         </div>
       </aside>
 

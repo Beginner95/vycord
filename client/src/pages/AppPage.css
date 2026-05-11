@@ -123,3 +123,25 @@
   border-color: var(--brand-hover);
   box-shadow: 0 2px 8px rgba(99, 102, 241, 0.25);
 }
+
+/* ── Mobile ── */
+@media (max-width: 768px) {
+  .app-page .title-bar {
+    display: none;
+  }
+
+  .app-layout .server-list,
+  .app-layout .channel-sidebar,
+  .app-layout .chat-area,
+  .app-layout .user-list {
+    display: none;
+    width: 100vw;
+    min-width: 100vw;
+    max-width: 100vw;
+  }
+
+  .app-layout[data-mobile-panel="servers"] .server-list { display: flex; }
+  .app-layout[data-mobile-panel="channels"] .channel-sidebar { display: flex; }
+  .app-layout[data-mobile-panel="chat"] .chat-area { display: flex; }
+  .app-layout[data-mobile-panel="members"] .user-list { display: flex; }
+}
