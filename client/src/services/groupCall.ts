@@ -87,7 +87,9 @@ class GroupCallService {
 
   leaveGroupCall(): void {
     if (this.ws) {
-      this.ws.send(JSON.stringify({ type: 'leave', payload: {} }));
+      if (this.ws.readyState === WebSocket.OPEN) {
+        this.ws.send(JSON.stringify({ type: 'leave', payload: {} }));
+      }
       this.ws.close();
     }
     this.cleanup();

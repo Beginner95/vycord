@@ -122,15 +122,15 @@ export function GroupCallUI() {
 
   const handleLeaveGroupCall = useCallback(() => {
     const channelId = groupCallService.currentRoomIdState;
-    groupCallService.leaveGroupCall();
-    setIsInGroupCall(false);
-    setParticipants([]);
     if (channelId) {
       wsService.send('voice_call_cancel', {
         channel_id: channelId,
         server_id: currentServer?.id,
       });
     }
+    groupCallService.leaveGroupCall();
+    setIsInGroupCall(false);
+    setParticipants([]);
   }, [currentServer]);
 
   const micLevel = useMicLevel(
