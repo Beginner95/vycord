@@ -16,6 +16,38 @@ import './AppPage.css';
 
 type MobilePanel = 'servers' | 'channels' | 'chat' | 'members';
 
+interface CallNotif {
+  channelId: string;
+  channelName: string;
+  callerId: string;
+  callerName: string;
+}
+
+function playCallSound() {
+  try {
+    const ctx = new AudioContext();
+    const gain = ctx.createGain();
+    gain.connect(ctx.destination);
+
+    const play = (freq: number, start: number) => {
+      const osc = ctx.createOscillator();
+      osc.type = 'sine';
+      osc.frequency.value = freq;
+      osc.connect(gain);
+      gain.gain.setValueAtTime(0, start);
+      gain.gain.linearRampToValueAtTime(0.25, start + 0.03);
+      gain.gain.exponentialRampToValueAtTime(0.001, start + 0.35);
+      osc.start(start);
+      osc.stop(start + 0.35);
+    };
+
+    play(880, ctx.currentTime);
+    play(1174, ctx.currentTime + 0.18);
+  } catch {
+    // AudioContext может быть заблокирован браузером
+  }
+}
+
 export function AppPage() {
   const { user, token, logout } = useAuthStore();
   const { servers, setServers, setCurrentServer, currentServer, setChannels, channels, currentChannel, setCurrentChannel } = useServerStore();
@@ -23,6 +55,7 @@ export function AppPage() {
   const [showCreateServer, setShowCreateServer] = useState(false);
   const [newServerName, setNewServerName] = useState('');
   const [mobilePanel, setMobilePanel] = useState<MobilePanel>('servers');
+  const [callNotif, setCallNotif] = useState<CallNotif | null>(null);
 
   // Reconnect WebSocket on mount if already authenticated (page reload)
   useEffect(() => {
@@ -59,6 +92,27 @@ export function AppPage() {
 
     return () => unsubscribe();
   }, [currentChannel, user]);
+
+  useEffect(() => {
+    const unsubscribe = wsService.on('voice_call_ring', (payload) => {
+      const p = payload as Record<string, unknown>;
+      if (
+        p.server_id === currentServer?.id &&
+        p.caller_id !== user?.id &&
+        p.channel_id !== currentChannel?.id
+      ) {
+        setCallNotif({
+          channelId: p.channel_id as string,
+          channelName: p.channel_name as string,
+          callerId: p.caller_id as string,
+          callerName: p.caller_name as string,
+        });
+        playCallSound();
+        setTimeout(() => setCallNotif(null), 8000);
+      }
+    });
+    return () => unsubscribe();
+  }, [currentServer, user, currentChannel]);
 
   const loadServers = async () => {
     try {
@@ -152,8 +206,15 @@ export function AppPage() {
     const currentSrv = useServerStore.getState().currentServer;
     apiService.updateLastVisited(currentSrv?.id ?? null, channel.id).catch(() => {});
 
-    // If voice channel, join group call
+    // If voice channel, notify others and join group call
     if (channel.type === 'voice' && user) {
+      wsService.send('voice_call_ring', {
+        channel_id: channel.id,
+        server_id: currentSrv?.id,
+        caller_id: user.id,
+        caller_name: user.username,
+        channel_name: channel.name,
+      });
       const joinGroupCall = (window as unknown as Record<string, unknown>).joinGroupCall;
       if (typeof joinGroupCall === 'function') {
         await joinGroupCall(channel.id);
@@ -246,6 +307,25 @@ export function AppPage() {
         </div>
       )}
 
+      {callNotif && (
+        <div className="call-notif-banner">
+          <span className="call-notif-icon">🔔</span>
+          <span className="call-notif-text">
+            <strong>{callNotif.callerName}</strong> зовёт в <strong>#{callNotif.channelName}</strong>
+          </span>
+          <button
+            className="call-notif-join"
+            onClick={() => {
+              const ch = channels.find((c) => c.id === callNotif.channelId);
+              if (ch) handleSelectChannel(ch);
+              setCallNotif(null);
+            }}
+          >
+            Войти
+          </button>
+          <button className="call-notif-dismiss" onClick={() => setCallNotif(null)}>✕</button>
+        </div>
+      )}
       <CallUI />
       <GroupCallUI />
     </div>
