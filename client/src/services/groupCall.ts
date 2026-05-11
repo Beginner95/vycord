@@ -87,7 +87,9 @@ class GroupCallService {
 
   leaveGroupCall(): void {
     if (this.ws) {
-      this.ws.send(JSON.stringify({ type: 'leave', payload: {} }));
+      if (this.ws.readyState === WebSocket.OPEN) {
+        this.ws.send(JSON.stringify({ type: 'leave', payload: {} }));
+      }
       this.ws.close();
     }
     this.cleanup();
@@ -275,6 +277,10 @@ class GroupCallService {
 
   get isInGroupCallState(): boolean {
     return this.isInGroupCall;
+  }
+
+  get currentRoomIdState(): string {
+    return this.currentRoomId;
   }
 
   get localStreamState(): MediaStream | null {

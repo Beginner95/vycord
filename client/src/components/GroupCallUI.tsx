@@ -1,6 +1,8 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useAuthStore } from '@/stores/authStore';
+import { useServerStore } from '@/stores/serverStore';
 import { groupCallService } from '@/services/groupCall';
+import { wsService } from '@/services/websocket';
 import './GroupCallUI.css';
 
 function useMicLevel(stream: MediaStream | null, isMuted: boolean): number {
@@ -45,6 +47,7 @@ interface RemoteParticipant {
 
 export function GroupCallUI() {
   const { user } = useAuthStore();
+  const { currentServer } = useServerStore();
   const [isInGroupCall, setIsInGroupCall] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
   const [isVideoOff, setIsVideoOff] = useState(false);
@@ -118,10 +121,17 @@ export function GroupCallUI() {
   }, [user]);
 
   const handleLeaveGroupCall = useCallback(() => {
+    const channelId = groupCallService.currentRoomIdState;
+    if (channelId) {
+      wsService.send('voice_call_cancel', {
+        channel_id: channelId,
+        server_id: currentServer?.id,
+      });
+    }
     groupCallService.leaveGroupCall();
     setIsInGroupCall(false);
     setParticipants([]);
-  }, []);
+  }, [currentServer]);
 
   const micLevel = useMicLevel(
     isInGroupCall ? groupCallService.localStreamState : null,

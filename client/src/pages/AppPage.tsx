@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useAuthStore } from '@/stores/authStore';
 import { useServerStore } from '@/stores/serverStore';
 import { useMessageStore } from '@/stores/messageStore';
@@ -11,10 +11,63 @@ import { UserList } from '@/components/UserList';
 import { TitleBar } from '@/components/TitleBar';
 import { CallUI } from '@/components/CallUI';
 import { GroupCallUI } from '@/components/GroupCallUI';
+import { groupCallService } from '@/services/groupCall';
 import type { Server, Channel, Message } from '@/types';
 import './AppPage.css';
 
 type MobilePanel = 'servers' | 'channels' | 'chat' | 'members';
+
+interface CallNotif {
+  channelId: string;
+  channelName: string;
+  callerId: string;
+  callerName: string;
+}
+
+// Создаём контекст сразу — он будет suspended, но Chrome разрешит resume
+// после первого жеста пользователя (логин, клик по каналу и т.д.)
+const _audioCtx = new AudioContext();
+
+const _resumeAudio = () => { _audioCtx.resume().catch(() => {}); };
+document.addEventListener('click',    _resumeAudio, { capture: true, passive: true });
+document.addEventListener('keydown',  _resumeAudio, { capture: true, passive: true });
+document.addEventListener('touchend', _resumeAudio, { capture: true, passive: true });
+
+async function playRingOnce(): Promise<void> {
+  try {
+    if (_audioCtx.state !== 'running') {
+      await _audioCtx.resume();
+    }
+    const state: string = _audioCtx.state;
+    if (state !== 'running') return; // жест ещё не был — пропускаем
+    const gain = _audioCtx.createGain();
+    gain.connect(_audioCtx.destination);
+    const t = _audioCtx.currentTime;
+
+    const playTone = (freq: number, offset: number) => {
+      const osc = _audioCtx.createOscillator();
+      osc.type = 'sine';
+      osc.frequency.value = freq;
+      osc.connect(gain);
+      gain.gain.setValueAtTime(0, t + offset);
+      gain.gain.linearRampToValueAtTime(0.25, t + offset + 0.03);
+      gain.gain.exponentialRampToValueAtTime(0.001, t + offset + 0.35);
+      osc.start(t + offset);
+      osc.stop(t + offset + 0.36);
+    };
+
+    playTone(880,  0);
+    playTone(1174, 0.18);
+  } catch {
+    // ignore
+  }
+}
+
+function startCallRingtone(): () => void {
+  void playRingOnce();
+  const interval = window.setInterval(() => { void playRingOnce(); }, 2000);
+  return () => window.clearInterval(interval);
+}
 
 export function AppPage() {
   const { user, token, logout } = useAuthStore();
@@ -23,6 +76,14 @@ export function AppPage() {
   const [showCreateServer, setShowCreateServer] = useState(false);
   const [newServerName, setNewServerName] = useState('');
   const [mobilePanel, setMobilePanel] = useState<MobilePanel>('servers');
+  const [callNotif, setCallNotif] = useState<CallNotif | null>(null);
+  const stopRingtoneRef = useRef<(() => void) | null>(null);
+  const callNotifRef = useRef<CallNotif | null>(null);
+  useEffect(() => { callNotifRef.current = callNotif; }, [callNotif]);
+
+  useEffect(() => {
+    return () => { stopRingtoneRef.current?.(); };
+  }, []);
 
   // Reconnect WebSocket on mount if already authenticated (page reload)
   useEffect(() => {
@@ -59,6 +120,42 @@ export function AppPage() {
 
     return () => unsubscribe();
   }, [currentChannel, user]);
+
+  useEffect(() => {
+    const unsubscribe = wsService.on('voice_call_ring', (payload) => {
+      const p = payload as Record<string, unknown>;
+      const alreadyInThatCall =
+        groupCallService.isInGroupCallState &&
+        groupCallService.currentRoomIdState === p.channel_id;
+      if (
+        p.server_id === currentServer?.id &&
+        p.caller_id !== user?.id &&
+        !alreadyInThatCall
+      ) {
+        stopRingtoneRef.current?.();
+        setCallNotif({
+          channelId: p.channel_id as string,
+          channelName: p.channel_name as string,
+          callerId: p.caller_id as string,
+          callerName: p.caller_name as string,
+        });
+        stopRingtoneRef.current = startCallRingtone();
+      }
+    });
+    return () => unsubscribe();
+  }, [currentServer, user]);
+
+  useEffect(() => {
+    const unsubscribe = wsService.on('voice_call_cancel', (payload) => {
+      const p = payload as Record<string, unknown>;
+      if (callNotifRef.current?.channelId === p.channel_id) {
+        stopRingtoneRef.current?.();
+        stopRingtoneRef.current = null;
+        setCallNotif(null);
+      }
+    });
+    return () => unsubscribe();
+  }, []);
 
   const loadServers = async () => {
     try {
@@ -152,8 +249,15 @@ export function AppPage() {
     const currentSrv = useServerStore.getState().currentServer;
     apiService.updateLastVisited(currentSrv?.id ?? null, channel.id).catch(() => {});
 
-    // If voice channel, join group call
+    // If voice channel, notify others and join group call
     if (channel.type === 'voice' && user) {
+      wsService.send('voice_call_ring', {
+        channel_id: channel.id,
+        server_id: currentSrv?.id,
+        caller_id: user.id,
+        caller_name: user.username,
+        channel_name: channel.name,
+      });
       const joinGroupCall = (window as unknown as Record<string, unknown>).joinGroupCall;
       if (typeof joinGroupCall === 'function') {
         await joinGroupCall(channel.id);
@@ -246,6 +350,36 @@ export function AppPage() {
         </div>
       )}
 
+      {callNotif && (
+        <div className="call-notif-banner">
+          <span className="call-notif-icon">🔔</span>
+          <span className="call-notif-text">
+            <strong>{callNotif.callerName}</strong> зовёт в <strong>#{callNotif.channelName}</strong>
+          </span>
+          <button
+            className="call-notif-join"
+            onClick={() => {
+              stopRingtoneRef.current?.();
+              stopRingtoneRef.current = null;
+              const ch = channels.find((c) => c.id === callNotif.channelId);
+              if (ch) handleSelectChannel(ch);
+              setCallNotif(null);
+            }}
+          >
+            Войти
+          </button>
+          <button
+            className="call-notif-dismiss"
+            onClick={() => {
+              stopRingtoneRef.current?.();
+              stopRingtoneRef.current = null;
+              setCallNotif(null);
+            }}
+          >
+            ✕
+          </button>
+        </div>
+      )}
       <CallUI />
       <GroupCallUI />
     </div>
