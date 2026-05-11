@@ -1,6 +1,5 @@
 /* ═══════════════════════════════════════════════════════
-   MY DISCROD — Design System
-   Light, modern color palette with soft tones
+   VYCORD — Design System
    ═══════════════════════════════════════════════════════ */
 
 :root {
@@ -75,6 +74,39 @@
 
   /* ── Font ── */
   --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+
+/* ── Dark Theme ── */
+[data-theme="dark"] {
+  --bg-base:        #1a1b1e;
+  --bg-primary:     #2b2d31;
+  --bg-secondary:   #1e1f22;
+  --bg-tertiary:    #161719;
+  --bg-elevated:    #313338;
+  --bg-hover:       #35373c;
+  --bg-active:      #404249;
+
+  --text-primary:   #f2f3f5;
+  --text-secondary: #b5bac1;
+  --text-muted:     #6d6f78;
+  --text-link:      #818cf8;
+  --text-inverse:   #ffffff;
+
+  --border-color:   #3f4147;
+  --border-subtle:  #2e3035;
+
+  --shadow-sm:  0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-md:  0 4px 12px rgba(0, 0, 0, 0.4);
+  --shadow-lg:  0 12px 40px rgba(0, 0, 0, 0.5);
+  --shadow-xl:  0 20px 60px rgba(0, 0, 0, 0.6);
+
+  --brand-50:    rgba(99, 102, 241, 0.12);
+  --brand-100:   rgba(99, 102, 241, 0.20);
+  --brand-200:   rgba(99, 102, 241, 0.35);
+  --brand-subtle: rgba(99, 102, 241, 0.15);
+  --green-50:    rgba(34, 197, 94, 0.1);
+  --red-50:      rgba(239, 68, 68, 0.1);
+  --yellow-50:   rgba(245, 158, 11, 0.1);
 }
 
 /* ── Reset ── */

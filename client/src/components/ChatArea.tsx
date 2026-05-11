@@ -201,6 +201,7 @@ export function ChatArea({ channel, user }: ChatAreaProps) {
           placeholder={`Message #${channel.name}`}
           maxLength={2000}
         />
+
       </form>
     </main>
   );

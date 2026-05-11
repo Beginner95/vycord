@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { noiseCancellationService, NoiseCancellationService } from '@/services/noiseCancellation';
 import { audioService } from '@/services/audio';
+import { useThemeStore } from '@/stores/themeStore';
 import './Settings.css';
 
 interface SettingsProps {
@@ -9,6 +10,7 @@ interface SettingsProps {
 }
 
 export function Settings({ isOpen, onClose }: SettingsProps) {
+  const { theme, setTheme } = useThemeStore();
   const [noiseCancellation, setNoiseCancellation] = useState(false);
   const [ncLoading, setNcLoading] = useState(false);
   const [isSupported, setIsSupported] = useState(true);
@@ -233,10 +235,15 @@ export function Settings({ isOpen, onClose }: SettingsProps) {
             <div className="setting-item">
               <div className="setting-info">
                 <label>Theme</label>
+                <p className="setting-description">Choose between light and dark interface</p>
               </div>
-              <select className="setting-select">
-                <option>Dark</option>
-                <option>Light</option>
+              <select
+                className="setting-select"
+                value={theme}
+                onChange={(e) => setTheme(e.target.value as 'light' | 'dark')}
+              >
+                <option value="dark">Dark</option>
+                <option value="light">Light</option>
               </select>
             </div>
           </div>
