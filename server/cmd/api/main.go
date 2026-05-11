@@ -130,6 +130,9 @@ func main() {
 
 	// Wrap router with CORS middleware
 	corsMid := middleware.DefaultCORS()
+	if cfg.ClientURL != "" {
+		corsMid.AllowedOrigins = append(corsMid.AllowedOrigins, cfg.ClientURL)
+	}
 	handlerWithCORS := corsMid.Handler(router)
 
 	// Start server
