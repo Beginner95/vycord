@@ -115,7 +115,7 @@ export function ChatArea({ channel, user }: ChatAreaProps) {
     return (
       <main className="chat-area">
         <div className="chat-empty">
-          <h2>Welcome to My Discrod!</h2>
+          <h2>Welcome to Vy Cord!</h2>
           <p>Select a channel to start chatting</p>
         </div>
       </main>

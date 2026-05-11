@@ -46,7 +46,7 @@ export function RegisterPage() {
       <div className="auth-card">
         <div className="auth-header">
           <h1>Create an Account</h1>
-          <p>Join your friends in My Discrod!</p>
+          <p>Join your friends in Vy Cord!</p>
         </div>
 
         <form onSubmit={handleSubmit}>

@@ -57,7 +57,7 @@ function createTray(): void {
 
   const contextMenu = Menu.buildFromTemplate([
     {
-      label: 'Open My Discrod',
+      label: 'Open Vy Cord',
       click: () => {
         mainWindow?.show();
       },
@@ -71,7 +71,7 @@ function createTray(): void {
     },
   ]);
 
-  tray.setToolTip('My Discrod');
+  tray.setToolTip('Vy Cord');
   tray.setContextMenu(contextMenu);
 
   tray.on('click', () => {

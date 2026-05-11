@@ -3,15 +3,15 @@ services:
     image: postgres:16-alpine
     container_name: vycord-db
     environment:
-      POSTGRES_USER: ${POSTGRES_USER:-mydiscrod}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-mydiscrod_secret}
-      POSTGRES_DB: ${POSTGRES_DB:-mydiscrod}
+      POSTGRES_USER: ${POSTGRES_USER:-vycord}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-vycord_secret}
+      POSTGRES_DB: ${POSTGRES_DB:-vycord}
     ports:
       - "${POSTGRES_PORT:-5432}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-mydiscrod}"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-vycord}"]
       interval: 10s
       timeout: 5s
       retries: 5
