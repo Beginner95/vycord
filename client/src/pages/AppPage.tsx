@@ -24,42 +24,40 @@ interface CallNotif {
   callerName: string;
 }
 
-let _audioCtx: AudioContext | null = null;
+// Создаём контекст сразу — он будет suspended, но Chrome разрешит resume
+// после первого жеста пользователя (логин, клик по каналу и т.д.)
+const _audioCtx = new AudioContext();
 
-function getAudioCtx(): AudioContext {
-  if (!_audioCtx || _audioCtx.state === 'closed') {
-    _audioCtx = new AudioContext();
-  }
-  return _audioCtx;
-}
-
-// При любом взаимодействии пользователя — создаём и разблокируем контекст заранее
-window.addEventListener('pointerdown', () => getAudioCtx().resume().catch(() => {}), { passive: true });
-window.addEventListener('keydown',     () => getAudioCtx().resume().catch(() => {}), { passive: true });
+const _resumeAudio = () => { _audioCtx.resume().catch(() => {}); };
+document.addEventListener('click',    _resumeAudio, { capture: true, passive: true });
+document.addEventListener('keydown',  _resumeAudio, { capture: true, passive: true });
+document.addEventListener('touchend', _resumeAudio, { capture: true, passive: true });
 
 async function playRingOnce(): Promise<void> {
   try {
-    const ctx = getAudioCtx();
-    if (ctx.state !== 'running') {
-      await ctx.resume(); // ждём разблокировки перед планированием нот
+    if (_audioCtx.state !== 'running') {
+      await _audioCtx.resume();
     }
-    const gain = ctx.createGain();
-    gain.connect(ctx.destination);
+    const state: string = _audioCtx.state;
+    if (state !== 'running') return; // жест ещё не был — пропускаем
+    const gain = _audioCtx.createGain();
+    gain.connect(_audioCtx.destination);
+    const t = _audioCtx.currentTime;
 
-    const playTone = (freq: number, start: number) => {
-      const osc = ctx.createOscillator();
+    const playTone = (freq: number, offset: number) => {
+      const osc = _audioCtx.createOscillator();
       osc.type = 'sine';
       osc.frequency.value = freq;
       osc.connect(gain);
-      gain.gain.setValueAtTime(0, start);
-      gain.gain.linearRampToValueAtTime(0.25, start + 0.03);
-      gain.gain.exponentialRampToValueAtTime(0.001, start + 0.35);
-      osc.start(start);
-      osc.stop(start + 0.35);
+      gain.gain.setValueAtTime(0, t + offset);
+      gain.gain.linearRampToValueAtTime(0.25, t + offset + 0.03);
+      gain.gain.exponentialRampToValueAtTime(0.001, t + offset + 0.35);
+      osc.start(t + offset);
+      osc.stop(t + offset + 0.36);
     };
 
-    playTone(880, ctx.currentTime);
-    playTone(1174, ctx.currentTime + 0.18);
+    playTone(880,  0);
+    playTone(1174, 0.18);
   } catch {
     // ignore
   }
