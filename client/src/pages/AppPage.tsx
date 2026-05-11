@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useAuthStore } from '@/stores/authStore';
 import { useServerStore } from '@/stores/serverStore';
 import { useMessageStore } from '@/stores/messageStore';
@@ -42,17 +42,16 @@ if (typeof window !== 'undefined') {
   window.addEventListener('keydown', unlockAudio, { once: false });
 }
 
-function playCallSound() {
+function playRingOnce() {
   try {
     const ctx = getAudioCtx();
     if (ctx.state === 'suspended') {
       ctx.resume().catch(() => {});
     }
-
     const gain = ctx.createGain();
     gain.connect(ctx.destination);
 
-    const play = (freq: number, start: number) => {
+    const playTone = (freq: number, start: number) => {
       const osc = ctx.createOscillator();
       osc.type = 'sine';
       osc.frequency.value = freq;
@@ -64,11 +63,17 @@ function playCallSound() {
       osc.stop(start + 0.35);
     };
 
-    play(880, ctx.currentTime);
-    play(1174, ctx.currentTime + 0.18);
+    playTone(880, ctx.currentTime);
+    playTone(1174, ctx.currentTime + 0.18);
   } catch {
     // ignore
   }
+}
+
+function startCallRingtone(): () => void {
+  playRingOnce();
+  const interval = window.setInterval(playRingOnce, 2000);
+  return () => window.clearInterval(interval);
 }
 
 export function AppPage() {
@@ -79,6 +84,11 @@ export function AppPage() {
   const [newServerName, setNewServerName] = useState('');
   const [mobilePanel, setMobilePanel] = useState<MobilePanel>('servers');
   const [callNotif, setCallNotif] = useState<CallNotif | null>(null);
+  const stopRingtoneRef = useRef<(() => void) | null>(null);
+
+  useEffect(() => {
+    return () => { stopRingtoneRef.current?.(); };
+  }, []);
 
   // Reconnect WebSocket on mount if already authenticated (page reload)
   useEffect(() => {
@@ -127,14 +137,14 @@ export function AppPage() {
         p.caller_id !== user?.id &&
         !alreadyInThatCall
       ) {
+        stopRingtoneRef.current?.();
         setCallNotif({
           channelId: p.channel_id as string,
           channelName: p.channel_name as string,
           callerId: p.caller_id as string,
           callerName: p.caller_name as string,
         });
-        playCallSound();
-        setTimeout(() => setCallNotif(null), 8000);
+        stopRingtoneRef.current = startCallRingtone();
       }
     });
     return () => unsubscribe();
@@ -342,6 +352,8 @@ export function AppPage() {
           <button
             className="call-notif-join"
             onClick={() => {
+              stopRingtoneRef.current?.();
+              stopRingtoneRef.current = null;
               const ch = channels.find((c) => c.id === callNotif.channelId);
               if (ch) handleSelectChannel(ch);
               setCallNotif(null);
@@ -349,7 +361,16 @@ export function AppPage() {
           >
             Войти
           </button>
-          <button className="call-notif-dismiss" onClick={() => setCallNotif(null)}>✕</button>
+          <button
+            className="call-notif-dismiss"
+            onClick={() => {
+              stopRingtoneRef.current?.();
+              stopRingtoneRef.current = null;
+              setCallNotif(null);
+            }}
+          >
+            ✕
+          </button>
         </div>
       )}
       <CallUI />
