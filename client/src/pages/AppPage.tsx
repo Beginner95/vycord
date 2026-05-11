@@ -11,6 +11,7 @@ import { UserList } from '@/components/UserList';
 import { TitleBar } from '@/components/TitleBar';
 import { CallUI } from '@/components/CallUI';
 import { GroupCallUI } from '@/components/GroupCallUI';
+import { groupCallService } from '@/services/groupCall';
 import type { Server, Channel, Message } from '@/types';
 import './AppPage.css';
 
@@ -118,11 +119,13 @@ export function AppPage() {
   useEffect(() => {
     const unsubscribe = wsService.on('voice_call_ring', (payload) => {
       const p = payload as Record<string, unknown>;
-      console.log('[VoiceRing] received', p, 'server match:', p.server_id === currentServer?.id);
+      const alreadyInThatCall =
+        groupCallService.isInGroupCallState &&
+        groupCallService.currentRoomIdState === p.channel_id;
       if (
         p.server_id === currentServer?.id &&
         p.caller_id !== user?.id &&
-        p.channel_id !== currentChannel?.id
+        !alreadyInThatCall
       ) {
         setCallNotif({
           channelId: p.channel_id as string,
@@ -135,7 +138,7 @@ export function AppPage() {
       }
     });
     return () => unsubscribe();
-  }, [currentServer, user, currentChannel]);
+  }, [currentServer, user]);
 
   const loadServers = async () => {
     try {

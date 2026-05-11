@@ -277,6 +277,10 @@ class GroupCallService {
     return this.isInGroupCall;
   }
 
+  get currentRoomIdState(): string {
+    return this.currentRoomId;
+  }
+
   get localStreamState(): MediaStream | null {
     return this.localStream;
   }
