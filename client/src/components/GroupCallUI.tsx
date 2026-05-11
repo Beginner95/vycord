@@ -206,15 +206,18 @@ export function GroupCallUI() {
 
   if (!isInGroupCall) return null;
 
+  const totalParticipants = participants.length + 1;
+  const cols = Math.min(totalParticipants, 4);
+
   return (
     <div className="group-call-overlay">
       <div className="group-call-header">
         <h2>Group Call{currentChannel ? ` · #${currentChannel.name}` : ''}</h2>
-        <span className="participant-count">{participants.length + 1} participants</span>
+        <span className="participant-count">{totalParticipants} participants</span>
       </div>
 
       <div className="call-body">
-        <div className="video-grid">
+        <div className="video-grid" style={{ gridTemplateColumns: `repeat(${cols}, 1fr)` }}>
           {/* Local video */}
           <div className={`video-tile ${isVideoOff ? 'video-off' : ''} ${micLevel > 0.05 ? 'speaking' : ''}`}>
             <video
