@@ -33,20 +33,15 @@ function getAudioCtx(): AudioContext {
   return _audioCtx;
 }
 
-// Разблокируем AudioContext при первом взаимодействии пользователя
-if (typeof window !== 'undefined') {
-  const unlockAudio = () => {
-    getAudioCtx().resume().catch(() => {});
-  };
-  window.addEventListener('pointerdown', unlockAudio, { once: false });
-  window.addEventListener('keydown', unlockAudio, { once: false });
-}
+// При любом взаимодействии пользователя — создаём и разблокируем контекст заранее
+window.addEventListener('pointerdown', () => getAudioCtx().resume().catch(() => {}), { passive: true });
+window.addEventListener('keydown',     () => getAudioCtx().resume().catch(() => {}), { passive: true });
 
-function playRingOnce() {
+async function playRingOnce(): Promise<void> {
   try {
     const ctx = getAudioCtx();
-    if (ctx.state === 'suspended') {
-      ctx.resume().catch(() => {});
+    if (ctx.state !== 'running') {
+      await ctx.resume(); // ждём разблокировки перед планированием нот
     }
     const gain = ctx.createGain();
     gain.connect(ctx.destination);
@@ -71,8 +66,8 @@ function playRingOnce() {
 }
 
 function startCallRingtone(): () => void {
-  playRingOnce();
-  const interval = window.setInterval(playRingOnce, 2000);
+  void playRingOnce();
+  const interval = window.setInterval(() => { void playRingOnce(); }, 2000);
   return () => window.clearInterval(interval);
 }
 
