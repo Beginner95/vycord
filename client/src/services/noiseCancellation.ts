@@ -156,7 +156,7 @@ class NoiseCancellationService {
             type: 'INIT',
             wasmBinaries: { rnnoiseWasm, deepfilterWasm },
             moduleId: 'deepfilternet',
-            moduleConfigs: {
+            config: {
               deepfilternet: { attenLimDb: 100, postFilterBeta: 0.02 },
             },
             debugLogs: false,
@@ -192,7 +192,7 @@ class NoiseCancellationService {
             frameLength,
             batchFrames: 1,
             stages: { denoise: 'deepfilternet' },
-            moduleConfigs: {
+            config: {
               deepfilternet: { attenLimDb: 100, postFilterBeta: 0.02 },
             },
           },
