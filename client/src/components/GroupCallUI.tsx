@@ -54,7 +54,7 @@ export function GroupCallUI() {
   const { messages, addMessage } = useMessageStore();
   const [isInGroupCall, setIsInGroupCall] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
-  const [isVideoOff, setIsVideoOff] = useState(false);
+  const [isVideoOff, setIsVideoOff] = useState(true);
   const [showChat, setShowChat] = useState(true);
   const [chatInput, setChatInput] = useState('');
   const [userCache, setUserCache] = useState<Map<string, string>>(new Map());
