@@ -175,6 +175,11 @@ export function GroupCallUI() {
           userIds.add(msg.user_id);
         }
       }
+      for (const p of participants) {
+        if (p.userId !== user?.id && !userCache.has(p.userId)) {
+          userIds.add(p.userId);
+        }
+      }
       for (const uid of userIds) {
         try {
           const fetched = await apiService.getUserById(uid) as User;
@@ -184,8 +189,8 @@ export function GroupCallUI() {
         }
       }
     };
-    if (messages.length > 0) fetchUsernames();
-  }, [messages, user, userCache]);
+    if (messages.length > 0 || participants.length > 0) fetchUsernames();
+  }, [messages, participants, user, userCache]);
 
   const handleSendMessage = useCallback(async (e: FormEvent) => {
     e.preventDefault();
@@ -245,7 +250,7 @@ export function GroupCallUI() {
               />
               {!p.stream && <div className="video-off-placeholder">📷</div>}
               <div className="video-label">
-                {p.userId.slice(0, 8)}
+                {userCache.get(p.userId) ?? p.userId.slice(0, 8)}
               </div>
             </div>
           ))}
