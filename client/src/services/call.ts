@@ -47,12 +47,15 @@ class CallService {
     try {
       this.remoteUserId = receiverId;
 
-      // Get local media stream
-      const rawStream = await navigator.mediaDevices.getUserMedia({
-        audio: true,
-        video: true,
-      });
+      // Get local media stream; fall back to audio-only if camera is unavailable
+      let rawStream: MediaStream;
+      try {
+        rawStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: true });
+      } catch {
+        rawStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+      }
       this.localStream = await noiseCancellationService.applyToStream(rawStream);
+      this.localStream.getVideoTracks().forEach((t) => { t.enabled = false; });
 
       // Create peer connection
       this.createPeerConnection();
@@ -100,11 +103,14 @@ class CallService {
   async acceptCall(): Promise<void> {
     if (!this.localStream) {
       try {
-        const rawStream = await navigator.mediaDevices.getUserMedia({
-          audio: true,
-          video: true,
-        });
+        let rawStream: MediaStream;
+        try {
+          rawStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: true });
+        } catch {
+          rawStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+        }
         this.localStream = await noiseCancellationService.applyToStream(rawStream);
+        this.localStream.getVideoTracks().forEach((t) => { t.enabled = false; });
       } catch (err) {
         this.callbacks?.onError('Failed to access microphone/camera');
         return;

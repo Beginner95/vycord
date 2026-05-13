@@ -53,6 +53,7 @@ class GroupCallService {
         });
       }
       this.localStream = await noiseCancellationService.applyToStream(rawStream);
+      this.localStream.getVideoTracks().forEach((t) => { t.enabled = false; });
 
       // Connect to SFU
       const wsUrl = `${SFU_URL}/ws?user_id=${userId}&room_id=${roomId}`;

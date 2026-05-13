@@ -47,7 +47,7 @@ export function CallUI() {
   const [activeCall, setActiveCall] = useState<{ call_id: string } | null>(null);
   const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
   const [isMuted, setIsMuted] = useState(false);
-  const [isVideoOff, setIsVideoOff] = useState(false);
+  const [isVideoOff, setIsVideoOff] = useState(true);
   const micLevel = useMicLevel(
     activeCall ? callService.localStreamState : null,
     isMuted,
