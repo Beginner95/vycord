@@ -14,6 +14,8 @@ interface RemotePeer {
   userId: string;
   stream: MediaStream | null;
   peerConnection: RTCPeerConnection | null;
+  receivedOffer: boolean;
+  sentOffer: boolean;
 }
 
 class GroupCallService {
@@ -187,6 +189,8 @@ class GroupCallService {
       userId,
       stream: remoteStream,
       peerConnection: pc,
+      receivedOffer: false,
+      sentOffer: false,
     });
 
     return pc;
@@ -199,6 +203,11 @@ class GroupCallService {
 
     const offer = await pc.createOffer();
     await pc.setLocalDescription(offer);
+
+    const peer = this.remotePeers.get(userId);
+    if (peer) {
+      peer.sentOffer = true;
+    }
 
     this.ws?.send(JSON.stringify({
       type: 'offer',
@@ -215,12 +224,12 @@ class GroupCallService {
 
     let peer = this.remotePeers.get(from_user_id);
     if (!peer || !peer.peerConnection) {
-      // Peer joined before we got peer_joined notification — create connection on demand
       this.createPeerConnection(from_user_id);
       peer = this.remotePeers.get(from_user_id);
     }
 
     if (peer && peer.peerConnection) {
+      peer.receivedOffer = true;
       await peer.peerConnection.setRemoteDescription(sdp);
       const answer = await peer.peerConnection.createAnswer();
       await peer.peerConnection.setLocalDescription(answer);
@@ -240,7 +249,7 @@ class GroupCallService {
     const { from_user_id, sdp } = payload;
     const peer = this.remotePeers.get(from_user_id);
 
-    if (peer && peer.peerConnection) {
+    if (peer && peer.peerConnection && (peer.receivedOffer || peer.sentOffer)) {
       await peer.peerConnection.setRemoteDescription(sdp);
     }
   }
