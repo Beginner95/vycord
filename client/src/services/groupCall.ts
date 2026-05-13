@@ -120,33 +120,33 @@ class GroupCallService {
 
   private async handleSFUMessage(data: string): Promise<void> {
     const msg = JSON.parse(data);
+    const payload = msg.payload ?? {};
 
     switch (msg.type) {
       case 'joined':
-        console.log('[GroupCall] Joined room:', msg.payload.room_id);
+        console.log('[GroupCall] Joined room:', payload.room_id);
         break;
 
       case 'peer_joined':
-        this.callbacks?.onPeerJoined(msg.payload.user_id);
-        // Create peer connection for new peer
-        await this.createPeerForUser(msg.payload.user_id);
+        this.callbacks?.onPeerJoined(payload.user_id);
+        await this.createPeerForUser(payload.user_id);
         break;
 
       case 'peer_left':
-        this.removePeer(msg.payload.user_id);
-        this.callbacks?.onPeerLeft(msg.payload.user_id);
+        this.removePeer(payload.user_id);
+        this.callbacks?.onPeerLeft(payload.user_id);
         break;
 
       case 'offer':
-        await this.handleOffer(msg.payload);
+        await this.handleOffer(payload);
         break;
 
       case 'answer':
-        await this.handleAnswer(msg.payload);
+        await this.handleAnswer(payload);
         break;
 
       case 'ice_candidate':
-        await this.handleICECandidate(msg.payload);
+        await this.handleICECandidate(payload);
         break;
     }
   }

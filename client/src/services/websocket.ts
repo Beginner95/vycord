@@ -85,14 +85,14 @@ class WebSocketService {
   private handleMessage = (event: MessageEvent): void => {
     try {
       const message: WSMessage = JSON.parse(event.data);
+      const payload = message.payload ?? null;
       const listenerSet = this.listeners.get(message.type);
       if (listenerSet) {
-        listenerSet.forEach((listener) => listener(message.payload));
+        listenerSet.forEach((listener) => listener(payload));
       }
 
-      // Also dispatch custom events for CallUI
       window.dispatchEvent(
-        new CustomEvent(`discrod:${message.type}`, { detail: message.payload })
+        new CustomEvent(`discrod:${message.type}`, { detail: payload })
       );
     } catch (error) {
       console.error('Failed to parse WebSocket message:', error);
