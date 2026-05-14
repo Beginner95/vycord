@@ -249,18 +249,21 @@ export function AppPage() {
     const currentSrv = useServerStore.getState().currentServer;
     apiService.updateLastVisited(currentSrv?.id ?? null, channel.id).catch(() => {});
 
-    // If voice channel, notify others and join group call
+    // If voice channel, join the group call; ring only if no one else is in the room yet.
     if (channel.type === 'voice' && user) {
-      wsService.send('voice_call_ring', {
-        channel_id: channel.id,
-        server_id: currentSrv?.id,
-        caller_id: user.id,
-        caller_name: user.username,
-        channel_name: channel.name,
-      });
-      const joinGroupCall = (window as unknown as Record<string, unknown>).joinGroupCall;
+      const joinGroupCall = (window as unknown as Record<string, unknown>).joinGroupCall as
+        ((id: string) => Promise<boolean>) | undefined;
       if (typeof joinGroupCall === 'function') {
-        await joinGroupCall(channel.id);
+        const isFirst = await joinGroupCall(channel.id);
+        if (isFirst) {
+          wsService.send('voice_call_ring', {
+            channel_id: channel.id,
+            server_id: currentSrv?.id,
+            caller_id: user.id,
+            caller_name: user.username,
+            channel_name: channel.name,
+          });
+        }
       }
     }
 

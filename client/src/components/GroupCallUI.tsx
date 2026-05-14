@@ -122,10 +122,11 @@ export function GroupCallUI() {
     });
   }, [participants]);
 
-  const handleJoinGroupCall = useCallback(async (roomId: string) => {
-    if (!user) return;
-    await groupCallService.joinGroupCall(roomId, user.id);
+  const handleJoinGroupCall = useCallback(async (roomId: string): Promise<boolean> => {
+    if (!user) return false;
+    const isFirst = await groupCallService.joinGroupCall(roomId, user.id);
     setIsInGroupCall(true);
+    return isFirst;
   }, [user]);
 
   const handleLeaveGroupCall = useCallback(() => {
