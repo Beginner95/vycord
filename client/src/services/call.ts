@@ -16,7 +16,7 @@ class CallService {
   private isInCall = false;
   private callbacks: WebRTCCallbacks | null = null;
   private pendingOffer: RTCSessionDescriptionInit | null = null;
-  private remoteDescriptionSet = false;
+  private callAccepted = false;
 
   private readonly iceServers: RTCConfiguration = {
     iceServers: [
@@ -123,29 +123,28 @@ class CallService {
       this.peerConnection!.addTrack(track, this.localStream!);
     });
 
-    // Signal call accept
+    this.callAccepted = true;
+
     if (this.currentCallId) {
       wsService.send('call_accept', { call_id: this.currentCallId });
     }
 
-    // Send answer if we have a pending offer or remote description was already set
-    // (race condition: offer may arrive before or after createPeerConnection())
-    const hasPendingOffer = !!(this.pendingOffer || this.remoteDescriptionSet);
-    if (hasPendingOffer && this.currentCallId) {
-      if (this.pendingOffer) {
-        await this.peerConnection!.setRemoteDescription(this.pendingOffer);
-        this.pendingOffer = null;
-      }
-      this.remoteDescriptionSet = false;
-
-      const answer = await this.peerConnection!.createAnswer();
-      await this.peerConnection!.setLocalDescription(answer);
-
-      wsService.send('webrtc_answer', {
-        target_user_id: this.remoteUserId ?? '',
-        sdp: this.peerConnection!.localDescription,
-      });
+    // If offer arrived before peer connection was ready it's stored in pendingOffer.
+    // If offer arrives after this point, handleWebRTCOffer will send the answer directly.
+    if (this.pendingOffer) {
+      await this.sendAnswer(this.pendingOffer);
+      this.pendingOffer = null;
     }
+  }
+
+  private async sendAnswer(offerSdp: RTCSessionDescriptionInit): Promise<void> {
+    await this.peerConnection!.setRemoteDescription(offerSdp);
+    const answer = await this.peerConnection!.createAnswer();
+    await this.peerConnection!.setLocalDescription(answer);
+    wsService.send('webrtc_answer', {
+      target_user_id: this.remoteUserId ?? '',
+      sdp: this.peerConnection!.localDescription,
+    });
   }
 
   rejectCall(): void {
@@ -246,17 +245,18 @@ class CallService {
       this.remoteUserId = data.from_user_id;
     }
 
-    if (this.peerConnection) {
-      this.peerConnection.setRemoteDescription(data.sdp).catch(console.error);
-      this.remoteDescriptionSet = true;
+    if (this.peerConnection && this.callAccepted) {
+      // Peer connection is ready - send answer immediately instead of relying on acceptCall
+      this.sendAnswer(data.sdp).catch(console.error);
     } else {
+      // acceptCall hasn't finished setting up yet; offer will be processed there
       this.pendingOffer = data.sdp;
     }
   };
 
   private handleWebRTCAnswer = (payload: unknown): void => {
     const data = payload as { from_user_id: string; sdp: RTCSessionDescriptionInit };
-    if (this.peerConnection) {
+    if (this.peerConnection && this.peerConnection.signalingState === 'have-local-offer') {
       this.peerConnection.setRemoteDescription(data.sdp).catch(console.error);
     }
   };
@@ -287,7 +287,7 @@ class CallService {
     this.remoteUserId = null;
     this.isInCall = false;
     this.pendingOffer = null;
-    this.remoteDescriptionSet = false;
+    this.callAccepted = false;
   }
 
   get isInCallState(): boolean {

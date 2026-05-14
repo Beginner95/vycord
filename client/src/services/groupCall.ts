@@ -240,7 +240,11 @@ class GroupCallService {
     const { from_user_id, sdp } = payload;
     const peer = this.remotePeers.get(from_user_id);
 
-    if (peer && peer.peerConnection) {
+    // Only accept an answer when we're waiting for one (have-local-offer).
+    // In a glare scenario both peers send offers simultaneously; once the
+    // cross-offer/answer cycle completes the state is already "stable" and
+    // the stale answer for our original offer must be ignored.
+    if (peer?.peerConnection?.signalingState === 'have-local-offer') {
       await peer.peerConnection.setRemoteDescription(sdp);
     }
   }
