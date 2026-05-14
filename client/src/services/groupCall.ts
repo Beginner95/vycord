@@ -29,61 +29,73 @@ class GroupCallService {
     this.callbacks = callbacks;
   }
 
-  async joinGroupCall(roomId: string, userId: string): Promise<void> {
+  async joinGroupCall(roomId: string, userId: string): Promise<boolean> {
     if (this.isInGroupCall) {
       this.callbacks?.onError('Already in a group call');
-      return;
+      return false;
     }
 
     this.currentUserId = userId;
     this.currentRoomId = roomId;
 
+    let rawStream: MediaStream;
     try {
-      // Get local media; fall back to audio-only if camera is busy or unavailable
-      let rawStream: MediaStream;
       try {
-        rawStream = await navigator.mediaDevices.getUserMedia({
-          audio: true,
-          video: true,
-        });
+        rawStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: true });
       } catch {
-        rawStream = await navigator.mediaDevices.getUserMedia({
-          audio: true,
-          video: false,
-        });
+        rawStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
       }
-      this.localStream = await noiseCancellationService.applyToStream(rawStream);
-      this.localStream.getVideoTracks().forEach((t) => { t.enabled = false; });
+    } catch (err) {
+      this.callbacks?.onError(err instanceof Error ? err.message : 'Failed to join group call');
+      return false;
+    }
 
-      // Connect to SFU
-      const wsUrl = `${SFU_URL}/ws?user_id=${userId}&room_id=${roomId}`;
-      this.ws = new WebSocket(wsUrl);
+    this.localStream = await noiseCancellationService.applyToStream(rawStream);
+    this.localStream.getVideoTracks().forEach((t) => { t.enabled = false; });
 
-      this.ws.onopen = () => {
-        // Join the room
+    const wsUrl = `${SFU_URL}/ws?user_id=${userId}&room_id=${roomId}`;
+    this.ws = new WebSocket(wsUrl);
+
+    // Resolve with true if this user is the first in the room (no existing peers),
+    // so the caller knows whether to send a ring notification.
+    return new Promise<boolean>((resolve) => {
+      let resolved = false;
+      const safeResolve = (value: boolean) => {
+        if (!resolved) { resolved = true; resolve(value); }
+      };
+
+      this.ws!.onopen = () => {
         this.ws?.send(JSON.stringify({
           type: 'join',
           payload: { room_id: roomId, user_id: userId },
         }));
-        this.isInGroupCall = true;
       };
 
-      this.ws.onmessage = (event) => {
-        this.handleSFUMessage(event.data);
+      this.ws!.onmessage = (event) => {
+        const msg = JSON.parse(event.data as string);
+        if (msg.type === 'joined') {
+          this.isInGroupCall = true;
+          const existingPeers: string[] = msg.payload?.existing_peers ?? [];
+          // Switch to the normal message handler for all subsequent messages
+          this.ws!.onmessage = (e) => { this.handleSFUMessage(e.data as string); };
+          safeResolve(existingPeers.length === 0);
+        } else {
+          this.handleSFUMessage(event.data as string);
+        }
       };
 
-      this.ws.onclose = () => {
+      this.ws!.onclose = () => {
+        safeResolve(false);
         this.isInGroupCall = false;
         this.callbacks?.onCallEnded();
         this.cleanup();
       };
 
-      this.ws.onerror = () => {
+      this.ws!.onerror = () => {
+        safeResolve(false);
         this.callbacks?.onError('SFU connection failed');
       };
-    } catch (err) {
-      this.callbacks?.onError(err instanceof Error ? err.message : 'Failed to join group call');
-    }
+    });
   }
 
   leaveGroupCall(): void {
