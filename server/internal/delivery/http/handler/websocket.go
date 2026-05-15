@@ -227,11 +227,21 @@ func (h *WebSocketHandler) handleCallStart(client *ws.Client, msg *ws.Message) {
 
 	call, err := h.callUseCase.StartCall(client.UserID, receiverID)
 	if err != nil {
+		h.log.Warn("call_start failed",
+			"caller_id", client.UserID,
+			"receiver_id", receiverID,
+			"error", err,
+		)
 		h.sendError(client, err.Error())
 		return
 	}
 
-	// Notify receiver
+	h.log.Info("call started",
+		"call_id", call.ID,
+		"caller_id", client.UserID,
+		"receiver_id", receiverID,
+	)
+
 	h.hub.SendToUser(receiverID, &ws.Message{
 		Type: "incoming_call",
 		Payload: mustMarshal(map[string]interface{}{
@@ -240,7 +250,6 @@ func (h *WebSocketHandler) handleCallStart(client *ws.Client, msg *ws.Message) {
 		}),
 	})
 
-	// Confirm to caller
 	h.hub.SendToUser(client.UserID, &ws.Message{
 		Type: "call_started",
 		Payload: mustMarshal(map[string]interface{}{
@@ -265,18 +274,27 @@ func (h *WebSocketHandler) handleCallAccept(client *ws.Client, msg *ws.Message) 
 	}
 
 	if err := h.callUseCase.AcceptCall(callID); err != nil {
+		h.log.Warn("call_accept failed",
+			"call_id", callID,
+			"user_id", client.UserID,
+			"error", err,
+		)
 		h.sendError(client, err.Error())
 		return
 	}
 
-	// Get call to find caller
 	call, err := h.callUseCase.GetActiveCall(client.UserID)
 	if err != nil {
 		h.sendError(client, "failed to get call")
 		return
 	}
 
-	// Notify caller that call was accepted
+	h.log.Info("call accepted",
+		"call_id", callID,
+		"caller_id", call.CallerID,
+		"receiver_id", client.UserID,
+	)
+
 	h.hub.SendToUser(call.CallerID, &ws.Message{
 		Type: "call_accepted",
 		Payload: mustMarshal(map[string]interface{}{
@@ -314,11 +332,21 @@ func (h *WebSocketHandler) handleCallReject(client *ws.Client, msg *ws.Message) 
 	}
 
 	if err := h.callUseCase.RejectCall(callID); err != nil {
+		h.log.Warn("call_reject failed",
+			"call_id", callID,
+			"user_id", client.UserID,
+			"error", err,
+		)
 		h.sendError(client, err.Error())
 		return
 	}
 
-	// Notify caller
+	h.log.Info("call rejected",
+		"call_id", callID,
+		"caller_id", call.CallerID,
+		"rejected_by", client.UserID,
+	)
+
 	h.hub.SendToUser(call.CallerID, &ws.Message{
 		Type: "call_rejected",
 		Payload: mustMarshal(map[string]interface{}{
@@ -349,15 +377,26 @@ func (h *WebSocketHandler) handleCallEnd(client *ws.Client, msg *ws.Message) {
 	}
 
 	if err := h.callUseCase.EndCall(callID); err != nil {
+		h.log.Warn("call_end failed",
+			"call_id", callID,
+			"user_id", client.UserID,
+			"error", err,
+		)
 		h.sendError(client, err.Error())
 		return
 	}
 
-	// Notify other party
 	otherID := call.CallerID
 	if otherID == client.UserID {
 		otherID = call.ReceiverID
 	}
+
+	h.log.Info("call ended",
+		"call_id", callID,
+		"ended_by", client.UserID,
+		"other_party", otherID,
+	)
+
 	h.hub.SendToUser(otherID, &ws.Message{
 		Type: "call_ended",
 		Payload: mustMarshal(map[string]interface{}{
@@ -391,7 +430,11 @@ func (h *WebSocketHandler) handleWebRTCOffer(client *ws.Client, msg *ws.Message)
 		return
 	}
 
-	// Forward offer to target
+	h.log.Info("forwarding WebRTC offer",
+		"from_user_id", client.UserID,
+		"target_user_id", targetID,
+	)
+
 	h.hub.SendToUser(targetID, &ws.Message{
 		Type: "webrtc_offer",
 		Payload: mustMarshal(map[string]interface{}{
@@ -417,7 +460,11 @@ func (h *WebSocketHandler) handleWebRTCAnswer(client *ws.Client, msg *ws.Message
 		return
 	}
 
-	// Forward answer to target
+	h.log.Info("forwarding WebRTC answer",
+		"from_user_id", client.UserID,
+		"target_user_id", targetID,
+	)
+
 	h.hub.SendToUser(targetID, &ws.Message{
 		Type: "webrtc_answer",
 		Payload: mustMarshal(map[string]interface{}{
@@ -443,7 +490,11 @@ func (h *WebSocketHandler) handleWebRTCICECandidate(client *ws.Client, msg *ws.M
 		return
 	}
 
-	// Forward ICE candidate to target
+	h.log.Debug("forwarding WebRTC ICE candidate",
+		"from_user_id", client.UserID,
+		"target_user_id", targetID,
+	)
+
 	h.hub.SendToUser(targetID, &ws.Message{
 		Type: "webrtc_ice_candidate",
 		Payload: mustMarshal(map[string]interface{}{
@@ -454,10 +505,28 @@ func (h *WebSocketHandler) handleWebRTCICECandidate(client *ws.Client, msg *ws.M
 }
 
 func (h *WebSocketHandler) handleVoiceCallRing(client *ws.Client, msg *ws.Message) {
+	var payload struct {
+		ChannelID string `json:"channel_id"`
+	}
+	if err := json.Unmarshal(msg.Payload, &payload); err == nil {
+		h.log.Info("voice call ring broadcast",
+			"from_user_id", client.UserID,
+			"channel_id", payload.ChannelID,
+		)
+	}
 	h.hub.BroadcastMessage(&ws.Message{Type: "voice_call_ring", Payload: msg.Payload})
 }
 
 func (h *WebSocketHandler) handleVoiceCallCancel(client *ws.Client, msg *ws.Message) {
+	var payload struct {
+		ChannelID string `json:"channel_id"`
+	}
+	if err := json.Unmarshal(msg.Payload, &payload); err == nil {
+		h.log.Info("voice call cancel broadcast",
+			"from_user_id", client.UserID,
+			"channel_id", payload.ChannelID,
+		)
+	}
 	h.hub.BroadcastMessage(&ws.Message{Type: "voice_call_cancel", Payload: msg.Payload})
 }
 

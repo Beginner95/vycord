@@ -183,6 +183,7 @@ class GroupCallService {
           payload: {
             room_id: this.currentRoomId,
             user_id: this.currentUserId,
+            target_user_id: userId,
             candidate: event.candidate,
           },
         }));
@@ -217,6 +218,7 @@ class GroupCallService {
       payload: {
         room_id: this.currentRoomId,
         user_id: this.currentUserId,
+        target_user_id: userId,
         sdp: pc.localDescription,
       },
     }));
@@ -242,6 +244,7 @@ class GroupCallService {
         payload: {
           room_id: this.currentRoomId,
           user_id: this.currentUserId,
+          target_user_id: from_user_id,
           sdp: peer.peerConnection.localDescription,
         },
       }));

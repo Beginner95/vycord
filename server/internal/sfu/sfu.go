@@ -246,14 +246,16 @@ type JoinPayload struct {
 
 // SDPPayload is the payload for SDP offer/answer
 type SDPPayload struct {
-	RoomID string          `json:"room_id"`
-	UserID string          `json:"user_id"`
-	SDP    json.RawMessage `json:"sdp"`
+	RoomID       string          `json:"room_id"`
+	UserID       string          `json:"user_id"`
+	TargetUserID string          `json:"target_user_id"`
+	SDP          json.RawMessage `json:"sdp"`
 }
 
 // ICEPayload is the payload for ICE candidates
 type ICEPayload struct {
-	RoomID    string          `json:"room_id"`
-	UserID    string          `json:"user_id"`
-	Candidate json.RawMessage `json:"candidate"`
+	RoomID       string          `json:"room_id"`
+	UserID       string          `json:"user_id"`
+	TargetUserID string          `json:"target_user_id"`
+	Candidate    json.RawMessage `json:"candidate"`
 }
