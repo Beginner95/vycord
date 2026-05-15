@@ -200,6 +200,17 @@ func (h *SFUHub) handleJoin(client *SFUClient, msg *sfu.PeerMessage) {
 
 	client.RoomID = payload.RoomID
 
+	// Collect peers already in the room before notifying them about the new joiner.
+	// The new client itself was added to h.rooms during register, so exclude it here.
+	existingPeers := []string{}
+	if roomClients, exists := h.rooms[payload.RoomID]; exists {
+		for userID := range roomClients {
+			if userID != client.UserID {
+				existingPeers = append(existingPeers, userID)
+			}
+		}
+	}
+
 	// Notify others
 	h.notifyRoomClients(payload.RoomID, client.UserID, "peer_joined", map[string]interface{}{
 		"user_id": client.UserID,
@@ -208,7 +219,8 @@ func (h *SFUHub) handleJoin(client *SFUClient, msg *sfu.PeerMessage) {
 	client.Send <- mustMarshal(map[string]interface{}{
 		"type": "joined",
 		"payload": map[string]interface{}{
-			"room_id": payload.RoomID,
+			"room_id":        payload.RoomID,
+			"existing_peers": existingPeers,
 		},
 	})
 }
