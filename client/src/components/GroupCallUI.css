@@ -199,6 +199,10 @@
   object-fit: cover;
 }
 
+.video-tile video.local-video {
+  transform: scaleX(-1);
+}
+
 .video-tile.video-off {
   background: linear-gradient(135deg, var(--bg-secondary), var(--brand-50));
 }
