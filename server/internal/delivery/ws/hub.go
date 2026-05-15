@@ -145,12 +145,19 @@ func (h *Hub) SendToUser(userID uuid.UUID, message *Message) {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 
-	if client, ok := h.clients[userID]; ok {
-		select {
-		case client.Send <- mustMarshal(message):
-		default:
-			h.log.Warn("failed to send message to user", "user_id", userID)
-		}
+	client, ok := h.clients[userID]
+	if !ok {
+		h.log.Warn("SendToUser: user not connected", "user_id", userID, "msg_type", message.Type)
+		return
+	}
+
+	select {
+	case client.Send <- mustMarshal(message):
+	default:
+		h.log.Warn("SendToUser: send channel full, dropping message",
+			"user_id", userID,
+			"msg_type", message.Type,
+		)
 	}
 }
 
