@@ -231,6 +231,7 @@ export function GroupCallUI() {
               autoPlay
               playsInline
               muted
+              className="local-video"
             />
             {isVideoOff && <div className="video-off-placeholder">📷</div>}
             <div className="video-label">
