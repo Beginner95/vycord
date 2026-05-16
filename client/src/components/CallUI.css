@@ -161,8 +161,6 @@
 
 .local-video {
   position: absolute;
-  bottom: 100px;
-  right: 20px;
   width: 220px;
   height: 160px;
   border-radius: var(--radius-lg);
