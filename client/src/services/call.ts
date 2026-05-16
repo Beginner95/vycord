@@ -246,7 +246,10 @@ class CallService {
     }
 
     if (this.peerConnection && this.callAccepted) {
-      // Peer connection is ready - send answer immediately instead of relying on acceptCall
+      // Ignore offers when not in stable state (glare scenario handling)
+      if (this.peerConnection.signalingState !== 'stable') {
+        return;
+      }
       this.sendAnswer(data.sdp).catch(console.error);
     } else {
       // acceptCall hasn't finished setting up yet; offer will be processed there
@@ -263,7 +266,7 @@ class CallService {
 
   private handleWebRTCICECandidate = (payload: unknown): void => {
     const data = payload as { from_user_id: string; candidate: RTCIceCandidateInit };
-    if (this.peerConnection) {
+    if (this.peerConnection && this.peerConnection.remoteDescription) {
       this.peerConnection.addIceCandidate(data.candidate).catch(console.error);
     }
   };

@@ -29,7 +29,7 @@
   color: var(--text-secondary);
   background: var(--bg-secondary);
   padding: 5px 14px;
-  border-radius: var(--radius-full);
+  border-radius: var(--radius-sm);
   font-weight: 500;
 }
 
@@ -186,21 +186,22 @@
   border-radius: var(--radius-lg);
   overflow: hidden;
   aspect-ratio: 16 / 9;
-  display: flex;
-  align-items: center;
-  justify-content: center;
   box-shadow: var(--shadow-md);
   border: 1px solid var(--border-subtle);
 }
 
 .video-tile video {
+  position: absolute;
+  inset: 0;
   width: 100%;
   height: 100%;
   object-fit: cover;
+  z-index: 0;
 }
 
 .video-tile video.local-video {
   transform: scaleX(-1);
+  transform-origin: center;
 }
 
 .video-tile.video-off {
@@ -208,8 +209,14 @@
 }
 
 .video-off-placeholder {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   font-size: 48px;
   opacity: 0.4;
+  z-index: 1;
 }
 
 .video-label {
@@ -224,6 +231,7 @@
   font-size: 12px;
   font-weight: 600;
   letter-spacing: 0.01em;
+  z-index: 2;
 }
 
 /* ── Mic Activity ── */
