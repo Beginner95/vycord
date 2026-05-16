@@ -114,8 +114,19 @@ func (h *SFUHub) Run() {
 func (h *SFUHub) notifyRoomClients(roomID, excludeUserID, eventType string, payload interface{}) {
 	roomClients, exists := h.rooms[roomID]
 	if !exists {
+		h.log.Warn("notifyRoomClients: room not found",
+			"room_id", roomID,
+			"event", eventType,
+		)
 		return
 	}
+
+	h.log.Info("notifyRoomClients",
+		"room_id", roomID,
+		"exclude_user_id", excludeUserID,
+		"event", eventType,
+		"total_room_clients", len(roomClients),
+	)
 
 	data, _ := json.Marshal(map[string]interface{}{
 		"type":    eventType,
@@ -125,11 +136,20 @@ func (h *SFUHub) notifyRoomClients(roomID, excludeUserID, eventType string, payl
 	notified := 0
 	for userID, client := range roomClients {
 		if userID == excludeUserID {
+			h.log.Debug("skipping excluded user",
+				"user_id", userID,
+				"event", eventType,
+			)
 			continue
 		}
 		select {
 		case client.Send <- data:
 			notified++
+			h.log.Info("sent event to client",
+				"event", eventType,
+				"target_user_id", userID,
+				"room_id", roomID,
+			)
 		default:
 			h.log.Warn("send channel full, dropping message",
 				"event", eventType,
@@ -139,11 +159,11 @@ func (h *SFUHub) notifyRoomClients(roomID, excludeUserID, eventType string, payl
 		}
 	}
 
-	h.log.Debug("notified room clients",
+	h.log.Info("notified room clients complete",
 		"event", eventType,
 		"room_id", roomID,
 		"excluded_user_id", excludeUserID,
-		"notified", notified,
+		"notified_count", notified,
 	)
 }
 
