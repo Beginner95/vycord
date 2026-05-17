@@ -2,7 +2,42 @@ import { noiseCancellationService } from './noiseCancellation';
 
 const SFU_URL = import.meta.env.VITE_SFU_URL || 'ws://localhost:8081';
 
-interface GroupCallCallbacks {
+// ─── Signaling protocol types ────────────────────────────────────────────────
+
+interface SignalingMessage {
+  type: string;
+  payload: unknown;
+}
+
+interface JoinedPayload {
+  room_id: string;
+  existing_peers: string[];
+}
+
+interface OfferPayload {
+  type: 'offer';
+  sdp: string;
+}
+
+interface IceCandidatePayload {
+  candidate: string;
+  sdpMid: string | null;
+  sdpMLineIndex: number | null;
+  usernameFragment: string | null;
+}
+
+interface ParticipantEventPayload {
+  user_id: string;
+}
+
+interface ErrorPayload {
+  code: string;
+  message: string;
+}
+
+// ─── Public API ──────────────────────────────────────────────────────────────
+
+export interface GroupCallCallbacks {
   onRemoteStream: (userId: string, stream: MediaStream) => void;
   onPeerJoined: (userId: string) => void;
   onPeerLeft: (userId: string) => void;
@@ -10,171 +45,143 @@ interface GroupCallCallbacks {
   onError: (error: string) => void;
 }
 
-interface RemotePeer {
-  userId: string;
-  stream: MediaStream | null;
-  peerConnection: RTCPeerConnection | null;
-}
+// ─── Internal state ──────────────────────────────────────────────────────────
+
+// Maps stream ID (= remote user ID) to the MediaStream accumulating their tracks.
+type RemoteStreams = Map<string, MediaStream>;
 
 class GroupCallService {
-  private localStream: MediaStream | null = null;
-  private remotePeers: Map<string, RemotePeer> = new Map();
-  private pendingCandidates: Map<string, RTCIceCandidateInit[]> = new Map();
-  private callbacks: GroupCallCallbacks | null = null;
   private ws: WebSocket | null = null;
-  private currentUserId: string = '';
-  private currentRoomId: string = '';
-  private isInGroupCall = false;
+  private pc: RTCPeerConnection | null = null;
+  private localStream: MediaStream | null = null;
+
+  // Keyed by the remote user's ID (= pion stream ID on track events).
+  private remoteStreams: RemoteStreams = new Map();
+
+  // ICE candidates buffered before setRemoteDescription has been called.
+  private pendingCandidates: RTCIceCandidateInit[] = [];
+
+  private callbacks: GroupCallCallbacks | null = null;
+  private currentUserId = '';
+  private currentRoomId = '';
+  private inCall = false;
+
+  // ── Lifecycle ──────────────────────────────────────────────────────────────
 
   init(callbacks: GroupCallCallbacks): void {
     this.callbacks = callbacks;
   }
 
   async joinGroupCall(roomId: string, userId: string): Promise<boolean> {
-    if (this.isInGroupCall) {
-      this.callbacks?.onError('Already in a group call');
+    if (this.inCall) {
+      this.callbacks?.onError('Already in a call');
       return false;
     }
 
     this.currentUserId = userId;
     this.currentRoomId = roomId;
 
-    let rawStream: MediaStream;
     try {
-      try {
-        rawStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: true });
-      } catch {
-        rawStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
-      }
+      const raw = await this.acquireMedia();
+      this.localStream = await noiseCancellationService.applyToStream(raw);
+      // Video starts disabled to avoid immediate bandwidth spike.
+      this.localStream.getVideoTracks().forEach((t) => { t.enabled = false; });
     } catch (err) {
-      this.callbacks?.onError(err instanceof Error ? err.message : 'Failed to join group call');
+      this.callbacks?.onError(err instanceof Error ? err.message : 'Media access denied');
       return false;
     }
 
-    this.localStream = await noiseCancellationService.applyToStream(rawStream);
-    this.localStream.getVideoTracks().forEach((t) => { t.enabled = false; });
+    return this.connectSignaling(roomId, userId);
+  }
 
-    const wsUrl = `${SFU_URL}/ws?user_id=${userId}&room_id=${roomId}`;
-    this.ws = new WebSocket(wsUrl);
+  leaveGroupCall(): void {
+    if (this.ws?.readyState === WebSocket.OPEN) {
+      this.ws.send(JSON.stringify({ type: 'leave', payload: {} }));
+      this.ws.close();
+    }
+    this.teardown();
+  }
 
-    // Resolve with true if this user is the first in the room (no existing peers),
-    // so the caller knows whether to send a ring notification.
+  // ── Controls ───────────────────────────────────────────────────────────────
+
+  toggleMuteAudio(): boolean {
+    const t = this.localStream?.getAudioTracks()[0];
+    if (!t) return false;
+    t.enabled = !t.enabled;
+    return !t.enabled; // true = muted
+  }
+
+  toggleMuteVideo(): boolean {
+    const t = this.localStream?.getVideoTracks()[0];
+    if (!t) return false;
+    t.enabled = !t.enabled;
+    return !t.enabled; // true = video off
+  }
+
+  // ── Accessors ─────────────────────────────────────────────────────────────
+
+  get isInGroupCallState(): boolean { return this.inCall; }
+  get currentRoomIdState(): string { return this.currentRoomId; }
+  get localStreamState(): MediaStream | null { return this.localStream; }
+  get peerCount(): number { return this.remoteStreams.size; }
+
+  // ── Private: media acquisition ────────────────────────────────────────────
+
+  private async acquireMedia(): Promise<MediaStream> {
+    try {
+      return await navigator.mediaDevices.getUserMedia({ audio: true, video: true });
+    } catch {
+      // Fall back to audio-only if camera is unavailable.
+      return navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+    }
+  }
+
+  // ── Private: signaling connection ─────────────────────────────────────────
+
+  private connectSignaling(roomId: string, userId: string): Promise<boolean> {
+    const url = `${SFU_URL}/ws?user_id=${userId}&room_id=${roomId}`;
+    this.ws = new WebSocket(url);
+
     return new Promise<boolean>((resolve) => {
       let resolved = false;
-      const safeResolve = (value: boolean) => {
-        if (!resolved) { resolved = true; resolve(value); }
-      };
+      const settle = (v: boolean) => { if (!resolved) { resolved = true; resolve(v); } };
 
       this.ws!.onopen = () => {
-        this.ws?.send(JSON.stringify({
-          type: 'join',
-          payload: { room_id: roomId, user_id: userId },
-        }));
+        // The server creates the PC on its side upon WS upgrade — no explicit join message needed.
+        // The server will immediately send us an "offer".
       };
 
-      this.ws!.onmessage = (event) => {
-        const msg = JSON.parse(event.data as string);
+      this.ws!.onmessage = (e) => {
+        const msg = JSON.parse(e.data as string) as SignalingMessage;
         if (msg.type === 'joined') {
-          this.isInGroupCall = true;
-          const existingPeers: string[] = msg.payload?.existing_peers ?? [];
-          // Switch to the normal message handler for all subsequent messages
-          this.ws!.onmessage = (e) => { this.handleSFUMessage(e.data as string); };
-          safeResolve(existingPeers.length === 0);
+          this.inCall = true;
+          this.ws!.onmessage = (ev) => {
+            void this.handleMessage(JSON.parse(ev.data as string) as SignalingMessage);
+          };
+          settle(((msg.payload as JoinedPayload).existing_peers?.length ?? 0) === 0);
         } else {
-          this.handleSFUMessage(event.data as string);
+          // Server may send an offer before 'joined' arrives — handle immediately.
+          void this.handleMessage(msg).then(() => { /* no-op */ });
         }
       };
 
       this.ws!.onclose = () => {
-        safeResolve(false);
-        this.isInGroupCall = false;
+        settle(false);
+        this.inCall = false;
         this.callbacks?.onCallEnded();
-        this.cleanup();
+        this.teardown();
       };
 
       this.ws!.onerror = () => {
-        safeResolve(false);
+        settle(false);
         this.callbacks?.onError('SFU connection failed');
       };
     });
   }
 
-  leaveGroupCall(): void {
-    if (this.ws) {
-      if (this.ws.readyState === WebSocket.OPEN) {
-        this.ws.send(JSON.stringify({ type: 'leave', payload: {} }));
-      }
-      this.ws.close();
-    }
-    this.cleanup();
-  }
+  // ── Private: PeerConnection creation ─────────────────────────────────────
 
-  toggleMuteAudio(): boolean {
-    if (!this.localStream) return false;
-    const audioTrack = this.localStream.getAudioTracks()[0];
-    if (audioTrack) {
-      audioTrack.enabled = !audioTrack.enabled;
-      return !audioTrack.enabled;
-    }
-    return false;
-  }
-
-  toggleMuteVideo(): boolean {
-    if (!this.localStream) return false;
-    const videoTrack = this.localStream.getVideoTracks()[0];
-    if (videoTrack) {
-      videoTrack.enabled = !videoTrack.enabled;
-      return !videoTrack.enabled;
-    }
-    return false;
-  }
-
-  private async handleSFUMessage(data: string): Promise<void> {
-    const msg = JSON.parse(data);
-
-    switch (msg.type) {
-      case 'joined':
-        console.log('[GroupCall] Joined room:', msg.payload.room_id);
-        break;
-
-      case 'peer_joined':
-        console.log('[GroupCall] peer_joined received:', msg.payload.user_id);
-        console.log('[GroupCall] current remotePeers size:', this.remotePeers.size);
-        this.callbacks?.onPeerJoined(msg.payload.user_id);
-        console.log('[GroupCall] creating peer for:', msg.payload.user_id);
-        await this.createPeerForUser(msg.payload.user_id);
-        console.log('[GroupCall] after createPeerForUser, remotePeers size:', this.remotePeers.size);
-        break;
-
-      case 'peer_left':
-        this.removePeer(msg.payload.user_id);
-        this.callbacks?.onPeerLeft(msg.payload.user_id);
-        break;
-
-      case 'offer':
-        console.log('[GroupCall] offer received from:', msg.payload.from_user_id);
-        await this.handleOffer(msg.payload);
-        console.log('[GroupCall] offer handling complete');
-        break;
-
-      case 'answer':
-        console.log('[GroupCall] answer received from:', msg.payload.from_user_id);
-        await this.handleAnswer(msg.payload);
-        console.log('[GroupCall] answer handling complete');
-        break;
-
-      case 'ice_candidate':
-        console.log('[GroupCall] ice_candidate received from:', msg.payload.from_user_id);
-        await this.handleICECandidate(msg.payload);
-        console.log('[GroupCall] ice_candidate handling complete');
-        break;
-    }
-  }
-
-  private createPeerConnection(userId: string): RTCPeerConnection {
-    console.log('[GroupCall] createPeerConnection called for:', userId);
-    const remoteStream = new MediaStream();
-
+  private createPeerConnection(): RTCPeerConnection {
     const pc = new RTCPeerConnection({
       iceServers: [
         { urls: 'stun:stun.l.google.com:19302' },
@@ -182,267 +189,134 @@ class GroupCallService {
       ],
     });
 
+    // Publish local media as sendonly streams.
+    // Using addTransceiver (sendonly) avoids the SFU needing to echo tracks back.
+    if (this.localStream) {
+      for (const track of this.localStream.getTracks()) {
+        pc.addTransceiver(track, { direction: 'sendonly', streams: [this.localStream] });
+      }
+    }
+
     pc.ontrack = (event) => {
-      console.log('[GroupCall] ontrack fired for', userId, 'track:', event.track.kind);
-      remoteStream.addTrack(event.track);
-      this.callbacks?.onRemoteStream(userId, remoteStream);
+      // pion sets streamID = publisher's userID — use it as the key.
+      const streamId = event.streams[0]?.id ?? event.track.id;
+      if (streamId === this.currentUserId) return; // echo guard
+
+      let stream = this.remoteStreams.get(streamId);
+      if (!stream) {
+        stream = event.streams[0] ?? new MediaStream();
+        this.remoteStreams.set(streamId, stream);
+      }
+      if (!stream.getTrackById(event.track.id)) {
+        stream.addTrack(event.track);
+      }
+      this.callbacks?.onRemoteStream(streamId, stream);
     };
 
     pc.onicecandidate = (event) => {
-      if (event.candidate && this.ws) {
-        console.log('[GroupCall] ICE candidate generated for', userId, ':', event.candidate.candidate?.substring(0, 50));
+      if (event.candidate && this.ws?.readyState === WebSocket.OPEN) {
         this.ws.send(JSON.stringify({
           type: 'ice_candidate',
-          payload: {
-            room_id: this.currentRoomId,
-            user_id: this.currentUserId,
-            target_user_id: userId,
-            candidate: event.candidate,
-          },
+          payload: event.candidate.toJSON(),
         }));
-      } else if (event.candidate) {
-        console.log('[GroupCall] ICE candidate for', userId, 'but ws not ready');
       }
-    };
-
-    pc.oniceconnectionstatechange = () => {
-      console.log('[GroupCall] ICE connection state for', userId, ':', pc.iceConnectionState, 'signalingState:', pc.signalingState);
     };
 
     pc.onconnectionstatechange = () => {
-      console.log('[GroupCall] PC connection state for', userId, ':', pc.connectionState, 'signalingState:', pc.signalingState);
+      if (pc.connectionState === 'failed') {
+        this.callbacks?.onError('WebRTC connection failed');
+      }
     };
 
-    pc.onsignalingstatechange = () => {
-      console.log('[GroupCall] PC signaling state changed for', userId, ':', pc.signalingState, 'connectionState:', pc.connectionState);
-    };
-
-    if (this.localStream) {
-      this.localStream.getTracks().forEach((track) => {
-        pc.addTrack(track, this.localStream!);
-      });
-      console.log('[GroupCall] added local tracks to PC for', userId);
-    }
-
-    this.remotePeers.set(userId, {
-      userId,
-      stream: remoteStream,
-      peerConnection: pc,
-    });
-
-    console.log('[GroupCall] peer stored in remotePeers for:', userId, 'total:', this.remotePeers.size);
     return pc;
   }
 
-  private async createPeerForUser(userId: string): Promise<void> {
-    console.log('[GroupCall] createPeerForUser START for:', userId);
-    if (this.remotePeers.has(userId)) {
-      console.log('[GroupCall] peer already exists, skipping:', userId);
-      return;
+  // ── Private: signaling message routing ────────────────────────────────────
+
+  private async handleMessage(msg: SignalingMessage): Promise<void> {
+    switch (msg.type) {
+      case 'offer':
+        await this.handleOffer(msg.payload as OfferPayload);
+        break;
+
+      case 'ice_candidate':
+        await this.handleIceCandidate(msg.payload as IceCandidatePayload);
+        break;
+
+      case 'participant_joined':
+        this.callbacks?.onPeerJoined((msg.payload as ParticipantEventPayload).user_id);
+        break;
+
+      case 'participant_left': {
+        const { user_id } = msg.payload as ParticipantEventPayload;
+        this.remoteStreams.delete(user_id);
+        this.callbacks?.onPeerLeft(user_id);
+        break;
+      }
+
+      case 'error':
+        this.callbacks?.onError((msg.payload as ErrorPayload).message);
+        break;
+
+      default:
+        break;
     }
-
-    const pc = this.createPeerConnection(userId);
-
-    console.log('[GroupCall] creating SDP offer for:', userId);
-    const offer = await pc.createOffer();
-    console.log('[GroupCall] SDP offer created, setting local description');
-    await pc.setLocalDescription(offer);
-    console.log('[GroupCall] local description set, sending offer via WS');
-
-    if (this.ws?.readyState !== WebSocket.OPEN) {
-      console.error('[GroupCall] WebSocket not ready, cannot send offer to:', userId, 'readyState:', this.ws?.readyState);
-      return;
-    }
-
-    this.ws.send(JSON.stringify({
-      type: 'offer',
-      payload: {
-        room_id: this.currentRoomId,
-        user_id: this.currentUserId,
-        target_user_id: userId,
-        sdp: pc.localDescription,
-      },
-    }));
-    console.log('[GroupCall] offer sent successfully to SFU for:', userId);
   }
 
-  private async handleOffer(payload: { from_user_id: string; sdp: RTCSessionDescriptionInit }): Promise<void> {
-    const { from_user_id, sdp } = payload;
-    console.log('[GroupCall] handleOffer: from', from_user_id, 'existing peer:', this.remotePeers.has(from_user_id));
+  // ── Private: offer/answer ─────────────────────────────────────────────────
 
-    let peer = this.remotePeers.get(from_user_id);
-
-    if (peer?.peerConnection) {
-      const connState = peer.peerConnection.connectionState;
-      if (connState === 'connected' || connState === 'connecting') {
-        console.warn('[GroupCall] handleOffer: skipping re-offer from', from_user_id, '— connection already', connState);
-        return;
-      }
-      if (connState === 'failed' || connState === 'closed') {
-        console.log('[GroupCall] handleOffer: replacing', connState, 'PC for', from_user_id);
-        peer.peerConnection.close();
-        this.remotePeers.delete(from_user_id);
-        this.pendingCandidates.delete(from_user_id);
-        peer = undefined;
-      }
+  private async handleOffer(payload: OfferPayload): Promise<void> {
+    // Server-initiated offer: create PC on first offer, reuse on renegotiation.
+    if (!this.pc) {
+      this.pc = this.createPeerConnection();
     }
 
-    if (!peer?.peerConnection) {
-      console.log('[GroupCall] handleOffer: creating peer on-demand for', from_user_id);
-      this.createPeerConnection(from_user_id);
-      peer = this.remotePeers.get(from_user_id);
+    await this.pc.setRemoteDescription({ type: payload.type, sdp: payload.sdp });
+
+    // Flush any ICE candidates that arrived before remote description.
+    for (const c of this.pendingCandidates) {
+      await this.pc.addIceCandidate(c).catch(() => { /* stale candidate */ });
     }
+    this.pendingCandidates = [];
 
-    if (!peer?.peerConnection) {
-      console.error('[GroupCall] handleOffer: peer or peerConnection is null for', from_user_id);
-      return;
-    }
+    const answer = await this.pc.createAnswer();
+    await this.pc.setLocalDescription(answer);
 
-    const pc = peer.peerConnection;
-    console.log('[GroupCall] handleOffer: signalingState:', pc.signalingState);
-
-    if (pc.signalingState !== 'stable') {
-      console.warn('[GroupCall] handleOffer: skipping offer from', from_user_id, '— signalingState:', pc.signalingState);
-      return;
-    }
-
-    await pc.setRemoteDescription(sdp);
-    console.log('[GroupCall] handleOffer: remote description set for', from_user_id);
-
-    // Apply any ICE candidates that arrived before remote description was ready
-    await this.flushPendingCandidates(from_user_id, pc);
-
-    const answer = await pc.createAnswer();
-    await pc.setLocalDescription(answer);
-
-    if (this.ws?.readyState !== WebSocket.OPEN) {
-      console.error('[GroupCall] handleOffer: WebSocket not ready, cannot send answer');
-      return;
-    }
-
-    this.ws.send(JSON.stringify({
+    this.ws?.send(JSON.stringify({
       type: 'answer',
-      payload: {
-        room_id: this.currentRoomId,
-        user_id: this.currentUserId,
-        target_user_id: from_user_id,
-        sdp: pc.localDescription,
-      },
+      payload: { type: answer.type, sdp: answer.sdp },
     }));
-    console.log('[GroupCall] handleOffer: answer sent to', from_user_id, 'connectionState:', pc.connectionState);
   }
 
-  private async handleAnswer(payload: { from_user_id: string; sdp: RTCSessionDescriptionInit }): Promise<void> {
-    const { from_user_id, sdp } = payload;
-    const peer = this.remotePeers.get(from_user_id);
-    const state = peer?.peerConnection?.signalingState;
-    console.log('[GroupCall] handleAnswer: from', from_user_id, 'signalingState:', state);
+  private async handleIceCandidate(payload: IceCandidatePayload): Promise<void> {
+    const init: RTCIceCandidateInit = {
+      candidate: payload.candidate,
+      sdpMid: payload.sdpMid,
+      sdpMLineIndex: payload.sdpMLineIndex,
+      usernameFragment: payload.usernameFragment ?? undefined,
+    };
 
-    if (!peer?.peerConnection) {
-      console.warn('[GroupCall] handleAnswer: peer not found for', from_user_id);
+    if (!this.pc?.remoteDescription) {
+      this.pendingCandidates.push(init);
       return;
     }
 
-    const pc = peer.peerConnection;
-
-    if (state !== 'have-local-offer') {
-      console.warn('[GroupCall] handleAnswer: unexpected signalingState', state, 'for', from_user_id, '— ignoring answer');
-      return;
-    }
-
-    try {
-      await pc.setRemoteDescription(sdp);
-      console.log('[GroupCall] handleAnswer: remote description set for', from_user_id, 'signalingState:', pc.signalingState);
-
-      // Apply any ICE candidates that arrived before remote description was ready
-      await this.flushPendingCandidates(from_user_id, pc);
-    } catch (err) {
-      console.error('[GroupCall] handleAnswer: failed to set remote description for', from_user_id, err);
-    }
+    await this.pc.addIceCandidate(init).catch(() => { /* stale */ });
   }
 
-  private async handleICECandidate(payload: { from_user_id: string; candidate: RTCIceCandidateInit }): Promise<void> {
-    const { from_user_id, candidate } = payload;
-    const peer = this.remotePeers.get(from_user_id);
+  // ── Private: cleanup ──────────────────────────────────────────────────────
 
-    if (!peer?.peerConnection) {
-      // Peer connection not created yet — buffer the candidate
-      const buf = this.pendingCandidates.get(from_user_id) ?? [];
-      buf.push(candidate);
-      this.pendingCandidates.set(from_user_id, buf);
-      console.log('[GroupCall] handleICECandidate: buffered candidate for', from_user_id, '(peer not ready), total buffered:', buf.length);
-      return;
-    }
+  private teardown(): void {
+    this.pc?.close();
+    this.pc = null;
 
-    if (!peer.peerConnection.remoteDescription) {
-      // Peer connection exists but remote description not set yet — buffer
-      const buf = this.pendingCandidates.get(from_user_id) ?? [];
-      buf.push(candidate);
-      this.pendingCandidates.set(from_user_id, buf);
-      console.log('[GroupCall] handleICECandidate: buffered candidate for', from_user_id, '(no remote desc), total buffered:', buf.length);
-      return;
-    }
+    this.localStream?.getTracks().forEach((t) => t.stop());
+    this.localStream = null;
 
-    try {
-      await peer.peerConnection.addIceCandidate(candidate);
-    } catch (err) {
-      console.warn('[GroupCall] handleICECandidate: failed to add candidate for', from_user_id, err);
-    }
-  }
-
-  private async flushPendingCandidates(userId: string, pc: RTCPeerConnection): Promise<void> {
-    const buffered = this.pendingCandidates.get(userId);
-    if (!buffered?.length) return;
-
-    console.log('[GroupCall] flushing', buffered.length, 'buffered ICE candidates for', userId);
-    this.pendingCandidates.delete(userId);
-
-    for (const candidate of buffered) {
-      try {
-        await pc.addIceCandidate(candidate);
-      } catch (err) {
-        console.warn('[GroupCall] failed to add buffered ICE candidate for', userId, err);
-      }
-    }
-  }
-
-  private removePeer(userId: string): void {
-    const peer = this.remotePeers.get(userId);
-    if (peer) {
-      peer.peerConnection?.close();
-      this.remotePeers.delete(userId);
-    }
-  }
-
-  private cleanup(): void {
-    if (this.localStream) {
-      this.localStream.getTracks().forEach((track) => track.stop());
-      this.localStream = null;
-    }
-
-    this.remotePeers.forEach((peer) => {
-      peer.peerConnection?.close();
-    });
-    this.remotePeers.clear();
-    this.pendingCandidates.clear();
-
-    this.isInGroupCall = false;
-  }
-
-  get isInGroupCallState(): boolean {
-    return this.isInGroupCall;
-  }
-
-  get currentRoomIdState(): string {
-    return this.currentRoomId;
-  }
-
-  get localStreamState(): MediaStream | null {
-    return this.localStream;
-  }
-
-  get peerCount(): number {
-    return this.remotePeers.size;
+    this.remoteStreams.clear();
+    this.pendingCandidates = [];
+    this.inCall = false;
+    this.ws = null;
   }
 }
 
