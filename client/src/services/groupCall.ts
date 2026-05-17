@@ -271,7 +271,23 @@ class GroupCallService {
     console.log('[GroupCall] handleOffer: from', from_user_id, 'existing peer:', this.remotePeers.has(from_user_id));
 
     let peer = this.remotePeers.get(from_user_id);
-    if (!peer || !peer.peerConnection) {
+
+    if (peer?.peerConnection) {
+      const connState = peer.peerConnection.connectionState;
+      if (connState === 'connected' || connState === 'connecting') {
+        console.warn('[GroupCall] handleOffer: skipping re-offer from', from_user_id, '— connection already', connState);
+        return;
+      }
+      if (connState === 'failed' || connState === 'closed') {
+        console.log('[GroupCall] handleOffer: replacing', connState, 'PC for', from_user_id);
+        peer.peerConnection.close();
+        this.remotePeers.delete(from_user_id);
+        this.pendingCandidates.delete(from_user_id);
+        peer = undefined;
+      }
+    }
+
+    if (!peer?.peerConnection) {
       console.log('[GroupCall] handleOffer: creating peer on-demand for', from_user_id);
       this.createPeerConnection(from_user_id);
       peer = this.remotePeers.get(from_user_id);
