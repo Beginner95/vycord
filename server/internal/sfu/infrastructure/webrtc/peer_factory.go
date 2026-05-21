@@ -15,7 +15,12 @@ type PeerFactory struct {
 	cfg webrtc.Configuration
 }
 
-func NewPeerFactory(iceURLs []string) (*PeerFactory, error) {
+// NewPeerFactory creates a PeerFactory.
+// iceURLs: STUN/TURN server URLs for ICE.
+// publicIP: if non-empty, pion announces this IP as a host candidate so that
+// clients can reach the SFU when it runs behind Docker NAT or any 1:1 NAT.
+// Set via the SFU_PUBLIC_IP environment variable.
+func NewPeerFactory(iceURLs []string, publicIP string) (*PeerFactory, error) {
 	m := &webrtc.MediaEngine{}
 	if err := m.RegisterDefaultCodecs(); err != nil {
 		return nil, fmt.Errorf("register codecs: %w", err)
@@ -27,9 +32,17 @@ func NewPeerFactory(iceURLs []string) (*PeerFactory, error) {
 		return nil, fmt.Errorf("register interceptors: %w", err)
 	}
 
+	se := webrtc.SettingEngine{}
+	if publicIP != "" {
+		// Map the internal IP to the public IP so ICE host candidates advertise
+		// the reachable address instead of the Docker-internal one.
+		se.SetNAT1To1IPs([]string{publicIP}, webrtc.ICECandidateTypeHost)
+	}
+
 	api := webrtc.NewAPI(
 		webrtc.WithMediaEngine(m),
 		webrtc.WithInterceptorRegistry(i),
+		webrtc.WithSettingEngine(se),
 	)
 
 	servers := make([]webrtc.ICEServer, 0, len(iceURLs))

@@ -32,6 +32,10 @@ type negotiator struct {
 
 	trigCh   chan struct{}                  // buffered(1): at most one pending trigger
 	answerCh chan webrtc.SessionDescription // client's answer for the current offer
+
+	// onAnswerApplied is called after each successful SetRemoteDescription(answer).
+	// Used to flush ICE candidates that were buffered before the answer arrived.
+	onAnswerApplied func()
 }
 
 func newNegotiator(pc *webrtc.PeerConnection, session SignalingSession, log *slog.Logger) *negotiator {
@@ -132,6 +136,10 @@ func (n *negotiator) negotiate(ctx context.Context) error {
 		n.log.Debug("negotiation complete",
 			"signaling_state", n.pc.SignalingState().String(),
 		)
+		// Flush ICE candidates that arrived before this answer was applied.
+		if n.onAnswerApplied != nil {
+			n.onAnswerApplied()
+		}
 	}
 	return nil
 }

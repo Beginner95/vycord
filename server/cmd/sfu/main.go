@@ -31,7 +31,9 @@ func main() {
 		iceURLs = append(iceURLs, turnURL)
 	}
 
-	peerFactory, err := sfuwebrtc.NewPeerFactory(iceURLs)
+	publicIP := os.Getenv("SFU_PUBLIC_IP") // set when SFU runs behind Docker NAT
+
+	peerFactory, err := sfuwebrtc.NewPeerFactory(iceURLs, publicIP)
 	if err != nil {
 		log.Error("failed to create peer factory", "error", err)
 		os.Exit(1)

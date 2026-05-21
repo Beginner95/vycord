@@ -3,6 +3,7 @@ package application
 import (
 	"context"
 	"log/slog"
+	"sync"
 
 	"github.com/pion/webrtc/v4"
 
@@ -25,6 +26,13 @@ type ParticipantSession struct {
 
 	ctx    context.Context
 	cancel context.CancelFunc
+
+	// ICE candidates buffered before the first SetRemoteDescription(answer).
+	// readPump delivers candidates synchronously while the negotiate() goroutine
+	// is still calling SetRemoteDescription — buffering prevents "remote description
+	// is not set" errors from pion.
+	pendingICE []webrtc.ICECandidateInit
+	iceMu      sync.Mutex
 
 	// onTrack is invoked by the room session whenever this participant publishes a new track.
 	onTrack func(p *domain.Participant, track *domain.PublishedTrack, remote *webrtc.TrackRemote)
@@ -50,6 +58,7 @@ func NewParticipantSession(
 	}
 
 	ps.neg = newNegotiator(pc, session, log)
+	ps.neg.onAnswerApplied = ps.flushPendingICE
 
 	pc.OnICECandidate(ps.handleICECandidate)
 	pc.OnTrack(ps.handleRemoteTrack)
@@ -84,8 +93,36 @@ func (ps *ParticipantSession) DeliverAnswer(sdp webrtc.SessionDescription) {
 }
 
 // AddICECandidate delivers a client-side ICE candidate to pion.
+// Candidates that arrive before SetRemoteDescription(answer) are buffered and
+// flushed by flushPendingICE once the answer has been applied. This avoids
+// "remote description is not set" errors caused by readPump racing the negotiate
+// goroutine when the client sends ICE candidates simultaneously with its answer.
 func (ps *ParticipantSession) AddICECandidate(c webrtc.ICECandidateInit) error {
+	ps.iceMu.Lock()
+	defer ps.iceMu.Unlock()
+	if ps.pc.RemoteDescription() == nil {
+		ps.pendingICE = append(ps.pendingICE, c)
+		return nil
+	}
 	return ps.pc.AddICECandidate(c)
+}
+
+// flushPendingICE adds all buffered ICE candidates now that SetRemoteDescription
+// has been called. Called by the negotiator after processing each answer.
+func (ps *ParticipantSession) flushPendingICE() {
+	ps.iceMu.Lock()
+	pending := ps.pendingICE
+	ps.pendingICE = nil
+	ps.iceMu.Unlock()
+
+	for _, c := range pending {
+		if err := ps.pc.AddICECandidate(c); err != nil {
+			ps.log.Warn("failed to add buffered ICE candidate",
+				"user_id", ps.Participant.UserID,
+				"error", err,
+			)
+		}
+	}
 }
 
 // AddRemoteTrack adds another participant's forwarding track to this subscriber's PC.
