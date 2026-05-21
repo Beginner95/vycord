@@ -82,6 +82,15 @@ func (n *negotiator) Run(ctx context.Context) {
 }
 
 func (n *negotiator) negotiate(ctx context.Context) error {
+	// Drain any stale answer from a previous timed-out negotiation.
+	// Without this, a late-arriving answer would be consumed by the next offer,
+	// causing SetRemoteDescription to fail (answer doesn't match the new offer).
+	select {
+	case <-n.answerCh:
+		n.log.Warn("negotiator: discarded stale answer from previous negotiation")
+	default:
+	}
+
 	offer, err := n.pc.CreateOffer(nil)
 	if err != nil {
 		return fmt.Errorf("create offer: %w", err)

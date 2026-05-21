@@ -155,13 +155,16 @@ class GroupCallService {
         const msg = JSON.parse(e.data as string) as SignalingMessage;
         if (msg.type === 'joined') {
           this.inCall = true;
+          const joined = msg.payload as JoinedPayload;
+          // Notify the UI about participants who are already in the room.
+          joined.existing_peers?.forEach((uid) => this.callbacks?.onPeerJoined(uid));
           this.ws!.onmessage = (ev) => {
             void this.handleMessage(JSON.parse(ev.data as string) as SignalingMessage);
           };
-          settle(((msg.payload as JoinedPayload).existing_peers?.length ?? 0) === 0);
+          settle((joined.existing_peers?.length ?? 0) === 0);
         } else {
           // Server may send an offer before 'joined' arrives — handle immediately.
-          void this.handleMessage(msg).then(() => { /* no-op */ });
+          void this.handleMessage(msg);
         }
       };
 
@@ -271,7 +274,13 @@ class GroupCallService {
       this.pc = this.createPeerConnection();
     }
 
-    await this.pc.setRemoteDescription({ type: payload.type, sdp: payload.sdp });
+    try {
+      await this.pc.setRemoteDescription({ type: payload.type, sdp: payload.sdp });
+    } catch (err) {
+      console.error('[GroupCall] setRemoteDescription failed:', err);
+      // PC stays in stable — server will timeout and rollback on its side.
+      return;
+    }
 
     // Flush any ICE candidates that arrived before remote description.
     for (const c of this.pendingCandidates) {
@@ -279,13 +288,23 @@ class GroupCallService {
     }
     this.pendingCandidates = [];
 
-    const answer = await this.pc.createAnswer();
-    await this.pc.setLocalDescription(answer);
+    let answer: RTCSessionDescriptionInit;
+    try {
+      answer = await this.pc.createAnswer();
+      await this.pc.setLocalDescription(answer);
+    } catch (err) {
+      console.error('[GroupCall] createAnswer/setLocalDescription failed:', err);
+      // PC is in have-remote-offer — rollback so future offers can be processed.
+      await this.pc.setLocalDescription({ type: 'rollback' }).catch(() => {});
+      return;
+    }
 
-    this.ws?.send(JSON.stringify({
-      type: 'answer',
-      payload: { type: answer.type, sdp: answer.sdp },
-    }));
+    if (this.ws?.readyState === WebSocket.OPEN) {
+      this.ws.send(JSON.stringify({
+        type: 'answer',
+        payload: { type: answer.type, sdp: answer.sdp },
+      }));
+    }
   }
 
   private async handleIceCandidate(payload: IceCandidatePayload): Promise<void> {

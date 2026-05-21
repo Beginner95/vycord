@@ -100,6 +100,8 @@ export function GroupCallUI() {
       onError: (msg) => {
         console.error('[GroupCall] Error:', msg);
         setIsInGroupCall(false);
+        setParticipants([]);
+        groupCallService.leaveGroupCall();
       },
     });
   }, []);

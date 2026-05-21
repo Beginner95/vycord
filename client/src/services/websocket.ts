@@ -8,6 +8,7 @@ class WebSocketService {
   private listeners: Map<string, Set<(payload: unknown) => void>> = new Map();
   private token: string | null = null;
   private isConnected = false;
+  private pendingMessages: string[] = [];
 
   connect(token: string): Promise<void> {
     if (this.isConnected) {
@@ -45,6 +46,13 @@ class WebSocketService {
         this.ws?.addEventListener('message', this.handleMessage);
         this.ws?.addEventListener('close', this.handleClose);
         this.ws?.addEventListener('error', this.handleError);
+        // Flush messages queued before the connection was ready
+        const pending = this.pendingMessages.splice(0);
+        for (const data of pending) {
+          if (this.ws?.readyState === WebSocket.OPEN) {
+            this.ws.send(data);
+          }
+        }
         if (!settled) {
           settled = true;
           resolve();
@@ -80,6 +88,7 @@ class WebSocketService {
       this.ws = null;
     }
     this.isConnected = false;
+    this.pendingMessages = [];
   }
 
   private handleMessage = (event: MessageEvent): void => {
@@ -126,17 +135,16 @@ class WebSocketService {
   }
 
   send(eventType: string, payload: unknown): void {
+    const message: WSMessage = { type: eventType, payload };
+    const data = JSON.stringify(message);
+
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
-      console.warn('WebSocket is not connected');
+      // Buffer messages sent before the connection is ready; flushed in onopen.
+      this.pendingMessages.push(data);
       return;
     }
 
-    const message: WSMessage = {
-      type: eventType,
-      payload,
-    };
-
-    this.ws.send(JSON.stringify(message));
+    this.ws.send(data);
   }
 
   sendPing(): void {
