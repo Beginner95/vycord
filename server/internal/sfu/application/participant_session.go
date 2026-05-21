@@ -157,13 +157,32 @@ func (ps *ParticipantSession) handleConnectionState(state webrtc.PeerConnectionS
 }
 
 // forwardRTP copies RTP packets from a remote (publisher) track to a local
-// (forwarding) track. It runs until ctx is cancelled or the remote track ends.
-// NACK/PLI are handled transparently by pion's default interceptors.
+// (forwarding) track. It must only exit when:
+//   - ctx is cancelled (publisher left or session closed)
+//   - remote.Read returns an error (source track ended)
+//
+// Write errors from local.Write are intentionally ignored: TrackLocalStaticRTP
+// writes to ALL bound subscriber PeerConnections. If one subscriber's SRTP
+// context has a transient error (e.g. DTLS race on first bind), pion still
+// delivers the packet to all other subscribers and returns a non-nil error.
+// Exiting here would kill audio for everyone, not just the failing subscriber.
 func (ps *ParticipantSession) forwardRTP(
 	ctx context.Context,
 	remote *webrtc.TrackRemote,
 	local *webrtc.TrackLocalStaticRTP,
 ) {
+	ps.log.Info("RTP forwarding started",
+		"user_id", ps.Participant.UserID,
+		"kind", remote.Kind().String(),
+		"track_id", remote.ID(),
+		"stream_id", remote.StreamID(),
+	)
+	defer ps.log.Info("RTP forwarding stopped",
+		"user_id", ps.Participant.UserID,
+		"kind", remote.Kind().String(),
+		"track_id", remote.ID(),
+	)
+
 	buf := make([]byte, 1500)
 	for {
 		select {
@@ -174,7 +193,9 @@ func (ps *ParticipantSession) forwardRTP(
 
 		n, _, err := remote.Read(buf)
 		if err != nil {
-			ps.log.Debug("track read ended",
+			// Source track ended (publisher closed PC, network loss, etc.).
+			// This is the only legitimate reason to stop forwarding.
+			ps.log.Debug("publisher track ended",
 				"user_id", ps.Participant.UserID,
 				"track_id", remote.ID(),
 				"error", err,
@@ -183,12 +204,15 @@ func (ps *ParticipantSession) forwardRTP(
 		}
 
 		if _, err := local.Write(buf[:n]); err != nil {
-			ps.log.Debug("track write failed",
+			// A subscriber had a transient write error.
+			// pion already wrote to all other subscribers successfully.
+			// Logging at debug to avoid log spam during ICE reconnection.
+			ps.log.Debug("subscriber write error (forwarding continues)",
 				"user_id", ps.Participant.UserID,
 				"track_id", remote.ID(),
 				"error", err,
 			)
-			return
+			// Do NOT return here. Continue forwarding to healthy subscribers.
 		}
 	}
 }

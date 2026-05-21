@@ -1,7 +1,6 @@
 package application
 
 import (
-	"context"
 	"log/slog"
 	"sync"
 
@@ -165,25 +164,43 @@ func (rs *RoomSession) Done() <-chan struct{} {
 // --- internal ---
 
 // onNewTrack is the callback from ParticipantSession when a publisher pushes a track.
-// It starts RTP forwarding and delivers the track to all other subscribers.
+// It starts RTP forwarding and delivers the track to all current subscribers.
+//
+// Concurrency note: we hold RLock only while iterating sessions. AddRemoteTrack
+// calls pc.AddTrack internally which fires OnNegotiationNeeded → trigger(), a
+// non-blocking channel send — safe under RLock.
 func (rs *RoomSession) onNewTrack(
 	publisher *domain.Participant,
 	track *domain.PublishedTrack,
 	remote *webrtc.TrackRemote,
 ) {
-	// Find the publisher session to start the forwarding goroutine.
 	rs.mu.RLock()
-	publisherSession, ok := rs.sessions[publisher.ID]
+	publisherSession, hasPublisher := rs.sessions[publisher.ID]
+	subscriberCount := len(rs.sessions) - 1
 	rs.mu.RUnlock()
 
-	if ok {
+	rs.log.Info("new track, starting forwarding",
+		"room_id", rs.room.ID,
+		"publisher_id", publisher.UserID,
+		"track_kind", track.Kind.String(),
+		"track_id", track.ID,
+		"subscribers", subscriberCount,
+	)
+
+	if hasPublisher {
 		publisherSession.StartForwarding(track, remote)
+	} else {
+		rs.log.Warn("publisher session not found, cannot start forwarding",
+			"publisher_id", publisher.ID,
+		)
 	}
 
-	// Add this track to every other participant's PC.
+	// Route track to all other participants. Each AddRemoteTrack triggers
+	// OnNegotiationNeeded which enqueues a renegotiation for that subscriber.
 	rs.mu.RLock()
 	defer rs.mu.RUnlock()
 
+	routed := 0
 	for id, ps := range rs.sessions {
 		if id == publisher.ID {
 			continue
@@ -195,26 +212,29 @@ func (rs *RoomSession) onNewTrack(
 				"track_id", track.ID,
 				"error", err,
 			)
+			continue
 		}
+		routed++
+		rs.log.Debug("track routed to subscriber",
+			"publisher_id", publisher.UserID,
+			"subscriber_id", ps.Participant.UserID,
+			"track_id", track.ID,
+		)
 	}
 
-	rs.log.Info("track published and routed",
+	rs.log.Info("track routing complete",
 		"room_id", rs.room.ID,
 		"publisher_id", publisher.UserID,
 		"track_kind", track.Kind.String(),
-		"subscribers", len(rs.sessions)-1,
+		"routed_to", routed,
 	)
 }
 
-// watchSession waits for a session to end naturally (PC failed / disconnected)
-// and cleans up.
+// watchSession waits for a session to end (PC failed / client disconnected / ctx cancelled)
+// and triggers cleanup. This handles the case where the PC dies before the WS closes.
 func (rs *RoomSession) watchSession(ps *ParticipantSession) {
-	ctx := context.Background()
-	select {
-	case <-ctx.Done():
-	case <-ps.Done():
-		rs.Leave(ps.Participant.ID)
-	}
+	<-ps.Done()
+	rs.Leave(ps.Participant.ID)
 }
 
 // NotifyOthers sends an event to all participants except the one with excludeID.

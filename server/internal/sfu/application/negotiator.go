@@ -2,12 +2,18 @@ package application
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
-	"sync"
+	"time"
 
 	"github.com/pion/webrtc/v4"
 )
+
+// negotiationAnswerTimeout is how long we wait for a client's SDP answer.
+// If the client doesn't answer in this time (network partition, client bug),
+// we rollback the PC to stable state so future renegotiations can proceed.
+const negotiationAnswerTimeout = 15 * time.Second
 
 // negotiator serialises offer/answer exchanges for a single PeerConnection.
 //
@@ -26,9 +32,6 @@ type negotiator struct {
 
 	trigCh   chan struct{}                  // buffered(1): at most one pending trigger
 	answerCh chan webrtc.SessionDescription // client's answer for the current offer
-
-	mu     sync.Mutex
-	closed bool
 }
 
 func newNegotiator(pc *webrtc.PeerConnection, session SignalingSession, log *slog.Logger) *negotiator {
@@ -48,6 +51,7 @@ func (n *negotiator) trigger() {
 	select {
 	case n.trigCh <- struct{}{}:
 	default:
+		// A trigger is already queued; it will be processed after current negotiation.
 	}
 }
 
@@ -56,7 +60,7 @@ func (n *negotiator) DeliverAnswer(sdp webrtc.SessionDescription) {
 	select {
 	case n.answerCh <- sdp:
 	default:
-		n.log.Warn("negotiator: answer channel full, dropping answer")
+		n.log.Warn("negotiator: answer channel full, dropping answer — client sent duplicate?")
 	}
 }
 
@@ -69,7 +73,9 @@ func (n *negotiator) Run(ctx context.Context) {
 			return
 		case <-n.trigCh:
 			if err := n.negotiate(ctx); err != nil {
-				n.log.Warn("negotiation failed", "error", err)
+				if !errors.Is(err, context.Canceled) {
+					n.log.Warn("negotiation failed", "error", err)
+				}
 			}
 		}
 	}
@@ -81,23 +87,42 @@ func (n *negotiator) negotiate(ctx context.Context) error {
 		return fmt.Errorf("create offer: %w", err)
 	}
 
-	// Gathering completes via ICE trickle; SetLocalDescription starts it.
+	// SetLocalDescription starts ICE gathering (trickle ICE sends candidates async).
 	if err := n.pc.SetLocalDescription(offer); err != nil {
 		return fmt.Errorf("set local description: %w", err)
 	}
 
+	n.log.Debug("offer sent, waiting for answer",
+		"signaling_state", n.pc.SignalingState().String(),
+	)
+
 	if err := n.session.SendOffer(*n.pc.LocalDescription()); err != nil {
+		// If we can't send the offer, the WS is gone — context will be cancelled soon.
 		return fmt.Errorf("send offer: %w", err)
 	}
 
-	// Wait for the client's answer.
+	// Wait for the client's answer with a timeout.
+	// Without a timeout, a client that never answers (network partition, browser bug)
+	// leaves the PC stuck in have-local-offer and blocks all future renegotiations.
+	timer := time.NewTimer(negotiationAnswerTimeout)
+	defer timer.Stop()
+
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
+
+	case <-timer.C:
+		// Rollback returns the PC to stable so the next trigger can create a fresh offer.
+		_ = n.pc.SetLocalDescription(webrtc.SessionDescription{Type: webrtc.SDPTypeRollback})
+		return fmt.Errorf("negotiation timeout: no answer received after %s", negotiationAnswerTimeout)
+
 	case answer := <-n.answerCh:
 		if err := n.pc.SetRemoteDescription(answer); err != nil {
 			return fmt.Errorf("set remote description: %w", err)
 		}
+		n.log.Debug("negotiation complete",
+			"signaling_state", n.pc.SignalingState().String(),
+		)
 	}
 	return nil
 }
