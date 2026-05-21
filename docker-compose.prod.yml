@@ -62,8 +62,11 @@ services:
       dockerfile: Dockerfile.sfu
     container_name: vycord-sfu
     env_file: .env.prod
-    ports:
-      - "127.0.0.1:8081:8081"
+    # host networking is required for WebRTC ICE (UDP).
+    # Docker bridge NAT blocks incoming UDP from clients, so ICE connectivity
+    # checks never reach the SFU. With host networking the SFU binds directly
+    # to the server's network interfaces — no NAT, no port-mapping issues.
+    network_mode: host
     restart: unless-stopped
 
   client:
