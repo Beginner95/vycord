@@ -93,6 +93,7 @@ class GroupCallService {
   private ws: WebSocket | null = null;
   private pc: RTCPeerConnection | null = null;
   private localStream: MediaStream | null = null;
+  private audioCtx: AudioContext | null = null;
 
   // Keyed by the remote user's ID (= pion stream ID on track events).
   private remoteStreams: RemoteStreams = new Map();
@@ -125,6 +126,13 @@ class GroupCallService {
     try {
       const raw = await this.acquireMedia();
       this.localStream = await noiseCancellationService.applyToStream(raw);
+      // When NC is disabled, Chrome's push-model audio capture may fail silently
+      // on certain hardware (track reports live/enabled but Opus gets zero frames).
+      // Routing through Web Audio forces a pull-model render cycle that always
+      // produces frames, ensuring RTP actually reaches the SFU.
+      if (!noiseCancellationService.getState().isEnabled) {
+        this.localStream = await this.routeAudioThroughWebAudio(this.localStream);
+      }
       // Video starts disabled to avoid immediate bandwidth spike.
       this.localStream.getVideoTracks().forEach((t) => { t.enabled = false; });
       gcLog(userId, 'media acquired', {
@@ -179,6 +187,34 @@ class GroupCallService {
   get peerCount(): number { return this.remoteStreams.size; }
 
   // ── Private: media acquisition ────────────────────────────────────────────
+
+  private async routeAudioThroughWebAudio(stream: MediaStream): Promise<MediaStream> {
+    const audioTracks = stream.getAudioTracks();
+    if (!audioTracks.length) return stream;
+    try {
+      const ctx = new AudioContext({ sampleRate: 48000 });
+      gcLog(this.currentUserId, 'WebAudio passthrough: AudioContext state', { state: ctx.state });
+      if (ctx.state !== 'running') {
+        await ctx.resume();
+        gcLog(this.currentUserId, 'WebAudio passthrough: AudioContext resumed', { state: ctx.state });
+      }
+      const src = ctx.createMediaStreamSource(stream);
+      const dst = ctx.createMediaStreamDestination();
+      src.connect(dst);
+      this.audioCtx = ctx;
+      const out = new MediaStream([
+        ...dst.stream.getAudioTracks(),
+        ...stream.getVideoTracks(),
+      ]);
+      gcLog(this.currentUserId, 'WebAudio passthrough: stream created', {
+        audioTracks: out.getAudioTracks().map((t) => ({ id: t.id.slice(0, 8), label: t.label })),
+      });
+      return out;
+    } catch (err) {
+      gcLog(this.currentUserId, 'WebAudio passthrough failed', { error: String(err) });
+      return stream;
+    }
+  }
 
   private async acquireMedia(): Promise<MediaStream> {
     try {
@@ -559,6 +595,9 @@ class GroupCallService {
 
     this.localStream?.getTracks().forEach((t) => t.stop());
     this.localStream = null;
+
+    this.audioCtx?.close().catch(() => {});
+    this.audioCtx = null;
 
     this.remoteStreams.clear();
     this.pendingCandidates = [];
