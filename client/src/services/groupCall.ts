@@ -192,11 +192,22 @@ class GroupCallService {
       ],
     });
 
-    // Tracks are NOT added here. We wait for the server's offer so we can attach
-    // tracks to the transceivers that setRemoteDescription creates for the server's
-    // recvonly m-sections. Pre-creating sendonly transceivers before SRD causes
-    // Chrome to create separate unmatched transceivers for the offer m-sections,
-    // leaving their senders empty — no track → no RTP sent → OnTrack never fires.
+    // Add local tracks before the first offer arrives.
+    // pion sends a server-initiated offer with recvonly m-sections (one per track).
+    // Chrome matches these pre-created sendrecv transceivers to the offer's recvonly
+    // m-sections by codec kind. Because addTrack assigns SSRCs immediately, the
+    // answer SDP includes a=ssrc lines — pion knows which SSRC to expect and fires
+    // OnTrack when the first RTP packet arrives.
+    //
+    // Using addTransceiver({ direction: 'sendonly' }) here is wrong: Chrome will not
+    // match sendonly local transceivers to recvonly offer m-sections and instead
+    // creates separate, empty transceivers — senders have no track, no SSRC,
+    // no RTP, OnTrack never fires. addTrack (sendrecv) avoids this.
+    if (this.localStream) {
+      for (const track of this.localStream.getTracks()) {
+        pc.addTrack(track);
+      }
+    }
 
     pc.ontrack = (event) => {
       // pion sets streamID = publisher's userID — use it as the key.
@@ -286,28 +297,10 @@ class GroupCallService {
     }
     this.pendingCandidates = [];
 
-    // After setRemoteDescription the PC has transceivers for each m-section in the
-    // offer. For m-sections where the server wants to receive our media (offer
-    // direction recvonly → browser creates transceivers with direction sendrecv),
-    // attach local tracks now so the answer includes sendonly with our SSRC.
-    //
-    // We skip transceivers with direction='recvonly' (those are for m-sections where
-    // the server sends forwarded tracks to us). We also skip any transceiver whose
-    // sender already has a track (set up in a previous renegotiation round).
-    if (this.localStream) {
-      const localTracks = this.localStream.getTracks();
-      for (const transceiver of this.pc.getTransceivers()) {
-        if (transceiver.direction === 'recvonly' || transceiver.direction === 'stopped') continue;
-        if (transceiver.sender.track) continue; // already wired from a previous offer
-        const kind = transceiver.receiver.track.kind as 'audio' | 'video';
-        const track = localTracks.find((t) => t.kind === kind);
-        if (!track) continue;
-        transceiver.direction = 'sendonly';
-        await transceiver.sender.replaceTrack(track).catch((err) => {
-          console.error('[GroupCall] replaceTrack failed:', kind, err);
-        });
-      }
-    }
+    // Local tracks were added in createPeerConnection() via addTrack.
+    // Chrome already matched them to the offer's recvonly m-sections — no manual
+    // track attachment needed here. For renegotiation offers (server adding forwarded
+    // tracks), the existing upload transceivers keep their tracks automatically.
 
     let answer: RTCSessionDescriptionInit;
     try {
