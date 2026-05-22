@@ -129,6 +129,18 @@ class NoiseCancellationService {
 
       const audioContext = new AudioContext({ sampleRate: 48000 });
 
+      // Chrome creates AudioContext in "suspended" state when called outside a user-gesture
+      // window (which happens here because WASM fetch above takes several seconds and
+      // exhausts the ~1-5 s gesture window). A suspended context produces zero audio
+      // frames, so the MediaStreamDestinationNode track never generates RTP packets and
+      // pion never fires OnTrack for the audio track. Resume explicitly to ensure audio
+      // flows through the pipeline.
+      console.log('[NC] AudioContext state after create:', audioContext.state);
+      if (audioContext.state !== 'running') {
+        await audioContext.resume();
+        console.log('[NC] AudioContext state after resume:', audioContext.state);
+      }
+
       // Load worklet module once per AudioContext
       if (!this.loadedContexts.has(audioContext)) {
         await audioContext.audioWorklet.addModule(`${ASSETS_BASE}AudioPipelineWorklet.js`);
