@@ -15,6 +15,32 @@ function gcLog(userId: string, action: string, data?: Record<string, unknown>): 
   }
 }
 
+// Parses SDP and extracts per-m-section info: direction, SSRCs, msid, mid.
+function parseSdpSections(sdp: string): Array<Record<string, unknown>> {
+  const sections: Array<Record<string, unknown>> = [];
+  let current: Record<string, unknown> | null = null;
+
+  for (const raw of sdp.split(/\r?\n/)) {
+    const line = raw.trimEnd();
+    if (line.startsWith('m=')) {
+      if (current) sections.push(current);
+      current = { mLine: line, direction: 'sendrecv', ssrcs: [], msids: [], mid: null };
+    } else if (current) {
+      if (/^a=(sendonly|recvonly|sendrecv|inactive)$/.test(line)) {
+        current.direction = line.slice(2);
+      } else if (line.startsWith('a=ssrc:')) {
+        (current.ssrcs as string[]).push(line.slice(7, 25));
+      } else if (line.startsWith('a=msid:')) {
+        (current.msids as string[]).push(line.slice(7));
+      } else if (line.startsWith('a=mid:')) {
+        current.mid = line.slice(6);
+      }
+    }
+  }
+  if (current) sections.push(current);
+  return sections;
+}
+
 // ─── Signaling protocol types ────────────────────────────────────────────────
 
 interface SignalingMessage {
@@ -103,11 +129,14 @@ class GroupCallService {
       this.localStream.getVideoTracks().forEach((t) => { t.enabled = false; });
       gcLog(userId, 'media acquired', {
         audioTracks: this.localStream.getAudioTracks().map((t) => ({
-          id: t.id, label: t.label, enabled: t.enabled, readyState: t.readyState,
+          id: t.id.slice(0, 8), label: t.label, enabled: t.enabled,
+          readyState: t.readyState, muted: t.muted,
         })),
         videoTracks: this.localStream.getVideoTracks().map((t) => ({
-          id: t.id, label: t.label, enabled: t.enabled, readyState: t.readyState,
+          id: t.id.slice(0, 8), label: t.label, enabled: t.enabled,
+          readyState: t.readyState, muted: t.muted,
         })),
+        noiseCancellationEnabled: noiseCancellationService.getState().isEnabled,
       });
     } catch (err) {
       gcLog(userId, 'media ERROR', { error: String(err) });
@@ -234,11 +263,18 @@ class GroupCallService {
     // match sendonly local transceivers to recvonly offer m-sections and instead
     // creates separate, empty transceivers — senders have no track, no SSRC,
     // no RTP, OnTrack never fires. addTrack (sendrecv) avoids this.
-    const addedTracks: string[] = [];
+    const addedTracks: Array<Record<string, unknown>> = [];
     if (this.localStream) {
       for (const track of this.localStream.getTracks()) {
         pc.addTrack(track);
-        addedTracks.push(`${track.kind}:${track.id.slice(0, 8)}`);
+        addedTracks.push({
+          kind: track.kind,
+          id: track.id.slice(0, 8),
+          enabled: track.enabled,
+          muted: track.muted,
+          readyState: track.readyState,
+          label: track.label,
+        });
       }
     }
     gcLog(this.currentUserId, 'PC created', {
@@ -246,7 +282,10 @@ class GroupCallService {
       transceivers: pc.getTransceivers().map((t) => ({
         mid: t.mid,
         direction: t.direction,
-        kind: t.receiver.track.kind,
+        senderTrackKind: t.sender.track?.kind ?? null,
+        senderTrackEnabled: t.sender.track?.enabled ?? null,
+        senderTrackMuted: t.sender.track?.muted ?? null,
+        senderTrackReadyState: t.sender.track?.readyState ?? null,
       })),
     });
 
@@ -285,6 +324,35 @@ class GroupCallService {
       });
       this.callbacks?.onRemoteStream(streamId, stream);
     };
+
+    // Monitor local audio track state every 2s while connected — helps detect
+    // track going muted/ended after ICE connection (e.g. suspended AudioContext).
+    const audioMonitorId = setInterval(() => {
+      if (!this.localStream || !this.pc) {
+        clearInterval(audioMonitorId);
+        return;
+      }
+      const audioTrack = this.localStream.getAudioTracks()[0];
+      if (!audioTrack) {
+        clearInterval(audioMonitorId);
+        return;
+      }
+      const senders = this.pc.getSenders();
+      const audioSender = senders.find((s) => s.track?.kind === 'audio');
+      gcLog(this.currentUserId, 'audio track monitor', {
+        trackEnabled: audioTrack.enabled,
+        trackMuted: audioTrack.muted,
+        trackReadyState: audioTrack.readyState,
+        pcConnectionState: this.pc.connectionState,
+        senderHasTrack: audioSender?.track !== null,
+        senderTrackMuted: audioSender?.track?.muted ?? null,
+        senderTrackReadyState: audioSender?.track?.readyState ?? null,
+      });
+      if (this.pc.connectionState === 'connected') {
+        // Stop monitoring once we've confirmed connection (log a few times then stop).
+        clearInterval(audioMonitorId);
+      }
+    }, 2000);
 
     pc.onicecandidate = (event) => {
       if (event.candidate) {
@@ -421,6 +489,32 @@ class GroupCallService {
       await this.pc.setLocalDescription({ type: 'rollback' }).catch(() => {});
       return;
     }
+
+    // Log SDP answer sections — critical for diagnosing why audio is not sent.
+    // direction=sendonly/sendrecv → Chrome sends; recvonly/inactive → Chrome won't send.
+    // ssrcs=[] → Chrome has no sender track (audio won't be transmitted).
+    gcLog(this.currentUserId, 'answer SDP sections', {
+      sections: parseSdpSections(answer.sdp ?? '').map((s) => ({
+        mLine: (s.mLine as string).slice(0, 40),
+        mid: s.mid,
+        direction: s.direction,
+        ssrcCount: (s.ssrcs as string[]).length,
+        firstSsrc: (s.ssrcs as string[])[0] ?? null,
+        msids: s.msids,
+      })),
+    });
+
+    // Also log transceiver state AFTER setLocalDescription (currentDirection is set here).
+    gcLog(this.currentUserId, 'transceivers after setLocalDesc', {
+      transceivers: this.pc!.getTransceivers().map((t) => ({
+        mid: t.mid,
+        direction: t.direction,
+        currentDirection: t.currentDirection,
+        senderTrackKind: t.sender.track?.kind ?? null,
+        senderTrackMuted: t.sender.track?.muted ?? null,
+        senderTrackReadyState: t.sender.track?.readyState ?? null,
+      })),
+    });
 
     gcLog(this.currentUserId, 'answer sent');
 
