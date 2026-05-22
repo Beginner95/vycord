@@ -192,13 +192,11 @@ class GroupCallService {
       ],
     });
 
-    // Publish local media as sendonly streams.
-    // Using addTransceiver (sendonly) avoids the SFU needing to echo tracks back.
-    if (this.localStream) {
-      for (const track of this.localStream.getTracks()) {
-        pc.addTransceiver(track, { direction: 'sendonly', streams: [this.localStream] });
-      }
-    }
+    // Tracks are NOT added here. We wait for the server's offer so we can attach
+    // tracks to the transceivers that setRemoteDescription creates for the server's
+    // recvonly m-sections. Pre-creating sendonly transceivers before SRD causes
+    // Chrome to create separate unmatched transceivers for the offer m-sections,
+    // leaving their senders empty — no track → no RTP sent → OnTrack never fires.
 
     pc.ontrack = (event) => {
       // pion sets streamID = publisher's userID — use it as the key.
@@ -287,6 +285,29 @@ class GroupCallService {
       await this.pc.addIceCandidate(c).catch(() => { /* stale candidate */ });
     }
     this.pendingCandidates = [];
+
+    // After setRemoteDescription the PC has transceivers for each m-section in the
+    // offer. For m-sections where the server wants to receive our media (offer
+    // direction recvonly → browser creates transceivers with direction sendrecv),
+    // attach local tracks now so the answer includes sendonly with our SSRC.
+    //
+    // We skip transceivers with direction='recvonly' (those are for m-sections where
+    // the server sends forwarded tracks to us). We also skip any transceiver whose
+    // sender already has a track (set up in a previous renegotiation round).
+    if (this.localStream) {
+      const localTracks = this.localStream.getTracks();
+      for (const transceiver of this.pc.getTransceivers()) {
+        if (transceiver.direction === 'recvonly' || transceiver.direction === 'stopped') continue;
+        if (transceiver.sender.track) continue; // already wired from a previous offer
+        const kind = transceiver.receiver.track.kind as 'audio' | 'video';
+        const track = localTracks.find((t) => t.kind === kind);
+        if (!track) continue;
+        transceiver.direction = 'sendonly';
+        await transceiver.sender.replaceTrack(track).catch((err) => {
+          console.error('[GroupCall] replaceTrack failed:', kind, err);
+        });
+      }
+    }
 
     let answer: RTCSessionDescriptionInit;
     try {
