@@ -105,8 +105,15 @@ func (n *negotiator) negotiate(ctx context.Context) error {
 		return fmt.Errorf("set local description: %w", err)
 	}
 
-	n.log.Debug("offer sent, waiting for answer",
+	// Count m-lines by direction to see what's being offered.
+	mlineStats := countMLineDirections(n.pc.LocalDescription().SDP)
+	n.log.Info("offer created and sent",
 		"signaling_state", n.pc.SignalingState().String(),
+		"m_lines_total", mlineStats["total"],
+		"m_lines_recvonly", mlineStats["recvonly"],
+		"m_lines_sendonly", mlineStats["sendonly"],
+		"m_lines_sendrecv", mlineStats["sendrecv"],
+		"m_lines_inactive", mlineStats["inactive"],
 	)
 
 	if err := n.session.SendOffer(*n.pc.LocalDescription()); err != nil {
@@ -130,10 +137,13 @@ func (n *negotiator) negotiate(ctx context.Context) error {
 		return fmt.Errorf("negotiation timeout: no answer received after %s", negotiationAnswerTimeout)
 
 	case answer := <-n.answerCh:
+		n.log.Info("answer received, applying",
+			"signaling_state", n.pc.SignalingState().String(),
+		)
 		if err := n.pc.SetRemoteDescription(answer); err != nil {
 			return fmt.Errorf("set remote description: %w", err)
 		}
-		n.log.Debug("negotiation complete",
+		n.log.Info("negotiation complete",
 			"signaling_state", n.pc.SignalingState().String(),
 		)
 		// Flush ICE candidates that arrived before this answer was applied.
@@ -142,4 +152,60 @@ func (n *negotiator) negotiate(ctx context.Context) error {
 		}
 	}
 	return nil
+}
+
+// countMLineDirections parses SDP text and counts m-lines by direction attribute.
+func countMLineDirections(sdp string) map[string]int {
+	stats := map[string]int{
+		"total":    0,
+		"recvonly": 0,
+		"sendonly": 0,
+		"sendrecv": 0,
+		"inactive": 0,
+	}
+	lines := splitLines(sdp)
+	inMedia := false
+	currentDir := "sendrecv" // SDP default
+	for _, line := range lines {
+		if len(line) >= 2 && line[0] == 'm' && line[1] == '=' {
+			if inMedia {
+				stats[currentDir]++
+				stats["total"]++
+			}
+			inMedia = true
+			currentDir = "sendrecv"
+		} else if inMedia && line == "a=recvonly" {
+			currentDir = "recvonly"
+		} else if inMedia && line == "a=sendonly" {
+			currentDir = "sendonly"
+		} else if inMedia && line == "a=sendrecv" {
+			currentDir = "sendrecv"
+		} else if inMedia && line == "a=inactive" {
+			currentDir = "inactive"
+		}
+	}
+	if inMedia {
+		stats[currentDir]++
+		stats["total"]++
+	}
+	return stats
+}
+
+func splitLines(s string) []string {
+	var lines []string
+	start := 0
+	for i := 0; i < len(s); i++ {
+		if s[i] == '\n' {
+			line := s[start:i]
+			if len(line) > 0 && line[len(line)-1] == '\r' {
+				line = line[:len(line)-1]
+			}
+			lines = append(lines, line)
+			start = i + 1
+		}
+	}
+	if start < len(s) {
+		lines = append(lines, s[start:])
+	}
+	return lines
 }

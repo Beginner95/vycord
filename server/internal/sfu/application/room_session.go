@@ -55,7 +55,22 @@ func (rs *RoomSession) Join(
 	// Deliver all already-published tracks from existing participants.
 	rs.mu.RLock()
 	for _, existingSession := range rs.sessions {
-		for _, track := range existingSession.Participant.GetTracks() {
+		existingTracks := existingSession.Participant.GetTracks()
+		rs.log.Info("existing participant tracks for new joiner",
+			"room_id", rs.room.ID,
+			"new_user_id", participant.UserID,
+			"existing_user_id", existingSession.Participant.UserID,
+			"track_count", len(existingTracks),
+		)
+		for _, track := range existingTracks {
+			rs.log.Info("delivering existing track to new participant",
+				"room_id", rs.room.ID,
+				"new_user_id", participant.UserID,
+				"track_owner", existingSession.Participant.UserID,
+				"track_kind", track.Kind.String(),
+				"track_id", track.ID,
+				"stream_id", track.StreamID,
+			)
 			if err := ps.AddRemoteTrack(track); err != nil {
 				rs.log.Warn("failed to add existing track to new participant",
 					"new_user_id", participant.UserID,

@@ -2,6 +2,19 @@ import { noiseCancellationService } from './noiseCancellation';
 
 const SFU_URL = import.meta.env.VITE_SFU_URL || 'ws://localhost:8081';
 
+// ─── Debug logger ────────────────────────────────────────────────────────────
+
+function gcLog(userId: string, action: string, data?: Record<string, unknown>): void {
+  const ts = new Date().toISOString().slice(11, 23);
+  const uid = userId ? userId.slice(0, 8) : '--------';
+  const prefix = `[GC ${ts} | ${uid} | ${action}]`;
+  if (data !== undefined) {
+    console.log(prefix, data);
+  } else {
+    console.log(prefix);
+  }
+}
+
 // ─── Signaling protocol types ────────────────────────────────────────────────
 
 interface SignalingMessage {
@@ -73,6 +86,8 @@ class GroupCallService {
   }
 
   async joinGroupCall(roomId: string, userId: string): Promise<boolean> {
+    gcLog(userId, 'joinGroupCall', { roomId });
+
     if (this.inCall) {
       this.callbacks?.onError('Already in a call');
       return false;
@@ -86,7 +101,16 @@ class GroupCallService {
       this.localStream = await noiseCancellationService.applyToStream(raw);
       // Video starts disabled to avoid immediate bandwidth spike.
       this.localStream.getVideoTracks().forEach((t) => { t.enabled = false; });
+      gcLog(userId, 'media acquired', {
+        audioTracks: this.localStream.getAudioTracks().map((t) => ({
+          id: t.id, label: t.label, enabled: t.enabled, readyState: t.readyState,
+        })),
+        videoTracks: this.localStream.getVideoTracks().map((t) => ({
+          id: t.id, label: t.label, enabled: t.enabled, readyState: t.readyState,
+        })),
+      });
     } catch (err) {
+      gcLog(userId, 'media ERROR', { error: String(err) });
       this.callbacks?.onError(err instanceof Error ? err.message : 'Media access denied');
       return false;
     }
@@ -147,19 +171,24 @@ class GroupCallService {
       const settle = (v: boolean) => { if (!resolved) { resolved = true; resolve(v); } };
 
       this.ws!.onopen = () => {
+        gcLog(userId, 'WS connected', { url });
         // The server creates the PC on its side upon WS upgrade — no explicit join message needed.
         // The server will immediately send us an "offer".
       };
 
       this.ws!.onmessage = (e) => {
         const msg = JSON.parse(e.data as string) as SignalingMessage;
+        gcLog(userId, 'WS message', { type: msg.type });
         if (msg.type === 'joined') {
           this.inCall = true;
           const joined = msg.payload as JoinedPayload;
+          gcLog(userId, 'joined room', { existingPeers: joined.existing_peers ?? [] });
           // Notify the UI about participants who are already in the room.
           joined.existing_peers?.forEach((uid) => this.callbacks?.onPeerJoined(uid));
           this.ws!.onmessage = (ev) => {
-            void this.handleMessage(JSON.parse(ev.data as string) as SignalingMessage);
+            const m = JSON.parse(ev.data as string) as SignalingMessage;
+            gcLog(userId, 'WS message', { type: m.type });
+            void this.handleMessage(m);
           };
           settle((joined.existing_peers?.length ?? 0) === 0);
         } else {
@@ -168,7 +197,8 @@ class GroupCallService {
         }
       };
 
-      this.ws!.onclose = () => {
+      this.ws!.onclose = (ev) => {
+        gcLog(userId, 'WS closed', { code: ev.code, reason: ev.reason });
         settle(false);
         this.inCall = false;
         this.callbacks?.onCallEnded();
@@ -176,6 +206,7 @@ class GroupCallService {
       };
 
       this.ws!.onerror = () => {
+        gcLog(userId, 'WS ERROR');
         settle(false);
         this.callbacks?.onError('SFU connection failed');
       };
@@ -203,41 +234,92 @@ class GroupCallService {
     // match sendonly local transceivers to recvonly offer m-sections and instead
     // creates separate, empty transceivers — senders have no track, no SSRC,
     // no RTP, OnTrack never fires. addTrack (sendrecv) avoids this.
+    const addedTracks: string[] = [];
     if (this.localStream) {
       for (const track of this.localStream.getTracks()) {
         pc.addTrack(track);
+        addedTracks.push(`${track.kind}:${track.id.slice(0, 8)}`);
       }
     }
+    gcLog(this.currentUserId, 'PC created', {
+      localTracksAdded: addedTracks,
+      transceivers: pc.getTransceivers().map((t) => ({
+        mid: t.mid,
+        direction: t.direction,
+        kind: t.receiver.track.kind,
+      })),
+    });
 
     pc.ontrack = (event) => {
       // pion sets streamID = publisher's userID — use it as the key.
       const streamId = event.streams[0]?.id ?? event.track.id;
-      if (streamId === this.currentUserId) return; // echo guard
+      gcLog(this.currentUserId, 'ontrack', {
+        trackKind: event.track.kind,
+        trackId: event.track.id.slice(0, 8),
+        trackReadyState: event.track.readyState,
+        trackEnabled: event.track.enabled,
+        streamId: streamId.slice(0, 8),
+        streamsCount: event.streams.length,
+        stream0id: event.streams[0]?.id?.slice(0, 8) ?? null,
+        echoGuardWouldFire: streamId === this.currentUserId,
+        currentUserId: this.currentUserId.slice(0, 8),
+      });
+
+      if (streamId === this.currentUserId) {
+        gcLog(this.currentUserId, 'ontrack BLOCKED by echo guard', { streamId: streamId.slice(0, 8) });
+        return;
+      }
 
       let stream = this.remoteStreams.get(streamId);
       if (!stream) {
         stream = event.streams[0] ?? new MediaStream();
         this.remoteStreams.set(streamId, stream);
+        gcLog(this.currentUserId, 'ontrack new remote stream', { streamId: streamId.slice(0, 8) });
       }
       if (!stream.getTrackById(event.track.id)) {
         stream.addTrack(event.track);
       }
+      gcLog(this.currentUserId, 'ontrack → onRemoteStream', {
+        streamId: streamId.slice(0, 8),
+        tracksInStream: stream.getTracks().map((t) => `${t.kind}:${t.id.slice(0, 8)}`),
+      });
       this.callbacks?.onRemoteStream(streamId, stream);
     };
 
     pc.onicecandidate = (event) => {
-      if (event.candidate && this.ws?.readyState === WebSocket.OPEN) {
-        this.ws.send(JSON.stringify({
-          type: 'ice_candidate',
-          payload: event.candidate.toJSON(),
-        }));
+      if (event.candidate) {
+        gcLog(this.currentUserId, 'ICE candidate (local)', {
+          type: event.candidate.type,
+          protocol: event.candidate.protocol,
+        });
+        if (this.ws?.readyState === WebSocket.OPEN) {
+          this.ws.send(JSON.stringify({
+            type: 'ice_candidate',
+            payload: event.candidate.toJSON(),
+          }));
+        }
+      } else {
+        gcLog(this.currentUserId, 'ICE gathering complete');
       }
     };
 
     pc.onconnectionstatechange = () => {
+      gcLog(this.currentUserId, 'PC connectionState', { state: pc.connectionState });
       if (pc.connectionState === 'failed') {
         this.callbacks?.onError('WebRTC connection failed');
       }
+    };
+
+    pc.onsignalingstatechange = () => {
+      gcLog(this.currentUserId, 'PC signalingState', { state: pc.signalingState });
+    };
+
+    pc.onicegatheringstatechange = () => {
+      gcLog(this.currentUserId, 'ICE gatheringState', { state: pc.iceGatheringState });
+    };
+
+    pc.oniceconnectionstatechange = () => {
+      gcLog(this.currentUserId, 'ICE connectionState', { state: pc.iceConnectionState });
     };
 
     return pc;
@@ -278,6 +360,13 @@ class GroupCallService {
   // ── Private: offer/answer ─────────────────────────────────────────────────
 
   private async handleOffer(payload: OfferPayload): Promise<void> {
+    const isFirst = !this.pc;
+    gcLog(this.currentUserId, 'offer received', {
+      isFirstOffer: isFirst,
+      signalingState: this.pc?.signalingState ?? 'no-pc',
+      pendingCandidates: this.pendingCandidates.length,
+    });
+
     // Server-initiated offer: create PC on first offer, reuse on renegotiation.
     if (!this.pc) {
       this.pc = this.createPeerConnection();
@@ -286,12 +375,31 @@ class GroupCallService {
     try {
       await this.pc.setRemoteDescription({ type: payload.type, sdp: payload.sdp });
     } catch (err) {
+      gcLog(this.currentUserId, 'setRemoteDescription ERROR', { error: String(err) });
       console.error('[GroupCall] setRemoteDescription failed:', err);
       // PC stays in stable — server will timeout and rollback on its side.
       return;
     }
 
+    // Log transceivers after setRemoteDescription to see all m-lines including forwarded tracks.
+    gcLog(this.currentUserId, 'transceivers after setRemoteDesc', {
+      transceivers: this.pc.getTransceivers().map((t, i) => ({
+        index: i,
+        mid: t.mid,
+        direction: t.direction,
+        currentDirection: t.currentDirection,
+        senderTrackKind: t.sender.track?.kind ?? null,
+        senderTrackId: t.sender.track?.id?.slice(0, 8) ?? null,
+        receiverTrackKind: t.receiver.track.kind,
+        receiverTrackId: t.receiver.track.id.slice(0, 8),
+        receiverTrackReadyState: t.receiver.track.readyState,
+      })),
+    });
+
     // Flush any ICE candidates that arrived before remote description.
+    if (this.pendingCandidates.length > 0) {
+      gcLog(this.currentUserId, 'flushing pending ICE', { count: this.pendingCandidates.length });
+    }
     for (const c of this.pendingCandidates) {
       await this.pc.addIceCandidate(c).catch(() => { /* stale candidate */ });
     }
@@ -307,11 +415,14 @@ class GroupCallService {
       answer = await this.pc.createAnswer();
       await this.pc.setLocalDescription(answer);
     } catch (err) {
+      gcLog(this.currentUserId, 'createAnswer ERROR', { error: String(err) });
       console.error('[GroupCall] createAnswer/setLocalDescription failed:', err);
       // PC is in have-remote-offer — rollback so future offers can be processed.
       await this.pc.setLocalDescription({ type: 'rollback' }).catch(() => {});
       return;
     }
+
+    gcLog(this.currentUserId, 'answer sent');
 
     if (this.ws?.readyState === WebSocket.OPEN) {
       this.ws.send(JSON.stringify({
@@ -330,16 +441,25 @@ class GroupCallService {
     };
 
     if (!this.pc?.remoteDescription) {
+      gcLog(this.currentUserId, 'ICE candidate buffered (no remoteDesc)', {
+        total: this.pendingCandidates.length + 1,
+      });
       this.pendingCandidates.push(init);
       return;
     }
 
-    await this.pc.addIceCandidate(init).catch(() => { /* stale */ });
+    await this.pc.addIceCandidate(init).catch((err) => {
+      gcLog(this.currentUserId, 'addIceCandidate ERROR', { error: String(err) });
+    });
   }
 
   // ── Private: cleanup ──────────────────────────────────────────────────────
 
   private teardown(): void {
+    gcLog(this.currentUserId, 'teardown', {
+      remoteStreams: this.remoteStreams.size,
+      pcState: this.pc?.connectionState ?? 'null',
+    });
     this.pc?.close();
     this.pc = null;
 

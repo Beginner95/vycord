@@ -128,7 +128,22 @@ func (ps *ParticipantSession) flushPendingICE() {
 // AddRemoteTrack adds another participant's forwarding track to this subscriber's PC.
 // Triggers OnNegotiationNeeded → renegotiation automatically.
 func (ps *ParticipantSession) AddRemoteTrack(t *domain.PublishedTrack) error {
+	ps.log.Info("AddRemoteTrack: adding forwarded track to subscriber PC",
+		"subscriber_user_id", ps.Participant.UserID,
+		"publisher_stream_id", t.StreamID,
+		"track_kind", t.Kind.String(),
+		"track_id", t.ID,
+		"pc_signaling_state", ps.pc.SignalingState().String(),
+		"pc_connection_state", ps.pc.ConnectionState().String(),
+	)
 	_, err := ps.pc.AddTrack(t.LocalTrack)
+	if err != nil {
+		ps.log.Error("AddRemoteTrack: pc.AddTrack failed",
+			"subscriber_user_id", ps.Participant.UserID,
+			"track_id", t.ID,
+			"error", err,
+		)
+	}
 	return err
 }
 
