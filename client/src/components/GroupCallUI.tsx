@@ -48,8 +48,16 @@ interface RemoteParticipant {
   stream: MediaStream | null;
 }
 
-// Attaches a remote MediaStream to a video element and explicitly calls play().
-// Logs element state so we can diagnose autoplay policy blocks.
+// Attaches a remote MediaStream to a video element and starts playback.
+//
+// Autoplay policy problem: when ontrack fires for an audio-only or audio-first
+// stream (B's case — A's audio+video arrive in a single SFU offer, audio ontrack
+// may fire before video), Chrome blocks el.play() with NotAllowedError because
+// the user gesture from "join call" click is expired by the time ICE+DTLS finishes.
+//
+// Fix: play muted first (always allowed), then immediately unmute. Chrome cannot
+// block unmuting a playing element — audio starts as soon as muted becomes false.
+// This is the standard cross-browser workaround used by WebRTC apps.
 function attachStreamToElement(el: HTMLVideoElement, stream: MediaStream, userId: string): void {
   el.srcObject = stream;
   const audioTracks = stream.getAudioTracks();
@@ -62,11 +70,20 @@ function attachStreamToElement(el: HTMLVideoElement, stream: MediaStream, userId
     elPaused: el.paused,
     elReadyState: el.readyState,
   });
-  // Explicitly call play() to handle cases where autoPlay attribute alone is insufficient
-  // (e.g. browser autoplay policy, element created before stream was attached).
-  el.play().catch((err) => {
-    console.warn(`[GC] el.play() blocked uid=${userId.slice(0, 8)}:`, err);
-  });
+
+  // Mute temporarily so play() is guaranteed to succeed regardless of autoplay policy.
+  el.muted = true;
+  el.play()
+    .then(() => {
+      // Unmute immediately — browser cannot block this once the element is playing.
+      el.muted = false;
+      console.log(`[GC] attachStream: play+unmute succeeded uid=${userId.slice(0, 8)}`);
+    })
+    .catch((err) => {
+      // Even muted play failed (e.g. element detached). Restore state.
+      el.muted = false;
+      console.warn(`[GC] el.play() failed uid=${userId.slice(0, 8)}:`, err);
+    });
 }
 
 export function GroupCallUI() {

@@ -24,6 +24,13 @@ function createWindow(): BrowserWindow {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
+      // Allow media autoplay without requiring a prior user gesture.
+      // Without this, Chrome blocks el.play() on audio-bearing streams that arrive
+      // via WebRTC ontrack callbacks — the gesture context from "join call" click
+      // is long expired by the time ICE+DTLS completes and ontrack fires.
+      // This causes B to not hear A for 1-2 minutes until Chrome's internal retry
+      // triggers on the next user interaction. Safe for a desktop chat app.
+      autoplayPolicy: 'no-user-gesture-required',
     },
   });
 
