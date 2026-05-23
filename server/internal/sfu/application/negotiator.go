@@ -106,6 +106,8 @@ func (n *negotiator) negotiate(ctx context.Context) error {
 	}
 
 	// Count m-lines by direction to see what's being offered.
+	// sendonly = server forwarding a remote participant's track to this subscriber.
+	// recvonly = slot for this participant's own upload (audio/video).
 	mlineStats := countMLineDirections(n.pc.LocalDescription().SDP)
 	n.log.Info("offer created and sent",
 		"signaling_state", n.pc.SignalingState().String(),
@@ -115,6 +117,18 @@ func (n *negotiator) negotiate(ctx context.Context) error {
 		"m_lines_sendrecv", mlineStats["sendrecv"],
 		"m_lines_inactive", mlineStats["inactive"],
 	)
+	// Log per-m-line detail so we can see which tracks are being forwarded.
+	// This is critical for diagnosing "subscriber not receiving audio" bugs:
+	// if sendonly count is 0 when it should be >0, the track was never added.
+	for _, detail := range parseMLineDetails(n.pc.LocalDescription().SDP) {
+		n.log.Debug("offer m-line detail",
+			"index", detail.index,
+			"kind", detail.kind,
+			"direction", detail.direction,
+			"ssrc_count", detail.ssrcCount,
+			"mid", detail.mid,
+		)
+	}
 
 	if err := n.session.SendOffer(*n.pc.LocalDescription()); err != nil {
 		// If we can't send the offer, the WS is gone — context will be cancelled soon.
@@ -152,6 +166,58 @@ func (n *negotiator) negotiate(ctx context.Context) error {
 		}
 	}
 	return nil
+}
+
+type mLineDetail struct {
+	index     int
+	kind      string
+	direction string
+	ssrcCount int
+	mid       string
+}
+
+// parseMLineDetails extracts per-m-section diagnostics from an SDP string.
+// Used to confirm which tracks are sendonly (forwarded) vs recvonly (upload slots).
+func parseMLineDetails(sdp string) []mLineDetail {
+	var details []mLineDetail
+	var current *mLineDetail
+	idx := -1
+
+	for _, line := range splitLines(sdp) {
+		switch {
+		case len(line) > 2 && line[0] == 'm' && line[1] == '=':
+			if current != nil {
+				details = append(details, *current)
+			}
+			idx++
+			kind := "unknown"
+			if len(line) > 2 {
+				rest := line[2:]
+				if len(rest) >= 5 && rest[:5] == "audio" {
+					kind = "audio"
+				} else if len(rest) >= 5 && rest[:5] == "video" {
+					kind = "video"
+				}
+			}
+			current = &mLineDetail{index: idx, kind: kind, direction: "sendrecv"}
+		case current != nil && line == "a=recvonly":
+			current.direction = "recvonly"
+		case current != nil && line == "a=sendonly":
+			current.direction = "sendonly"
+		case current != nil && line == "a=sendrecv":
+			current.direction = "sendrecv"
+		case current != nil && line == "a=inactive":
+			current.direction = "inactive"
+		case current != nil && len(line) > 7 && line[:7] == "a=ssrc:":
+			current.ssrcCount++
+		case current != nil && len(line) > 6 && line[:6] == "a=mid:":
+			current.mid = line[6:]
+		}
+	}
+	if current != nil {
+		details = append(details, *current)
+	}
+	return details
 }
 
 // countMLineDirections parses SDP text and counts m-lines by direction attribute.

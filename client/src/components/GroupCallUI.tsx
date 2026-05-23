@@ -48,6 +48,27 @@ interface RemoteParticipant {
   stream: MediaStream | null;
 }
 
+// Attaches a remote MediaStream to a video element and explicitly calls play().
+// Logs element state so we can diagnose autoplay policy blocks.
+function attachStreamToElement(el: HTMLVideoElement, stream: MediaStream, userId: string): void {
+  el.srcObject = stream;
+  const audioTracks = stream.getAudioTracks();
+  const videoTracks = stream.getVideoTracks();
+  console.log(`[GC] attachStream uid=${userId.slice(0, 8)}`, {
+    audioTracks: audioTracks.map((t) => ({ id: t.id.slice(0, 8), enabled: t.enabled, muted: t.muted, readyState: t.readyState })),
+    videoTracks: videoTracks.map((t) => ({ id: t.id.slice(0, 8), enabled: t.enabled })),
+    elMuted: el.muted,
+    elVolume: el.volume,
+    elPaused: el.paused,
+    elReadyState: el.readyState,
+  });
+  // Explicitly call play() to handle cases where autoPlay attribute alone is insufficient
+  // (e.g. browser autoplay policy, element created before stream was attached).
+  el.play().catch((err) => {
+    console.warn(`[GC] el.play() blocked uid=${userId.slice(0, 8)}:`, err);
+  });
+}
+
 export function GroupCallUI() {
   const { user } = useAuthStore();
   const { currentServer, currentChannel } = useServerStore();
@@ -76,10 +97,11 @@ export function GroupCallUI() {
           return [...prev, { userId, stream }];
         });
 
-        // Attach stream to video element
+        // Attach stream to video element if it's already in the DOM.
+        // The useEffect below is the fallback for when React re-renders first.
         const videoEl = remoteVideoRefs.current.get(userId);
         if (videoEl && videoEl.srcObject !== stream) {
-          videoEl.srcObject = stream;
+          attachStreamToElement(videoEl, stream, userId);
         }
       },
       onPeerJoined: (userId) => {
@@ -112,13 +134,15 @@ export function GroupCallUI() {
     }
   }, [isInGroupCall]);
 
-  // Attach remote streams after React commits the video elements to DOM
+  // Attach remote streams after React commits the video elements to DOM.
+  // This is the primary attachment path — by the time this effect runs,
+  // ref callbacks have already fired so remoteVideoRefs is populated.
   useEffect(() => {
     participants.forEach((p) => {
       if (p.stream) {
         const videoEl = remoteVideoRefs.current.get(p.userId);
         if (videoEl && videoEl.srcObject !== p.stream) {
-          videoEl.srcObject = p.stream;
+          attachStreamToElement(videoEl, p.stream, p.userId);
         }
       }
     });

@@ -236,6 +236,9 @@ func (ps *ParticipantSession) forwardRTP(
 	)
 
 	buf := make([]byte, 1500)
+	var pktCount int64
+	var writeErrCount int64
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -247,24 +250,44 @@ func (ps *ParticipantSession) forwardRTP(
 		if err != nil {
 			// Source track ended (publisher closed PC, network loss, etc.).
 			// This is the only legitimate reason to stop forwarding.
-			ps.log.Debug("publisher track ended",
+			ps.log.Warn("publisher track read error — forwarding stopped",
 				"user_id", ps.Participant.UserID,
 				"track_id", remote.ID(),
+				"packets_forwarded", pktCount,
+				"write_errors", writeErrCount,
 				"error", err,
 			)
 			return
 		}
 
+		pktCount++
+
 		if _, err := local.Write(buf[:n]); err != nil {
 			// A subscriber had a transient write error.
 			// pion already wrote to all other subscribers successfully.
-			// Logging at debug to avoid log spam during ICE reconnection.
-			ps.log.Debug("subscriber write error (forwarding continues)",
+			writeErrCount++
+			ps.log.Warn("subscriber write error (forwarding continues)",
 				"user_id", ps.Participant.UserID,
 				"track_id", remote.ID(),
+				"kind", remote.Kind().String(),
+				"packets_forwarded", pktCount,
+				"write_errors", writeErrCount,
 				"error", err,
 			)
 			// Do NOT return here. Continue forwarding to healthy subscribers.
+		}
+
+		// Log RTP flow milestones so we can confirm audio is actually reaching pion.
+		// First packet is critical — confirms ICE+DTLS+SRTP established for publisher.
+		// Subsequent milestones (50, 200, 1000) confirm sustained flow.
+		if pktCount == 1 || pktCount == 50 || pktCount == 200 || pktCount == 1000 || pktCount%5000 == 0 {
+			ps.log.Info("RTP forwarding milestone",
+				"user_id", ps.Participant.UserID,
+				"kind", remote.Kind().String(),
+				"track_id", remote.ID(),
+				"packets_forwarded", pktCount,
+				"write_errors", writeErrCount,
+			)
 		}
 	}
 }

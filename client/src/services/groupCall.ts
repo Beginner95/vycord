@@ -361,10 +361,16 @@ class GroupCallService {
       this.callbacks?.onRemoteStream(streamId, stream);
     };
 
-    // Monitor local audio track state every 2s while connected — helps detect
-    // track going muted/ended after ICE connection (e.g. suspended AudioContext).
+    // Monitor local audio track + all senders every 3s for 60s.
+    // Runs past the initial ICE connection so we also capture the state after
+    // renegotiation that adds forwarded remote tracks (which doesn't change PC state).
+    const monitorStart = Date.now();
     const audioMonitorId = setInterval(() => {
       if (!this.localStream || !this.pc) {
+        clearInterval(audioMonitorId);
+        return;
+      }
+      if (Date.now() - monitorStart > 60_000) {
         clearInterval(audioMonitorId);
         return;
       }
@@ -375,20 +381,22 @@ class GroupCallService {
       }
       const senders = this.pc.getSenders();
       const audioSender = senders.find((s) => s.track?.kind === 'audio');
+      // audioSender?.track can be undefined (no sender) or null (sender with no track).
+      // Using != null (loose) to catch both undefined and null as "no track".
       gcLog(this.currentUserId, 'audio track monitor', {
         trackEnabled: audioTrack.enabled,
         trackMuted: audioTrack.muted,
         trackReadyState: audioTrack.readyState,
         pcConnectionState: this.pc.connectionState,
-        senderHasTrack: audioSender?.track !== null,
+        pcSignalingState: this.pc.signalingState,
+        senderFound: audioSender != null,
+        senderHasTrack: audioSender?.track != null,
         senderTrackMuted: audioSender?.track?.muted ?? null,
         senderTrackReadyState: audioSender?.track?.readyState ?? null,
+        senderCount: senders.length,
+        transceiverCount: this.pc.getTransceivers().length,
       });
-      if (this.pc.connectionState === 'connected') {
-        // Stop monitoring once we've confirmed connection (log a few times then stop).
-        clearInterval(audioMonitorId);
-      }
-    }, 2000);
+    }, 3000);
 
     pc.onicecandidate = (event) => {
       if (event.candidate) {
@@ -411,6 +419,64 @@ class GroupCallService {
       gcLog(this.currentUserId, 'PC connectionState', { state: pc.connectionState });
       if (pc.connectionState === 'failed') {
         this.callbacks?.onError('WebRTC connection failed');
+      }
+      if (pc.connectionState === 'connected') {
+        // Start RTCStats polling to confirm RTP is actually flowing end-to-end.
+        // outbound-rtp: confirms A is sending audio to SFU.
+        // inbound-rtp: confirms SFU is forwarding audio to this client (B).
+        // Polls for 90s then stops to avoid long-term overhead.
+        let statsPollCount = 0;
+        const statsIntervalId = setInterval(async () => {
+          if (!this.pc || this.pc.connectionState !== 'connected') {
+            clearInterval(statsIntervalId);
+            return;
+          }
+          if (statsPollCount >= 30) { // 30 × 3s = 90s
+            clearInterval(statsIntervalId);
+            return;
+          }
+          statsPollCount++;
+          try {
+            const stats = await this.pc.getStats();
+            const outbound: Record<string, unknown>[] = [];
+            const inbound: Record<string, unknown>[] = [];
+            const candidatePair: Record<string, unknown>[] = [];
+            stats.forEach((report) => {
+              if (report.type === 'outbound-rtp') {
+                outbound.push({
+                  kind: report.kind,
+                  ssrc: report.ssrc,
+                  packetsSent: report.packetsSent,
+                  bytesSent: report.bytesSent,
+                  retransmittedPacketsSent: report.retransmittedPacketsSent ?? 0,
+                });
+              } else if (report.type === 'inbound-rtp') {
+                inbound.push({
+                  kind: report.kind,
+                  ssrc: report.ssrc,
+                  packetsReceived: report.packetsReceived,
+                  bytesReceived: report.bytesReceived,
+                  packetsLost: report.packetsLost,
+                  jitter: (report.jitter as number | undefined)?.toFixed(4) ?? null,
+                });
+              } else if (report.type === 'candidate-pair' && report.state === 'succeeded') {
+                candidatePair.push({
+                  state: report.state,
+                  bytesSent: report.bytesSent,
+                  bytesReceived: report.bytesReceived,
+                  currentRoundTripTime: report.currentRoundTripTime,
+                });
+              }
+            });
+            gcLog(this.currentUserId, `RTC stats #${statsPollCount}`, {
+              outbound,
+              inbound,
+              activeCandidatePairs: candidatePair,
+            });
+          } catch (err) {
+            gcLog(this.currentUserId, 'getStats ERROR', { error: String(err) });
+          }
+        }, 3000);
       }
     };
 
