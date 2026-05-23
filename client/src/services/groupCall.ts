@@ -94,6 +94,7 @@ class GroupCallService {
   private pc: RTCPeerConnection | null = null;
   private localStream: MediaStream | null = null;
   private audioCtx: AudioContext | null = null;
+  private audioCtxKeepAlive: ReturnType<typeof setInterval> | null = null;
 
   // Keyed by the remote user's ID (= pion stream ID on track events).
   private remoteStreams: RemoteStreams = new Map();
@@ -139,10 +140,12 @@ class GroupCallService {
         audioTracks: this.localStream.getAudioTracks().map((t) => ({
           id: t.id.slice(0, 8), label: t.label, enabled: t.enabled,
           readyState: t.readyState, muted: t.muted,
+          settings: t.getSettings(),
         })),
         videoTracks: this.localStream.getVideoTracks().map((t) => ({
           id: t.id.slice(0, 8), label: t.label, enabled: t.enabled,
           readyState: t.readyState, muted: t.muted,
+          settings: t.getSettings(),
         })),
         noiseCancellationEnabled: noiseCancellationService.getState().isEnabled,
       });
@@ -202,6 +205,20 @@ class GroupCallService {
       const dst = ctx.createMediaStreamDestination();
       src.connect(dst);
       this.audioCtx = ctx;
+
+      // macOS Chrome and Android Chrome both suspend AudioContext to save power when
+      // there's no ongoing audio output — even with active getUserMedia capture.
+      // A suspended context means dst.stream tracks produce silence: RTP packets are
+      // sent but Opus frames are zeroed, so the receiver hears nothing.
+      // Polling at 2s intervals and resuming keeps the context in 'running' state
+      // without adding audio output (ctx.resume() alone is enough per the spec).
+      this.audioCtxKeepAlive = setInterval(() => {
+        if (ctx.state !== 'running') {
+          gcLog(this.currentUserId, 'WebAudio: AudioContext not running — resuming', { state: ctx.state });
+          ctx.resume().catch(() => {});
+        }
+      }, 2000);
+
       const out = new MediaStream([
         ...dst.stream.getAudioTracks(),
         ...stream.getVideoTracks(),
@@ -217,11 +234,24 @@ class GroupCallService {
   }
 
   private async acquireMedia(): Promise<MediaStream> {
+    // Explicit constraints avoid macOS/Android-specific quirks:
+    // - channelCount ideal:1 → Opus mono, prevents macOS from injecting stereo fmtp params
+    //   that older pion versions may not accept (stereo=1;sprop-stereo=1 mismatch).
+    // - sampleRate ideal:48000 → Opus native rate; avoids resampling artefacts on Android.
+    // Using ideal: (not exact) so the browser still works on devices that can't hit 48kHz.
+    const audioConstraints: MediaTrackConstraints = {
+      channelCount: { ideal: 1 },
+      sampleRate: { ideal: 48000 },
+      echoCancellation: true,
+      noiseSuppression: true,
+      autoGainControl: true,
+    };
+    gcLog(this.currentUserId, 'getUserMedia constraints', { audio: audioConstraints });
     try {
-      return await navigator.mediaDevices.getUserMedia({ audio: true, video: true });
+      return await navigator.mediaDevices.getUserMedia({ audio: audioConstraints, video: true });
     } catch {
       // Fall back to audio-only if camera is unavailable.
-      return navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+      return navigator.mediaDevices.getUserMedia({ audio: audioConstraints, video: false });
     }
   }
 
@@ -299,10 +329,20 @@ class GroupCallService {
     // match sendonly local transceivers to recvonly offer m-sections and instead
     // creates separate, empty transceivers — senders have no track, no SSRC,
     // no RTP, OnTrack never fires. addTrack (sendrecv) avoids this.
+    // Log codec capabilities before adding tracks so we can compare what macOS/Android
+    // browsers offer vs Linux. Critical for diagnosing Opus parameter mismatches.
+    const audioCaps = RTCRtpSender.getCapabilities('audio');
+    gcLog(this.currentUserId, 'RTP capabilities', {
+      audioCodecs: audioCaps?.codecs.map((c) => `${c.mimeType} ${c.sdpFmtpLine ?? ''}`.trimEnd()),
+    });
+
     const addedTracks: Array<Record<string, unknown>> = [];
     if (this.localStream) {
       for (const track of this.localStream.getTracks()) {
-        pc.addTrack(track);
+        // Pass the stream so Chrome writes a=msid:<streamId> <trackId> in the answer SDP.
+        // Without the stream argument the SDP contains "a=msid:- <trackId>": some pion
+        // versions see the dash as an empty streamID and may not fire OnTrack reliably.
+        pc.addTrack(track, this.localStream);
         addedTracks.push({
           kind: track.kind,
           id: track.id.slice(0, 8),
@@ -473,6 +513,33 @@ class GroupCallService {
               inbound,
               activeCandidatePairs: candidatePair,
             });
+
+            // After 12 seconds (4 polls × 3s) with no outbound audio, emit a
+            // prominent warning so we can see in logs whether the track itself is
+            // silent or whether the problem is upstream (ICE, DTLS, SFU routing).
+            if (statsPollCount === 4) {
+              const audioOut = outbound.find((o) => o.kind === 'audio');
+              const videoOut = outbound.find((o) => o.kind === 'video');
+              if (!audioOut || (audioOut.packetsSent as number) === 0) {
+                gcLog(this.currentUserId, 'WARNING: 0 audio packets sent after 12s', {
+                  audioOutbound: audioOut ?? null,
+                  videoOutbound: videoOut ?? null,
+                  localAudioTrack: this.localStream?.getAudioTracks().map((t) => ({
+                    enabled: t.enabled, muted: t.muted, readyState: t.readyState,
+                    settings: t.getSettings(),
+                  })),
+                  audioCtxState: this.audioCtx?.state ?? 'no-ctx',
+                  pcSignalingState: this.pc?.signalingState ?? null,
+                  transceivers: this.pc?.getTransceivers().map((t) => ({
+                    mid: t.mid,
+                    direction: t.direction,
+                    currentDirection: t.currentDirection,
+                    senderTrackKind: t.sender.track?.kind ?? null,
+                    senderTrackMuted: t.sender.track?.muted ?? null,
+                  })),
+                });
+              }
+            }
           } catch (err) {
             gcLog(this.currentUserId, 'getStats ERROR', { error: String(err) });
           }
@@ -575,10 +642,27 @@ class GroupCallService {
     }
     this.pendingCandidates = [];
 
-    // Local tracks were added in createPeerConnection() via addTrack.
-    // Chrome already matched them to the offer's recvonly m-sections — no manual
-    // track attachment needed here. For renegotiation offers (server adding forwarded
-    // tracks), the existing upload transceivers keep their tracks automatically.
+    // Constrain audio codec to Opus-only BEFORE createAnswer.
+    // macOS Chrome adds stereo fmtp params (stereo=1;sprop-stereo=1) to Opus by default.
+    // These parameters tell the remote decoder to expect stereo frames, but our pion SFU
+    // is configured for mono Opus.  When the fmtp lines don't match, pion may reject the
+    // codec negotiation silently — no OnTrack, no audio.  Restricting codecs to plain Opus
+    // entries (without stereo variants) eliminates the mismatch on all platforms.
+    const opusCaps = RTCRtpSender.getCapabilities('audio');
+    for (const t of this.pc!.getTransceivers()) {
+      if (t.receiver.track.kind !== 'audio') continue;
+      if (!opusCaps) continue;
+      // Keep only Opus entries; drop RED, CN, telephone-event, etc.
+      // Using toLowerCase() because Chrome reports "audio/opus" and Safari "audio/OPUS".
+      const opusOnly = opusCaps.codecs.filter((c) => c.mimeType.toLowerCase() === 'audio/opus');
+      if (opusOnly.length === 0) continue;
+      try {
+        t.setCodecPreferences(opusOnly);
+        gcLog(this.currentUserId, 'setCodecPreferences Opus', { mid: t.mid, variants: opusOnly.length });
+      } catch (e) {
+        gcLog(this.currentUserId, 'setCodecPreferences ERROR', { mid: t.mid, error: String(e) });
+      }
+    }
 
     let answer: RTCSessionDescriptionInit;
     try {
@@ -662,6 +746,10 @@ class GroupCallService {
     this.localStream?.getTracks().forEach((t) => t.stop());
     this.localStream = null;
 
+    if (this.audioCtxKeepAlive !== null) {
+      clearInterval(this.audioCtxKeepAlive);
+      this.audioCtxKeepAlive = null;
+    }
     this.audioCtx?.close().catch(() => {});
     this.audioCtx = null;
 

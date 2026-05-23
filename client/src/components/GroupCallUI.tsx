@@ -156,8 +156,16 @@ export function GroupCallUI() {
   // ref callbacks have already fired so remoteVideoRefs is populated.
   useEffect(() => {
     participants.forEach((p) => {
+      const videoEl = remoteVideoRefs.current.get(p.userId);
+      console.log(`[GC] participants effect uid=${p.userId.slice(0, 8)}`, {
+        hasStream: !!p.stream,
+        hasVideoEl: !!videoEl,
+        srcObjectMatch: videoEl ? videoEl.srcObject === p.stream : null,
+        elMuted: videoEl?.muted ?? null,
+        elPaused: videoEl?.paused ?? null,
+        elReadyState: videoEl?.readyState ?? null,
+      });
       if (p.stream) {
-        const videoEl = remoteVideoRefs.current.get(p.userId);
         if (videoEl && videoEl.srcObject !== p.stream) {
           attachStreamToElement(videoEl, p.stream, p.userId);
         }
