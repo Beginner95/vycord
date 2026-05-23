@@ -365,8 +365,9 @@ class GroupCallService {
       })),
     });
 
+    const remoteTrackMonitors = new Map<string, ReturnType<typeof setInterval>>();
+
     pc.ontrack = (event) => {
-      // pion sets streamID = publisher's userID — use it as the key.
       const streamId = event.streams[0]?.id ?? event.track.id;
       gcLog(this.currentUserId, 'ontrack', {
         trackKind: event.track.kind,
@@ -383,6 +384,36 @@ class GroupCallService {
       if (streamId === this.currentUserId) {
         gcLog(this.currentUserId, 'ontrack BLOCKED by echo guard', { streamId: streamId.slice(0, 8) });
         return;
+      }
+
+      // Start inbound stats monitor for audio tracks
+      if (event.track.kind === 'audio') {
+        const trackIdShort = event.track.id.slice(0, 8);
+        const monitorId = setInterval(async () => {
+          if (!this.pc || this.pc.connectionState !== 'connected') {
+            clearInterval(monitorId);
+            remoteTrackMonitors.delete(event.track.id);
+            return;
+          }
+          try {
+            const stats = await this.pc.getStats();
+            stats.forEach((r) => {
+              if (r.type === 'inbound-rtp' && r.kind === 'audio' && (r as any).trackId === event.track.id) {
+                gcLog(this.currentUserId, 'inbound remote audio', {
+                  trackId: trackIdShort,
+                  packetsReceived: r.packetsReceived,
+                  packetsLost: r.packetsLost,
+                  bytesReceived: r.bytesReceived,
+                  jitter: (r.jitter as number | undefined)?.toFixed(4),
+                  audioLevel: (r as any).audioLevel?.toFixed(4),
+                  totalAudioEnergy: (r as any).totalAudioEnergy?.toFixed(2),
+                  packetsPerSec: r.packetsReceived > 0 ? 'OK' : 'ZERO',
+                });
+              }
+            });
+          } catch (_) {}
+        }, 2000);
+        remoteTrackMonitors.set(event.track.id, monitorId);
       }
 
       let stream = this.remoteStreams.get(streamId);
@@ -405,7 +436,7 @@ class GroupCallService {
     // Runs past the initial ICE connection so we also capture the state after
     // renegotiation that adds forwarded remote tracks (which doesn't change PC state).
     const monitorStart = Date.now();
-    const audioMonitorId = setInterval(() => {
+    const audioMonitorId = setInterval(async () => {
       if (!this.localStream || !this.pc) {
         clearInterval(audioMonitorId);
         return;
@@ -421,12 +452,27 @@ class GroupCallService {
       }
       const senders = this.pc.getSenders();
       const audioSender = senders.find((s) => s.track?.kind === 'audio');
-      // audioSender?.track can be undefined (no sender) or null (sender with no track).
-      // Using != null (loose) to catch both undefined and null as "no track".
+
+      // Check local audio level from outbound stats
+      let audioLevel = -1;
+      try {
+        const stats = await this.pc.getStats();
+        stats.forEach((r) => {
+          if (r.type === 'media-source' && (r as any).kind === 'audio' && (r as any).trackIdentifier === audioTrack.id) {
+            audioLevel = (r as any).audioLevel ?? -1;
+          }
+          if (r.type === 'outbound-rtp' && r.kind === 'audio') {
+            // also log audioLevel from encoder if available
+            audioLevel = Math.max(audioLevel, (r as any).audioLevel ?? (r as any).qualityLimitationReason ?? -1);
+          }
+        });
+      } catch (_) {}
+
       gcLog(this.currentUserId, 'audio track monitor', {
         trackEnabled: audioTrack.enabled,
         trackMuted: audioTrack.muted,
         trackReadyState: audioTrack.readyState,
+        localAudioLevel: audioLevel > 0 ? audioLevel.toFixed(4) : 'N/A',
         pcConnectionState: this.pc.connectionState,
         pcSignalingState: this.pc.signalingState,
         senderFound: audioSender != null,

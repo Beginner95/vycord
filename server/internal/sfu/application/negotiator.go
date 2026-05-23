@@ -154,6 +154,39 @@ func (n *negotiator) negotiate(ctx context.Context) error {
 		n.log.Info("answer received, applying",
 			"signaling_state", n.pc.SignalingState().String(),
 		)
+
+		// Log answer SDP m-line detail BEFORE setRemoteDescription,
+		// so we can see if subscriber accepted sendonly m-lines.
+		ansDetails := parseMLineDetails(answer.SDP)
+		sendrecvCount := 0
+		recvonlyCount := 0
+		sendonlyCount := 0
+		for _, d := range ansDetails {
+			switch d.direction {
+			case "sendrecv":
+				sendrecvCount++
+			case "recvonly":
+				recvonlyCount++
+			case "sendonly":
+				sendonlyCount++
+			}
+		}
+		n.log.Info("answer SDP diagnostics",
+			"m_lines_total", len(ansDetails),
+			"m_lines_sendrecv", sendrecvCount,
+			"m_lines_recvonly", recvonlyCount,
+			"m_lines_sendonly", sendonlyCount,
+		)
+		for _, detail := range ansDetails {
+			n.log.Debug("answer m-line detail",
+				"index", detail.index,
+				"kind", detail.kind,
+				"direction", detail.direction,
+				"ssrc_count", detail.ssrcCount,
+				"mid", detail.mid,
+			)
+		}
+
 		if err := n.pc.SetRemoteDescription(answer); err != nil {
 			return fmt.Errorf("set remote description: %w", err)
 		}

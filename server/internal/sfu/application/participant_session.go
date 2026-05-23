@@ -154,7 +154,17 @@ func (ps *ParticipantSession) AddRemoteTrack(t *domain.PublishedTrack) error {
 
 	ps.sendersMu.Lock()
 	ps.sendersByTrackID[t.ID] = sender
+	bindedSenders := len(ps.sendersByTrackID)
 	ps.sendersMu.Unlock()
+
+	ps.log.Info("AddRemoteTrack: track bound to subscriber PC",
+		"subscriber_user_id", ps.Participant.UserID,
+		"track_id", t.ID,
+		"publisher_stream_id", t.StreamID,
+		"track_kind", t.Kind.String(),
+		"sender_ssrc", sender.Track().StreamID(),
+		"total_forwarded_tracks_for_subscriber", bindedSenders,
+	)
 
 	return nil
 }
@@ -220,10 +230,17 @@ func (ps *ParticipantSession) handleICECandidate(c *webrtc.ICECandidate) {
 }
 
 func (ps *ParticipantSession) handleRemoteTrack(remote *webrtc.TrackRemote, _ *webrtc.RTPReceiver) {
+	codec := remote.Codec()
 	ps.log.Info("publisher track arrived",
 		"user_id", ps.Participant.UserID,
 		"kind", remote.Kind().String(),
 		"track_id", remote.ID(),
+		"stream_id", remote.StreamID(),
+		"ssrc", remote.SSRC(),
+		"codec_mime", codec.MimeType,
+		"codec_clock_rate", codec.ClockRate,
+		"codec_channels", codec.Channels,
+		"codec_fmtp", codec.SDPFmtpLine,
 	)
 
 	track, err := domain.NewPublishedTrack(remote, ps.Participant.UserID)
@@ -231,6 +248,12 @@ func (ps *ParticipantSession) handleRemoteTrack(remote *webrtc.TrackRemote, _ *w
 		ps.log.Error("failed to wrap published track", "error", err)
 		return
 	}
+
+	ps.log.Info("published track created",
+		"local_track_id", track.ID,
+		"local_track_stream_id", track.StreamID,
+		"local_track_kind", track.Kind.String(),
+	)
 
 	ps.Participant.AddTrack(track)
 
@@ -328,6 +351,8 @@ func (ps *ParticipantSession) forwardRTP(
 				"track_id", remote.ID(),
 				"packets_forwarded", pktCount,
 				"write_errors", writeErrCount,
+				"remote_ssrc", remote.SSRC(),
+				"subscriber_bound_senders", len(ps.sendersByTrackID),
 			)
 		}
 	}
