@@ -34,6 +34,11 @@ type ParticipantSession struct {
 	pendingICE []webrtc.ICECandidateInit
 	iceMu      sync.Mutex
 
+	// sendersByTrackID tracks the RTPSender returned by pc.AddTrack for each forwarded
+	// remote track. Required for RemoveRemoteTrack: pion needs the exact sender object.
+	sendersByTrackID map[string]*webrtc.RTPSender
+	sendersMu        sync.Mutex
+
 	// onTrack is invoked by the room session whenever this participant publishes a new track.
 	onTrack func(p *domain.Participant, track *domain.PublishedTrack, remote *webrtc.TrackRemote)
 }
@@ -48,13 +53,14 @@ func NewParticipantSession(
 	ctx, cancel := context.WithCancel(session.Context())
 
 	ps := &ParticipantSession{
-		Participant: participant,
-		pc:          pc,
-		session:     session,
-		log:         log,
-		ctx:         ctx,
-		cancel:      cancel,
-		onTrack:     onTrack,
+		Participant:      participant,
+		pc:               pc,
+		session:          session,
+		log:              log,
+		ctx:              ctx,
+		cancel:           cancel,
+		onTrack:          onTrack,
+		sendersByTrackID: make(map[string]*webrtc.RTPSender),
 	}
 
 	ps.neg = newNegotiator(pc, session, log)
@@ -136,15 +142,50 @@ func (ps *ParticipantSession) AddRemoteTrack(t *domain.PublishedTrack) error {
 		"pc_signaling_state", ps.pc.SignalingState().String(),
 		"pc_connection_state", ps.pc.ConnectionState().String(),
 	)
-	_, err := ps.pc.AddTrack(t.LocalTrack)
+	sender, err := ps.pc.AddTrack(t.LocalTrack)
 	if err != nil {
 		ps.log.Error("AddRemoteTrack: pc.AddTrack failed",
 			"subscriber_user_id", ps.Participant.UserID,
 			"track_id", t.ID,
 			"error", err,
 		)
+		return err
 	}
-	return err
+
+	ps.sendersMu.Lock()
+	ps.sendersByTrackID[t.ID] = sender
+	ps.sendersMu.Unlock()
+
+	return nil
+}
+
+// RemoveRemoteTrack removes a previously-forwarded track from this subscriber's PC.
+// Called when the publisher leaves so their m-lines are cleaned up and don't accumulate.
+func (ps *ParticipantSession) RemoveRemoteTrack(trackID string) {
+	ps.sendersMu.Lock()
+	sender, ok := ps.sendersByTrackID[trackID]
+	if ok {
+		delete(ps.sendersByTrackID, trackID)
+	}
+	ps.sendersMu.Unlock()
+
+	if !ok {
+		return
+	}
+
+	if err := ps.pc.RemoveTrack(sender); err != nil {
+		ps.log.Warn("RemoveRemoteTrack: pc.RemoveTrack failed",
+			"subscriber_user_id", ps.Participant.UserID,
+			"track_id", trackID,
+			"error", err,
+		)
+		return
+	}
+
+	ps.log.Info("RemoveRemoteTrack: track removed from subscriber PC",
+		"subscriber_user_id", ps.Participant.UserID,
+		"track_id", trackID,
+	)
 }
 
 // StartForwarding launches the RTP copying goroutine for a published track.

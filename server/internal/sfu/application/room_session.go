@@ -130,6 +130,31 @@ func (rs *RoomSession) Leave(participantID string) {
 		"user_id", ps.Participant.UserID,
 	)
 
+	// Remove the departing participant's forwarded tracks from all remaining subscribers.
+	// Without this, every reconnect leaves ghost RTPSenders in subscriber PCs, causing
+	// m-line count to grow unboundedly and the SDP offer to accumulate stale m-sections.
+	leavingTracks := ps.Participant.GetTracks()
+	if len(leavingTracks) > 0 {
+		rs.mu.RLock()
+		for _, sub := range rs.sessions {
+			for _, track := range leavingTracks {
+				sub.RemoveRemoteTrack(track.ID)
+			}
+		}
+		rs.mu.RUnlock()
+
+		rs.log.Info("removed departed participant's tracks from subscribers",
+			"room_id", rs.room.ID,
+			"user_id", ps.Participant.UserID,
+			"track_count", len(leavingTracks),
+			"subscriber_count", func() int {
+				rs.mu.RLock()
+				defer rs.mu.RUnlock()
+				return len(rs.sessions)
+			}(),
+		)
+	}
+
 	// Notify remaining participants.
 	rs.broadcastEvent("participant_left", map[string]any{
 		"user_id": ps.Participant.UserID,
