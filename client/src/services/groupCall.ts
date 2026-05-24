@@ -445,6 +445,16 @@ class GroupCallService {
               });
             }
 
+            const silentStream = firstFrameSeen && packetsReceived > 50 && (audioLevel == null || audioLevel < 0.001);
+            if (silentStream) {
+              gcLog(this.currentUserId, 'WARNING: silent inbound stream (packets flowing but audioLevel≈0)', {
+                streamId: streamId.slice(0, 8),
+                packetsReceived,
+                audioLevel: audioLevel ?? 'N/A',
+                totalAudioEnergy: totalAudioEnergy ?? 'N/A',
+                elapsedFromJoinMs: this.joinedAt ? Date.now() - this.joinedAt : -1,
+              });
+            }
             gcLog(this.currentUserId, 'inbound remote audio', {
               streamId: streamId.slice(0, 8),
               trackId: trackIdShort,
