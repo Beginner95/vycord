@@ -107,6 +107,12 @@ class GroupCallService {
   private currentRoomId = '';
   private inCall = false;
 
+  // Timestamps for mobile diagnostic metrics (milliseconds since epoch).
+  private joinedAt = 0;
+  private pcCreatedAt = 0;
+  private pcConnectedAt = 0;
+  private firstAudioFrameAt: Map<string, number> = new Map();
+
   // ── Lifecycle ──────────────────────────────────────────────────────────────
 
   init(callbacks: GroupCallCallbacks): void {
@@ -276,6 +282,7 @@ class GroupCallService {
         gcLog(userId, 'WS message', { type: msg.type });
         if (msg.type === 'joined') {
           this.inCall = true;
+          this.joinedAt = Date.now();
           const joined = msg.payload as JoinedPayload;
           gcLog(userId, 'joined room', { existingPeers: joined.existing_peers ?? [] });
           // Notify the UI about participants who are already in the room.
@@ -311,6 +318,7 @@ class GroupCallService {
   // ── Private: PeerConnection creation ─────────────────────────────────────
 
   private createPeerConnection(): RTCPeerConnection {
+    this.pcCreatedAt = Date.now();
     const pc = new RTCPeerConnection({
       iceServers: [
         { urls: 'stun:stun.l.google.com:19302' },
@@ -368,6 +376,7 @@ class GroupCallService {
     const remoteTrackMonitors = new Map<string, ReturnType<typeof setInterval>>();
 
     pc.ontrack = (event) => {
+      const ontrackAt = Date.now();
       const streamId = event.streams[0]?.id ?? event.track.id;
       gcLog(this.currentUserId, 'ontrack', {
         trackKind: event.track.kind,
@@ -379,6 +388,8 @@ class GroupCallService {
         stream0id: event.streams[0]?.id?.slice(0, 8) ?? null,
         echoGuardWouldFire: streamId === this.currentUserId,
         currentUserId: this.currentUserId.slice(0, 8),
+        elapsedFromJoinMs: this.joinedAt ? ontrackAt - this.joinedAt : -1,
+        elapsedFromConnectedMs: this.pcConnectedAt ? ontrackAt - this.pcConnectedAt : -1,
       });
 
       if (streamId === this.currentUserId) {
@@ -386,9 +397,16 @@ class GroupCallService {
         return;
       }
 
-      // Start inbound stats monitor for audio tracks
+      // Per-track inbound stats monitor. Uses receiver.getStats() instead of pc.getStats()
+      // so we get the inbound-rtp report directly without filtering by trackId — the
+      // trackId field is deprecated and absent on some mobile browsers (Android WebView,
+      // older Safari). Detects first non-zero packetsReceived and emits a [METRIC] log
+      // with elapsed times for diagnosing mobile audio delays.
       if (event.track.kind === 'audio') {
+        const receiver = event.receiver;
         const trackIdShort = event.track.id.slice(0, 8);
+        let firstFrameSeen = false;
+
         const monitorId = setInterval(async () => {
           if (!this.pc || this.pc.connectionState !== 'connected') {
             clearInterval(monitorId);
@@ -396,20 +414,48 @@ class GroupCallService {
             return;
           }
           try {
-            const stats = await this.pc.getStats();
+            const stats = await receiver.getStats();
+            let packetsReceived = 0;
+            let packetsLost = 0;
+            let bytesReceived = 0;
+            let jitter = 0;
+            let audioLevel: number | undefined;
+            let totalAudioEnergy: number | undefined;
             stats.forEach((r) => {
-              if (r.type === 'inbound-rtp' && r.kind === 'audio' && (r as any).trackId === event.track.id) {
-                gcLog(this.currentUserId, 'inbound remote audio', {
-                  trackId: trackIdShort,
-                  packetsReceived: r.packetsReceived,
-                  packetsLost: r.packetsLost,
-                  bytesReceived: r.bytesReceived,
-                  jitter: (r.jitter as number | undefined)?.toFixed(4),
-                  audioLevel: (r as any).audioLevel?.toFixed(4),
-                  totalAudioEnergy: (r as any).totalAudioEnergy?.toFixed(2),
-                  packetsPerSec: r.packetsReceived > 0 ? 'OK' : 'ZERO',
-                });
+              if (r.type === 'inbound-rtp') {
+                packetsReceived = (r.packetsReceived as number) ?? 0;
+                packetsLost = (r.packetsLost as number) ?? 0;
+                bytesReceived = (r.bytesReceived as number) ?? 0;
+                jitter = (r.jitter as number) ?? 0;
+                audioLevel = (r as any).audioLevel;
+                totalAudioEnergy = (r as any).totalAudioEnergy;
               }
+            });
+
+            if (!firstFrameSeen && packetsReceived > 0) {
+              firstFrameSeen = true;
+              const now = Date.now();
+              this.firstAudioFrameAt.set(streamId, now);
+              gcLog(this.currentUserId, '[METRIC] first-audio-frame', {
+                streamId: streamId.slice(0, 8),
+                packetsReceived,
+                elapsedFromJoinMs: this.joinedAt ? now - this.joinedAt : -1,
+                elapsedFromOntrackMs: now - ontrackAt,
+                elapsedFromConnectedMs: this.pcConnectedAt ? now - this.pcConnectedAt : -1,
+              });
+            }
+
+            gcLog(this.currentUserId, 'inbound remote audio', {
+              streamId: streamId.slice(0, 8),
+              trackId: trackIdShort,
+              packetsReceived,
+              packetsLost,
+              bytesReceived,
+              jitter: jitter.toFixed(4),
+              audioLevel: audioLevel != null ? audioLevel.toFixed(4) : 'N/A',
+              totalAudioEnergy: totalAudioEnergy != null ? totalAudioEnergy.toFixed(4) : 'N/A',
+              firstFrameSeen,
+              elapsedFromJoinMs: this.joinedAt ? Date.now() - this.joinedAt : -1,
             });
           } catch (_) {}
         }, 2000);
@@ -507,6 +553,11 @@ class GroupCallService {
         this.callbacks?.onError('WebRTC connection failed');
       }
       if (pc.connectionState === 'connected') {
+        this.pcConnectedAt = Date.now();
+        gcLog(this.currentUserId, '[METRIC] pc-connected', {
+          elapsedFromJoinMs: this.joinedAt ? this.pcConnectedAt - this.joinedAt : -1,
+          elapsedFromPcCreateMs: this.pcConnectedAt - this.pcCreatedAt,
+        });
         // Start RTCStats polling to confirm RTP is actually flowing end-to-end.
         // outbound-rtp: confirms A is sending audio to SFU.
         // inbound-rtp: confirms SFU is forwarding audio to this client (B).
@@ -598,7 +649,10 @@ class GroupCallService {
     };
 
     pc.onicegatheringstatechange = () => {
-      gcLog(this.currentUserId, 'ICE gatheringState', { state: pc.iceGatheringState });
+      gcLog(this.currentUserId, 'ICE gatheringState', {
+        state: pc.iceGatheringState,
+        elapsedFromPcCreateMs: Date.now() - this.pcCreatedAt,
+      });
     };
 
     pc.oniceconnectionstatechange = () => {
@@ -782,6 +836,15 @@ class GroupCallService {
   // ── Private: cleanup ──────────────────────────────────────────────────────
 
   private teardown(): void {
+    gcLog(this.currentUserId, '[METRIC] call-summary', {
+      callDurationMs: this.joinedAt ? Date.now() - this.joinedAt : -1,
+      firstAudioFrames: Object.fromEntries(
+        [...this.firstAudioFrameAt.entries()].map(([sid, ts]) => [
+          sid.slice(0, 8),
+          { elapsedFromJoinMs: this.joinedAt ? ts - this.joinedAt : -1 },
+        ])
+      ),
+    });
     gcLog(this.currentUserId, 'teardown', {
       remoteStreams: this.remoteStreams.size,
       pcState: this.pc?.connectionState ?? 'null',
@@ -802,6 +865,10 @@ class GroupCallService {
     this.remoteStreams.clear();
     this.pendingCandidates = [];
     this.inCall = false;
+    this.joinedAt = 0;
+    this.pcCreatedAt = 0;
+    this.pcConnectedAt = 0;
+    this.firstAudioFrameAt.clear();
     this.ws = null;
   }
 }
