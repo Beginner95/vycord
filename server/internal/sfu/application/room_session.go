@@ -201,6 +201,12 @@ func (rs *RoomSession) Done() <-chan struct{} {
 	return rs.room.Done()
 }
 
+func (rs *RoomSession) participantCount() int {
+	rs.mu.RLock()
+	defer rs.mu.RUnlock()
+	return len(rs.sessions)
+}
+
 // --- internal ---
 
 // onNewTrack is the callback from ParticipantSession when a publisher pushes a track.

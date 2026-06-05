@@ -8,6 +8,19 @@ import (
 	sfuwebrtc "github.com/vycord/server/internal/sfu/infrastructure/webrtc"
 )
 
+// Stats is a snapshot of SFU runtime state for observability.
+type Stats struct {
+	Rooms        int            `json:"rooms"`
+	Participants int            `json:"participants"`
+	RoomDetails  []RoomStats    `json:"room_details,omitempty"`
+}
+
+// RoomStats holds per-room snapshot data.
+type RoomStats struct {
+	RoomID       string `json:"room_id"`
+	Participants int    `json:"participants"`
+}
+
 // RoomManager creates and tracks RoomSessions.
 // It is the top-level entry point for the transport layer.
 type RoomManager struct {
@@ -58,6 +71,48 @@ func (m *RoomManager) GetRoom(roomID string) (*RoomSession, bool) {
 	defer m.mu.RUnlock()
 	rs, ok := m.rooms[roomID]
 	return rs, ok
+}
+
+// Stats returns a snapshot of current SFU state for health checks and monitoring.
+func (m *RoomManager) Stats() Stats {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	s := Stats{
+		Rooms:       len(m.rooms),
+		RoomDetails: make([]RoomStats, 0, len(m.rooms)),
+	}
+	for id, rs := range m.rooms {
+		participants := rs.participantCount()
+		s.Participants += participants
+		s.RoomDetails = append(s.RoomDetails, RoomStats{
+			RoomID:       id,
+			Participants: participants,
+		})
+	}
+	return s
+}
+
+// Shutdown closes all active participant sessions across all rooms.
+// Call this during graceful shutdown before stopping the HTTP server so that
+// PeerConnections are closed cleanly and clients receive proper disconnection
+// events rather than an abrupt TCP reset.
+func (m *RoomManager) Shutdown() {
+	m.mu.RLock()
+	sessions := make([]*ParticipantSession, 0)
+	for _, rs := range m.rooms {
+		rs.mu.RLock()
+		for _, ps := range rs.sessions {
+			sessions = append(sessions, ps)
+		}
+		rs.mu.RUnlock()
+	}
+	m.mu.RUnlock()
+
+	for _, ps := range sessions {
+		ps.Close()
+	}
+	m.log.Info("SFU shutdown: all participant sessions closed", "count", len(sessions))
 }
 
 // Join is a convenience method: get-or-create room + join participant.

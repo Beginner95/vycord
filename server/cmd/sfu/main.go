@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"log/slog"
 	"net/http"
 	"os"
@@ -44,6 +45,18 @@ func main() {
 
 	mux := http.NewServeMux()
 	mux.Handle("/ws", handler)
+	mux.HandleFunc("/health", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"status":"ok"}`))
+	})
+	mux.HandleFunc("/stats", func(w http.ResponseWriter, _ *http.Request) {
+		stats := manager.Stats()
+		w.Header().Set("Content-Type", "application/json")
+		if err := json.NewEncoder(w).Encode(stats); err != nil {
+			http.Error(w, "encode error", http.StatusInternalServerError)
+		}
+	})
 
 	srv := &http.Server{
 		Addr:    ":" + port,
@@ -63,6 +76,7 @@ func main() {
 	<-quit
 
 	log.Info("shutting down SFU server")
+	manager.Shutdown()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	if err := srv.Shutdown(ctx); err != nil {

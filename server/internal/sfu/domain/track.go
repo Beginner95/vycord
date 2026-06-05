@@ -24,6 +24,11 @@ type PublishedTrack struct {
 	StreamID   string
 	Kind       TrackKind
 	LocalTrack *webrtc.TrackLocalStaticRTP
+
+	// SendPLI forwards a Picture Loss Indication to the publisher, requesting
+	// a keyframe. Set by ParticipantSession after the track is created.
+	// Called when any subscriber sends PLI feedback via RTCP.
+	SendPLI func()
 }
 
 func NewPublishedTrack(remote *webrtc.TrackRemote, streamID string) (*PublishedTrack, error) {

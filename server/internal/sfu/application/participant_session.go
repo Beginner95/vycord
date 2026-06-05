@@ -2,12 +2,34 @@ package application
 
 import (
 	"context"
+	"io"
 	"log/slog"
 	"sync"
+	"time"
 
+	"github.com/pion/rtcp"
 	"github.com/pion/webrtc/v4"
 
 	"github.com/vycord/server/internal/sfu/domain"
+)
+
+const (
+	// maxPendingICECandidates caps the ICE candidate buffer to prevent unbounded
+	// memory growth if a client sends candidates before the answer arrives.
+	maxPendingICECandidates = 256
+
+	// rtcpBufSize is the read buffer for RTCP packets from subscriber senders.
+	rtcpBufSize = 1500
+
+	// idleConnectionTimeout is how long we wait for the initial ICE connection
+	// to complete. Clients that open WebSocket but never complete ICE (broken
+	// client, DoS attempt, network partition) are evicted after this timeout.
+	idleConnectionTimeout = 30 * time.Second
+
+	// disconnectedTimeout is how long we tolerate ICE disconnection before
+	// treating it as a failure. This supplements pion's built-in ICE timers
+	// to provide faster application-level cleanup in degraded networks.
+	disconnectedTimeout = 15 * time.Second
 )
 
 // ParticipantSession owns the PeerConnection lifecycle for one participant.
@@ -38,6 +60,13 @@ type ParticipantSession struct {
 	// remote track. Required for RemoveRemoteTrack: pion needs the exact sender object.
 	sendersByTrackID map[string]*webrtc.RTPSender
 	sendersMu        sync.Mutex
+
+	// timerMu guards the lifecycle timers below.
+	timerMu sync.Mutex
+	// idleTimer fires if the PC never reaches Connected within idleConnectionTimeout.
+	idleTimer *time.Timer
+	// disconnectTimer fires if ICE stays Disconnected longer than disconnectedTimeout.
+	disconnectTimer *time.Timer
 
 	// onTrack is invoked by the room session whenever this participant publishes a new track.
 	onTrack func(p *domain.Participant, track *domain.PublishedTrack, remote *webrtc.TrackRemote)
@@ -88,9 +117,21 @@ func NewParticipantSession(
 }
 
 // Start launches the negotiation loop and sends the initial offer to the client.
+// It also starts an idle timer: if the PC hasn't reached Connected within
+// idleConnectionTimeout, the session is cancelled (evicts unresponsive clients).
 func (ps *ParticipantSession) Start() {
 	go ps.neg.Run(ps.ctx)
 	ps.neg.trigger()
+
+	ps.timerMu.Lock()
+	ps.idleTimer = time.AfterFunc(idleConnectionTimeout, func() {
+		ps.log.Warn("idle connection timeout: PC never reached Connected, closing session",
+			"user_id", ps.Participant.UserID,
+			"timeout", idleConnectionTimeout,
+		)
+		ps.cancel()
+	})
+	ps.timerMu.Unlock()
 }
 
 // DeliverAnswer feeds the client's SDP answer to the pending negotiation.
@@ -107,7 +148,14 @@ func (ps *ParticipantSession) AddICECandidate(c webrtc.ICECandidateInit) error {
 	ps.iceMu.Lock()
 	defer ps.iceMu.Unlock()
 	if ps.pc.RemoteDescription() == nil {
-		ps.pendingICE = append(ps.pendingICE, c)
+		if len(ps.pendingICE) < maxPendingICECandidates {
+			ps.pendingICE = append(ps.pendingICE, c)
+		} else {
+			ps.log.Warn("pendingICE buffer full, dropping candidate",
+				"user_id", ps.Participant.UserID,
+				"buffer_size", maxPendingICECandidates,
+			)
+		}
 		return nil
 	}
 	return ps.pc.AddICECandidate(c)
@@ -156,6 +204,23 @@ func (ps *ParticipantSession) AddRemoteTrack(t *domain.PublishedTrack) error {
 	ps.sendersByTrackID[t.ID] = sender
 	bindedSenders := len(ps.sendersByTrackID)
 	ps.sendersMu.Unlock()
+
+	// Read RTCP from the subscriber's sender in a goroutine.
+	// This is required for two reasons:
+	//   1. pion's NACK responder interceptor only retransmits packets when RTCP
+	//      flows through the interceptor pipeline via sender.Read(). Without this,
+	//      NACK retransmissions are silently dropped → packet loss stays unrecovered.
+	//   2. PLI (Picture Loss Indication) requests from the subscriber must be
+	//      forwarded to the publisher so they produce a new keyframe.
+	go ps.readSubscriberRTCP(ps.ctx, sender, t)
+
+	// Request a keyframe from the publisher immediately when a subscriber is added.
+	// Without this, the first subscriber has to wait for a naturally-occurring
+	// keyframe from the publisher (can take seconds), causing video to appear
+	// frozen until the first I-frame arrives.
+	if t.Kind == domain.TrackKindVideo && t.SendPLI != nil {
+		t.SendPLI()
+	}
 
 	ps.log.Info("AddRemoteTrack: track bound to subscriber PC",
 		"subscriber_user_id", ps.Participant.UserID,
@@ -206,6 +271,7 @@ func (ps *ParticipantSession) StartForwarding(track *domain.PublishedTrack, remo
 
 // Close stops all goroutines and closes the PeerConnection.
 func (ps *ParticipantSession) Close() {
+	ps.stopTimers()
 	ps.cancel()
 	ps.pc.Close()
 }
@@ -255,6 +321,21 @@ func (ps *ParticipantSession) handleRemoteTrack(remote *webrtc.TrackRemote, _ *w
 		"local_track_kind", track.Kind.String(),
 	)
 
+	// Wire PLI forwarding: when any subscriber experiences packet loss and sends
+	// PLI feedback, we forward it to the publisher so they produce a new keyframe.
+	// Capturing remote.SSRC() here is safe — it's immutable after OnTrack fires.
+	publisherSSRC := remote.SSRC()
+	track.SendPLI = func() {
+		if err := ps.pc.WriteRTCP([]rtcp.Packet{
+			&rtcp.PictureLossIndication{MediaSSRC: uint32(publisherSSRC)},
+		}); err != nil {
+			ps.log.Debug("failed to send PLI to publisher",
+				"user_id", ps.Participant.UserID,
+				"track_id", remote.ID(),
+			)
+		}
+	}
+
 	ps.Participant.AddTrack(track)
 
 	if ps.onTrack != nil {
@@ -267,8 +348,118 @@ func (ps *ParticipantSession) handleConnectionState(state webrtc.PeerConnectionS
 		"user_id", ps.Participant.UserID,
 		"state", state.String(),
 	)
-	if state == webrtc.PeerConnectionStateFailed || state == webrtc.PeerConnectionStateClosed {
+
+	switch state {
+	case webrtc.PeerConnectionStateConnected:
+		// Cancel the idle timer — ICE connected in time.
+		ps.timerMu.Lock()
+		if ps.idleTimer != nil {
+			ps.idleTimer.Stop()
+			ps.idleTimer = nil
+		}
+		// If we had a disconnect timer running, cancel it too.
+		if ps.disconnectTimer != nil {
+			ps.disconnectTimer.Stop()
+			ps.disconnectTimer = nil
+		}
+		ps.timerMu.Unlock()
+
+	case webrtc.PeerConnectionStateDisconnected:
+		// ICE temporarily lost connectivity (network switch, NAT rebinding).
+		// Start a timer: if not reconnected within disconnectedTimeout, treat
+		// as failed. pion's own ICE timers will also fire, but this gives us
+		// faster application-level cleanup with logging.
+		ps.timerMu.Lock()
+		if ps.disconnectTimer == nil {
+			ps.disconnectTimer = time.AfterFunc(disconnectedTimeout, func() {
+				ps.log.Warn("ICE disconnected timeout exceeded, closing session",
+					"user_id", ps.Participant.UserID,
+					"timeout", disconnectedTimeout,
+				)
+				ps.cancel()
+			})
+		}
+		ps.timerMu.Unlock()
+
+	case webrtc.PeerConnectionStateFailed, webrtc.PeerConnectionStateClosed:
+		ps.stopTimers()
 		ps.cancel()
+	}
+}
+
+func (ps *ParticipantSession) stopTimers() {
+	ps.timerMu.Lock()
+	defer ps.timerMu.Unlock()
+	if ps.idleTimer != nil {
+		ps.idleTimer.Stop()
+		ps.idleTimer = nil
+	}
+	if ps.disconnectTimer != nil {
+		ps.disconnectTimer.Stop()
+		ps.disconnectTimer = nil
+	}
+}
+
+// readSubscriberRTCP reads RTCP feedback from a subscriber's RTPSender and
+// forwards PLI requests to the publisher.
+//
+// This goroutine serves two purposes:
+//  1. pion's interceptors (NACK responder) need the RTCP pipeline to be drained
+//     via sender.Read(). Without this loop, NACK retransmissions silently fail.
+//  2. PLI (Picture Loss Indication) from the subscriber is forwarded to the
+//     publisher so they generate a new keyframe, recovering from packet loss.
+//
+// The loop exits when ctx is cancelled (session ends) or when the sender is
+// closed (publisher left and the track was removed via pc.RemoveTrack).
+func (ps *ParticipantSession) readSubscriberRTCP(
+	ctx context.Context,
+	sender *webrtc.RTPSender,
+	track *domain.PublishedTrack,
+) {
+	buf := make([]byte, rtcpBufSize)
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		default:
+		}
+
+		n, _, err := sender.Read(buf)
+		if err != nil {
+			if err == io.EOF || err == io.ErrClosedPipe {
+				return
+			}
+			// Transient read error — log at debug and continue.
+			ps.log.Debug("RTCP sender read error",
+				"subscriber_user_id", ps.Participant.UserID,
+				"track_id", track.ID,
+				"error", err,
+			)
+			return
+		}
+		if n == 0 {
+			continue
+		}
+
+		pkts, err := rtcp.Unmarshal(buf[:n])
+		if err != nil {
+			ps.log.Debug("failed to unmarshal RTCP from subscriber",
+				"subscriber_user_id", ps.Participant.UserID,
+				"track_id", track.ID,
+				"error", err,
+			)
+			continue
+		}
+
+		for _, pkt := range pkts {
+			switch pkt.(type) {
+			case *rtcp.PictureLossIndication, *rtcp.FullIntraRequest:
+				// Forward PLI to publisher so they produce a new keyframe.
+				if track.SendPLI != nil {
+					track.SendPLI()
+				}
+			}
+		}
 	}
 }
 
