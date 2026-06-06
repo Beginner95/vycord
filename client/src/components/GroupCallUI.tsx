@@ -2,10 +2,12 @@ import { useState, useEffect, useRef, useCallback, type FormEvent } from 'react'
 import { useAuthStore } from '@/stores/authStore';
 import { useServerStore } from '@/stores/serverStore';
 import { useMessageStore } from '@/stores/messageStore';
-import { groupCallService } from '@/services/groupCall';
+import { groupCallService, SCREEN_QUALITY_PRESETS } from '@/services/groupCall';
+import type { ScreenQuality, ScreenQualityPreset } from '@/services/groupCall';
 import { wsService } from '@/services/websocket';
 import { apiService } from '@/services/api';
 import type { User, Message } from '@/types';
+import type { DesktopCapturerSource } from '@/types/electron';
 import './GroupCallUI.css';
 
 function useMicLevel(stream: MediaStream | null, isMuted: boolean): number {
@@ -86,6 +88,92 @@ function attachStreamToElement(el: HTMLVideoElement, stream: MediaStream, userId
     });
 }
 
+// ─── Screen Source Picker Modal ──────────────────────────────────────────────
+
+interface ScreenSourcePickerProps {
+  sources: DesktopCapturerSource[];
+  onSelect: (sourceId: string) => void;
+  onCancel: () => void;
+}
+
+function ScreenSourcePicker({ sources, onSelect, onCancel }: ScreenSourcePickerProps) {
+  const screens = sources.filter((s) => s.id.startsWith('screen:'));
+  const windows = sources.filter((s) => s.id.startsWith('window:'));
+
+  return (
+    <div className="screen-picker-backdrop" onClick={onCancel}>
+      <div className="screen-picker-modal" onClick={(e) => e.stopPropagation()}>
+        <div className="screen-picker-header">
+          <span>Select a screen to share</span>
+          <button className="screen-picker-close" onClick={onCancel}>✕</button>
+        </div>
+
+        {screens.length > 0 && (
+          <div className="screen-picker-section">
+            <div className="screen-picker-section-label">Entire Screen</div>
+            <div className="screen-picker-grid">
+              {screens.map((s) => (
+                <button key={s.id} className="screen-picker-item" onClick={() => onSelect(s.id)}>
+                  <img src={s.thumbnail} alt={s.name} className="screen-picker-thumb" />
+                  <span className="screen-picker-name">{s.name}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {windows.length > 0 && (
+          <div className="screen-picker-section">
+            <div className="screen-picker-section-label">Application Window</div>
+            <div className="screen-picker-grid">
+              {windows.map((s) => (
+                <button key={s.id} className="screen-picker-item" onClick={() => onSelect(s.id)}>
+                  {s.appIconUrl
+                    ? <img src={s.appIconUrl} alt="" className="screen-picker-app-icon" />
+                    : <img src={s.thumbnail} alt={s.name} className="screen-picker-thumb" />
+                  }
+                  <span className="screen-picker-name">{s.name}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── Screen Quality Picker Modal ─────────────────────────────────────────────
+
+interface ScreenQualityPickerProps {
+  onSelect: (quality: ScreenQuality) => void;
+  onCancel: () => void;
+}
+
+function ScreenQualityPicker({ onSelect, onCancel }: ScreenQualityPickerProps) {
+  const entries = Object.entries(SCREEN_QUALITY_PRESETS) as [ScreenQuality, ScreenQualityPreset][];
+  return (
+    <div className="screen-picker-backdrop" onClick={onCancel}>
+      <div className="screen-quality-modal" onClick={(e) => e.stopPropagation()}>
+        <div className="screen-picker-header">
+          <span>Select quality</span>
+          <button className="screen-picker-close" onClick={onCancel}>✕</button>
+        </div>
+        <div className="screen-quality-list">
+          {entries.map(([key, preset]) => (
+            <button key={key} className="screen-quality-item" onClick={() => onSelect(key)}>
+              <span className="screen-quality-label">{preset.label}</span>
+              <span className="screen-quality-desc">
+                {preset.width} × {preset.height} · {preset.frameRate} fps
+              </span>
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function GroupCallUI() {
   const { user } = useAuthStore();
   const { currentServer, currentChannel } = useServerStore();
@@ -97,9 +185,28 @@ export function GroupCallUI() {
   const [chatInput, setChatInput] = useState('');
   const [userCache, setUserCache] = useState<Map<string, string>>(new Map());
   const [participants, setParticipants] = useState<RemoteParticipant[]>([]);
+  const [isScreenSharing, setIsScreenSharing] = useState(false);
+  const [showSourcePicker, setShowSourcePicker] = useState(false);
+  const [screenSources, setScreenSources] = useState<DesktopCapturerSource[]>([]);
+  const [showQualityPicker, setShowQualityPicker] = useState(false);
+  // null = non-Electron path (getDisplayMedia will pick its own source)
+  const [selectedSourceId, setSelectedSourceId] = useState<string | null>(null);
+  // Set of remote user IDs currently sharing their screen
+  const [screenSharers, setScreenSharers] = useState<Set<string>>(new Set());
+  // When set, shows the focused layout (large video + thumbnails strip)
+  const [focusedUserId, setFocusedUserId] = useState<string | null>(null);
+  const [isFullscreen, setIsFullscreen] = useState(false);
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const remoteVideoRefs = useRef<Map<string, HTMLVideoElement>>(new Map());
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const focusedVideoRef = useRef<HTMLVideoElement>(null);
+  const screenShareMainRef = useRef<HTMLDivElement>(null);
+  // Stable ref to participants for use in WS event callbacks (avoids stale closure)
+  const participantsRef = useRef<RemoteParticipant[]>([]);
+
+  useEffect(() => {
+    participantsRef.current = participants;
+  }, [participants]);
 
   useEffect(() => {
     groupCallService.init({
@@ -135,25 +242,40 @@ export function GroupCallUI() {
         setParticipants([]);
         setIsMuted(false);
         setIsVideoOff(false);
+        setIsScreenSharing(false);
+        setShowSourcePicker(false);
+        setScreenSharers(new Set());
+        setFocusedUserId(null);
+        if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
       },
       onError: (msg) => {
         console.error('[GroupCall] Error:', msg);
         setIsInGroupCall(false);
         setParticipants([]);
+        setScreenSharers(new Set());
+        setFocusedUserId(null);
+        if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
         groupCallService.leaveGroupCall();
+      },
+      onScreenShareEnded: () => {
+        setIsScreenSharing(false);
+        wsService.send('screen_share_stopped', {});
       },
     });
   }, []);
 
   useEffect(() => {
-    if (localVideoRef.current && groupCallService.localStreamState) {
-      localVideoRef.current.srcObject = groupCallService.localStreamState;
-    }
-  }, [isInGroupCall]);
+    if (!localVideoRef.current) return;
+    const stream = isScreenSharing
+      ? groupCallService.screenStreamState
+      : groupCallService.localStreamState;
+    if (stream) localVideoRef.current.srcObject = stream;
+  }, [isInGroupCall, isScreenSharing, focusedUserId]);
 
   // Attach remote streams after React commits the video elements to DOM.
   // This is the primary attachment path — by the time this effect runs,
   // ref callbacks have already fired so remoteVideoRefs is populated.
+  // Also depends on focusedUserId so streams re-attach after view switches (grid ↔ focused).
   useEffect(() => {
     participants.forEach((p) => {
       const videoEl = remoteVideoRefs.current.get(p.userId);
@@ -171,7 +293,83 @@ export function GroupCallUI() {
         }
       }
     });
-  }, [participants]);
+  }, [participants, focusedUserId]);
+
+  // Track fullscreen state changes (ESC key or programmatic exit)
+  useEffect(() => {
+    const onFsChange = () => setIsFullscreen(!!document.fullscreenElement);
+    document.addEventListener('fullscreenchange', onFsChange);
+    return () => document.removeEventListener('fullscreenchange', onFsChange);
+  }, []);
+
+  // Listen for remote screen share events via main WS
+  useEffect(() => {
+    if (!isInGroupCall) return;
+
+    const unsubStart = wsService.on('screen_share_started', (payload) => {
+      const p = payload as { user_id: string };
+      if (p.user_id === user?.id) return; // ignore own events
+      // Only care about current call participants
+      if (!participantsRef.current.some((pt) => pt.userId === p.user_id)) return;
+      setScreenSharers((prev) => new Set([...prev, p.user_id]));
+    });
+
+    const unsubStop = wsService.on('screen_share_stopped', (payload) => {
+      const p = payload as { user_id: string };
+      setScreenSharers((prev) => {
+        const next = new Set(prev);
+        next.delete(p.user_id);
+        return next;
+      });
+      // If this participant was focused, exit focus view and fullscreen
+      setFocusedUserId((prev) => {
+        if (prev === p.user_id) {
+          if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+          return null;
+        }
+        return prev;
+      });
+    });
+
+    return () => { unsubStart(); unsubStop(); };
+  }, [isInGroupCall, user?.id]);
+
+  // Attach stream to the focused main video whenever focus or stream changes
+  useEffect(() => {
+    const el = focusedVideoRef.current;
+    if (!el || !focusedUserId) return;
+    const participant = participants.find((pt) => pt.userId === focusedUserId);
+    if (participant?.stream && el.srcObject !== participant.stream) {
+      el.srcObject = participant.stream;
+      el.muted = true; // audio comes from thumbnail elements
+      el.play().catch(() => {});
+    }
+  }, [focusedUserId, participants]);
+
+  // Clear focus when focused participant leaves the call
+  useEffect(() => {
+    if (!focusedUserId) return;
+    const stillPresent = participants.some((p) => p.userId === focusedUserId);
+    if (!stillPresent) {
+      setFocusedUserId(null);
+      setScreenSharers((prev) => {
+        const next = new Set(prev);
+        next.delete(focusedUserId);
+        return next;
+      });
+      if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+    }
+  }, [participants, focusedUserId]);
+
+  const handleFullscreen = useCallback(async () => {
+    const container = screenShareMainRef.current;
+    if (!container) return;
+    if (document.fullscreenElement) {
+      await document.exitFullscreen().catch(() => {});
+    } else {
+      await container.requestFullscreen().catch(() => {});
+    }
+  }, []);
 
   const handleJoinGroupCall = useCallback(async (roomId: string): Promise<boolean> => {
     if (!user) return false;
@@ -182,6 +380,9 @@ export function GroupCallUI() {
 
   const handleLeaveGroupCall = useCallback(() => {
     const channelId = groupCallService.currentRoomIdState;
+    if (groupCallService.isScreenSharing) {
+      wsService.send('screen_share_stopped', {});
+    }
     if (channelId) {
       wsService.send('voice_call_cancel', {
         channel_id: channelId,
@@ -191,6 +392,11 @@ export function GroupCallUI() {
     groupCallService.leaveGroupCall();
     setIsInGroupCall(false);
     setParticipants([]);
+    setIsScreenSharing(false);
+    setShowSourcePicker(false);
+    setScreenSharers(new Set());
+    setFocusedUserId(null);
+    if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
   }, [currentServer]);
 
   const micLevel = useMicLevel(
@@ -207,6 +413,56 @@ export function GroupCallUI() {
     const off = groupCallService.toggleMuteVideo();
     setIsVideoOff(off);
   }, []);
+
+  const handleToggleScreenShare = useCallback(async () => {
+    if (isScreenSharing) {
+      await groupCallService.stopScreenShare();
+      setIsScreenSharing(false);
+      wsService.send('screen_share_stopped', {});
+      return;
+    }
+
+    const api = (window as Window & typeof globalThis).electronAPI;
+
+    if (api?.getScreenSources) {
+      // Electron: fetch sources → source picker → quality picker → start
+      const result = await api.getScreenSources();
+      if (result.error === 'screen_permission_denied') {
+        alert('Screen Recording permission is denied. Please grant it in System Settings → Privacy & Security → Screen Recording, then restart the app.');
+        return;
+      }
+      if (result.error || !result.sources?.length) {
+        alert('Could not get screen sources. Please try again.');
+        return;
+      }
+      setScreenSources(result.sources);
+      setShowSourcePicker(true);
+    } else {
+      // Non-Electron: quality picker first, then getDisplayMedia (OS native picker opens when quality is confirmed)
+      setSelectedSourceId(null);
+      setShowQualityPicker(true);
+    }
+  }, [isScreenSharing]);
+
+  const handleSelectSource = useCallback((sourceId: string) => {
+    setShowSourcePicker(false);
+    setSelectedSourceId(sourceId);
+    setShowQualityPicker(true);
+  }, []);
+
+  const handleSelectQuality = useCallback(async (quality: ScreenQuality) => {
+    setShowQualityPicker(false);
+    const sourceId = selectedSourceId ?? undefined;
+    setSelectedSourceId(null);
+    try {
+      await groupCallService.startScreenShare(sourceId, quality);
+      setIsScreenSharing(true);
+      wsService.send('screen_share_started', {});
+    } catch (err) {
+      console.error('[GroupCall] Screen share failed:', err);
+      alert('Failed to start screen sharing. Please try again.');
+    }
+  }, [selectedSourceId]);
 
   // Expose joinGroupCall to window for other components
   useEffect(() => {
@@ -263,50 +519,195 @@ export function GroupCallUI() {
 
   if (!isInGroupCall) return null;
 
+  const showSourcePickerModal = showSourcePicker && screenSources.length > 0;
+
   const totalParticipants = participants.length + 1;
   const cols = Math.min(totalParticipants, 4);
 
+  // Displayed name for the focused participant
+  const focusedName = focusedUserId
+    ? (userCache.get(focusedUserId) ?? focusedUserId.slice(0, 8))
+    : '';
+  // First screen sharer ID for the banner
+  const firstSharer = screenSharers.size > 0 ? [...screenSharers][0] : null;
+
   return (
     <div className="group-call-overlay">
+      {showSourcePickerModal && (
+        <ScreenSourcePicker
+          sources={screenSources}
+          onSelect={handleSelectSource}
+          onCancel={() => setShowSourcePicker(false)}
+        />
+      )}
+      {showQualityPicker && (
+        <ScreenQualityPicker
+          onSelect={handleSelectQuality}
+          onCancel={() => { setShowQualityPicker(false); setSelectedSourceId(null); }}
+        />
+      )}
       <div className="group-call-header">
         <h2>Group Call{currentChannel ? ` · #${currentChannel.name}` : ''}</h2>
-        <span className="participant-count">{totalParticipants} participants</span>
+        <div className="group-call-header-right">
+          {screenSharers.size > 0 && (
+            <span className="header-screen-share-indicator">🖥 Screen sharing active</span>
+          )}
+          <span className="participant-count">{totalParticipants} participants</span>
+        </div>
       </div>
 
       <div className="call-body">
-        <div className="video-grid" style={{ gridTemplateColumns: `repeat(${cols}, 1fr)` }}>
-          {/* Local video */}
-          <div className={`video-tile ${isVideoOff ? 'video-off' : ''} ${micLevel > 0.05 ? 'speaking' : ''}`}>
-            <video
-              ref={localVideoRef}
-              autoPlay
-              playsInline
-              muted
-              className="local-video"
-            />
-            {isVideoOff && <div className="video-off-placeholder">📷</div>}
-            <div className="video-label">
-              {!isMuted && micLevel > 0.05 && <span className="mic-dot" />}
-              {user?.username} (You)
+        <div className="call-video-area">
+          {/* Banner: shown when someone is sharing but user hasn't opened focus view */}
+          {firstSharer && !focusedUserId && (
+            <div className="screen-share-banner">
+              <span className="screen-share-banner-icon">🖥</span>
+              <span className="screen-share-banner-text">
+                {userCache.get(firstSharer) ?? firstSharer.slice(0, 8)} is sharing their screen
+              </span>
+              <button
+                className="screen-share-banner-btn"
+                onClick={() => setFocusedUserId(firstSharer)}
+              >
+                View
+              </button>
+              <button
+                className="screen-share-banner-dismiss"
+                onClick={() => setScreenSharers(new Set())}
+                title="Dismiss"
+              >
+                ✕
+              </button>
             </div>
-          </div>
+          )}
 
-          {/* Remote videos */}
-          {participants.map((p) => (
-            <div key={p.userId} className={`video-tile ${!p.stream ? 'video-off' : ''}`}>
-              <video
-                ref={(el) => {
-                  if (el) remoteVideoRefs.current.set(p.userId, el);
-                }}
-                autoPlay
-                playsInline
-              />
-              {!p.stream && <div className="video-off-placeholder">📷</div>}
-              <div className="video-label">
-                {userCache.get(p.userId) ?? p.userId.slice(0, 8)}
+          {focusedUserId ? (
+            /* ── Focused / screen-share view ── */
+            <div className="screen-share-view">
+              <div className="screen-share-main" ref={screenShareMainRef}>
+                <video
+                  ref={focusedVideoRef}
+                  autoPlay
+                  playsInline
+                  muted
+                  className="screen-share-main-video"
+                />
+                <div className="screen-share-main-label">
+                  {focusedName}
+                  {screenSharers.has(focusedUserId) && (
+                    <span className="screen-share-badge-sm">🖥 Sharing</span>
+                  )}
+                </div>
+                <div className="screen-share-main-controls">
+                  <button
+                    className="screen-share-ctrl-btn"
+                    onClick={() => { void handleFullscreen(); }}
+                    title={isFullscreen ? 'Exit fullscreen (Esc)' : 'Fullscreen'}
+                  >
+                    {isFullscreen ? '⊡' : '⛶'}
+                  </button>
+                  <button
+                    className="screen-share-ctrl-btn"
+                    onClick={() => setFocusedUserId(null)}
+                    title="Back to grid"
+                  >
+                    ⊞
+                  </button>
+                </div>
+              </div>
+
+              {/* Thumbnail strip */}
+              <div className="screen-share-thumbnails">
+                {/* Local thumbnail */}
+                <div
+                  className="thumbnail-tile"
+                  title={`${user?.username ?? ''} (You)`}
+                >
+                  <video
+                    ref={localVideoRef}
+                    autoPlay
+                    playsInline
+                    muted
+                    className={isScreenSharing ? 'local-video-screen' : 'local-video'}
+                  />
+                  {isVideoOff && !isScreenSharing && (
+                    <div className="thumbnail-placeholder">📷</div>
+                  )}
+                  {isScreenSharing && <div className="thumbnail-badge">🖥</div>}
+                  <div className="thumbnail-label">
+                    {!isMuted && micLevel > 0.05 && <span className="mic-dot" />}
+                    {user?.username} (You)
+                  </div>
+                </div>
+
+                {/* Remote thumbnails */}
+                {participants.map((p) => (
+                  <div
+                    key={p.userId}
+                    className={`thumbnail-tile ${focusedUserId === p.userId ? 'thumbnail-tile--focused' : ''}`}
+                    onClick={() => setFocusedUserId(p.userId)}
+                    title={userCache.get(p.userId) ?? p.userId.slice(0, 8)}
+                  >
+                    <video
+                      ref={(el) => { if (el) remoteVideoRefs.current.set(p.userId, el); }}
+                      autoPlay
+                      playsInline
+                    />
+                    {!p.stream && <div className="thumbnail-placeholder">📷</div>}
+                    {screenSharers.has(p.userId) && <div className="thumbnail-badge">🖥</div>}
+                    <div className="thumbnail-label">
+                      {userCache.get(p.userId) ?? p.userId.slice(0, 8)}
+                    </div>
+                  </div>
+                ))}
               </div>
             </div>
-          ))}
+          ) : (
+            /* ── Normal video grid ── */
+            <div className="video-grid" style={{ gridTemplateColumns: `repeat(${cols}, 1fr)` }}>
+              {/* Local video */}
+              <div className={`video-tile ${isVideoOff && !isScreenSharing ? 'video-off' : ''} ${micLevel > 0.05 ? 'speaking' : ''}`}>
+                <video
+                  ref={localVideoRef}
+                  autoPlay
+                  playsInline
+                  muted
+                  className={isScreenSharing ? 'local-video-screen' : 'local-video'}
+                />
+                {isVideoOff && !isScreenSharing && <div className="video-off-placeholder">📷</div>}
+                {isScreenSharing && <div className="screen-share-badge">🖥 Sharing</div>}
+                <div className="video-label">
+                  {!isMuted && micLevel > 0.05 && <span className="mic-dot" />}
+                  {user?.username} (You)
+                </div>
+              </div>
+
+              {/* Remote videos */}
+              {participants.map((p) => (
+                <div key={p.userId} className={`video-tile ${!p.stream ? 'video-off' : ''}`}>
+                  <video
+                    ref={(el) => { if (el) remoteVideoRefs.current.set(p.userId, el); }}
+                    autoPlay
+                    playsInline
+                  />
+                  {!p.stream && <div className="video-off-placeholder">📷</div>}
+                  {screenSharers.has(p.userId) && (
+                    <div className="screen-share-badge">🖥 Sharing</div>
+                  )}
+                  <button
+                    className="focus-btn"
+                    onClick={() => setFocusedUserId(p.userId)}
+                    title="Focus on this participant"
+                  >
+                    ⛶
+                  </button>
+                  <div className="video-label">
+                    {userCache.get(p.userId) ?? p.userId.slice(0, 8)}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
         {showChat && (
@@ -364,9 +765,17 @@ export function GroupCallUI() {
         <button
           className={`control-btn ${isVideoOff ? 'active' : ''}`}
           onClick={handleToggleVideo}
-          title={isVideoOff ? 'Turn on camera' : 'Turn off camera'}
+          disabled={isScreenSharing}
+          title={isScreenSharing ? 'Camera unavailable while screen sharing' : isVideoOff ? 'Turn on camera' : 'Turn off camera'}
         >
           {isVideoOff ? '📷' : '🎥'}
+        </button>
+        <button
+          className={`control-btn ${isScreenSharing ? 'screen-sharing-active' : ''}`}
+          onClick={() => { void handleToggleScreenShare(); }}
+          title={isScreenSharing ? 'Stop screen sharing' : 'Share screen'}
+        >
+          🖥
         </button>
         <button
           className={`control-btn ${showChat ? 'chat-active' : ''}`}

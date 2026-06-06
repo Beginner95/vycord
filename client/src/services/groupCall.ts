@@ -2,6 +2,23 @@ import { noiseCancellationService } from './noiseCancellation';
 
 const SFU_URL = import.meta.env.VITE_SFU_URL || 'ws://localhost:8081';
 
+// ─── Screen quality presets ───────────────────────────────────────────────────
+
+export interface ScreenQualityPreset {
+  readonly label: string;
+  readonly width: number;
+  readonly height: number;
+  readonly frameRate: number;
+}
+
+export const SCREEN_QUALITY_PRESETS = {
+  '720p':  { label: '720p',  width: 1280, height:  720, frameRate: 30 },
+  '1080p': { label: '1080p', width: 1920, height: 1080, frameRate: 30 },
+  '2K':    { label: '2K',    width: 2560, height: 1440, frameRate: 30 },
+} as const satisfies Record<string, ScreenQualityPreset>;
+
+export type ScreenQuality = keyof typeof SCREEN_QUALITY_PRESETS;
+
 // ─── Debug logger ────────────────────────────────────────────────────────────
 
 function gcLog(userId: string, action: string, data?: Record<string, unknown>): void {
@@ -82,6 +99,8 @@ export interface GroupCallCallbacks {
   onPeerLeft: (userId: string) => void;
   onCallEnded: () => void;
   onError: (error: string) => void;
+  // Called when the OS screen-capture source is closed by the user (e.g. stop button in Chrome bar).
+  onScreenShareEnded?: () => void;
 }
 
 // ─── Internal state ──────────────────────────────────────────────────────────
@@ -95,6 +114,10 @@ class GroupCallService {
   private localStream: MediaStream | null = null;
   private audioCtx: AudioContext | null = null;
   private audioCtxKeepAlive: ReturnType<typeof setInterval> | null = null;
+
+  private screenStream: MediaStream | null = null;
+  private screenSender: RTCRtpSender | null = null;
+  private _isScreenSharing = false;
 
   // Keyed by the remote user's ID (= pion stream ID on track events).
   private remoteStreams: RemoteStreams = new Map();
@@ -188,11 +211,128 @@ class GroupCallService {
     return !t.enabled; // true = video off
   }
 
+  // ── Screen sharing ─────────────────────────────────────────────────────────
+
+  // Starts screen sharing by replacing the video sender's track with a screen capture track.
+  // sourceId: desktopCapturer source ID (Electron). Pass undefined to use native getDisplayMedia picker.
+  // quality: resolution preset; defaults to 1080p. Uses ideal/max constraints so the browser
+  //          falls back to the closest available resolution instead of failing.
+  async startScreenShare(sourceId?: string, quality: ScreenQuality = '1080p'): Promise<void> {
+    if (!this.pc || !this.inCall) throw new Error('Not in a call');
+    if (this._isScreenSharing) await this.stopScreenShare();
+
+    const preset = SCREEN_QUALITY_PRESETS[quality];
+    let stream: MediaStream;
+
+    if (sourceId) {
+      // Electron: getUserMedia with chromeMediaSource mandatory constraints.
+      // max* caps the resolution; min* sets a floor so the call doesn't fail if the source
+      // is smaller than requested (e.g. a small window at 2K preset).
+      stream = await navigator.mediaDevices.getUserMedia({
+        audio: false,
+        video: {
+          mandatory: {
+            chromeMediaSource: 'desktop',
+            chromeMediaSourceId: sourceId,
+            maxWidth: preset.width,
+            maxHeight: preset.height,
+            maxFrameRate: preset.frameRate,
+            minWidth: 640,
+            minHeight: 360,
+          },
+        },
+      } as unknown as MediaStreamConstraints);
+    } else {
+      // Browser fallback: native OS picker with ideal constraints.
+      // ideal lets the browser pick the closest resolution; max prevents upscaling.
+      stream = await (navigator.mediaDevices as MediaDevices & {
+        getDisplayMedia(c: Record<string, unknown>): Promise<MediaStream>;
+      }).getDisplayMedia({
+        audio: false,
+        video: {
+          width:     { ideal: preset.width,     max: preset.width },
+          height:    { ideal: preset.height,    max: preset.height },
+          frameRate: { ideal: preset.frameRate, max: preset.frameRate },
+        },
+      });
+    }
+
+    const screenTrack = stream.getVideoTracks()[0];
+    if (!screenTrack) {
+      stream.getTracks().forEach((t) => t.stop());
+      throw new Error('Screen stream has no video track');
+    }
+
+    // Log requested vs actual resolution so we can diagnose fallback behaviour.
+    const actual = screenTrack.getSettings();
+    gcLog(this.currentUserId, 'screen share track settings', {
+      quality,
+      requested: { width: preset.width, height: preset.height, frameRate: preset.frameRate },
+      actual:    { width: actual.width,  height: actual.height,  frameRate: actual.frameRate },
+    });
+
+    // Find the video transceiver by receiver kind — works even if sender.track is null
+    // (audio-only join where the client never added a local camera track).
+    const videoTransceiver = this.pc.getTransceivers().find(
+      (t) => t.receiver.track.kind === 'video',
+    );
+    if (!videoTransceiver) {
+      stream.getTracks().forEach((t) => t.stop());
+      throw new Error('No video transceiver in peer connection');
+    }
+
+    // If the transceiver was recvonly (camera stream never started), switch to sendrecv
+    // so the SFU knows to expect video from this participant.
+    if (videoTransceiver.direction === 'recvonly') {
+      videoTransceiver.direction = 'sendrecv';
+    }
+
+    // When the user stops sharing via the OS UI (e.g. Chrome's "Stop sharing" bar),
+    // the browser fires 'ended' on the capture track. Mirror that into our state.
+    screenTrack.onended = () => {
+      gcLog(this.currentUserId, 'screen track ended by OS/user');
+      void this.stopScreenShare();
+      this.callbacks?.onScreenShareEnded?.();
+    };
+
+    await videoTransceiver.sender.replaceTrack(screenTrack);
+    screenTrack.enabled = true;
+
+    this.screenStream = stream;
+    this.screenSender = videoTransceiver.sender;
+    this._isScreenSharing = true;
+
+    gcLog(this.currentUserId, 'screen share started', { sourceId: sourceId?.slice(0, 16) ?? 'getDisplayMedia', quality });
+  }
+
+  async stopScreenShare(): Promise<void> {
+    if (!this._isScreenSharing) return;
+
+    this._isScreenSharing = false;
+
+    // Restore the camera track. If the camera was unavailable at join time,
+    // cameraTrack will be null and the sender will stop sending video — correct.
+    const cameraTrack = this.localStream?.getVideoTracks()[0] ?? null;
+    if (this.screenSender) {
+      await this.screenSender.replaceTrack(cameraTrack).catch((err) => {
+        gcLog(this.currentUserId, 'stopScreenShare replaceTrack error', { error: String(err) });
+      });
+    }
+
+    this.screenStream?.getTracks().forEach((t) => t.stop());
+    this.screenStream = null;
+    this.screenSender = null;
+
+    gcLog(this.currentUserId, 'screen share stopped');
+  }
+
   // ── Accessors ─────────────────────────────────────────────────────────────
 
   get isInGroupCallState(): boolean { return this.inCall; }
   get currentRoomIdState(): string { return this.currentRoomId; }
   get localStreamState(): MediaStream | null { return this.localStream; }
+  get screenStreamState(): MediaStream | null { return this.screenStream; }
+  get isScreenSharing(): boolean { return this._isScreenSharing; }
   get peerCount(): number { return this.remoteStreams.size; }
 
   // ── Private: media acquisition ────────────────────────────────────────────
@@ -861,6 +1001,11 @@ class GroupCallService {
     });
     this.pc?.close();
     this.pc = null;
+
+    this.screenStream?.getTracks().forEach((t) => t.stop());
+    this.screenStream = null;
+    this.screenSender = null;
+    this._isScreenSharing = false;
 
     this.localStream?.getTracks().forEach((t) => t.stop());
     this.localStream = null;

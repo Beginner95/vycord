@@ -276,7 +276,10 @@
 }
 
 /* ── Controls ── */
+/* position + z-index needed: <video> GPU layers block pointer events on
+   sibling elements without their own compositing layer in Electron */
 .call-controls {
+  z-index: 1;
   display: flex;
   justify-content: center;
   gap: 12px;
@@ -325,4 +328,540 @@
   border-color: var(--red-600);
   transform: scale(1.12);
   box-shadow: 0 4px 14px rgba(239, 68, 68, 0.35);
+}
+
+.control-btn.screen-sharing-active {
+  background: var(--brand-500, #6366f1);
+  border-color: var(--brand-500, #6366f1);
+  color: white;
+}
+
+.control-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+/* ── Local video — screen capture (no mirror) ── */
+.video-tile video.local-video-screen {
+  transform: none;
+}
+
+/* ── Screen share badge ── */
+.screen-share-badge {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  background: rgba(99, 102, 241, 0.85);
+  backdrop-filter: blur(6px);
+  color: white;
+  padding: 4px 10px;
+  border-radius: var(--radius-md);
+  font-size: 11px;
+  font-weight: 600;
+  z-index: 2;
+  letter-spacing: 0.02em;
+}
+
+/* ── Screen Source Picker Modal ── */
+.screen-picker-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1100;
+  background: rgba(0, 0, 0, 0.65);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.screen-picker-modal {
+  background: var(--bg-primary);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border-subtle);
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.5);
+  width: min(780px, 92vw);
+  max-height: 75vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.screen-picker-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border-subtle);
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.screen-picker-close {
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 16px;
+  padding: 4px 8px;
+  border-radius: var(--radius-sm);
+  transition: background var(--transition), color var(--transition);
+}
+
+.screen-picker-close:hover {
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+}
+
+.screen-picker-section {
+  padding: 16px 20px 8px;
+  overflow-y: auto;
+}
+
+.screen-picker-section-label {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  margin-bottom: 10px;
+}
+
+.screen-picker-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 10px;
+  padding-bottom: 10px;
+}
+
+.screen-picker-item {
+  background: var(--bg-secondary);
+  border: 1.5px solid var(--border-color);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  transition: border-color var(--transition), box-shadow var(--transition), background var(--transition);
+  text-align: center;
+}
+
+.screen-picker-item:hover {
+  border-color: var(--brand-500, #6366f1);
+  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.25);
+  background: var(--bg-base);
+}
+
+.screen-picker-thumb {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  object-fit: cover;
+  border-radius: var(--radius-sm);
+  background: #000;
+}
+
+.screen-picker-app-icon {
+  width: 48px;
+  height: 48px;
+  object-fit: contain;
+  border-radius: var(--radius-sm);
+}
+
+.screen-picker-name {
+  font-size: 11px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+  font-weight: 500;
+}
+
+/* ── Screen Quality Picker Modal ── */
+.screen-quality-modal {
+  background: var(--bg-primary);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border-subtle);
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.5);
+  width: min(360px, 92vw);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.screen-quality-list {
+  display: flex;
+  flex-direction: column;
+  padding: 12px;
+  gap: 8px;
+}
+
+.screen-quality-item {
+  background: var(--bg-secondary);
+  border: 1.5px solid var(--border-color);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  padding: 14px 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  transition: border-color var(--transition), box-shadow var(--transition), background var(--transition);
+}
+
+.screen-quality-item:hover {
+  border-color: var(--brand-500, #6366f1);
+  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.25);
+  background: var(--bg-base);
+}
+
+.screen-quality-label {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.screen-quality-desc {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+/* ── Header right side ── */
+.group-call-header-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.header-screen-share-indicator {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--brand-400, #818cf8);
+  background: rgba(99, 102, 241, 0.12);
+  padding: 4px 10px;
+  border-radius: var(--radius-sm);
+  animation: pulse-indicator 2s ease-in-out infinite;
+}
+
+@keyframes pulse-indicator {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.65; }
+}
+
+/* ── Call video area wrapper ── */
+.call-video-area {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  min-width: 0;
+}
+
+/* ── Screen share banner ── */
+.screen-share-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 18px;
+  background: rgba(99, 102, 241, 0.1);
+  border-bottom: 1px solid rgba(99, 102, 241, 0.25);
+  flex-shrink: 0;
+}
+
+.screen-share-banner-icon {
+  font-size: 16px;
+  flex-shrink: 0;
+}
+
+.screen-share-banner-text {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-primary);
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.screen-share-banner-btn {
+  background: var(--brand-500, #6366f1);
+  color: white;
+  border: none;
+  border-radius: var(--radius-md);
+  padding: 5px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background var(--transition);
+  flex-shrink: 0;
+}
+
+.screen-share-banner-btn:hover {
+  background: var(--brand-600, #4f46e5);
+}
+
+.screen-share-banner-dismiss {
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 14px;
+  cursor: pointer;
+  padding: 4px 6px;
+  border-radius: var(--radius-sm);
+  flex-shrink: 0;
+  transition: background var(--transition), color var(--transition);
+}
+
+.screen-share-banner-dismiss:hover {
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+}
+
+/* ── Focused screen-share view ── */
+.screen-share-view {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  min-height: 0;
+}
+
+.screen-share-main {
+  flex: 1;
+  position: relative;
+  background: #000;
+  overflow: hidden;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.screen-share-main-video {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+}
+
+/* Controls shown on hover over main video */
+.screen-share-main-controls {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  display: flex;
+  gap: 8px;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+  z-index: 10;
+}
+
+.screen-share-main:hover .screen-share-main-controls {
+  opacity: 1;
+}
+
+/* Also keep controls visible in fullscreen */
+.screen-share-main:fullscreen .screen-share-main-controls {
+  opacity: 0;
+}
+
+.screen-share-main:fullscreen:hover .screen-share-main-controls {
+  opacity: 1;
+}
+
+.screen-share-ctrl-btn {
+  background: rgba(15, 17, 23, 0.75);
+  backdrop-filter: blur(6px);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: white;
+  border-radius: var(--radius-md);
+  width: 36px;
+  height: 36px;
+  font-size: 16px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background var(--transition), transform var(--transition);
+}
+
+.screen-share-ctrl-btn:hover {
+  background: rgba(99, 102, 241, 0.75);
+  transform: scale(1.1);
+}
+
+.screen-share-main-label {
+  position: absolute;
+  bottom: 14px;
+  left: 14px;
+  background: rgba(15, 17, 23, 0.72);
+  backdrop-filter: blur(6px);
+  color: white;
+  padding: 6px 14px;
+  border-radius: var(--radius-md);
+  font-size: 13px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  z-index: 5;
+}
+
+.screen-share-badge-sm {
+  font-size: 11px;
+  font-weight: 600;
+  background: rgba(99, 102, 241, 0.85);
+  padding: 2px 8px;
+  border-radius: var(--radius-sm);
+  letter-spacing: 0.02em;
+}
+
+/* Fullscreen: video fills the container */
+.screen-share-main:fullscreen {
+  width: 100vw;
+  height: 100vh;
+}
+
+.screen-share-main:fullscreen .screen-share-main-video {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+/* ── Thumbnail strip ── */
+.screen-share-thumbnails {
+  height: 110px;
+  display: flex;
+  gap: 8px;
+  padding: 8px 12px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  background: var(--bg-primary);
+  border-top: 1px solid var(--border-subtle);
+  align-items: stretch;
+  flex-shrink: 0;
+  scrollbar-width: thin;
+}
+
+.screen-share-thumbnails::-webkit-scrollbar {
+  height: 4px;
+}
+
+.screen-share-thumbnails::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.screen-share-thumbnails::-webkit-scrollbar-thumb {
+  background: var(--border-color);
+  border-radius: 2px;
+}
+
+.thumbnail-tile {
+  position: relative;
+  width: calc(94px * 16 / 9);
+  height: 100%;
+  flex-shrink: 0;
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  border: 1.5px solid var(--border-subtle);
+  cursor: pointer;
+  background: var(--bg-secondary);
+  transition: border-color var(--transition), box-shadow var(--transition);
+}
+
+.thumbnail-tile:hover {
+  border-color: var(--brand-400, #818cf8);
+  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.25);
+}
+
+.thumbnail-tile--focused {
+  border-color: var(--brand-500, #6366f1);
+  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.4);
+}
+
+.thumbnail-tile video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.thumbnail-tile video.local-video {
+  transform: scaleX(-1);
+}
+
+.thumbnail-placeholder {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 24px;
+  opacity: 0.35;
+}
+
+.thumbnail-badge {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  background: rgba(99, 102, 241, 0.85);
+  color: white;
+  font-size: 10px;
+  padding: 2px 5px;
+  border-radius: var(--radius-sm);
+  z-index: 2;
+}
+
+.thumbnail-label {
+  position: absolute;
+  bottom: 4px;
+  left: 5px;
+  right: 5px;
+  background: rgba(15, 17, 23, 0.65);
+  color: white;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 6px;
+  border-radius: 4px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* ── Focus button on remote video tiles in grid ── */
+.video-tile .focus-btn {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  background: rgba(15, 17, 23, 0.72);
+  backdrop-filter: blur(4px);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: white;
+  border-radius: var(--radius-sm);
+  width: 28px;
+  height: 28px;
+  font-size: 14px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: opacity 0.15s ease, background var(--transition);
+  z-index: 3;
+}
+
+.video-tile:hover .focus-btn {
+  opacity: 1;
+}
+
+.video-tile .focus-btn:hover {
+  background: rgba(99, 102, 241, 0.8);
 }

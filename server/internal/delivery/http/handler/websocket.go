@@ -155,6 +155,10 @@ func (h *WebSocketHandler) handleMessage(client *ws.Client, msg *ws.Message) {
 		h.handleVoiceCallRing(client, msg)
 	case "voice_call_cancel":
 		h.handleVoiceCallCancel(client, msg)
+	case "screen_share_started":
+		h.handleScreenShareStarted(client)
+	case "screen_share_stopped":
+		h.handleScreenShareStopped(client)
 	case "ping":
 		h.handlePing(client)
 	default:
@@ -528,6 +532,22 @@ func (h *WebSocketHandler) handleVoiceCallCancel(client *ws.Client, msg *ws.Mess
 		)
 	}
 	h.hub.BroadcastMessage(&ws.Message{Type: "voice_call_cancel", Payload: msg.Payload})
+}
+
+func (h *WebSocketHandler) handleScreenShareStarted(client *ws.Client) {
+	h.log.Info("screen share started", "user_id", client.UserID)
+	h.hub.BroadcastMessage(&ws.Message{
+		Type:    "screen_share_started",
+		Payload: mustMarshal(map[string]interface{}{"user_id": client.UserID.String()}),
+	})
+}
+
+func (h *WebSocketHandler) handleScreenShareStopped(client *ws.Client) {
+	h.log.Info("screen share stopped", "user_id", client.UserID)
+	h.hub.BroadcastMessage(&ws.Message{
+		Type:    "screen_share_stopped",
+		Payload: mustMarshal(map[string]interface{}{"user_id": client.UserID.String()}),
+	})
 }
 
 func (h *WebSocketHandler) handlePing(client *ws.Client) {

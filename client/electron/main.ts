@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, Tray, Menu, session } from 'electron';
+import { app, BrowserWindow, ipcMain, Tray, Menu, session, desktopCapturer, systemPreferences } from 'electron';
 import * as path from 'path';
 
 // __dirname is available via CommonJS module output
@@ -106,11 +106,42 @@ ipcMain.handle('get-app-version', () => {
   return app.getVersion();
 });
 
+ipcMain.handle('get-screen-sources', async () => {
+  // macOS 10.15+ requires Screen Recording permission.
+  // If explicitly denied, getSources returns black thumbnails and no window names —
+  // surface this as an actionable error rather than silently showing broken previews.
+  if (process.platform === 'darwin') {
+    const status = systemPreferences.getMediaAccessStatus('screen');
+    if (status === 'denied') {
+      return { error: 'screen_permission_denied' };
+    }
+    // 'not-determined' → getSources call below will prompt the user
+  }
+
+  try {
+    const sources = await desktopCapturer.getSources({
+      types: ['window', 'screen'],
+      thumbnailSize: { width: 320, height: 180 },
+      fetchWindowIcons: true,
+    });
+    return {
+      sources: sources.map((s) => ({
+        id: s.id,
+        name: s.name,
+        thumbnail: s.thumbnail.toDataURL(),
+        appIconUrl: s.appIcon ? s.appIcon.toDataURL() : null,
+      })),
+    };
+  } catch {
+    return { error: 'failed_to_get_sources' };
+  }
+});
+
 app.whenReady().then(() => {
   try {
     // Grant camera and microphone permissions for WebRTC
     session.defaultSession.setPermissionRequestHandler((_webContents, permission, callback) => {
-      if (permission === 'media') {
+      if (permission === 'media' || permission === 'display-capture') {
         callback(true);
       } else {
         callback(false);

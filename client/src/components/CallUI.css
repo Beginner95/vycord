@@ -235,11 +235,14 @@
 }
 
 /* ── Call Controls ── */
+/* z-index needed: Electron renders <video> on a separate GPU layer that
+   blocks pointer events on overlapping elements without their own layer */
 .call-controls {
   position: absolute;
   bottom: 28px;
   left: 50%;
   transform: translateX(-50%);
+  z-index: 1;
   display: flex;
   gap: 12px;
   padding: 12px 20px;
