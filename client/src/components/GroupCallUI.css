@@ -279,7 +279,6 @@
 /* position + z-index needed: <video> GPU layers block pointer events on
    sibling elements without their own compositing layer in Electron */
 .call-controls {
-  position: relative;
   z-index: 1;
   display: flex;
   justify-content: center;
