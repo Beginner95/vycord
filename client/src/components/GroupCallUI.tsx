@@ -2,10 +2,12 @@ import { useState, useEffect, useRef, useCallback, type FormEvent } from 'react'
 import { useAuthStore } from '@/stores/authStore';
 import { useServerStore } from '@/stores/serverStore';
 import { useMessageStore } from '@/stores/messageStore';
-import { groupCallService } from '@/services/groupCall';
+import { groupCallService, SCREEN_QUALITY_PRESETS } from '@/services/groupCall';
+import type { ScreenQuality, ScreenQualityPreset } from '@/services/groupCall';
 import { wsService } from '@/services/websocket';
 import { apiService } from '@/services/api';
 import type { User, Message } from '@/types';
+import type { DesktopCapturerSource } from '@/types/electron';
 import './GroupCallUI.css';
 
 function useMicLevel(stream: MediaStream | null, isMuted: boolean): number {
@@ -86,6 +88,92 @@ function attachStreamToElement(el: HTMLVideoElement, stream: MediaStream, userId
     });
 }
 
+// ─── Screen Source Picker Modal ──────────────────────────────────────────────
+
+interface ScreenSourcePickerProps {
+  sources: DesktopCapturerSource[];
+  onSelect: (sourceId: string) => void;
+  onCancel: () => void;
+}
+
+function ScreenSourcePicker({ sources, onSelect, onCancel }: ScreenSourcePickerProps) {
+  const screens = sources.filter((s) => s.id.startsWith('screen:'));
+  const windows = sources.filter((s) => s.id.startsWith('window:'));
+
+  return (
+    <div className="screen-picker-backdrop" onClick={onCancel}>
+      <div className="screen-picker-modal" onClick={(e) => e.stopPropagation()}>
+        <div className="screen-picker-header">
+          <span>Select a screen to share</span>
+          <button className="screen-picker-close" onClick={onCancel}>✕</button>
+        </div>
+
+        {screens.length > 0 && (
+          <div className="screen-picker-section">
+            <div className="screen-picker-section-label">Entire Screen</div>
+            <div className="screen-picker-grid">
+              {screens.map((s) => (
+                <button key={s.id} className="screen-picker-item" onClick={() => onSelect(s.id)}>
+                  <img src={s.thumbnail} alt={s.name} className="screen-picker-thumb" />
+                  <span className="screen-picker-name">{s.name}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {windows.length > 0 && (
+          <div className="screen-picker-section">
+            <div className="screen-picker-section-label">Application Window</div>
+            <div className="screen-picker-grid">
+              {windows.map((s) => (
+                <button key={s.id} className="screen-picker-item" onClick={() => onSelect(s.id)}>
+                  {s.appIconUrl
+                    ? <img src={s.appIconUrl} alt="" className="screen-picker-app-icon" />
+                    : <img src={s.thumbnail} alt={s.name} className="screen-picker-thumb" />
+                  }
+                  <span className="screen-picker-name">{s.name}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── Screen Quality Picker Modal ─────────────────────────────────────────────
+
+interface ScreenQualityPickerProps {
+  onSelect: (quality: ScreenQuality) => void;
+  onCancel: () => void;
+}
+
+function ScreenQualityPicker({ onSelect, onCancel }: ScreenQualityPickerProps) {
+  const entries = Object.entries(SCREEN_QUALITY_PRESETS) as [ScreenQuality, ScreenQualityPreset][];
+  return (
+    <div className="screen-picker-backdrop" onClick={onCancel}>
+      <div className="screen-quality-modal" onClick={(e) => e.stopPropagation()}>
+        <div className="screen-picker-header">
+          <span>Select quality</span>
+          <button className="screen-picker-close" onClick={onCancel}>✕</button>
+        </div>
+        <div className="screen-quality-list">
+          {entries.map(([key, preset]) => (
+            <button key={key} className="screen-quality-item" onClick={() => onSelect(key)}>
+              <span className="screen-quality-label">{preset.label}</span>
+              <span className="screen-quality-desc">
+                {preset.width} × {preset.height} · {preset.frameRate} fps
+              </span>
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function GroupCallUI() {
   const { user } = useAuthStore();
   const { currentServer, currentChannel } = useServerStore();
@@ -97,6 +185,12 @@ export function GroupCallUI() {
   const [chatInput, setChatInput] = useState('');
   const [userCache, setUserCache] = useState<Map<string, string>>(new Map());
   const [participants, setParticipants] = useState<RemoteParticipant[]>([]);
+  const [isScreenSharing, setIsScreenSharing] = useState(false);
+  const [showSourcePicker, setShowSourcePicker] = useState(false);
+  const [screenSources, setScreenSources] = useState<DesktopCapturerSource[]>([]);
+  const [showQualityPicker, setShowQualityPicker] = useState(false);
+  // null = non-Electron path (getDisplayMedia will pick its own source)
+  const [selectedSourceId, setSelectedSourceId] = useState<string | null>(null);
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const remoteVideoRefs = useRef<Map<string, HTMLVideoElement>>(new Map());
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -135,6 +229,8 @@ export function GroupCallUI() {
         setParticipants([]);
         setIsMuted(false);
         setIsVideoOff(false);
+        setIsScreenSharing(false);
+        setShowSourcePicker(false);
       },
       onError: (msg) => {
         console.error('[GroupCall] Error:', msg);
@@ -142,14 +238,19 @@ export function GroupCallUI() {
         setParticipants([]);
         groupCallService.leaveGroupCall();
       },
+      onScreenShareEnded: () => {
+        setIsScreenSharing(false);
+      },
     });
   }, []);
 
   useEffect(() => {
-    if (localVideoRef.current && groupCallService.localStreamState) {
-      localVideoRef.current.srcObject = groupCallService.localStreamState;
-    }
-  }, [isInGroupCall]);
+    if (!localVideoRef.current) return;
+    const stream = isScreenSharing
+      ? groupCallService.screenStreamState
+      : groupCallService.localStreamState;
+    if (stream) localVideoRef.current.srcObject = stream;
+  }, [isInGroupCall, isScreenSharing]);
 
   // Attach remote streams after React commits the video elements to DOM.
   // This is the primary attachment path — by the time this effect runs,
@@ -191,6 +292,8 @@ export function GroupCallUI() {
     groupCallService.leaveGroupCall();
     setIsInGroupCall(false);
     setParticipants([]);
+    setIsScreenSharing(false);
+    setShowSourcePicker(false);
   }, [currentServer]);
 
   const micLevel = useMicLevel(
@@ -207,6 +310,54 @@ export function GroupCallUI() {
     const off = groupCallService.toggleMuteVideo();
     setIsVideoOff(off);
   }, []);
+
+  const handleToggleScreenShare = useCallback(async () => {
+    if (isScreenSharing) {
+      await groupCallService.stopScreenShare();
+      setIsScreenSharing(false);
+      return;
+    }
+
+    const api = (window as Window & typeof globalThis).electronAPI;
+
+    if (api?.getScreenSources) {
+      // Electron: fetch sources → source picker → quality picker → start
+      const result = await api.getScreenSources();
+      if (result.error === 'screen_permission_denied') {
+        alert('Screen Recording permission is denied. Please grant it in System Settings → Privacy & Security → Screen Recording, then restart the app.');
+        return;
+      }
+      if (result.error || !result.sources?.length) {
+        alert('Could not get screen sources. Please try again.');
+        return;
+      }
+      setScreenSources(result.sources);
+      setShowSourcePicker(true);
+    } else {
+      // Non-Electron: quality picker first, then getDisplayMedia (OS native picker opens when quality is confirmed)
+      setSelectedSourceId(null);
+      setShowQualityPicker(true);
+    }
+  }, [isScreenSharing]);
+
+  const handleSelectSource = useCallback((sourceId: string) => {
+    setShowSourcePicker(false);
+    setSelectedSourceId(sourceId);
+    setShowQualityPicker(true);
+  }, []);
+
+  const handleSelectQuality = useCallback(async (quality: ScreenQuality) => {
+    setShowQualityPicker(false);
+    const sourceId = selectedSourceId ?? undefined;
+    setSelectedSourceId(null);
+    try {
+      await groupCallService.startScreenShare(sourceId, quality);
+      setIsScreenSharing(true);
+    } catch (err) {
+      console.error('[GroupCall] Screen share failed:', err);
+      alert('Failed to start screen sharing. Please try again.');
+    }
+  }, [selectedSourceId]);
 
   // Expose joinGroupCall to window for other components
   useEffect(() => {
@@ -263,11 +414,26 @@ export function GroupCallUI() {
 
   if (!isInGroupCall) return null;
 
+  const showSourcePickerModal = showSourcePicker && screenSources.length > 0;
+
   const totalParticipants = participants.length + 1;
   const cols = Math.min(totalParticipants, 4);
 
   return (
     <div className="group-call-overlay">
+      {showSourcePickerModal && (
+        <ScreenSourcePicker
+          sources={screenSources}
+          onSelect={handleSelectSource}
+          onCancel={() => setShowSourcePicker(false)}
+        />
+      )}
+      {showQualityPicker && (
+        <ScreenQualityPicker
+          onSelect={handleSelectQuality}
+          onCancel={() => { setShowQualityPicker(false); setSelectedSourceId(null); }}
+        />
+      )}
       <div className="group-call-header">
         <h2>Group Call{currentChannel ? ` · #${currentChannel.name}` : ''}</h2>
         <span className="participant-count">{totalParticipants} participants</span>
@@ -276,15 +442,17 @@ export function GroupCallUI() {
       <div className="call-body">
         <div className="video-grid" style={{ gridTemplateColumns: `repeat(${cols}, 1fr)` }}>
           {/* Local video */}
-          <div className={`video-tile ${isVideoOff ? 'video-off' : ''} ${micLevel > 0.05 ? 'speaking' : ''}`}>
+          <div className={`video-tile ${isVideoOff && !isScreenSharing ? 'video-off' : ''} ${micLevel > 0.05 ? 'speaking' : ''}`}>
             <video
               ref={localVideoRef}
               autoPlay
               playsInline
               muted
-              className="local-video"
+              // Mirror camera only — screen content should not be flipped
+              className={isScreenSharing ? 'local-video-screen' : 'local-video'}
             />
-            {isVideoOff && <div className="video-off-placeholder">📷</div>}
+            {isVideoOff && !isScreenSharing && <div className="video-off-placeholder">📷</div>}
+            {isScreenSharing && <div className="screen-share-badge">🖥 Sharing</div>}
             <div className="video-label">
               {!isMuted && micLevel > 0.05 && <span className="mic-dot" />}
               {user?.username} (You)
@@ -364,9 +532,17 @@ export function GroupCallUI() {
         <button
           className={`control-btn ${isVideoOff ? 'active' : ''}`}
           onClick={handleToggleVideo}
-          title={isVideoOff ? 'Turn on camera' : 'Turn off camera'}
+          disabled={isScreenSharing}
+          title={isScreenSharing ? 'Camera unavailable while screen sharing' : isVideoOff ? 'Turn on camera' : 'Turn off camera'}
         >
           {isVideoOff ? '📷' : '🎥'}
+        </button>
+        <button
+          className={`control-btn ${isScreenSharing ? 'screen-sharing-active' : ''}`}
+          onClick={() => { void handleToggleScreenShare(); }}
+          title={isScreenSharing ? 'Stop screen sharing' : 'Share screen'}
+        >
+          🖥
         </button>
         <button
           className={`control-btn ${showChat ? 'chat-active' : ''}`}
