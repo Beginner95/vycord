@@ -2,7 +2,81 @@ import { noiseCancellationService } from './noiseCancellation';
 
 const SFU_URL = import.meta.env.VITE_SFU_URL || 'ws://localhost:8081';
 
-interface GroupCallCallbacks {
+// ─── Debug logger ────────────────────────────────────────────────────────────
+
+function gcLog(userId: string, action: string, data?: Record<string, unknown>): void {
+  const ts = new Date().toISOString().slice(11, 23);
+  const uid = userId ? userId.slice(0, 8) : '--------';
+  const prefix = `[GC ${ts} | ${uid} | ${action}]`;
+  if (data !== undefined) {
+    console.log(prefix, data);
+  } else {
+    console.log(prefix);
+  }
+}
+
+// Parses SDP and extracts per-m-section info: direction, SSRCs, msid, mid.
+function parseSdpSections(sdp: string): Array<Record<string, unknown>> {
+  const sections: Array<Record<string, unknown>> = [];
+  let current: Record<string, unknown> | null = null;
+
+  for (const raw of sdp.split(/\r?\n/)) {
+    const line = raw.trimEnd();
+    if (line.startsWith('m=')) {
+      if (current) sections.push(current);
+      current = { mLine: line, direction: 'sendrecv', ssrcs: [], msids: [], mid: null };
+    } else if (current) {
+      if (/^a=(sendonly|recvonly|sendrecv|inactive)$/.test(line)) {
+        current.direction = line.slice(2);
+      } else if (line.startsWith('a=ssrc:')) {
+        (current.ssrcs as string[]).push(line.slice(7, 25));
+      } else if (line.startsWith('a=msid:')) {
+        (current.msids as string[]).push(line.slice(7));
+      } else if (line.startsWith('a=mid:')) {
+        current.mid = line.slice(6);
+      }
+    }
+  }
+  if (current) sections.push(current);
+  return sections;
+}
+
+// ─── Signaling protocol types ────────────────────────────────────────────────
+
+interface SignalingMessage {
+  type: string;
+  payload: unknown;
+}
+
+interface JoinedPayload {
+  room_id: string;
+  existing_peers: string[];
+}
+
+interface OfferPayload {
+  type: 'offer';
+  sdp: string;
+}
+
+interface IceCandidatePayload {
+  candidate: string;
+  sdpMid: string | null;
+  sdpMLineIndex: number | null;
+  usernameFragment: string | null;
+}
+
+interface ParticipantEventPayload {
+  user_id: string;
+}
+
+interface ErrorPayload {
+  code: string;
+  message: string;
+}
+
+// ─── Public API ──────────────────────────────────────────────────────────────
+
+export interface GroupCallCallbacks {
   onRemoteStream: (userId: string, stream: MediaStream) => void;
   onPeerJoined: (userId: string) => void;
   onPeerLeft: (userId: string) => void;
@@ -10,171 +84,241 @@ interface GroupCallCallbacks {
   onError: (error: string) => void;
 }
 
-interface RemotePeer {
-  userId: string;
-  stream: MediaStream | null;
-  peerConnection: RTCPeerConnection | null;
-}
+// ─── Internal state ──────────────────────────────────────────────────────────
+
+// Maps stream ID (= remote user ID) to the MediaStream accumulating their tracks.
+type RemoteStreams = Map<string, MediaStream>;
 
 class GroupCallService {
-  private localStream: MediaStream | null = null;
-  private remotePeers: Map<string, RemotePeer> = new Map();
-  private pendingCandidates: Map<string, RTCIceCandidateInit[]> = new Map();
-  private callbacks: GroupCallCallbacks | null = null;
   private ws: WebSocket | null = null;
-  private currentUserId: string = '';
-  private currentRoomId: string = '';
-  private isInGroupCall = false;
+  private pc: RTCPeerConnection | null = null;
+  private localStream: MediaStream | null = null;
+  private audioCtx: AudioContext | null = null;
+  private audioCtxKeepAlive: ReturnType<typeof setInterval> | null = null;
+
+  // Keyed by the remote user's ID (= pion stream ID on track events).
+  private remoteStreams: RemoteStreams = new Map();
+
+  // ICE candidates buffered before setRemoteDescription has been called.
+  private pendingCandidates: RTCIceCandidateInit[] = [];
+
+  private callbacks: GroupCallCallbacks | null = null;
+  private currentUserId = '';
+  private currentRoomId = '';
+  private inCall = false;
+
+  // Timestamps for mobile diagnostic metrics (milliseconds since epoch).
+  private joinedAt = 0;
+  private pcCreatedAt = 0;
+  private pcConnectedAt = 0;
+  private firstAudioFrameAt: Map<string, number> = new Map();
+
+  // ── Lifecycle ──────────────────────────────────────────────────────────────
 
   init(callbacks: GroupCallCallbacks): void {
     this.callbacks = callbacks;
   }
 
   async joinGroupCall(roomId: string, userId: string): Promise<boolean> {
-    if (this.isInGroupCall) {
-      this.callbacks?.onError('Already in a group call');
+    gcLog(userId, 'joinGroupCall', { roomId });
+
+    if (this.inCall) {
+      this.callbacks?.onError('Already in a call');
       return false;
     }
 
     this.currentUserId = userId;
     this.currentRoomId = roomId;
 
-    let rawStream: MediaStream;
     try {
-      try {
-        rawStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: true });
-      } catch {
-        rawStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+      const raw = await this.acquireMedia();
+      this.localStream = await noiseCancellationService.applyToStream(raw);
+      // When NC is disabled, Chrome's push-model audio capture may fail silently
+      // on certain hardware (track reports live/enabled but Opus gets zero frames).
+      // Routing through Web Audio forces a pull-model render cycle that always
+      // produces frames, ensuring RTP actually reaches the SFU.
+      if (!noiseCancellationService.getState().isEnabled) {
+        this.localStream = await this.routeAudioThroughWebAudio(this.localStream);
       }
+      // Video starts disabled to avoid immediate bandwidth spike.
+      this.localStream.getVideoTracks().forEach((t) => { t.enabled = false; });
+      gcLog(userId, 'media acquired', {
+        audioTracks: this.localStream.getAudioTracks().map((t) => ({
+          id: t.id.slice(0, 8), label: t.label, enabled: t.enabled,
+          readyState: t.readyState, muted: t.muted,
+          settings: t.getSettings(),
+        })),
+        videoTracks: this.localStream.getVideoTracks().map((t) => ({
+          id: t.id.slice(0, 8), label: t.label, enabled: t.enabled,
+          readyState: t.readyState, muted: t.muted,
+          settings: t.getSettings(),
+        })),
+        noiseCancellationEnabled: noiseCancellationService.getState().isEnabled,
+      });
     } catch (err) {
-      this.callbacks?.onError(err instanceof Error ? err.message : 'Failed to join group call');
+      gcLog(userId, 'media ERROR', { error: String(err) });
+      this.callbacks?.onError(err instanceof Error ? err.message : 'Media access denied');
       return false;
     }
 
-    this.localStream = await noiseCancellationService.applyToStream(rawStream);
-    this.localStream.getVideoTracks().forEach((t) => { t.enabled = false; });
+    return this.connectSignaling(roomId, userId);
+  }
 
-    const wsUrl = `${SFU_URL}/ws?user_id=${userId}&room_id=${roomId}`;
-    this.ws = new WebSocket(wsUrl);
+  leaveGroupCall(): void {
+    if (this.ws?.readyState === WebSocket.OPEN) {
+      this.ws.send(JSON.stringify({ type: 'leave', payload: {} }));
+      this.ws.close();
+    }
+    this.teardown();
+  }
 
-    // Resolve with true if this user is the first in the room (no existing peers),
-    // so the caller knows whether to send a ring notification.
+  // ── Controls ───────────────────────────────────────────────────────────────
+
+  toggleMuteAudio(): boolean {
+    const t = this.localStream?.getAudioTracks()[0];
+    if (!t) return false;
+    t.enabled = !t.enabled;
+    return !t.enabled; // true = muted
+  }
+
+  toggleMuteVideo(): boolean {
+    const t = this.localStream?.getVideoTracks()[0];
+    if (!t) return false;
+    t.enabled = !t.enabled;
+    return !t.enabled; // true = video off
+  }
+
+  // ── Accessors ─────────────────────────────────────────────────────────────
+
+  get isInGroupCallState(): boolean { return this.inCall; }
+  get currentRoomIdState(): string { return this.currentRoomId; }
+  get localStreamState(): MediaStream | null { return this.localStream; }
+  get peerCount(): number { return this.remoteStreams.size; }
+
+  // ── Private: media acquisition ────────────────────────────────────────────
+
+  private async routeAudioThroughWebAudio(stream: MediaStream): Promise<MediaStream> {
+    const audioTracks = stream.getAudioTracks();
+    if (!audioTracks.length) return stream;
+    try {
+      const ctx = new AudioContext({ sampleRate: 48000 });
+      gcLog(this.currentUserId, 'WebAudio passthrough: AudioContext state', { state: ctx.state });
+      if (ctx.state !== 'running') {
+        await ctx.resume();
+        gcLog(this.currentUserId, 'WebAudio passthrough: AudioContext resumed', { state: ctx.state });
+      }
+      const src = ctx.createMediaStreamSource(stream);
+      const dst = ctx.createMediaStreamDestination();
+      src.connect(dst);
+      this.audioCtx = ctx;
+
+      // macOS Chrome and Android Chrome both suspend AudioContext to save power when
+      // there's no ongoing audio output — even with active getUserMedia capture.
+      // A suspended context means dst.stream tracks produce silence: RTP packets are
+      // sent but Opus frames are zeroed, so the receiver hears nothing.
+      // Polling at 2s intervals and resuming keeps the context in 'running' state
+      // without adding audio output (ctx.resume() alone is enough per the spec).
+      this.audioCtxKeepAlive = setInterval(() => {
+        if (ctx.state !== 'running') {
+          gcLog(this.currentUserId, 'WebAudio: AudioContext not running — resuming', { state: ctx.state });
+          ctx.resume().catch(() => {});
+        }
+      }, 2000);
+
+      const out = new MediaStream([
+        ...dst.stream.getAudioTracks(),
+        ...stream.getVideoTracks(),
+      ]);
+      gcLog(this.currentUserId, 'WebAudio passthrough: stream created', {
+        audioTracks: out.getAudioTracks().map((t) => ({ id: t.id.slice(0, 8), label: t.label })),
+      });
+      return out;
+    } catch (err) {
+      gcLog(this.currentUserId, 'WebAudio passthrough failed', { error: String(err) });
+      return stream;
+    }
+  }
+
+  private async acquireMedia(): Promise<MediaStream> {
+    // Explicit constraints avoid macOS/Android-specific quirks:
+    // - channelCount ideal:1 → Opus mono, prevents macOS from injecting stereo fmtp params
+    //   that older pion versions may not accept (stereo=1;sprop-stereo=1 mismatch).
+    // - sampleRate ideal:48000 → Opus native rate; avoids resampling artefacts on Android.
+    // Using ideal: (not exact) so the browser still works on devices that can't hit 48kHz.
+    const audioConstraints: MediaTrackConstraints = {
+      channelCount: { ideal: 1 },
+      sampleRate: { ideal: 48000 },
+      echoCancellation: true,
+      noiseSuppression: true,
+      autoGainControl: true,
+    };
+    gcLog(this.currentUserId, 'getUserMedia constraints', { audio: audioConstraints });
+    try {
+      return await navigator.mediaDevices.getUserMedia({ audio: audioConstraints, video: true });
+    } catch {
+      // Fall back to audio-only if camera is unavailable.
+      return navigator.mediaDevices.getUserMedia({ audio: audioConstraints, video: false });
+    }
+  }
+
+  // ── Private: signaling connection ─────────────────────────────────────────
+
+  private connectSignaling(roomId: string, userId: string): Promise<boolean> {
+    const url = `${SFU_URL}/ws?user_id=${userId}&room_id=${roomId}`;
+    this.ws = new WebSocket(url);
+
     return new Promise<boolean>((resolve) => {
       let resolved = false;
-      const safeResolve = (value: boolean) => {
-        if (!resolved) { resolved = true; resolve(value); }
-      };
+      const settle = (v: boolean) => { if (!resolved) { resolved = true; resolve(v); } };
 
       this.ws!.onopen = () => {
-        this.ws?.send(JSON.stringify({
-          type: 'join',
-          payload: { room_id: roomId, user_id: userId },
-        }));
+        gcLog(userId, 'WS connected', { url });
+        // The server creates the PC on its side upon WS upgrade — no explicit join message needed.
+        // The server will immediately send us an "offer".
       };
 
-      this.ws!.onmessage = (event) => {
-        const msg = JSON.parse(event.data as string);
+      this.ws!.onmessage = (e) => {
+        const msg = JSON.parse(e.data as string) as SignalingMessage;
+        gcLog(userId, 'WS message', { type: msg.type });
         if (msg.type === 'joined') {
-          this.isInGroupCall = true;
-          const existingPeers: string[] = msg.payload?.existing_peers ?? [];
-          // Switch to the normal message handler for all subsequent messages
-          this.ws!.onmessage = (e) => { this.handleSFUMessage(e.data as string); };
-          safeResolve(existingPeers.length === 0);
+          this.inCall = true;
+          this.joinedAt = Date.now();
+          const joined = msg.payload as JoinedPayload;
+          gcLog(userId, 'joined room', { existingPeers: joined.existing_peers ?? [] });
+          // Notify the UI about participants who are already in the room.
+          joined.existing_peers?.forEach((uid) => this.callbacks?.onPeerJoined(uid));
+          this.ws!.onmessage = (ev) => {
+            const m = JSON.parse(ev.data as string) as SignalingMessage;
+            gcLog(userId, 'WS message', { type: m.type });
+            void this.handleMessage(m);
+          };
+          settle((joined.existing_peers?.length ?? 0) === 0);
         } else {
-          this.handleSFUMessage(event.data as string);
+          // Server may send an offer before 'joined' arrives — handle immediately.
+          void this.handleMessage(msg);
         }
       };
 
-      this.ws!.onclose = () => {
-        safeResolve(false);
-        this.isInGroupCall = false;
+      this.ws!.onclose = (ev) => {
+        gcLog(userId, 'WS closed', { code: ev.code, reason: ev.reason });
+        settle(false);
+        this.inCall = false;
         this.callbacks?.onCallEnded();
-        this.cleanup();
+        this.teardown();
       };
 
       this.ws!.onerror = () => {
-        safeResolve(false);
+        gcLog(userId, 'WS ERROR');
+        settle(false);
         this.callbacks?.onError('SFU connection failed');
       };
     });
   }
 
-  leaveGroupCall(): void {
-    if (this.ws) {
-      if (this.ws.readyState === WebSocket.OPEN) {
-        this.ws.send(JSON.stringify({ type: 'leave', payload: {} }));
-      }
-      this.ws.close();
-    }
-    this.cleanup();
-  }
+  // ── Private: PeerConnection creation ─────────────────────────────────────
 
-  toggleMuteAudio(): boolean {
-    if (!this.localStream) return false;
-    const audioTrack = this.localStream.getAudioTracks()[0];
-    if (audioTrack) {
-      audioTrack.enabled = !audioTrack.enabled;
-      return !audioTrack.enabled;
-    }
-    return false;
-  }
-
-  toggleMuteVideo(): boolean {
-    if (!this.localStream) return false;
-    const videoTrack = this.localStream.getVideoTracks()[0];
-    if (videoTrack) {
-      videoTrack.enabled = !videoTrack.enabled;
-      return !videoTrack.enabled;
-    }
-    return false;
-  }
-
-  private async handleSFUMessage(data: string): Promise<void> {
-    const msg = JSON.parse(data);
-
-    switch (msg.type) {
-      case 'joined':
-        console.log('[GroupCall] Joined room:', msg.payload.room_id);
-        break;
-
-      case 'peer_joined':
-        console.log('[GroupCall] peer_joined received:', msg.payload.user_id);
-        console.log('[GroupCall] current remotePeers size:', this.remotePeers.size);
-        this.callbacks?.onPeerJoined(msg.payload.user_id);
-        console.log('[GroupCall] creating peer for:', msg.payload.user_id);
-        await this.createPeerForUser(msg.payload.user_id);
-        console.log('[GroupCall] after createPeerForUser, remotePeers size:', this.remotePeers.size);
-        break;
-
-      case 'peer_left':
-        this.removePeer(msg.payload.user_id);
-        this.callbacks?.onPeerLeft(msg.payload.user_id);
-        break;
-
-      case 'offer':
-        console.log('[GroupCall] offer received from:', msg.payload.from_user_id);
-        await this.handleOffer(msg.payload);
-        console.log('[GroupCall] offer handling complete');
-        break;
-
-      case 'answer':
-        console.log('[GroupCall] answer received from:', msg.payload.from_user_id);
-        await this.handleAnswer(msg.payload);
-        console.log('[GroupCall] answer handling complete');
-        break;
-
-      case 'ice_candidate':
-        console.log('[GroupCall] ice_candidate received from:', msg.payload.from_user_id);
-        await this.handleICECandidate(msg.payload);
-        console.log('[GroupCall] ice_candidate handling complete');
-        break;
-    }
-  }
-
-  private createPeerConnection(userId: string): RTCPeerConnection {
-    console.log('[GroupCall] createPeerConnection called for:', userId);
-    const remoteStream = new MediaStream();
-
+  private createPeerConnection(): RTCPeerConnection {
+    this.pcCreatedAt = Date.now();
     const pc = new RTCPeerConnection({
       iceServers: [
         { urls: 'stun:stun.l.google.com:19302' },
@@ -182,251 +326,560 @@ class GroupCallService {
       ],
     });
 
+    // Add local tracks before the first offer arrives.
+    // pion sends a server-initiated offer with recvonly m-sections (one per track).
+    // Chrome matches these pre-created sendrecv transceivers to the offer's recvonly
+    // m-sections by codec kind. Because addTrack assigns SSRCs immediately, the
+    // answer SDP includes a=ssrc lines — pion knows which SSRC to expect and fires
+    // OnTrack when the first RTP packet arrives.
+    //
+    // Using addTransceiver({ direction: 'sendonly' }) here is wrong: Chrome will not
+    // match sendonly local transceivers to recvonly offer m-sections and instead
+    // creates separate, empty transceivers — senders have no track, no SSRC,
+    // no RTP, OnTrack never fires. addTrack (sendrecv) avoids this.
+    // Log codec capabilities before adding tracks so we can compare what macOS/Android
+    // browsers offer vs Linux. Critical for diagnosing Opus parameter mismatches.
+    const audioCaps = RTCRtpSender.getCapabilities('audio');
+    gcLog(this.currentUserId, 'RTP capabilities', {
+      audioCodecs: audioCaps?.codecs.map((c) => `${c.mimeType} ${c.sdpFmtpLine ?? ''}`.trimEnd()),
+    });
+
+    const addedTracks: Array<Record<string, unknown>> = [];
+    if (this.localStream) {
+      for (const track of this.localStream.getTracks()) {
+        // Pass the stream so Chrome writes a=msid:<streamId> <trackId> in the answer SDP.
+        // Without the stream argument the SDP contains "a=msid:- <trackId>": some pion
+        // versions see the dash as an empty streamID and may not fire OnTrack reliably.
+        pc.addTrack(track, this.localStream);
+        addedTracks.push({
+          kind: track.kind,
+          id: track.id.slice(0, 8),
+          enabled: track.enabled,
+          muted: track.muted,
+          readyState: track.readyState,
+          label: track.label,
+        });
+      }
+    }
+    gcLog(this.currentUserId, 'PC created', {
+      localTracksAdded: addedTracks,
+      transceivers: pc.getTransceivers().map((t) => ({
+        mid: t.mid,
+        direction: t.direction,
+        senderTrackKind: t.sender.track?.kind ?? null,
+        senderTrackEnabled: t.sender.track?.enabled ?? null,
+        senderTrackMuted: t.sender.track?.muted ?? null,
+        senderTrackReadyState: t.sender.track?.readyState ?? null,
+      })),
+    });
+
+    const remoteTrackMonitors = new Map<string, ReturnType<typeof setInterval>>();
+
     pc.ontrack = (event) => {
-      console.log('[GroupCall] ontrack fired for', userId, 'track:', event.track.kind);
-      remoteStream.addTrack(event.track);
-      this.callbacks?.onRemoteStream(userId, remoteStream);
+      const ontrackAt = Date.now();
+      const streamId = event.streams[0]?.id ?? event.track.id;
+      gcLog(this.currentUserId, 'ontrack', {
+        trackKind: event.track.kind,
+        trackId: event.track.id.slice(0, 8),
+        trackReadyState: event.track.readyState,
+        trackEnabled: event.track.enabled,
+        streamId: streamId.slice(0, 8),
+        streamsCount: event.streams.length,
+        stream0id: event.streams[0]?.id?.slice(0, 8) ?? null,
+        echoGuardWouldFire: streamId === this.currentUserId,
+        currentUserId: this.currentUserId.slice(0, 8),
+        elapsedFromJoinMs: this.joinedAt ? ontrackAt - this.joinedAt : -1,
+        elapsedFromConnectedMs: this.pcConnectedAt ? ontrackAt - this.pcConnectedAt : -1,
+      });
+
+      if (streamId === this.currentUserId) {
+        gcLog(this.currentUserId, 'ontrack BLOCKED by echo guard', { streamId: streamId.slice(0, 8) });
+        return;
+      }
+
+      // Per-track inbound stats monitor. Uses receiver.getStats() instead of pc.getStats()
+      // so we get the inbound-rtp report directly without filtering by trackId — the
+      // trackId field is deprecated and absent on some mobile browsers (Android WebView,
+      // older Safari). Detects first non-zero packetsReceived and emits a [METRIC] log
+      // with elapsed times for diagnosing mobile audio delays.
+      if (event.track.kind === 'audio') {
+        const receiver = event.receiver;
+        const trackIdShort = event.track.id.slice(0, 8);
+        let firstFrameSeen = false;
+
+        const monitorId = setInterval(async () => {
+          if (!this.pc || this.pc.connectionState !== 'connected') {
+            clearInterval(monitorId);
+            remoteTrackMonitors.delete(event.track.id);
+            return;
+          }
+          try {
+            const stats = await receiver.getStats();
+            let packetsReceived = 0;
+            let packetsLost = 0;
+            let bytesReceived = 0;
+            let jitter = 0;
+            let audioLevel: number | undefined;
+            let totalAudioEnergy: number | undefined;
+            stats.forEach((r) => {
+              if (r.type === 'inbound-rtp') {
+                packetsReceived = (r.packetsReceived as number) ?? 0;
+                packetsLost = (r.packetsLost as number) ?? 0;
+                bytesReceived = (r.bytesReceived as number) ?? 0;
+                jitter = (r.jitter as number) ?? 0;
+                audioLevel = (r as any).audioLevel;
+                totalAudioEnergy = (r as any).totalAudioEnergy;
+              }
+            });
+
+            if (!firstFrameSeen && packetsReceived > 0) {
+              firstFrameSeen = true;
+              const now = Date.now();
+              this.firstAudioFrameAt.set(streamId, now);
+              gcLog(this.currentUserId, '[METRIC] first-audio-frame', {
+                streamId: streamId.slice(0, 8),
+                packetsReceived,
+                elapsedFromJoinMs: this.joinedAt ? now - this.joinedAt : -1,
+                elapsedFromOntrackMs: now - ontrackAt,
+                elapsedFromConnectedMs: this.pcConnectedAt ? now - this.pcConnectedAt : -1,
+              });
+            }
+
+            const silentStream = firstFrameSeen && packetsReceived > 50 && (audioLevel == null || audioLevel < 0.001);
+            if (silentStream) {
+              gcLog(this.currentUserId, 'WARNING: silent inbound stream (packets flowing but audioLevel≈0)', {
+                streamId: streamId.slice(0, 8),
+                packetsReceived,
+                audioLevel: audioLevel ?? 'N/A',
+                totalAudioEnergy: totalAudioEnergy ?? 'N/A',
+                elapsedFromJoinMs: this.joinedAt ? Date.now() - this.joinedAt : -1,
+              });
+            }
+            gcLog(this.currentUserId, 'inbound remote audio', {
+              streamId: streamId.slice(0, 8),
+              trackId: trackIdShort,
+              packetsReceived,
+              packetsLost,
+              bytesReceived,
+              jitter: jitter.toFixed(4),
+              audioLevel: audioLevel != null ? audioLevel.toFixed(4) : 'N/A',
+              totalAudioEnergy: totalAudioEnergy != null ? totalAudioEnergy.toFixed(4) : 'N/A',
+              firstFrameSeen,
+              elapsedFromJoinMs: this.joinedAt ? Date.now() - this.joinedAt : -1,
+            });
+          } catch (_) {}
+        }, 2000);
+        remoteTrackMonitors.set(event.track.id, monitorId);
+      }
+
+      let stream = this.remoteStreams.get(streamId);
+      if (!stream) {
+        stream = event.streams[0] ?? new MediaStream();
+        this.remoteStreams.set(streamId, stream);
+        gcLog(this.currentUserId, 'ontrack new remote stream', { streamId: streamId.slice(0, 8) });
+      }
+      if (!stream.getTrackById(event.track.id)) {
+        stream.addTrack(event.track);
+      }
+      gcLog(this.currentUserId, 'ontrack → onRemoteStream', {
+        streamId: streamId.slice(0, 8),
+        tracksInStream: stream.getTracks().map((t) => `${t.kind}:${t.id.slice(0, 8)}`),
+      });
+      this.callbacks?.onRemoteStream(streamId, stream);
     };
+
+    // Monitor local audio track + all senders every 3s for 60s.
+    // Runs past the initial ICE connection so we also capture the state after
+    // renegotiation that adds forwarded remote tracks (which doesn't change PC state).
+    const monitorStart = Date.now();
+    const audioMonitorId = setInterval(async () => {
+      if (!this.localStream || !this.pc) {
+        clearInterval(audioMonitorId);
+        return;
+      }
+      if (Date.now() - monitorStart > 60_000) {
+        clearInterval(audioMonitorId);
+        return;
+      }
+      const audioTrack = this.localStream.getAudioTracks()[0];
+      if (!audioTrack) {
+        clearInterval(audioMonitorId);
+        return;
+      }
+      const senders = this.pc.getSenders();
+      const audioSender = senders.find((s) => s.track?.kind === 'audio');
+
+      // Check local audio level from outbound stats
+      let audioLevel = -1;
+      try {
+        const stats = await this.pc.getStats();
+        stats.forEach((r) => {
+          if (r.type === 'media-source' && (r as any).kind === 'audio' && (r as any).trackIdentifier === audioTrack.id) {
+            audioLevel = (r as any).audioLevel ?? -1;
+          }
+          if (r.type === 'outbound-rtp' && r.kind === 'audio') {
+            // also log audioLevel from encoder if available
+            audioLevel = Math.max(audioLevel, (r as any).audioLevel ?? (r as any).qualityLimitationReason ?? -1);
+          }
+        });
+      } catch (_) {}
+
+      gcLog(this.currentUserId, 'audio track monitor', {
+        trackEnabled: audioTrack.enabled,
+        trackMuted: audioTrack.muted,
+        trackReadyState: audioTrack.readyState,
+        localAudioLevel: audioLevel > 0 ? audioLevel.toFixed(4) : 'N/A',
+        pcConnectionState: this.pc.connectionState,
+        pcSignalingState: this.pc.signalingState,
+        senderFound: audioSender != null,
+        senderHasTrack: audioSender?.track != null,
+        senderTrackMuted: audioSender?.track?.muted ?? null,
+        senderTrackReadyState: audioSender?.track?.readyState ?? null,
+        senderCount: senders.length,
+        transceiverCount: this.pc.getTransceivers().length,
+      });
+    }, 3000);
 
     pc.onicecandidate = (event) => {
-      if (event.candidate && this.ws) {
-        console.log('[GroupCall] ICE candidate generated for', userId, ':', event.candidate.candidate?.substring(0, 50));
-        this.ws.send(JSON.stringify({
-          type: 'ice_candidate',
-          payload: {
-            room_id: this.currentRoomId,
-            user_id: this.currentUserId,
-            target_user_id: userId,
-            candidate: event.candidate,
-          },
-        }));
-      } else if (event.candidate) {
-        console.log('[GroupCall] ICE candidate for', userId, 'but ws not ready');
+      if (event.candidate) {
+        gcLog(this.currentUserId, 'ICE candidate (local)', {
+          type: event.candidate.type,
+          protocol: event.candidate.protocol,
+        });
+        if (this.ws?.readyState === WebSocket.OPEN) {
+          this.ws.send(JSON.stringify({
+            type: 'ice_candidate',
+            payload: event.candidate.toJSON(),
+          }));
+        }
+      } else {
+        gcLog(this.currentUserId, 'ICE gathering complete');
       }
-    };
-
-    pc.oniceconnectionstatechange = () => {
-      console.log('[GroupCall] ICE connection state for', userId, ':', pc.iceConnectionState, 'signalingState:', pc.signalingState);
     };
 
     pc.onconnectionstatechange = () => {
-      console.log('[GroupCall] PC connection state for', userId, ':', pc.connectionState, 'signalingState:', pc.signalingState);
+      gcLog(this.currentUserId, 'PC connectionState', { state: pc.connectionState });
+      if (pc.connectionState === 'failed') {
+        this.callbacks?.onError('WebRTC connection failed');
+      }
+      if (pc.connectionState === 'connected') {
+        this.pcConnectedAt = Date.now();
+        gcLog(this.currentUserId, '[METRIC] pc-connected', {
+          elapsedFromJoinMs: this.joinedAt ? this.pcConnectedAt - this.joinedAt : -1,
+          elapsedFromPcCreateMs: this.pcConnectedAt - this.pcCreatedAt,
+        });
+        // Start RTCStats polling to confirm RTP is actually flowing end-to-end.
+        // outbound-rtp: confirms A is sending audio to SFU.
+        // inbound-rtp: confirms SFU is forwarding audio to this client (B).
+        // Polls for 90s then stops to avoid long-term overhead.
+        let statsPollCount = 0;
+        const statsIntervalId = setInterval(async () => {
+          if (!this.pc || this.pc.connectionState !== 'connected') {
+            clearInterval(statsIntervalId);
+            return;
+          }
+          if (statsPollCount >= 30) { // 30 × 3s = 90s
+            clearInterval(statsIntervalId);
+            return;
+          }
+          statsPollCount++;
+          try {
+            const stats = await this.pc.getStats();
+            const outbound: Record<string, unknown>[] = [];
+            const inbound: Record<string, unknown>[] = [];
+            const candidatePair: Record<string, unknown>[] = [];
+            stats.forEach((report) => {
+              if (report.type === 'outbound-rtp') {
+                outbound.push({
+                  kind: report.kind,
+                  ssrc: report.ssrc,
+                  packetsSent: report.packetsSent,
+                  bytesSent: report.bytesSent,
+                  retransmittedPacketsSent: report.retransmittedPacketsSent ?? 0,
+                });
+              } else if (report.type === 'inbound-rtp') {
+                inbound.push({
+                  kind: report.kind,
+                  ssrc: report.ssrc,
+                  packetsReceived: report.packetsReceived,
+                  bytesReceived: report.bytesReceived,
+                  packetsLost: report.packetsLost,
+                  jitter: (report.jitter as number | undefined)?.toFixed(4) ?? null,
+                });
+              } else if (report.type === 'candidate-pair' && report.state === 'succeeded') {
+                candidatePair.push({
+                  state: report.state,
+                  bytesSent: report.bytesSent,
+                  bytesReceived: report.bytesReceived,
+                  currentRoundTripTime: report.currentRoundTripTime,
+                });
+              }
+            });
+            gcLog(this.currentUserId, `RTC stats #${statsPollCount}`, {
+              outbound,
+              inbound,
+              activeCandidatePairs: candidatePair,
+            });
+
+            // After 12 seconds (4 polls × 3s) with no outbound audio, emit a
+            // prominent warning so we can see in logs whether the track itself is
+            // silent or whether the problem is upstream (ICE, DTLS, SFU routing).
+            if (statsPollCount === 4) {
+              const audioOut = outbound.find((o) => o.kind === 'audio');
+              const videoOut = outbound.find((o) => o.kind === 'video');
+              if (!audioOut || (audioOut.packetsSent as number) === 0) {
+                gcLog(this.currentUserId, 'WARNING: 0 audio packets sent after 12s', {
+                  audioOutbound: audioOut ?? null,
+                  videoOutbound: videoOut ?? null,
+                  localAudioTrack: this.localStream?.getAudioTracks().map((t) => ({
+                    enabled: t.enabled, muted: t.muted, readyState: t.readyState,
+                    settings: t.getSettings(),
+                  })),
+                  audioCtxState: this.audioCtx?.state ?? 'no-ctx',
+                  pcSignalingState: this.pc?.signalingState ?? null,
+                  transceivers: this.pc?.getTransceivers().map((t) => ({
+                    mid: t.mid,
+                    direction: t.direction,
+                    currentDirection: t.currentDirection,
+                    senderTrackKind: t.sender.track?.kind ?? null,
+                    senderTrackMuted: t.sender.track?.muted ?? null,
+                  })),
+                });
+              }
+            }
+          } catch (err) {
+            gcLog(this.currentUserId, 'getStats ERROR', { error: String(err) });
+          }
+        }, 3000);
+      }
     };
 
     pc.onsignalingstatechange = () => {
-      console.log('[GroupCall] PC signaling state changed for', userId, ':', pc.signalingState, 'connectionState:', pc.connectionState);
+      gcLog(this.currentUserId, 'PC signalingState', { state: pc.signalingState });
     };
 
-    if (this.localStream) {
-      this.localStream.getTracks().forEach((track) => {
-        pc.addTrack(track, this.localStream!);
+    pc.onicegatheringstatechange = () => {
+      gcLog(this.currentUserId, 'ICE gatheringState', {
+        state: pc.iceGatheringState,
+        elapsedFromPcCreateMs: Date.now() - this.pcCreatedAt,
       });
-      console.log('[GroupCall] added local tracks to PC for', userId);
-    }
+    };
 
-    this.remotePeers.set(userId, {
-      userId,
-      stream: remoteStream,
-      peerConnection: pc,
-    });
+    pc.oniceconnectionstatechange = () => {
+      gcLog(this.currentUserId, 'ICE connectionState', { state: pc.iceConnectionState });
+    };
 
-    console.log('[GroupCall] peer stored in remotePeers for:', userId, 'total:', this.remotePeers.size);
     return pc;
   }
 
-  private async createPeerForUser(userId: string): Promise<void> {
-    console.log('[GroupCall] createPeerForUser START for:', userId);
-    if (this.remotePeers.has(userId)) {
-      console.log('[GroupCall] peer already exists, skipping:', userId);
-      return;
+  // ── Private: signaling message routing ────────────────────────────────────
+
+  private async handleMessage(msg: SignalingMessage): Promise<void> {
+    switch (msg.type) {
+      case 'offer':
+        await this.handleOffer(msg.payload as OfferPayload);
+        break;
+
+      case 'ice_candidate':
+        await this.handleIceCandidate(msg.payload as IceCandidatePayload);
+        break;
+
+      case 'participant_joined':
+        this.callbacks?.onPeerJoined((msg.payload as ParticipantEventPayload).user_id);
+        break;
+
+      case 'participant_left': {
+        const { user_id } = msg.payload as ParticipantEventPayload;
+        this.remoteStreams.delete(user_id);
+        this.callbacks?.onPeerLeft(user_id);
+        break;
+      }
+
+      case 'error':
+        this.callbacks?.onError((msg.payload as ErrorPayload).message);
+        break;
+
+      default:
+        break;
     }
-
-    const pc = this.createPeerConnection(userId);
-
-    console.log('[GroupCall] creating SDP offer for:', userId);
-    const offer = await pc.createOffer();
-    console.log('[GroupCall] SDP offer created, setting local description');
-    await pc.setLocalDescription(offer);
-    console.log('[GroupCall] local description set, sending offer via WS');
-
-    if (this.ws?.readyState !== WebSocket.OPEN) {
-      console.error('[GroupCall] WebSocket not ready, cannot send offer to:', userId, 'readyState:', this.ws?.readyState);
-      return;
-    }
-
-    this.ws.send(JSON.stringify({
-      type: 'offer',
-      payload: {
-        room_id: this.currentRoomId,
-        user_id: this.currentUserId,
-        target_user_id: userId,
-        sdp: pc.localDescription,
-      },
-    }));
-    console.log('[GroupCall] offer sent successfully to SFU for:', userId);
   }
 
-  private async handleOffer(payload: { from_user_id: string; sdp: RTCSessionDescriptionInit }): Promise<void> {
-    const { from_user_id, sdp } = payload;
-    console.log('[GroupCall] handleOffer: from', from_user_id, 'existing peer:', this.remotePeers.has(from_user_id));
+  // ── Private: offer/answer ─────────────────────────────────────────────────
 
-    let peer = this.remotePeers.get(from_user_id);
-    if (!peer || !peer.peerConnection) {
-      console.log('[GroupCall] handleOffer: creating peer on-demand for', from_user_id);
-      this.createPeerConnection(from_user_id);
-      peer = this.remotePeers.get(from_user_id);
-    }
+  private async handleOffer(payload: OfferPayload): Promise<void> {
+    const isFirst = !this.pc;
+    gcLog(this.currentUserId, 'offer received', {
+      isFirstOffer: isFirst,
+      signalingState: this.pc?.signalingState ?? 'no-pc',
+      pendingCandidates: this.pendingCandidates.length,
+    });
 
-    if (!peer?.peerConnection) {
-      console.error('[GroupCall] handleOffer: peer or peerConnection is null for', from_user_id);
-      return;
-    }
-
-    const pc = peer.peerConnection;
-    console.log('[GroupCall] handleOffer: signalingState:', pc.signalingState);
-
-    if (pc.signalingState !== 'stable') {
-      console.warn('[GroupCall] handleOffer: skipping offer from', from_user_id, '— signalingState:', pc.signalingState);
-      return;
-    }
-
-    await pc.setRemoteDescription(sdp);
-    console.log('[GroupCall] handleOffer: remote description set for', from_user_id);
-
-    // Apply any ICE candidates that arrived before remote description was ready
-    await this.flushPendingCandidates(from_user_id, pc);
-
-    const answer = await pc.createAnswer();
-    await pc.setLocalDescription(answer);
-
-    if (this.ws?.readyState !== WebSocket.OPEN) {
-      console.error('[GroupCall] handleOffer: WebSocket not ready, cannot send answer');
-      return;
-    }
-
-    this.ws.send(JSON.stringify({
-      type: 'answer',
-      payload: {
-        room_id: this.currentRoomId,
-        user_id: this.currentUserId,
-        target_user_id: from_user_id,
-        sdp: pc.localDescription,
-      },
-    }));
-    console.log('[GroupCall] handleOffer: answer sent to', from_user_id, 'connectionState:', pc.connectionState);
-  }
-
-  private async handleAnswer(payload: { from_user_id: string; sdp: RTCSessionDescriptionInit }): Promise<void> {
-    const { from_user_id, sdp } = payload;
-    const peer = this.remotePeers.get(from_user_id);
-    const state = peer?.peerConnection?.signalingState;
-    console.log('[GroupCall] handleAnswer: from', from_user_id, 'signalingState:', state);
-
-    if (!peer?.peerConnection) {
-      console.warn('[GroupCall] handleAnswer: peer not found for', from_user_id);
-      return;
-    }
-
-    const pc = peer.peerConnection;
-
-    if (state !== 'have-local-offer') {
-      console.warn('[GroupCall] handleAnswer: unexpected signalingState', state, 'for', from_user_id, '— ignoring answer');
-      return;
+    // Server-initiated offer: create PC on first offer, reuse on renegotiation.
+    if (!this.pc) {
+      this.pc = this.createPeerConnection();
     }
 
     try {
-      await pc.setRemoteDescription(sdp);
-      console.log('[GroupCall] handleAnswer: remote description set for', from_user_id, 'signalingState:', pc.signalingState);
-
-      // Apply any ICE candidates that arrived before remote description was ready
-      await this.flushPendingCandidates(from_user_id, pc);
+      await this.pc.setRemoteDescription({ type: payload.type, sdp: payload.sdp });
     } catch (err) {
-      console.error('[GroupCall] handleAnswer: failed to set remote description for', from_user_id, err);
-    }
-  }
-
-  private async handleICECandidate(payload: { from_user_id: string; candidate: RTCIceCandidateInit }): Promise<void> {
-    const { from_user_id, candidate } = payload;
-    const peer = this.remotePeers.get(from_user_id);
-
-    if (!peer?.peerConnection) {
-      // Peer connection not created yet — buffer the candidate
-      const buf = this.pendingCandidates.get(from_user_id) ?? [];
-      buf.push(candidate);
-      this.pendingCandidates.set(from_user_id, buf);
-      console.log('[GroupCall] handleICECandidate: buffered candidate for', from_user_id, '(peer not ready), total buffered:', buf.length);
+      gcLog(this.currentUserId, 'setRemoteDescription ERROR', { error: String(err) });
+      console.error('[GroupCall] setRemoteDescription failed:', err);
+      // PC stays in stable — server will timeout and rollback on its side.
       return;
     }
 
-    if (!peer.peerConnection.remoteDescription) {
-      // Peer connection exists but remote description not set yet — buffer
-      const buf = this.pendingCandidates.get(from_user_id) ?? [];
-      buf.push(candidate);
-      this.pendingCandidates.set(from_user_id, buf);
-      console.log('[GroupCall] handleICECandidate: buffered candidate for', from_user_id, '(no remote desc), total buffered:', buf.length);
-      return;
+    // Log transceivers after setRemoteDescription to see all m-lines including forwarded tracks.
+    gcLog(this.currentUserId, 'transceivers after setRemoteDesc', {
+      transceivers: this.pc.getTransceivers().map((t, i) => ({
+        index: i,
+        mid: t.mid,
+        direction: t.direction,
+        currentDirection: t.currentDirection,
+        senderTrackKind: t.sender.track?.kind ?? null,
+        senderTrackId: t.sender.track?.id?.slice(0, 8) ?? null,
+        receiverTrackKind: t.receiver.track.kind,
+        receiverTrackId: t.receiver.track.id.slice(0, 8),
+        receiverTrackReadyState: t.receiver.track.readyState,
+      })),
+    });
+
+    // Flush any ICE candidates that arrived before remote description.
+    if (this.pendingCandidates.length > 0) {
+      gcLog(this.currentUserId, 'flushing pending ICE', { count: this.pendingCandidates.length });
     }
-
-    try {
-      await peer.peerConnection.addIceCandidate(candidate);
-    } catch (err) {
-      console.warn('[GroupCall] handleICECandidate: failed to add candidate for', from_user_id, err);
+    for (const c of this.pendingCandidates) {
+      await this.pc.addIceCandidate(c).catch(() => { /* stale candidate */ });
     }
-  }
+    this.pendingCandidates = [];
 
-  private async flushPendingCandidates(userId: string, pc: RTCPeerConnection): Promise<void> {
-    const buffered = this.pendingCandidates.get(userId);
-    if (!buffered?.length) return;
-
-    console.log('[GroupCall] flushing', buffered.length, 'buffered ICE candidates for', userId);
-    this.pendingCandidates.delete(userId);
-
-    for (const candidate of buffered) {
+    // Constrain audio codec to Opus-only BEFORE createAnswer.
+    // macOS Chrome adds stereo fmtp params (stereo=1;sprop-stereo=1) to Opus by default.
+    // These parameters tell the remote decoder to expect stereo frames, but our pion SFU
+    // is configured for mono Opus.  When the fmtp lines don't match, pion may reject the
+    // codec negotiation silently — no OnTrack, no audio.  Restricting codecs to plain Opus
+    // entries (without stereo variants) eliminates the mismatch on all platforms.
+    const opusCaps = RTCRtpSender.getCapabilities('audio');
+    for (const t of this.pc!.getTransceivers()) {
+      if (t.receiver.track.kind !== 'audio') continue;
+      if (!opusCaps) continue;
+      // Keep only Opus entries; drop RED, CN, telephone-event, etc.
+      // Using toLowerCase() because Chrome reports "audio/opus" and Safari "audio/OPUS".
+      const opusOnly = opusCaps.codecs.filter((c) => c.mimeType.toLowerCase() === 'audio/opus');
+      if (opusOnly.length === 0) continue;
       try {
-        await pc.addIceCandidate(candidate);
-      } catch (err) {
-        console.warn('[GroupCall] failed to add buffered ICE candidate for', userId, err);
+        t.setCodecPreferences(opusOnly);
+        gcLog(this.currentUserId, 'setCodecPreferences Opus', { mid: t.mid, variants: opusOnly.length });
+      } catch (e) {
+        gcLog(this.currentUserId, 'setCodecPreferences ERROR', { mid: t.mid, error: String(e) });
       }
     }
-  }
 
-  private removePeer(userId: string): void {
-    const peer = this.remotePeers.get(userId);
-    if (peer) {
-      peer.peerConnection?.close();
-      this.remotePeers.delete(userId);
-    }
-  }
-
-  private cleanup(): void {
-    if (this.localStream) {
-      this.localStream.getTracks().forEach((track) => track.stop());
-      this.localStream = null;
+    let answer: RTCSessionDescriptionInit;
+    try {
+      answer = await this.pc.createAnswer();
+      await this.pc.setLocalDescription(answer);
+    } catch (err) {
+      gcLog(this.currentUserId, 'createAnswer ERROR', { error: String(err) });
+      console.error('[GroupCall] createAnswer/setLocalDescription failed:', err);
+      // PC is in have-remote-offer — rollback so future offers can be processed.
+      await this.pc.setLocalDescription({ type: 'rollback' }).catch(() => {});
+      return;
     }
 
-    this.remotePeers.forEach((peer) => {
-      peer.peerConnection?.close();
+    // Log SDP answer sections — critical for diagnosing why audio is not sent.
+    // direction=sendonly/sendrecv → Chrome sends; recvonly/inactive → Chrome won't send.
+    // ssrcs=[] → Chrome has no sender track (audio won't be transmitted).
+    gcLog(this.currentUserId, 'answer SDP sections', {
+      sections: parseSdpSections(answer.sdp ?? '').map((s) => ({
+        mLine: (s.mLine as string).slice(0, 40),
+        mid: s.mid,
+        direction: s.direction,
+        ssrcCount: (s.ssrcs as string[]).length,
+        firstSsrc: (s.ssrcs as string[])[0] ?? null,
+        msids: s.msids,
+      })),
     });
-    this.remotePeers.clear();
-    this.pendingCandidates.clear();
 
-    this.isInGroupCall = false;
+    // Also log transceiver state AFTER setLocalDescription (currentDirection is set here).
+    gcLog(this.currentUserId, 'transceivers after setLocalDesc', {
+      transceivers: this.pc!.getTransceivers().map((t) => ({
+        mid: t.mid,
+        direction: t.direction,
+        currentDirection: t.currentDirection,
+        senderTrackKind: t.sender.track?.kind ?? null,
+        senderTrackMuted: t.sender.track?.muted ?? null,
+        senderTrackReadyState: t.sender.track?.readyState ?? null,
+      })),
+    });
+
+    gcLog(this.currentUserId, 'answer sent');
+
+    if (this.ws?.readyState === WebSocket.OPEN) {
+      this.ws.send(JSON.stringify({
+        type: 'answer',
+        payload: { type: answer.type, sdp: answer.sdp },
+      }));
+    }
   }
 
-  get isInGroupCallState(): boolean {
-    return this.isInGroupCall;
+  private async handleIceCandidate(payload: IceCandidatePayload): Promise<void> {
+    const init: RTCIceCandidateInit = {
+      candidate: payload.candidate,
+      sdpMid: payload.sdpMid,
+      sdpMLineIndex: payload.sdpMLineIndex,
+      usernameFragment: payload.usernameFragment ?? undefined,
+    };
+
+    if (!this.pc?.remoteDescription) {
+      gcLog(this.currentUserId, 'ICE candidate buffered (no remoteDesc)', {
+        total: this.pendingCandidates.length + 1,
+      });
+      this.pendingCandidates.push(init);
+      return;
+    }
+
+    await this.pc.addIceCandidate(init).catch((err) => {
+      gcLog(this.currentUserId, 'addIceCandidate ERROR', { error: String(err) });
+    });
   }
 
-  get currentRoomIdState(): string {
-    return this.currentRoomId;
-  }
+  // ── Private: cleanup ──────────────────────────────────────────────────────
 
-  get localStreamState(): MediaStream | null {
-    return this.localStream;
-  }
+  private teardown(): void {
+    gcLog(this.currentUserId, '[METRIC] call-summary', {
+      callDurationMs: this.joinedAt ? Date.now() - this.joinedAt : -1,
+      firstAudioFrames: Object.fromEntries(
+        [...this.firstAudioFrameAt.entries()].map(([sid, ts]) => [
+          sid.slice(0, 8),
+          { elapsedFromJoinMs: this.joinedAt ? ts - this.joinedAt : -1 },
+        ])
+      ),
+    });
+    gcLog(this.currentUserId, 'teardown', {
+      remoteStreams: this.remoteStreams.size,
+      pcState: this.pc?.connectionState ?? 'null',
+    });
+    this.pc?.close();
+    this.pc = null;
 
-  get peerCount(): number {
-    return this.remotePeers.size;
+    this.localStream?.getTracks().forEach((t) => t.stop());
+    this.localStream = null;
+
+    if (this.audioCtxKeepAlive !== null) {
+      clearInterval(this.audioCtxKeepAlive);
+      this.audioCtxKeepAlive = null;
+    }
+    this.audioCtx?.close().catch(() => {});
+    this.audioCtx = null;
+
+    this.remoteStreams.clear();
+    this.pendingCandidates = [];
+    this.inCall = false;
+    this.joinedAt = 0;
+    this.pcCreatedAt = 0;
+    this.pcConnectedAt = 0;
+    this.firstAudioFrameAt.clear();
+    this.ws = null;
   }
 }
 
