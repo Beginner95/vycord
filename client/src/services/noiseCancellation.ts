@@ -1,14 +1,19 @@
 /**
  * DeepFilterNet3 noise cancellation via AudioWorklet + Web Worker.
  *
- * Assets loaded from /audio/ (public dir):
+ * Assets base URL is provided by the Electron preload (window.electronAPI.audioAssetsUrl),
+ * which resolves to the correct path regardless of asar packaging or install location.
+ * Falls back to '/audio/' for non-Electron environments (web dev, tests).
+ *
+ * Files:
  *   AudioPipelineWorklet.js  — real-time audio I/O worklet
  *   AudioPipelineWorker.js   — WASM compute worker
  *   deepfilter.wasm          — DeepFilterNet3 model (17 MB, weights embedded)
  *   rnnoise.wasm             — RNNoise fallback model
  */
 
-const ASSETS_BASE = '/audio/';
+// window.electronAPI is populated synchronously by the preload before renderer scripts run.
+const ASSETS_BASE: string = window.electronAPI?.audioAssetsUrl ?? '/audio/';
 const WORKLET_NAME = 'AudioPipelineWorklet';
 
 interface NoiseCancellationState {
@@ -227,7 +232,10 @@ class NoiseCancellationService {
 
       return processedStream;
     } catch (err) {
-      this.state.error = err instanceof Error ? err.message : 'DeepFilterNet init failed';
+      const message = err instanceof Error ? err.message : 'DeepFilterNet init failed';
+      console.error('[NC] Failed to initialize noise cancellation pipeline:', message, err);
+      console.error('[NC] ASSETS_BASE resolved to:', new URL(ASSETS_BASE, document.baseURI).href);
+      this.state.error = message;
       this.state.isEnabled = false;
       this.notify();
       return null;

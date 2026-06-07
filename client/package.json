@@ -48,6 +48,9 @@
       "dist/**/*",
       "electron-dist/**/*"
     ],
+    "asarUnpack": [
+      "dist/audio/**"
+    ],
     "win": {
       "target": [
         "nsis",
