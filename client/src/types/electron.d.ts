@@ -17,6 +17,7 @@ export interface ElectronAPI {
   getAppVersion: () => Promise<string>;
   platform: string;
   getScreenSources: () => Promise<ScreenSourcesResult>;
+  audioAssetsUrl: string;
 }
 
 declare global {

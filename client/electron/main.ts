@@ -38,6 +38,7 @@ function createWindow(): BrowserWindow {
     mainWindow.loadURL('http://localhost:3000');
     mainWindow.webContents.openDevTools();
   } else {
+    mainWindow.webContents.openDevTools();
     mainWindow.loadFile(path.resolve(projectRoot, 'dist/index.html'));
   }
 
@@ -85,6 +86,20 @@ function createTray(): void {
     mainWindow?.show();
   });
 }
+
+// Sync IPC: preload (sandbox:true, no Node.js) calls this to get the correct audio URL.
+// Main process has full Node.js access and knows where asarUnpack placed the files.
+ipcMain.on('get-audio-assets-url-sync', (event) => {
+  if (isDev) {
+    event.returnValue = '/audio/';
+    return;
+  }
+  const audioDir = path.join(process.resourcesPath, 'app.asar.unpacked', 'dist', 'audio');
+  const normalized = audioDir.replace(/\\/g, '/');
+  // Unix: normalized = /path/to/audio  → file:///path/to/audio/
+  // Win:  normalized = C:/path/audio   → file://C:/path/audio/
+  event.returnValue = `file://${normalized}/`;
+});
 
 ipcMain.handle('window:minimize', () => {
   mainWindow?.minimize();
