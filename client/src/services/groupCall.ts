@@ -118,6 +118,7 @@ class GroupCallService {
   private screenStream: MediaStream | null = null;
   private screenSender: RTCRtpSender | null = null;
   private _isScreenSharing = false;
+  private _microphoneAvailable = false;
 
   // Keyed by the remote user's ID (= pion stream ID on track events).
   private remoteStreams: RemoteStreams = new Map();
@@ -155,33 +156,44 @@ class GroupCallService {
 
     try {
       const raw = await this.acquireMedia();
-      this.localStream = await noiseCancellationService.applyToStream(raw);
-      // When NC is disabled, Chrome's push-model audio capture may fail silently
-      // on certain hardware (track reports live/enabled but Opus gets zero frames).
-      // Routing through Web Audio forces a pull-model render cycle that always
-      // produces frames, ensuring RTP actually reaches the SFU.
-      if (!noiseCancellationService.getState().isEnabled) {
-        this.localStream = await this.routeAudioThroughWebAudio(this.localStream);
+      if (raw !== null) {
+        const hasAudio = raw.getAudioTracks().length > 0;
+        this._microphoneAvailable = hasAudio;
+        if (hasAudio) {
+          // When NC is disabled, Chrome's push-model audio capture may fail silently
+          // on certain hardware (track reports live/enabled but Opus gets zero frames).
+          // Routing through Web Audio forces a pull-model render cycle that always
+          // produces frames, ensuring RTP actually reaches the SFU.
+          this.localStream = await noiseCancellationService.applyToStream(raw);
+          if (!noiseCancellationService.getState().isEnabled) {
+            this.localStream = await this.routeAudioThroughWebAudio(this.localStream);
+          }
+        } else {
+          this.localStream = raw;
+        }
+        // Video starts disabled to avoid immediate bandwidth spike.
+        this.localStream.getVideoTracks().forEach((t) => { t.enabled = false; });
+        gcLog(userId, 'media acquired', {
+          audioTracks: this.localStream.getAudioTracks().map((t) => ({
+            id: t.id.slice(0, 8), label: t.label, enabled: t.enabled,
+            readyState: t.readyState, muted: t.muted,
+            settings: t.getSettings(),
+          })),
+          videoTracks: this.localStream.getVideoTracks().map((t) => ({
+            id: t.id.slice(0, 8), label: t.label, enabled: t.enabled,
+            readyState: t.readyState, muted: t.muted,
+            settings: t.getSettings(),
+          })),
+          noiseCancellationEnabled: noiseCancellationService.getState().isEnabled,
+        });
+      } else {
+        this._microphoneAvailable = false;
+        gcLog(userId, 'no media devices, joining without local media');
       }
-      // Video starts disabled to avoid immediate bandwidth spike.
-      this.localStream.getVideoTracks().forEach((t) => { t.enabled = false; });
-      gcLog(userId, 'media acquired', {
-        audioTracks: this.localStream.getAudioTracks().map((t) => ({
-          id: t.id.slice(0, 8), label: t.label, enabled: t.enabled,
-          readyState: t.readyState, muted: t.muted,
-          settings: t.getSettings(),
-        })),
-        videoTracks: this.localStream.getVideoTracks().map((t) => ({
-          id: t.id.slice(0, 8), label: t.label, enabled: t.enabled,
-          readyState: t.readyState, muted: t.muted,
-          settings: t.getSettings(),
-        })),
-        noiseCancellationEnabled: noiseCancellationService.getState().isEnabled,
-      });
     } catch (err) {
       gcLog(userId, 'media ERROR', { error: String(err) });
-      this.callbacks?.onError(err instanceof Error ? err.message : 'Media access denied');
-      return false;
+      this._microphoneAvailable = false;
+      gcLog(userId, 'continuing without local media after unexpected error');
     }
 
     return this.connectSignaling(roomId, userId);
@@ -333,6 +345,7 @@ class GroupCallService {
   get localStreamState(): MediaStream | null { return this.localStream; }
   get screenStreamState(): MediaStream | null { return this.screenStream; }
   get isScreenSharing(): boolean { return this._isScreenSharing; }
+  get isMicrophoneAvailable(): boolean { return this._microphoneAvailable; }
   get peerCount(): number { return this.remoteStreams.size; }
 
   // ── Private: media acquisition ────────────────────────────────────────────
@@ -379,7 +392,7 @@ class GroupCallService {
     }
   }
 
-  private async acquireMedia(): Promise<MediaStream> {
+  private async acquireMedia(): Promise<MediaStream | null> {
     // Explicit constraints avoid macOS/Android-specific quirks:
     // - channelCount ideal:1 → Opus mono, prevents macOS from injecting stereo fmtp params
     //   that older pion versions may not accept (stereo=1;sprop-stereo=1 mismatch).
@@ -395,10 +408,18 @@ class GroupCallService {
     gcLog(this.currentUserId, 'getUserMedia constraints', { audio: audioConstraints });
     try {
       return await navigator.mediaDevices.getUserMedia({ audio: audioConstraints, video: true });
-    } catch {
+    } catch { /* try next */ }
+    try {
       // Fall back to audio-only if camera is unavailable.
-      return navigator.mediaDevices.getUserMedia({ audio: audioConstraints, video: false });
-    }
+      return await navigator.mediaDevices.getUserMedia({ audio: audioConstraints, video: false });
+    } catch { /* try next */ }
+    try {
+      // No audio device — try video-only.
+      gcLog(this.currentUserId, 'no audio device, trying video-only');
+      return await navigator.mediaDevices.getUserMedia({ audio: false, video: true });
+    } catch { /* try next */ }
+    gcLog(this.currentUserId, 'no media devices available, joining without local media');
+    return null;
   }
 
   // ── Private: signaling connection ─────────────────────────────────────────
@@ -1020,6 +1041,7 @@ class GroupCallService {
     this.remoteStreams.clear();
     this.pendingCandidates = [];
     this.inCall = false;
+    this._microphoneAvailable = false;
     this.joinedAt = 0;
     this.pcCreatedAt = 0;
     this.pcConnectedAt = 0;
