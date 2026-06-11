@@ -521,6 +521,19 @@ class GroupCallService {
           label: track.label,
         });
       }
+      // If localStream has no video track (audio-only join), pre-create a sendrecv video
+      // transceiver so that the answer SDP carries a video a=ssrc line.  pion fires
+      // OnTrack only for SSRCs it learns from the answer; without this, screen-sharing
+      // replaceTrack sends RTP on an SSRC pion never registered → black screen for others.
+      if (!this.localStream.getVideoTracks().length) {
+        pc.addTransceiver('video', { direction: 'sendrecv' });
+      }
+    } else {
+      // No local media at all.  Still add sendrecv transceivers so the answer SDP
+      // includes a=ssrc lines for both audio and video.  Without them, pion never
+      // learns the video SSRC and screen-sharing breaks (black screen for remote users).
+      pc.addTransceiver('audio', { direction: 'sendrecv' });
+      pc.addTransceiver('video', { direction: 'sendrecv' });
     }
     gcLog(this.currentUserId, 'PC created', {
       localTracksAdded: addedTracks,
