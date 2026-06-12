@@ -180,6 +180,7 @@ export function GroupCallUI() {
   const { messages, addMessage } = useMessageStore();
   const [isInGroupCall, setIsInGroupCall] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
+  const [isMicAvailable, setIsMicAvailable] = useState(true);
   const [isVideoOff, setIsVideoOff] = useState(true);
   const [showChat, setShowChat] = useState(true);
   const [chatInput, setChatInput] = useState('');
@@ -241,6 +242,7 @@ export function GroupCallUI() {
         setIsInGroupCall(false);
         setParticipants([]);
         setIsMuted(false);
+        setIsMicAvailable(true);
         setIsVideoOff(false);
         setIsScreenSharing(false);
         setShowSourcePicker(false);
@@ -252,6 +254,7 @@ export function GroupCallUI() {
         console.error('[GroupCall] Error:', msg);
         setIsInGroupCall(false);
         setParticipants([]);
+        setIsMicAvailable(true);
         setScreenSharers(new Set());
         setFocusedUserId(null);
         if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
@@ -375,6 +378,9 @@ export function GroupCallUI() {
     if (!user) return false;
     const isFirst = await groupCallService.joinGroupCall(roomId, user.id);
     setIsInGroupCall(true);
+    const micAvailable = groupCallService.isMicrophoneAvailable;
+    setIsMicAvailable(micAvailable);
+    if (!micAvailable) setIsMuted(true);
     return isFirst;
   }, [user]);
 
@@ -757,9 +763,10 @@ export function GroupCallUI() {
           <button
             className={`control-btn ${isMuted ? 'active' : ''}`}
             onClick={handleToggleMute}
-            title={isMuted ? 'Unmute' : 'Mute'}
+            disabled={!isMicAvailable}
+            title={!isMicAvailable ? 'Микрофон недоступен' : isMuted ? 'Включить микрофон' : 'Выключить микрофон'}
           >
-            {isMuted ? '🔇' : '🎤'}
+            {!isMicAvailable ? '🚫' : isMuted ? '🔇' : '🎤'}
           </button>
         </div>
         <button

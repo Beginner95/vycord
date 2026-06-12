@@ -47,6 +47,7 @@ export function CallUI() {
   const [activeCall, setActiveCall] = useState<{ call_id: string } | null>(null);
   const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
   const [isMuted, setIsMuted] = useState(false);
+  const [isMicAvailable, setIsMicAvailable] = useState(true);
   const [isVideoOff, setIsVideoOff] = useState(true);
   const micLevel = useMicLevel(
     activeCall ? callService.localStreamState : null,
@@ -71,6 +72,7 @@ export function CallUI() {
         setIncomingCall(null);
         setRemoteStream(null);
         setIsMuted(false);
+        setIsMicAvailable(true);
         setIsVideoOff(false);
       },
       onError: (msg) => {
@@ -91,6 +93,9 @@ export function CallUI() {
       audioService.playCallAccepted();
       setActiveCall(e.detail);
       setIncomingCall(null);
+      const micAvailable = callService.isMicrophoneAvailable;
+      setIsMicAvailable(micAvailable);
+      if (!micAvailable) setIsMuted(true);
     };
     window.addEventListener('discrod:call_started', handleCallStarted as EventListener);
 
@@ -110,6 +115,9 @@ export function CallUI() {
 
   const handleAcceptCall = useCallback(async () => {
     await callService.acceptCall();
+    const micAvailable = callService.isMicrophoneAvailable;
+    setIsMicAvailable(micAvailable);
+    if (!micAvailable) setIsMuted(true);
     if (incomingCall) {
       setActiveCall({ call_id: incomingCall.call_id });
     }
@@ -213,9 +221,10 @@ export function CallUI() {
               <button
                 className={`control-btn ${isMuted ? 'active' : ''}`}
                 onClick={handleToggleMute}
-                title={isMuted ? 'Unmute' : 'Mute'}
+                disabled={!isMicAvailable}
+                title={!isMicAvailable ? 'Микрофон недоступен' : isMuted ? 'Включить микрофон' : 'Выключить микрофон'}
               >
-                {isMuted ? '🔇' : '🎤'}
+                {!isMicAvailable ? '🚫' : isMuted ? '🔇' : '🎤'}
               </button>
             </div>
             <button

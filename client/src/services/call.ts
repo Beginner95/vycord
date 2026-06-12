@@ -14,6 +14,7 @@ class CallService {
   private currentCallId: string | null = null;
   private remoteUserId: string | null = null;
   private isInCall = false;
+  private _microphoneAvailable = false;
   private callbacks: WebRTCCallbacks | null = null;
   private pendingOffer: RTCSessionDescriptionInit | null = null;
   private callAccepted = false;
@@ -46,24 +47,38 @@ class CallService {
   async startCall(receiverId: string): Promise<string | null> {
     try {
       this.remoteUserId = receiverId;
+      this._microphoneAvailable = false;
 
-      // Get local media stream; fall back to audio-only if camera is unavailable
-      let rawStream: MediaStream;
+      // Get local media stream; fall back to audio-only, then video-only, then nothing
       try {
-        rawStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: true });
+        let rawStream: MediaStream;
+        try {
+          rawStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: true });
+        } catch {
+          rawStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+        }
+        this.localStream = await noiseCancellationService.applyToStream(rawStream);
+        this.localStream.getVideoTracks().forEach((t) => { t.enabled = false; });
+        this._microphoneAvailable = this.localStream.getAudioTracks().length > 0;
       } catch {
-        rawStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+        // No audio device — try video-only, or proceed without local media
+        try {
+          this.localStream = await navigator.mediaDevices.getUserMedia({ audio: false, video: true });
+          this.localStream.getVideoTracks().forEach((t) => { t.enabled = false; });
+        } catch {
+          this.localStream = null;
+        }
       }
-      this.localStream = await noiseCancellationService.applyToStream(rawStream);
-      this.localStream.getVideoTracks().forEach((t) => { t.enabled = false; });
 
       // Create peer connection
       this.createPeerConnection();
 
-      // Add local stream tracks
-      this.localStream.getTracks().forEach((track) => {
-        this.peerConnection!.addTrack(track, this.localStream!);
-      });
+      // Add local stream tracks (if any)
+      if (this.localStream) {
+        this.localStream.getTracks().forEach((track) => {
+          this.peerConnection!.addTrack(track, this.localStream!);
+        });
+      }
 
       // Create offer
       const offer = await this.peerConnection!.createOffer();
@@ -102,6 +117,7 @@ class CallService {
 
   async acceptCall(): Promise<void> {
     if (!this.localStream) {
+      this._microphoneAvailable = false;
       try {
         let rawStream: MediaStream;
         try {
@@ -111,17 +127,25 @@ class CallService {
         }
         this.localStream = await noiseCancellationService.applyToStream(rawStream);
         this.localStream.getVideoTracks().forEach((t) => { t.enabled = false; });
-      } catch (err) {
-        this.callbacks?.onError('Failed to access microphone/camera');
-        return;
+        this._microphoneAvailable = this.localStream.getAudioTracks().length > 0;
+      } catch {
+        // No audio device — try video-only, or proceed without local media
+        try {
+          this.localStream = await navigator.mediaDevices.getUserMedia({ audio: false, video: true });
+          this.localStream.getVideoTracks().forEach((t) => { t.enabled = false; });
+        } catch {
+          this.localStream = null;
+        }
       }
     }
 
     this.createPeerConnection();
 
-    this.localStream.getTracks().forEach((track) => {
-      this.peerConnection!.addTrack(track, this.localStream!);
-    });
+    if (this.localStream) {
+      this.localStream.getTracks().forEach((track) => {
+        this.peerConnection!.addTrack(track, this.localStream!);
+      });
+    }
 
     this.callAccepted = true;
 
@@ -289,6 +313,7 @@ class CallService {
     this.currentCallId = null;
     this.remoteUserId = null;
     this.isInCall = false;
+    this._microphoneAvailable = false;
     this.pendingOffer = null;
     this.callAccepted = false;
   }
@@ -299,6 +324,10 @@ class CallService {
 
   get localStreamState(): MediaStream | null {
     return this.localStream;
+  }
+
+  get isMicrophoneAvailable(): boolean {
+    return this._microphoneAvailable;
   }
 }
 
