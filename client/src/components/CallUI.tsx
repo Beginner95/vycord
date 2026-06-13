@@ -2,7 +2,49 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { useAuthStore } from '@/stores/authStore';
 import { callService } from '@/services/call';
 import { audioService } from '@/services/audio';
+import { wsService } from '@/services/websocket';
 import './CallUI.css';
+
+function useIsSpeaking(stream: MediaStream | null, isMuted: boolean): boolean {
+  const [speaking, setSpeaking] = useState(false);
+
+  useEffect(() => {
+    if (!stream || isMuted) {
+      setSpeaking(false);
+      return;
+    }
+
+    let ctx: AudioContext;
+    try {
+      ctx = new AudioContext();
+    } catch {
+      return;
+    }
+
+    const analyser = ctx.createAnalyser();
+    analyser.fftSize = 256;
+    const source = ctx.createMediaStreamSource(stream);
+    source.connect(analyser);
+
+    const data = new Uint8Array(analyser.frequencyBinCount);
+    let rafId = 0;
+    const tick = () => {
+      analyser.getByteFrequencyData(data);
+      const avg = data.reduce((a, b) => a + b, 0) / data.length;
+      setSpeaking(avg / 128 > 0.05);
+      rafId = requestAnimationFrame(tick);
+    };
+    rafId = requestAnimationFrame(tick);
+
+    return () => {
+      cancelAnimationFrame(rafId);
+      source.disconnect();
+      ctx.close();
+    };
+  }, [stream, isMuted]);
+
+  return speaking;
+}
 
 function useMicLevel(stream: MediaStream | null, isMuted: boolean): number {
   const [level, setLevel] = useState(0);
@@ -49,10 +91,12 @@ export function CallUI() {
   const [isMuted, setIsMuted] = useState(false);
   const [isMicAvailable, setIsMicAvailable] = useState(true);
   const [isVideoOff, setIsVideoOff] = useState(true);
+  const [remoteMuted, setRemoteMuted] = useState(false);
   const micLevel = useMicLevel(
     activeCall ? callService.localStreamState : null,
     isMuted,
   );
+  const remoteIsSpeaking = useIsSpeaking(activeCall ? remoteStream : null, remoteMuted);
   const [error, setError] = useState<string | null>(null);
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
   const localVideoRef = useRef<HTMLVideoElement>(null);
@@ -74,6 +118,7 @@ export function CallUI() {
         setIsMuted(false);
         setIsMicAvailable(true);
         setIsVideoOff(false);
+        setRemoteMuted(false);
       },
       onError: (msg) => {
         audioService.stopRingtone();
@@ -106,18 +151,35 @@ export function CallUI() {
     };
     window.addEventListener('discrod:call_rejected', handleCallRejected);
 
+    const unsubMuted = wsService.on('mic_muted', (payload) => {
+      const p = payload as { user_id: string };
+      if (p.user_id !== user?.id) setRemoteMuted(true);
+    });
+
+    const unsubUnmuted = wsService.on('mic_unmuted', (payload) => {
+      const p = payload as { user_id: string };
+      if (p.user_id !== user?.id) setRemoteMuted(false);
+    });
+
     return () => {
       window.removeEventListener('discrod:incoming_call', handleIncoming as EventListener);
       window.removeEventListener('discrod:call_started', handleCallStarted as EventListener);
       window.removeEventListener('discrod:call_rejected', handleCallRejected);
+      unsubMuted();
+      unsubUnmuted();
     };
-  }, []);
+  }, [user?.id]);
 
   const handleAcceptCall = useCallback(async () => {
     await callService.acceptCall();
     const micAvailable = callService.isMicrophoneAvailable;
     setIsMicAvailable(micAvailable);
-    if (!micAvailable) setIsMuted(true);
+    if (!micAvailable) {
+      setIsMuted(true);
+      wsService.send('mic_muted', {});
+    } else {
+      wsService.send('mic_unmuted', {});
+    }
     if (incomingCall) {
       setActiveCall({ call_id: incomingCall.call_id });
     }
@@ -137,6 +199,7 @@ export function CallUI() {
   const handleToggleMute = () => {
     const muted = callService.toggleMuteAudio();
     setIsMuted(muted);
+    wsService.send(muted ? 'mic_muted' : 'mic_unmuted', {});
   };
 
   const handleToggleVideo = () => {
@@ -187,12 +250,20 @@ export function CallUI() {
       {activeCall && (
         <div className="call-overlay active">
           <div className="call-videos">
-            <div className="remote-video">
+            <div className={`remote-video ${remoteIsSpeaking ? 'speaking' : ''}`}>
               <video
                 ref={remoteVideoRef}
                 autoPlay
                 playsInline
               />
+              {(remoteMuted || remoteIsSpeaking) && (
+                <div className="remote-mic-status">
+                  {remoteMuted
+                    ? <span className="mic-status-icon">🔇</span>
+                    : <span className="mic-dot" />
+                  }
+                </div>
+              )}
               <div className="call-timer">
                 <CallTimer />
               </div>
@@ -206,7 +277,12 @@ export function CallUI() {
               />
               {user && (
                 <div className="local-video-label">
-                  {!isMuted && micLevel > 0.05 && <span className="mic-dot" />}
+                  {!isMicAvailable
+                    ? <span className="mic-status-icon">🚫</span>
+                    : isMuted
+                      ? <span className="mic-status-icon">🔇</span>
+                      : (micLevel > 0.05 ? <span className="mic-dot" /> : null)
+                  }
                   {user.username} (You)
                 </div>
               )}

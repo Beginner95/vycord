@@ -836,6 +836,21 @@
   gap: 4px;
 }
 
+/* ── Mic status icon in video/thumbnail labels ── */
+.mic-status-icon {
+  font-size: 10px;
+  margin-right: 3px;
+  vertical-align: middle;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+/* ── Speaking state for thumbnail tiles ── */
+.thumbnail-tile.speaking {
+  border-color: rgba(34, 197, 94, 0.8);
+  box-shadow: 0 0 0 2px rgba(34, 197, 94, 0.45);
+}
+
 /* ── Focus button on remote video tiles in grid ── */
 .video-tile .focus-btn {
   position: absolute;

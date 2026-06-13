@@ -45,6 +45,47 @@ function useMicLevel(stream: MediaStream | null, isMuted: boolean): number {
   return level;
 }
 
+function useIsSpeaking(stream: MediaStream | null, isMuted: boolean): boolean {
+  const [speaking, setSpeaking] = useState(false);
+
+  useEffect(() => {
+    if (!stream || isMuted) {
+      setSpeaking(false);
+      return;
+    }
+
+    let ctx: AudioContext;
+    try {
+      ctx = new AudioContext();
+    } catch {
+      return;
+    }
+
+    const analyser = ctx.createAnalyser();
+    analyser.fftSize = 256;
+    const source = ctx.createMediaStreamSource(stream);
+    source.connect(analyser);
+
+    const data = new Uint8Array(analyser.frequencyBinCount);
+    let rafId = 0;
+    const tick = () => {
+      analyser.getByteFrequencyData(data);
+      const avg = data.reduce((a, b) => a + b, 0) / data.length;
+      setSpeaking(avg / 128 > 0.05);
+      rafId = requestAnimationFrame(tick);
+    };
+    rafId = requestAnimationFrame(tick);
+
+    return () => {
+      cancelAnimationFrame(rafId);
+      source.disconnect();
+      ctx.close();
+    };
+  }, [stream, isMuted]);
+
+  return speaking;
+}
+
 interface RemoteParticipant {
   userId: string;
   stream: MediaStream | null;
@@ -174,6 +215,77 @@ function ScreenQualityPicker({ onSelect, onCancel }: ScreenQualityPickerProps) {
   );
 }
 
+// ─── Remote Participant Tile ─────────────────────────────────────────────────
+
+interface RemoteParticipantTileProps {
+  participant: RemoteParticipant;
+  isMuted: boolean;
+  isScreenSharer: boolean;
+  displayName: string;
+  onVideoRef: (el: HTMLVideoElement | null) => void;
+  onFocus: () => void;
+  variant: 'grid' | 'thumbnail';
+  isFocused?: boolean;
+}
+
+function RemoteParticipantTile({
+  participant,
+  isMuted,
+  isScreenSharer,
+  displayName,
+  onVideoRef,
+  onFocus,
+  variant,
+  isFocused,
+}: RemoteParticipantTileProps) {
+  const isSpeaking = useIsSpeaking(participant.stream, isMuted);
+
+  const micIndicator = isMuted
+    ? <span className="mic-status-icon">🔇</span>
+    : isSpeaking
+      ? <span className="mic-dot" />
+      : null;
+
+  if (variant === 'thumbnail') {
+    return (
+      <div
+        className={[
+          'thumbnail-tile',
+          isFocused ? 'thumbnail-tile--focused' : '',
+          isSpeaking ? 'speaking' : '',
+        ].filter(Boolean).join(' ')}
+        onClick={onFocus}
+        title={displayName}
+      >
+        <video ref={onVideoRef} autoPlay playsInline />
+        {!participant.stream && <div className="thumbnail-placeholder">📷</div>}
+        {isScreenSharer && <div className="thumbnail-badge">🖥</div>}
+        <div className="thumbnail-label">
+          {micIndicator}
+          {displayName}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className={[
+      'video-tile',
+      !participant.stream ? 'video-off' : '',
+      isSpeaking ? 'speaking' : '',
+    ].filter(Boolean).join(' ')}>
+      <video ref={onVideoRef} autoPlay playsInline />
+      {!participant.stream && <div className="video-off-placeholder">📷</div>}
+      {isScreenSharer && <div className="screen-share-badge">🖥 Sharing</div>}
+      <button className="focus-btn" onClick={onFocus} title="Focus on this participant">⛶</button>
+      <div className="video-label">
+        {micIndicator}
+        {displayName}
+      </div>
+    </div>
+  );
+}
+
 export function GroupCallUI() {
   const { user } = useAuthStore();
   const { currentServer, currentChannel } = useServerStore();
@@ -197,6 +309,8 @@ export function GroupCallUI() {
   // When set, shows the focused layout (large video + thumbnails strip)
   const [focusedUserId, setFocusedUserId] = useState<string | null>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  // Mute state for each remote participant (userId → muted)
+  const [remoteMicMuted, setRemoteMicMuted] = useState<Map<string, boolean>>(new Map());
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const remoteVideoRefs = useRef<Map<string, HTMLVideoElement>>(new Map());
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -204,10 +318,16 @@ export function GroupCallUI() {
   const screenShareMainRef = useRef<HTMLDivElement>(null);
   // Stable ref to participants for use in WS event callbacks (avoids stale closure)
   const participantsRef = useRef<RemoteParticipant[]>([]);
+  // Stable ref to isMuted for use in WS callbacks (avoids stale closure)
+  const isMutedRef = useRef(false);
 
   useEffect(() => {
     participantsRef.current = participants;
   }, [participants]);
+
+  useEffect(() => {
+    isMutedRef.current = isMuted;
+  }, [isMuted]);
 
   useEffect(() => {
     groupCallService.init({
@@ -234,9 +354,16 @@ export function GroupCallUI() {
           if (prev.find((p) => p.userId === userId)) return prev;
           return [...prev, { userId, stream: null }];
         });
+        // Re-broadcast own mic state so the new participant knows our status
+        wsService.send(isMutedRef.current ? 'mic_muted' : 'mic_unmuted', {});
       },
       onPeerLeft: (userId) => {
         setParticipants((prev) => prev.filter((p) => p.userId !== userId));
+        setRemoteMicMuted((prev) => {
+          const next = new Map(prev);
+          next.delete(userId);
+          return next;
+        });
       },
       onCallEnded: () => {
         setIsInGroupCall(false);
@@ -248,6 +375,7 @@ export function GroupCallUI() {
         setShowSourcePicker(false);
         setScreenSharers(new Set());
         setFocusedUserId(null);
+        setRemoteMicMuted(new Map());
         if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
       },
       onError: (msg) => {
@@ -257,6 +385,7 @@ export function GroupCallUI() {
         setIsMicAvailable(true);
         setScreenSharers(new Set());
         setFocusedUserId(null);
+        setRemoteMicMuted(new Map());
         if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
         groupCallService.leaveGroupCall();
       },
@@ -337,6 +466,33 @@ export function GroupCallUI() {
     return () => { unsubStart(); unsubStop(); };
   }, [isInGroupCall, user?.id]);
 
+  // Listen for remote mic state events via main WS
+  useEffect(() => {
+    if (!isInGroupCall) return;
+
+    const unsubMuted = wsService.on('mic_muted', (payload) => {
+      const p = payload as { user_id: string };
+      if (p.user_id === user?.id) return;
+      setRemoteMicMuted((prev) => {
+        const next = new Map(prev);
+        next.set(p.user_id, true);
+        return next;
+      });
+    });
+
+    const unsubUnmuted = wsService.on('mic_unmuted', (payload) => {
+      const p = payload as { user_id: string };
+      if (p.user_id === user?.id) return;
+      setRemoteMicMuted((prev) => {
+        const next = new Map(prev);
+        next.set(p.user_id, false);
+        return next;
+      });
+    });
+
+    return () => { unsubMuted(); unsubUnmuted(); };
+  }, [isInGroupCall, user?.id]);
+
   // Attach stream to the focused main video whenever focus or stream changes
   useEffect(() => {
     const el = focusedVideoRef.current;
@@ -380,7 +536,13 @@ export function GroupCallUI() {
     setIsInGroupCall(true);
     const micAvailable = groupCallService.isMicrophoneAvailable;
     setIsMicAvailable(micAvailable);
-    if (!micAvailable) setIsMuted(true);
+    if (!micAvailable) {
+      setIsMuted(true);
+      isMutedRef.current = true;
+      wsService.send('mic_muted', {});
+    } else {
+      wsService.send('mic_unmuted', {});
+    }
     return isFirst;
   }, [user]);
 
@@ -413,6 +575,7 @@ export function GroupCallUI() {
   const handleToggleMute = useCallback(() => {
     const muted = groupCallService.toggleMuteAudio();
     setIsMuted(muted);
+    wsService.send(muted ? 'mic_muted' : 'mic_unmuted', {});
   }, []);
 
   const handleToggleVideo = useCallback(() => {
@@ -641,30 +804,31 @@ export function GroupCallUI() {
                   )}
                   {isScreenSharing && <div className="thumbnail-badge">🖥</div>}
                   <div className="thumbnail-label">
-                    {!isMuted && micLevel > 0.05 && <span className="mic-dot" />}
+                    {!isMicAvailable
+                      ? <span className="mic-status-icon">🚫</span>
+                      : isMuted
+                        ? <span className="mic-status-icon">🔇</span>
+                        : (micLevel > 0.05 ? <span className="mic-dot" /> : null)
+                    }
                     {user?.username} (You)
                   </div>
                 </div>
 
                 {/* Remote thumbnails */}
                 {participants.map((p) => (
-                  <div
+                  <RemoteParticipantTile
                     key={p.userId}
-                    className={`thumbnail-tile ${focusedUserId === p.userId ? 'thumbnail-tile--focused' : ''}`}
-                    onClick={() => setFocusedUserId(p.userId)}
-                    title={userCache.get(p.userId) ?? p.userId.slice(0, 8)}
-                  >
-                    <video
-                      ref={(el) => { if (el) remoteVideoRefs.current.set(p.userId, el); }}
-                      autoPlay
-                      playsInline
-                    />
-                    {!p.stream && <div className="thumbnail-placeholder">📷</div>}
-                    {screenSharers.has(p.userId) && <div className="thumbnail-badge">🖥</div>}
-                    <div className="thumbnail-label">
-                      {userCache.get(p.userId) ?? p.userId.slice(0, 8)}
-                    </div>
-                  </div>
+                    participant={p}
+                    isMuted={remoteMicMuted.get(p.userId) ?? false}
+                    isScreenSharer={screenSharers.has(p.userId)}
+                    displayName={userCache.get(p.userId) ?? p.userId.slice(0, 8)}
+                    onVideoRef={(el) => {
+                      if (el) remoteVideoRefs.current.set(p.userId, el);
+                    }}
+                    onFocus={() => setFocusedUserId(p.userId)}
+                    variant="thumbnail"
+                    isFocused={focusedUserId === p.userId}
+                  />
                 ))}
               </div>
             </div>
@@ -683,34 +847,30 @@ export function GroupCallUI() {
                 {isVideoOff && !isScreenSharing && <div className="video-off-placeholder">📷</div>}
                 {isScreenSharing && <div className="screen-share-badge">🖥 Sharing</div>}
                 <div className="video-label">
-                  {!isMuted && micLevel > 0.05 && <span className="mic-dot" />}
+                  {!isMicAvailable
+                    ? <span className="mic-status-icon">🚫</span>
+                    : isMuted
+                      ? <span className="mic-status-icon">🔇</span>
+                      : (micLevel > 0.05 ? <span className="mic-dot" /> : null)
+                  }
                   {user?.username} (You)
                 </div>
               </div>
 
               {/* Remote videos */}
               {participants.map((p) => (
-                <div key={p.userId} className={`video-tile ${!p.stream ? 'video-off' : ''}`}>
-                  <video
-                    ref={(el) => { if (el) remoteVideoRefs.current.set(p.userId, el); }}
-                    autoPlay
-                    playsInline
-                  />
-                  {!p.stream && <div className="video-off-placeholder">📷</div>}
-                  {screenSharers.has(p.userId) && (
-                    <div className="screen-share-badge">🖥 Sharing</div>
-                  )}
-                  <button
-                    className="focus-btn"
-                    onClick={() => setFocusedUserId(p.userId)}
-                    title="Focus on this participant"
-                  >
-                    ⛶
-                  </button>
-                  <div className="video-label">
-                    {userCache.get(p.userId) ?? p.userId.slice(0, 8)}
-                  </div>
-                </div>
+                <RemoteParticipantTile
+                  key={p.userId}
+                  participant={p}
+                  isMuted={remoteMicMuted.get(p.userId) ?? false}
+                  isScreenSharer={screenSharers.has(p.userId)}
+                  displayName={userCache.get(p.userId) ?? p.userId.slice(0, 8)}
+                  onVideoRef={(el) => {
+                    if (el) remoteVideoRefs.current.set(p.userId, el);
+                  }}
+                  onFocus={() => setFocusedUserId(p.userId)}
+                  variant="grid"
+                />
               ))}
             </div>
           )}
