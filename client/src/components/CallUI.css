@@ -272,7 +272,7 @@
   z-index: 1;
   display: flex;
   gap: 12px;
-  padding: 12px 20px;
+  padding: 6px 14px;
   background: rgba(255, 255, 255, 0.9);
   backdrop-filter: blur(12px);
   border-radius: var(--radius-xl);
@@ -281,8 +281,8 @@
 }
 
 .control-btn {
-  width: 48px;
-  height: 48px;
+  width: 40px;
+  height: 40px;
   border-radius: var(--radius-full);
   border: 1.5px solid var(--border-color);
   background: var(--bg-primary);
@@ -310,9 +310,9 @@
   background: var(--red-500);
   border-color: var(--red-500);
   color: white;
-  width: 56px;
-  height: 56px;
-  font-size: 20px;
+  width: 40px;
+  height: 40px;
+  font-size: 18px;
 }
 
 .control-btn.end-call:hover {
