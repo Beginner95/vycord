@@ -149,12 +149,6 @@ export function Settings({ isOpen, onClose }: SettingsProps) {
           <button className="close-btn" onClick={onClose}>✕</button>
         </div>
 
-        {isInCall && (
-          <div className="settings-in-call-banner">
-            🔴 You are in a call — device changes apply immediately
-          </div>
-        )}
-
         {deviceSwitching && (
           <div className="settings-in-call-banner settings-in-call-banner--switching">
             Switching device…
