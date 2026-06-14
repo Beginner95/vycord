@@ -44,18 +44,38 @@ class CallService {
     wsService.on('error', this.handleError);
   }
 
+  private buildAudioConstraints(): MediaTrackConstraints {
+    const savedInputId = localStorage.getItem('vycord_input_device') ?? undefined;
+    return {
+      ...(savedInputId ? { deviceId: { ideal: savedInputId } } : {}),
+      channelCount: { ideal: 1 },
+      sampleRate: { ideal: 48000 },
+      echoCancellation: true,
+      noiseSuppression: true,
+      autoGainControl: true,
+    };
+  }
+
+  private buildVideoConstraints(): MediaTrackConstraints {
+    const savedCameraId = localStorage.getItem('vycord_camera_device') ?? undefined;
+    return savedCameraId ? { deviceId: { ideal: savedCameraId } } : {};
+  }
+
   async startCall(receiverId: string): Promise<string | null> {
     try {
       this.remoteUserId = receiverId;
       this._microphoneAvailable = false;
 
+      const audioConstraints = this.buildAudioConstraints();
+      const videoConstraints = this.buildVideoConstraints();
+
       // Get local media stream; fall back to audio-only, then video-only, then nothing
       try {
         let rawStream: MediaStream;
         try {
-          rawStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: true });
+          rawStream = await navigator.mediaDevices.getUserMedia({ audio: audioConstraints, video: videoConstraints });
         } catch {
-          rawStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+          rawStream = await navigator.mediaDevices.getUserMedia({ audio: audioConstraints, video: false });
         }
         this.localStream = await noiseCancellationService.applyToStream(rawStream);
         this.localStream.getVideoTracks().forEach((t) => { t.enabled = false; });
@@ -63,7 +83,7 @@ class CallService {
       } catch {
         // No audio device — try video-only, or proceed without local media
         try {
-          this.localStream = await navigator.mediaDevices.getUserMedia({ audio: false, video: true });
+          this.localStream = await navigator.mediaDevices.getUserMedia({ audio: false, video: videoConstraints });
           this.localStream.getVideoTracks().forEach((t) => { t.enabled = false; });
         } catch {
           this.localStream = null;
@@ -118,12 +138,14 @@ class CallService {
   async acceptCall(): Promise<void> {
     if (!this.localStream) {
       this._microphoneAvailable = false;
+      const audioConstraints = this.buildAudioConstraints();
+      const videoConstraints = this.buildVideoConstraints();
       try {
         let rawStream: MediaStream;
         try {
-          rawStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: true });
+          rawStream = await navigator.mediaDevices.getUserMedia({ audio: audioConstraints, video: videoConstraints });
         } catch {
-          rawStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+          rawStream = await navigator.mediaDevices.getUserMedia({ audio: audioConstraints, video: false });
         }
         this.localStream = await noiseCancellationService.applyToStream(rawStream);
         this.localStream.getVideoTracks().forEach((t) => { t.enabled = false; });
@@ -131,7 +153,7 @@ class CallService {
       } catch {
         // No audio device — try video-only, or proceed without local media
         try {
-          this.localStream = await navigator.mediaDevices.getUserMedia({ audio: false, video: true });
+          this.localStream = await navigator.mediaDevices.getUserMedia({ audio: false, video: videoConstraints });
           this.localStream.getVideoTracks().forEach((t) => { t.enabled = false; });
         } catch {
           this.localStream = null;
@@ -316,6 +338,77 @@ class CallService {
     this._microphoneAvailable = false;
     this.pendingOffer = null;
     this.callAccepted = false;
+  }
+
+  // Hot-swaps the microphone during an active call via RTCRtpSender.replaceTrack.
+  async switchAudioInput(deviceId?: string): Promise<void> {
+    if (!this.peerConnection || !this.isInCall) return;
+
+    const constraints: MediaTrackConstraints = {
+      ...(deviceId ? { deviceId: { ideal: deviceId } } : {}),
+      channelCount: { ideal: 1 },
+      sampleRate: { ideal: 48000 },
+      echoCancellation: true,
+      noiseSuppression: true,
+      autoGainControl: true,
+    };
+
+    let rawStream: MediaStream;
+    try {
+      rawStream = await navigator.mediaDevices.getUserMedia({ audio: constraints });
+    } catch {
+      return;
+    }
+
+    const processedStream = await noiseCancellationService.applyToStream(rawStream);
+    const newTrack = processedStream.getAudioTracks()[0];
+    if (!newTrack) { rawStream.getTracks().forEach((t) => t.stop()); return; }
+
+    const sender = this.peerConnection.getSenders().find((s) => s.track?.kind === 'audio');
+    if (!sender) { rawStream.getTracks().forEach((t) => t.stop()); return; }
+
+    const wasMuted = !(sender.track?.enabled ?? true);
+    newTrack.enabled = !wasMuted;
+    await sender.replaceTrack(newTrack);
+
+    if (this.localStream) {
+      this.localStream.getAudioTracks().forEach((t) => {
+        this.localStream!.removeTrack(t);
+        t.stop();
+      });
+      this.localStream.addTrack(newTrack);
+    }
+  }
+
+  // Hot-swaps the camera during an active call via RTCRtpSender.replaceTrack.
+  async switchCamera(deviceId?: string): Promise<void> {
+    if (!this.peerConnection || !this.isInCall) return;
+
+    const videoConstraints: MediaTrackConstraints = deviceId ? { deviceId: { ideal: deviceId } } : {};
+    let newStream: MediaStream;
+    try {
+      newStream = await navigator.mediaDevices.getUserMedia({ video: videoConstraints });
+    } catch {
+      return;
+    }
+
+    const newTrack = newStream.getVideoTracks()[0];
+    if (!newTrack) return;
+
+    const sender = this.peerConnection.getSenders().find((s) => s.track?.kind === 'video');
+    if (!sender) { newStream.getTracks().forEach((t) => t.stop()); return; }
+
+    const cameraEnabled = sender.track?.enabled ?? false;
+    newTrack.enabled = cameraEnabled;
+    await sender.replaceTrack(newTrack);
+
+    if (this.localStream) {
+      this.localStream.getVideoTracks().forEach((t) => {
+        this.localStream!.removeTrack(t);
+        t.stop();
+      });
+      this.localStream.addTrack(newTrack);
+    }
   }
 
   get isInCallState(): boolean {

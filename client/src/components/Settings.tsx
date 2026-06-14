@@ -1,8 +1,20 @@
 import { useState, useEffect } from 'react';
 import { noiseCancellationService, NoiseCancellationService } from '@/services/noiseCancellation';
 import { audioService } from '@/services/audio';
+import { groupCallService } from '@/services/groupCall';
+import { callService } from '@/services/call';
 import { useThemeStore } from '@/stores/themeStore';
 import './Settings.css';
+
+const DEVICE_PREFS = {
+  input:  'vycord_input_device',
+  output: 'vycord_output_device',
+  camera: 'vycord_camera_device',
+} as const;
+
+// Dispatched when the user picks a new output device so call components can
+// call setSinkId on their <video> elements without polling localStorage.
+export const OUTPUT_DEVICE_EVENT = 'vycord:output_device_changed';
 
 interface SettingsProps {
   isOpen: boolean;
@@ -19,6 +31,16 @@ export function Settings({ isOpen, onClose }: SettingsProps) {
   const [volume, setVolume] = useState(0.5);
   const [testStreamId, setTestStreamId] = useState<string | null>(null);
 
+  const [audioInputs,  setAudioInputs]  = useState<MediaDeviceInfo[]>([]);
+  const [audioOutputs, setAudioOutputs] = useState<MediaDeviceInfo[]>([]);
+  const [videoInputs,  setVideoInputs]  = useState<MediaDeviceInfo[]>([]);
+  const [inputDeviceId,  setInputDeviceId]  = useState('');
+  const [outputDeviceId, setOutputDeviceId] = useState('');
+  const [cameraDeviceId, setCameraDeviceId] = useState('');
+  const [deviceSwitching, setDeviceSwitching] = useState(false);
+
+  const isInCall = groupCallService.isInGroupCallState || callService.isInCallState;
+
   useEffect(() => {
     setIsSupported(NoiseCancellationService.isSupported());
     const unsub = noiseCancellationService.onStateChange((state) => {
@@ -29,10 +51,32 @@ export function Settings({ isOpen, onClose }: SettingsProps) {
   }, []);
 
   useEffect(() => {
+    if (!isOpen) return;
     const settings = audioService.getSettings();
     setMsgSound(settings.messageSound);
     setCallSound(settings.callSound);
     setVolume(settings.volume);
+
+    setInputDeviceId(localStorage.getItem(DEVICE_PREFS.input)   ?? '');
+    setOutputDeviceId(localStorage.getItem(DEVICE_PREFS.output) ?? '');
+    setCameraDeviceId(localStorage.getItem(DEVICE_PREFS.camera) ?? '');
+  }, [isOpen]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const enumerate = async () => {
+      try {
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        setAudioInputs(devices.filter((d) => d.kind === 'audioinput'));
+        setAudioOutputs(devices.filter((d) => d.kind === 'audiooutput'));
+        setVideoInputs(devices.filter((d) => d.kind === 'videoinput'));
+      } catch { /* permission not granted yet */ }
+    };
+
+    enumerate();
+    navigator.mediaDevices.addEventListener('devicechange', enumerate);
+    return () => navigator.mediaDevices.removeEventListener('devicechange', enumerate);
   }, [isOpen]);
 
   const handleToggleNoiseCancellation = async () => {
@@ -52,6 +96,49 @@ export function Settings({ isOpen, onClose }: SettingsProps) {
     }
   };
 
+  const handleInputDeviceChange = async (deviceId: string) => {
+    setInputDeviceId(deviceId);
+    localStorage.setItem(DEVICE_PREFS.input, deviceId);
+
+    if (!isInCall) return;
+    setDeviceSwitching(true);
+    try {
+      if (groupCallService.isInGroupCallState) {
+        await groupCallService.switchAudioInput(deviceId);
+      } else {
+        await callService.switchAudioInput(deviceId);
+      }
+    } finally {
+      setDeviceSwitching(false);
+    }
+  };
+
+  const handleCameraDeviceChange = async (deviceId: string) => {
+    setCameraDeviceId(deviceId);
+    localStorage.setItem(DEVICE_PREFS.camera, deviceId);
+
+    if (!isInCall) return;
+    setDeviceSwitching(true);
+    try {
+      if (groupCallService.isInGroupCallState) {
+        await groupCallService.switchCamera(deviceId);
+      } else {
+        await callService.switchCamera(deviceId);
+      }
+    } finally {
+      setDeviceSwitching(false);
+    }
+  };
+
+  const handleOutputDeviceChange = (deviceId: string) => {
+    setOutputDeviceId(deviceId);
+    localStorage.setItem(DEVICE_PREFS.output, deviceId);
+    window.dispatchEvent(new CustomEvent(OUTPUT_DEVICE_EVENT, { detail: deviceId }));
+  };
+
+  const deviceLabel = (d: MediaDeviceInfo, idx: number, prefix: string) =>
+    d.label || `${prefix} ${idx + 1}`;
+
   if (!isOpen) return null;
 
   return (
@@ -62,9 +149,132 @@ export function Settings({ isOpen, onClose }: SettingsProps) {
           <button className="close-btn" onClick={onClose}>✕</button>
         </div>
 
+        {isInCall && (
+          <div className="settings-in-call-banner">
+            🔴 You are in a call — device changes apply immediately
+          </div>
+        )}
+
+        {deviceSwitching && (
+          <div className="settings-in-call-banner settings-in-call-banner--switching">
+            Switching device…
+          </div>
+        )}
+
         <div className="settings-content">
+          {/* ── Devices ── */}
+          <div className="settings-section">
+            <h3>Devices</h3>
+
+            <div className="setting-item">
+              <div className="setting-info">
+                <label>Microphone</label>
+                <p className="setting-description">
+                  {isInCall ? 'Switch applies immediately — no need to rejoin' : 'Used when joining a call'}
+                </p>
+              </div>
+              <select
+                className="setting-select"
+                value={inputDeviceId}
+                onChange={(e) => { void handleInputDeviceChange(e.target.value); }}
+                disabled={deviceSwitching}
+              >
+                <option value="">Default Microphone</option>
+                {audioInputs.map((d, i) => (
+                  <option key={d.deviceId} value={d.deviceId}>
+                    {deviceLabel(d, i, 'Microphone')}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="setting-item">
+              <div className="setting-info">
+                <label>Speakers / Headphones</label>
+                <p className="setting-description">
+                  {isInCall
+                    ? 'Switch applies to incoming audio immediately'
+                    : 'Used for call audio output'}
+                </p>
+              </div>
+              <select
+                className="setting-select"
+                value={outputDeviceId}
+                onChange={(e) => handleOutputDeviceChange(e.target.value)}
+              >
+                <option value="">Default Speakers</option>
+                {audioOutputs.map((d, i) => (
+                  <option key={d.deviceId} value={d.deviceId}>
+                    {deviceLabel(d, i, 'Speaker')}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="setting-item">
+              <div className="setting-info">
+                <label>Camera</label>
+                <p className="setting-description">
+                  {isInCall && groupCallService.isInGroupCallState && (groupCallService as any)._isScreenSharing
+                    ? 'Camera will switch after screen sharing ends'
+                    : isInCall
+                      ? 'Switch applies immediately'
+                      : 'Used when joining a call'}
+                </p>
+              </div>
+              <select
+                className="setting-select"
+                value={cameraDeviceId}
+                onChange={(e) => { void handleCameraDeviceChange(e.target.value); }}
+                disabled={deviceSwitching}
+              >
+                <option value="">Default Camera</option>
+                {videoInputs.map((d, i) => (
+                  <option key={d.deviceId} value={d.deviceId}>
+                    {deviceLabel(d, i, 'Camera')}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {audioOutputs.length === 0 && (
+              <p className="setting-warning">
+                Output device selection requires microphone permission. Join a call or grant mic access to see available speakers.
+              </p>
+            )}
+          </div>
+
+          {/* ── Audio ── */}
           <div className="settings-section">
             <h3>Audio</h3>
+
+            <div className="setting-item">
+              <div className="setting-info">
+                <label>Noise Cancellation (DeepFilterNet3)</label>
+                <p className="setting-description">
+                  {ncLoading
+                    ? 'Loading DeepFilterNet3 model...'
+                    : isInCall
+                      ? 'Toggle takes effect on next mic selection or call join'
+                      : 'AI noise suppression — removes background noise from your mic'}
+                </p>
+              </div>
+              <label className="toggle-switch">
+                <input
+                  type="checkbox"
+                  checked={noiseCancellation}
+                  onChange={handleToggleNoiseCancellation}
+                  disabled={!isSupported || ncLoading}
+                />
+                <span className="toggle-slider"></span>
+              </label>
+            </div>
+
+            {!isSupported && (
+              <p className="setting-warning">
+                Noise cancellation requires AudioWorklet support (Chrome/Edge/Firefox 76+)
+              </p>
+            )}
 
             <div className="setting-item">
               <div className="setting-info">
@@ -161,74 +371,9 @@ export function Settings({ isOpen, onClose }: SettingsProps) {
                 </button>
               </div>
             </div>
-
-            <div className="setting-item">
-              <div className="setting-info">
-                <label>Noise Cancellation (DeepFilterNet3)</label>
-                <p className="setting-description">
-                  {ncLoading
-                    ? 'Loading DeepFilterNet3 model...'
-                    : 'AI noise suppression — removes background noise from your mic'}
-                </p>
-              </div>
-              <label className="toggle-switch">
-                <input
-                  type="checkbox"
-                  checked={noiseCancellation}
-                  onChange={handleToggleNoiseCancellation}
-                  disabled={!isSupported || ncLoading}
-                />
-                <span className="toggle-slider"></span>
-              </label>
-            </div>
-
-            {!isSupported && (
-              <p className="setting-warning">
-                Noise cancellation requires AudioWorklet support (Chrome/Edge/Firefox 76+)
-              </p>
-            )}
-
-            <div className="setting-item">
-              <div className="setting-info">
-                <label>Input Device</label>
-                <p className="setting-description">
-                  Select your microphone
-                </p>
-              </div>
-              <select className="setting-select">
-                <option>Default Microphone</option>
-              </select>
-            </div>
-
-            <div className="setting-item">
-              <div className="setting-info">
-                <label>Output Device</label>
-                <p className="setting-description">
-                  Select your speakers
-                </p>
-              </div>
-              <select className="setting-select">
-                <option>Default Speakers</option>
-              </select>
-            </div>
           </div>
 
-          <div className="settings-section">
-            <h3>Video</h3>
-
-            <div className="setting-item">
-              <div className="setting-info">
-                <label>Camera</label>
-                <p className="setting-description">
-                  Select your camera
-                </p>
-              </div>
-              <select className="setting-select">
-                <option>Default Camera</option>
-              </select>
-            </div>
-          </div>
-
+          {/* ── Appearance ── */}
           <div className="settings-section">
             <h3>Appearance</h3>
 

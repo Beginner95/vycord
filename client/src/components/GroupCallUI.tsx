@@ -6,6 +6,7 @@ import { groupCallService, SCREEN_QUALITY_PRESETS } from '@/services/groupCall';
 import type { ScreenQuality, ScreenQualityPreset } from '@/services/groupCall';
 import { wsService } from '@/services/websocket';
 import { apiService } from '@/services/api';
+import { Settings, OUTPUT_DEVICE_EVENT } from '@/components/Settings';
 import type { User, Message } from '@/types';
 import type { DesktopCapturerSource } from '@/types/electron';
 import './GroupCallUI.css';
@@ -295,6 +296,7 @@ export function GroupCallUI() {
   const [isMicAvailable, setIsMicAvailable] = useState(true);
   const [isVideoOff, setIsVideoOff] = useState(true);
   const [showChat, setShowChat] = useState(true);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [chatInput, setChatInput] = useState('');
   const [userCache, setUserCache] = useState<Map<string, string>>(new Map());
   const [participants, setParticipants] = useState<RemoteParticipant[]>([]);
@@ -311,6 +313,10 @@ export function GroupCallUI() {
   const [isFullscreen, setIsFullscreen] = useState(false);
   // Mute state for each remote participant (userId → muted)
   const [remoteMicMuted, setRemoteMicMuted] = useState<Map<string, boolean>>(new Map());
+  // Output device preference — applied to all remote <video> elements via setSinkId
+  const [outputDeviceId, setOutputDeviceId] = useState<string>(
+    () => localStorage.getItem('vycord_output_device') ?? '',
+  );
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const remoteVideoRefs = useRef<Map<string, HTMLVideoElement>>(new Map());
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -520,6 +526,29 @@ export function GroupCallUI() {
     }
   }, [participants, focusedUserId]);
 
+  // Apply output device (setSinkId) to all remote video elements.
+  useEffect(() => {
+    if (!outputDeviceId) return;
+    const apply = (el: HTMLVideoElement | null) => {
+      if (el && 'setSinkId' in el) {
+        (el as HTMLVideoElement & { setSinkId(id: string): Promise<void> })
+          .setSinkId(outputDeviceId)
+          .catch(() => {});
+      }
+    };
+    remoteVideoRefs.current.forEach((el) => apply(el));
+    apply(focusedVideoRef.current);
+  }, [outputDeviceId, participants]);
+
+  // Listen for output device changes dispatched from Settings.
+  useEffect(() => {
+    const handler = (e: Event) => {
+      setOutputDeviceId((e as CustomEvent<string>).detail);
+    };
+    window.addEventListener(OUTPUT_DEVICE_EVENT, handler);
+    return () => window.removeEventListener(OUTPUT_DEVICE_EVENT, handler);
+  }, []);
+
   const handleFullscreen = useCallback(async () => {
     const container = screenShareMainRef.current;
     if (!container) return;
@@ -702,6 +731,7 @@ export function GroupCallUI() {
 
   return (
     <div className="group-call-overlay">
+      <Settings isOpen={settingsOpen} onClose={() => setSettingsOpen(false)} />
       {showSourcePickerModal && (
         <ScreenSourcePicker
           sources={screenSources}
@@ -950,6 +980,13 @@ export function GroupCallUI() {
           title={showChat ? 'Hide chat' : 'Show chat'}
         >
           💬
+        </button>
+        <button
+          className="control-btn"
+          onClick={() => setSettingsOpen(true)}
+          title="Settings"
+        >
+          ⚙
         </button>
         <button className="control-btn end-call" onClick={handleLeaveGroupCall} title="Leave call">
           📞

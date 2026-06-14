@@ -3,6 +3,7 @@ import { useAuthStore } from '@/stores/authStore';
 import { callService } from '@/services/call';
 import { audioService } from '@/services/audio';
 import { wsService } from '@/services/websocket';
+import { Settings, OUTPUT_DEVICE_EVENT } from '@/components/Settings';
 import './CallUI.css';
 
 function useIsSpeaking(stream: MediaStream | null, isMuted: boolean): boolean {
@@ -92,6 +93,10 @@ export function CallUI() {
   const [isMicAvailable, setIsMicAvailable] = useState(true);
   const [isVideoOff, setIsVideoOff] = useState(true);
   const [remoteMuted, setRemoteMuted] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [outputDeviceId, setOutputDeviceId] = useState<string>(
+    () => localStorage.getItem('vycord_output_device') ?? '',
+  );
   const micLevel = useMicLevel(
     activeCall ? callService.localStreamState : null,
     isMuted,
@@ -220,6 +225,26 @@ export function CallUI() {
     }
   }, [remoteStream, activeCall]);
 
+  // Apply output device to the remote video element.
+  useEffect(() => {
+    const el = remoteVideoRef.current;
+    if (!el || !outputDeviceId) return;
+    if ('setSinkId' in el) {
+      (el as HTMLVideoElement & { setSinkId(id: string): Promise<void> })
+        .setSinkId(outputDeviceId)
+        .catch(() => {});
+    }
+  }, [outputDeviceId, remoteStream]);
+
+  // Listen for output device changes dispatched from Settings.
+  useEffect(() => {
+    const handler = (e: Event) => {
+      setOutputDeviceId((e as CustomEvent<string>).detail);
+    };
+    window.addEventListener(OUTPUT_DEVICE_EVENT, handler);
+    return () => window.removeEventListener(OUTPUT_DEVICE_EVENT, handler);
+  }, []);
+
   // If no active call or incoming call, don't render anything
   if (!activeCall && !incomingCall) {
     return null;
@@ -227,6 +252,8 @@ export function CallUI() {
 
   return (
     <>
+      <Settings isOpen={settingsOpen} onClose={() => setSettingsOpen(false)} />
+
       {/* Incoming Call Modal */}
       {incomingCall && (
         <div className="call-overlay incoming">
@@ -309,6 +336,13 @@ export function CallUI() {
               title={isVideoOff ? 'Turn on camera' : 'Turn off camera'}
             >
               {isVideoOff ? '📷' : '🎥'}
+            </button>
+            <button
+              className="control-btn"
+              onClick={() => setSettingsOpen(true)}
+              title="Settings"
+            >
+              ⚙
             </button>
             <button className="control-btn end-call" onClick={handleEndCall} title="End call">
               📞

@@ -223,6 +223,136 @@ class GroupCallService {
     return !t.enabled; // true = video off
   }
 
+  // Hot-swaps the active microphone without renegotiating the peer connection.
+  // Closes the old WebAudio chain and creates a new one for the selected device.
+  async switchAudioInput(deviceId?: string): Promise<void> {
+    if (!this.pc || !this.inCall) return;
+
+    const audioConstraints: MediaTrackConstraints = {
+      ...(deviceId ? { deviceId: { ideal: deviceId } } : {}),
+      channelCount: { ideal: 1 },
+      sampleRate: { ideal: 48000 },
+      echoCancellation: true,
+      noiseSuppression: true,
+      autoGainControl: true,
+    };
+
+    let rawStream: MediaStream;
+    try {
+      rawStream = await navigator.mediaDevices.getUserMedia({ audio: audioConstraints });
+    } catch (err) {
+      gcLog(this.currentUserId, 'switchAudioInput: getUserMedia failed', { error: String(err) });
+      return;
+    }
+
+    // Save old audio context so we can tear it down AFTER replaceTrack succeeds.
+    const oldCtx = this.audioCtx;
+    const oldKeepAlive = this.audioCtxKeepAlive;
+    this.audioCtx = null;
+    this.audioCtxKeepAlive = null;
+
+    let processedStream: MediaStream;
+    if (noiseCancellationService.getState().isEnabled) {
+      processedStream = await noiseCancellationService.applyToStream(rawStream);
+    } else {
+      processedStream = await this.routeAudioThroughWebAudio(rawStream);
+    }
+
+    const newTrack = processedStream.getAudioTracks()[0];
+    if (!newTrack) {
+      rawStream.getTracks().forEach((t) => t.stop());
+      this.audioCtx = oldCtx;
+      this.audioCtxKeepAlive = oldKeepAlive;
+      return;
+    }
+
+    const audioSender = this.pc.getSenders().find((s) => s.track?.kind === 'audio');
+    if (!audioSender) {
+      rawStream.getTracks().forEach((t) => t.stop());
+      this.audioCtx = oldCtx;
+      this.audioCtxKeepAlive = oldKeepAlive;
+      return;
+    }
+
+    // Preserve mute state across the track swap.
+    const wasMuted = !(audioSender.track?.enabled ?? true);
+    newTrack.enabled = !wasMuted;
+
+    await audioSender.replaceTrack(newTrack);
+
+    // Safe to tear down old chain now that the sender has the new track.
+    if (oldKeepAlive !== null) clearInterval(oldKeepAlive);
+    oldCtx?.close().catch(() => {});
+
+    // Update localStream so mic-level UI reflects the new track.
+    if (this.localStream) {
+      this.localStream.getAudioTracks().forEach((t) => {
+        this.localStream!.removeTrack(t);
+        t.stop();
+      });
+      this.localStream.addTrack(newTrack);
+    }
+
+    gcLog(this.currentUserId, 'switchAudioInput done', { deviceId: deviceId?.slice(0, 8) ?? 'default' });
+  }
+
+  // Hot-swaps the active camera without renegotiating.
+  // Has no effect while screen sharing (the video sender carries the screen track).
+  async switchCamera(deviceId?: string): Promise<void> {
+    if (!this.pc || !this.inCall) return;
+
+    const videoConstraints: MediaTrackConstraints = deviceId
+      ? { deviceId: { ideal: deviceId } }
+      : {};
+
+    let newStream: MediaStream;
+    try {
+      newStream = await navigator.mediaDevices.getUserMedia({ video: videoConstraints });
+    } catch (err) {
+      gcLog(this.currentUserId, 'switchCamera: getUserMedia failed', { error: String(err) });
+      return;
+    }
+
+    const newTrack = newStream.getVideoTracks()[0];
+    if (!newTrack) return;
+
+    if (this._isScreenSharing) {
+      // Screen track occupies the sender — update localStream only so that
+      // the camera track is ready when screen sharing stops.
+      if (this.localStream) {
+        this.localStream.getVideoTracks().forEach((t) => {
+          this.localStream!.removeTrack(t);
+          t.stop();
+        });
+        this.localStream.addTrack(newTrack);
+        newTrack.enabled = false; // keep camera disabled while screen-sharing
+      }
+      gcLog(this.currentUserId, 'switchCamera: updated localStream only (screen sharing active)');
+      return;
+    }
+
+    const videoSender = this.pc.getSenders().find((s) => s.track?.kind === 'video');
+    if (!videoSender) {
+      newStream.getTracks().forEach((t) => t.stop());
+      return;
+    }
+
+    const cameraEnabled = videoSender.track?.enabled ?? false;
+    newTrack.enabled = cameraEnabled;
+
+    await videoSender.replaceTrack(newTrack);
+
+    if (this.localStream) {
+      this.localStream.getVideoTracks().forEach((t) => {
+        this.localStream!.removeTrack(t);
+        t.stop();
+      });
+      this.localStream.addTrack(newTrack);
+    }
+
+    gcLog(this.currentUserId, 'switchCamera done', { deviceId: deviceId?.slice(0, 8) ?? 'default' });
+  }
+
   // ── Screen sharing ─────────────────────────────────────────────────────────
 
   // Starts screen sharing by replacing the video sender's track with a screen capture track.
@@ -398,16 +528,23 @@ class GroupCallService {
     //   that older pion versions may not accept (stereo=1;sprop-stereo=1 mismatch).
     // - sampleRate ideal:48000 → Opus native rate; avoids resampling artefacts on Android.
     // Using ideal: (not exact) so the browser still works on devices that can't hit 48kHz.
+    const savedInputId = localStorage.getItem('vycord_input_device') ?? undefined;
+    const savedCameraId = localStorage.getItem('vycord_camera_device') ?? undefined;
+
     const audioConstraints: MediaTrackConstraints = {
+      ...(savedInputId ? { deviceId: { ideal: savedInputId } } : {}),
       channelCount: { ideal: 1 },
       sampleRate: { ideal: 48000 },
       echoCancellation: true,
       noiseSuppression: true,
       autoGainControl: true,
     };
-    gcLog(this.currentUserId, 'getUserMedia constraints', { audio: audioConstraints });
+    const videoConstraints: MediaTrackConstraints = savedCameraId
+      ? { deviceId: { ideal: savedCameraId } }
+      : {};
+    gcLog(this.currentUserId, 'getUserMedia constraints', { audio: audioConstraints, savedInputId, savedCameraId });
     try {
-      return await navigator.mediaDevices.getUserMedia({ audio: audioConstraints, video: true });
+      return await navigator.mediaDevices.getUserMedia({ audio: audioConstraints, video: videoConstraints });
     } catch { /* try next */ }
     try {
       // Fall back to audio-only if camera is unavailable.
@@ -416,7 +553,7 @@ class GroupCallService {
     try {
       // No audio device — try video-only.
       gcLog(this.currentUserId, 'no audio device, trying video-only');
-      return await navigator.mediaDevices.getUserMedia({ audio: false, video: true });
+      return await navigator.mediaDevices.getUserMedia({ audio: false, video: videoConstraints });
     } catch { /* try next */ }
     gcLog(this.currentUserId, 'no media devices available, joining without local media');
     return null;
