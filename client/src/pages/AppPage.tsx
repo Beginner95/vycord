@@ -81,6 +81,9 @@ export function AppPage() {
   const callNotifRef = useRef<CallNotif | null>(null);
   useEffect(() => { callNotifRef.current = callNotif; }, [callNotif]);
 
+  // Map channelId → list of user IDs currently in that voice channel.
+  const [voiceParticipants, setVoiceParticipants] = useState<Map<string, string[]>>(new Map());
+
   useEffect(() => {
     return () => { stopRingtoneRef.current?.(); };
   }, []);
@@ -155,6 +158,32 @@ export function AppPage() {
       }
     });
     return () => unsubscribe();
+  }, []);
+
+  // Receive snapshot of all active voice channels on initial connect.
+  useEffect(() => {
+    const unsub = wsService.on('voice_state', (payload) => {
+      const state = payload as Record<string, string[]>;
+      setVoiceParticipants(new Map(Object.entries(state)));
+    });
+    return () => unsub();
+  }, []);
+
+  // Receive incremental updates when anyone joins or leaves a voice channel.
+  useEffect(() => {
+    const unsub = wsService.on('voice_participants', (payload) => {
+      const p = payload as { channel_id: string; participants: string[] };
+      setVoiceParticipants((prev) => {
+        const next = new Map(prev);
+        if (p.participants && p.participants.length > 0) {
+          next.set(p.channel_id, p.participants);
+        } else {
+          next.delete(p.channel_id);
+        }
+        return next;
+      });
+    });
+    return () => unsub();
   }, []);
 
   const loadServers = async () => {
@@ -255,6 +284,7 @@ export function AppPage() {
         ((id: string) => Promise<boolean>) | undefined;
       if (typeof joinGroupCall === 'function') {
         const isFirst = await joinGroupCall(channel.id);
+        wsService.send('voice_joined', { channel_id: channel.id });
         if (isFirst) {
           wsService.send('voice_call_ring', {
             channel_id: channel.id,
@@ -310,6 +340,7 @@ export function AppPage() {
           user={user}
           onLogout={logout}
           onMobileBack={() => setMobilePanel('servers')}
+          voiceParticipants={voiceParticipants}
         />
 
         <ChatArea

@@ -115,6 +115,25 @@
   color: var(--green-600);
 }
 
+.voice-participant-count {
+  margin-left: auto;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  background: var(--bg-secondary);
+  border-radius: 8px;
+  padding: 1px 6px;
+  min-width: 18px;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+.channel.voice:hover .voice-participant-count,
+.channel.voice.active .voice-participant-count {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
 /* ── User Panel ── */
 .user-panel {
   height: 64px;

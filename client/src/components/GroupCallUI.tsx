@@ -372,6 +372,8 @@ export function GroupCallUI() {
         });
       },
       onCallEnded: () => {
+        const channelId = groupCallService.currentRoomIdState;
+        if (channelId) wsService.send('voice_left', { channel_id: channelId });
         setIsInGroupCall(false);
         setParticipants([]);
         setIsMuted(false);
@@ -386,6 +388,7 @@ export function GroupCallUI() {
       },
       onError: (msg) => {
         console.error('[GroupCall] Error:', msg);
+        const channelId = groupCallService.currentRoomIdState;
         setIsInGroupCall(false);
         setParticipants([]);
         setIsMicAvailable(true);
@@ -394,6 +397,7 @@ export function GroupCallUI() {
         setRemoteMicMuted(new Map());
         if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
         groupCallService.leaveGroupCall();
+        if (channelId) wsService.send('voice_left', { channel_id: channelId });
       },
       onScreenShareEnded: () => {
         setIsScreenSharing(false);
@@ -585,6 +589,7 @@ export function GroupCallUI() {
         channel_id: channelId,
         server_id: currentServer?.id,
       });
+      wsService.send('voice_left', { channel_id: channelId });
     }
     groupCallService.leaveGroupCall();
     setIsInGroupCall(false);

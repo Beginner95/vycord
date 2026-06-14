@@ -12,6 +12,7 @@ interface ChannelSidebarProps {
   user: User | null;
   onLogout: () => void;
   onMobileBack?: () => void;
+  voiceParticipants?: Map<string, string[]>;
 }
 
 export function ChannelSidebar({
@@ -22,6 +23,7 @@ export function ChannelSidebar({
   user,
   onLogout,
   onMobileBack,
+  voiceParticipants,
 }: ChannelSidebarProps) {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [ncEnabled, setNcEnabled] = useState(false);
@@ -88,15 +90,21 @@ export function ChannelSidebar({
             <div className="channel-category">
               <span>Voice Channels</span>
             </div>
-            {voiceChannels.map((channel) => (
-              <div
-                key={channel.id}
-                className={`channel voice ${currentChannel?.id === channel.id ? 'active' : ''}`}
-                onClick={() => onSelectChannel(channel)}
-              >
-                {channel.name}
-              </div>
-            ))}
+            {voiceChannels.map((channel) => {
+              const count = voiceParticipants?.get(channel.id)?.length ?? 0;
+              return (
+                <div
+                  key={channel.id}
+                  className={`channel voice ${currentChannel?.id === channel.id ? 'active' : ''}`}
+                  onClick={() => onSelectChannel(channel)}
+                >
+                  {channel.name}
+                  {count > 0 && (
+                    <span className="voice-participant-count">{count}</span>
+                  )}
+                </div>
+              );
+            })}
           </>
         )}
       </div>

@@ -73,6 +73,9 @@ func (h *WebSocketHandler) HandleWebSocket(w http.ResponseWriter, r *http.Reques
 		h.log.Warn("failed to cleanup stale calls", "user_id", user.ID, "error", err)
 	}
 
+	// Send current voice presence state so the client's sidebar shows live counts immediately.
+	h.hub.SendVoiceStateTo(client)
+
 	go h.writePump(client)
 	go h.readPump(client)
 }
@@ -163,6 +166,10 @@ func (h *WebSocketHandler) handleMessage(client *ws.Client, msg *ws.Message) {
 		h.handleMicMuted(client)
 	case "mic_unmuted":
 		h.handleMicUnmuted(client)
+	case "voice_joined":
+		h.handleVoiceJoined(client, msg)
+	case "voice_left":
+		h.handleVoiceLeft(client)
 	case "ping":
 		h.handlePing(client)
 	default:
@@ -567,6 +574,43 @@ func (h *WebSocketHandler) handleMicUnmuted(client *ws.Client) {
 	h.hub.BroadcastMessage(&ws.Message{
 		Type:    "mic_unmuted",
 		Payload: mustMarshal(map[string]interface{}{"user_id": client.UserID.String()}),
+	})
+}
+
+func (h *WebSocketHandler) handleVoiceJoined(client *ws.Client, msg *ws.Message) {
+	var payload struct {
+		ChannelID string `json:"channel_id"`
+	}
+	if err := json.Unmarshal(msg.Payload, &payload); err != nil {
+		return
+	}
+	channelID, err := uuid.Parse(payload.ChannelID)
+	if err != nil {
+		return
+	}
+	participants := h.hub.JoinVoiceChannel(client.UserID, channelID)
+	h.log.Info("voice channel joined", "user_id", client.UserID, "channel_id", channelID, "total", len(participants))
+	h.hub.BroadcastMessage(&ws.Message{
+		Type: "voice_participants",
+		Payload: mustMarshal(map[string]interface{}{
+			"channel_id":   channelID.String(),
+			"participants": participants,
+		}),
+	})
+}
+
+func (h *WebSocketHandler) handleVoiceLeft(client *ws.Client) {
+	channelID, participants := h.hub.LeaveVoiceChannel(client.UserID)
+	if channelID == nil {
+		return
+	}
+	h.log.Info("voice channel left", "user_id", client.UserID, "channel_id", channelID)
+	h.hub.BroadcastMessage(&ws.Message{
+		Type: "voice_participants",
+		Payload: mustMarshal(map[string]interface{}{
+			"channel_id":   channelID.String(),
+			"participants": participants,
+		}),
 	})
 }
 
