@@ -1,7 +1,7 @@
 /* ── Call Overlay (1-1) ── */
 .call-overlay {
   position: fixed;
-  inset: 0;
+  inset: var(--title-bar-height) 0 0;
   z-index: 1000;
   display: flex;
   align-items: center;
