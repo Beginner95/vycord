@@ -444,7 +444,24 @@ class GroupCallService {
     this.screenSender = videoTransceiver.sender;
     this._isScreenSharing = true;
 
+    // replaceTrack doesn't renegotiate, so the SFU has no other signal that the
+    // video content just changed. Explicitly ask it to force a keyframe — without
+    // this, recovery depends entirely on a viewer's decoder noticing a bad frame
+    // and requesting its own PLI, which is unreliable right at the switch and was
+    // the cause of intermittent black screens for viewers when sharing started.
+    this.requestKeyframe();
+
     gcLog(this.currentUserId, 'screen share started', { sourceId: sourceId?.slice(0, 16) ?? 'getDisplayMedia', quality });
+  }
+
+  // Asks the SFU to force a fresh keyframe for our published video track.
+  // Used after replaceTrack (screen share start/stop) since that swap doesn't
+  // trigger renegotiation and the server otherwise has no way to know the
+  // encoded content changed.
+  private requestKeyframe(): void {
+    if (this.ws?.readyState === WebSocket.OPEN) {
+      this.ws.send(JSON.stringify({ type: 'request_keyframe', payload: {} }));
+    }
   }
 
   async stopScreenShare(): Promise<void> {
@@ -464,6 +481,10 @@ class GroupCallService {
     this.screenStream?.getTracks().forEach((t) => t.stop());
     this.screenStream = null;
     this.screenSender = null;
+
+    // Same reasoning as in startScreenShare: switching back to the camera track
+    // is another replaceTrack with no renegotiation, so push a keyframe explicitly.
+    this.requestKeyframe();
 
     gcLog(this.currentUserId, 'screen share stopped');
   }

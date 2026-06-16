@@ -234,6 +234,26 @@ func (ps *ParticipantSession) AddRemoteTrack(t *domain.PublishedTrack) error {
 	return nil
 }
 
+// RequestKeyframe forces a fresh keyframe for every video track this participant
+// publishes. Called when the client explicitly signals that its video source just
+// changed (e.g. replaceTrack from camera to screen capture) — that switch doesn't
+// renegotiate, so without this push the SFU has no way to know a new keyframe is
+// needed and recovery would depend entirely on a subscriber's decoder noticing the
+// bad frame and emitting its own PLI via the (passive, less reliable) RTCP path in
+// readSubscriberRTCP.
+func (ps *ParticipantSession) RequestKeyframe() {
+	for _, t := range ps.Participant.GetTracks() {
+		if t.Kind != domain.TrackKindVideo || t.SendPLI == nil {
+			continue
+		}
+		ps.log.Info("RequestKeyframe: forcing PLI for published video track",
+			"user_id", ps.Participant.UserID,
+			"track_id", t.ID,
+		)
+		t.SendPLI()
+	}
+}
+
 // RemoveRemoteTrack removes a previously-forwarded track from this subscriber's PC.
 // Called when the publisher leaves so their m-lines are cleaned up and don't accumulate.
 func (ps *ParticipantSession) RemoveRemoteTrack(trackID string) {

@@ -125,6 +125,9 @@ func (h *Handler) routeMessage(
 	case "ice_candidate":
 		h.handleICECandidate(rs, ps, msg, userID)
 
+	case "request_keyframe":
+		h.handleRequestKeyframe(ps, userID)
+
 	case "leave":
 		// The deferred Leave() in ServeHTTP handles cleanup;
 		// closing the connection triggers readPump to return.
@@ -169,6 +172,18 @@ func (h *Handler) handleICECandidate(
 		SDPMLineIndex:    p.SDPMLineIndex,
 		UsernameFragment: p.UsernameFragment,
 	})
+}
+
+// handleRequestKeyframe forces a fresh keyframe from this participant's published
+// video track(s). The client sends this right after switching the video source
+// (e.g. camera → screen share via replaceTrack), which doesn't renegotiate and
+// therefore gives the SFU no other signal that the encoded content just changed.
+// Without an explicit push here, recovery relies entirely on a subscriber's decoder
+// noticing the bad frame and emitting its own PLI — which is unreliable exactly at
+// the moment of the switch and is what caused the screen-share black-screen reports.
+func (h *Handler) handleRequestKeyframe(ps *application.ParticipantSession, userID string) {
+	h.log.Info("keyframe requested by client", "user_id", userID)
+	ps.RequestKeyframe()
 }
 
 func (h *Handler) notifyOthers(rs *application.RoomSession, excludeParticipantID, userID string) {
