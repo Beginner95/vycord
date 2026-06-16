@@ -429,13 +429,13 @@ func (ps *ParticipantSession) readSubscriberRTCP(
 			if err == io.EOF || err == io.ErrClosedPipe {
 				return
 			}
-			// Transient read error — log at debug and continue.
+			// Transient read error (e.g. io.ErrShortBuffer) — buffer stays open, keep reading.
 			ps.log.Debug("RTCP sender read error",
 				"subscriber_user_id", ps.Participant.UserID,
 				"track_id", track.ID,
 				"error", err,
 			)
-			return
+			continue
 		}
 		if n == 0 {
 			continue
