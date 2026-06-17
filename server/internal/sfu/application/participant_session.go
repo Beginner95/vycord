@@ -32,6 +32,24 @@ const (
 	disconnectedTimeout = 15 * time.Second
 )
 
+// keyframeRetryDelays is the back-off schedule for the keyframe-retry loop in
+// RequestKeyframe. A single PLI travels over RTCP and can be dropped — most
+// likely exactly when a screen share starts (resolution jump → a large keyframe
+// split across many packets, higher odds the keyframe or the PLI is lost). When
+// that one PLI is lost the viewer's decoder has nothing to recover from and stays
+// black until something else happens to trigger a keyframe. So we re-send PLI on
+// this schedule until forwardRTP confirms a fresh keyframe actually arrived
+// (track.KeyframeArrivedSince), giving up after the last delay. Delays grow so we
+// react fast at first but don't spam the publisher's encoder if it's genuinely
+// not responding. Total budget ~2.4s.
+var keyframeRetryDelays = []time.Duration{
+	100 * time.Millisecond,
+	200 * time.Millisecond,
+	300 * time.Millisecond,
+	600 * time.Millisecond,
+	1200 * time.Millisecond,
+}
+
 // ParticipantSession owns the PeerConnection lifecycle for one participant.
 //
 // Responsibilities:
@@ -241,17 +259,66 @@ func (ps *ParticipantSession) AddRemoteTrack(t *domain.PublishedTrack) error {
 // needed and recovery would depend entirely on a subscriber's decoder noticing the
 // bad frame and emitting its own PLI via the (passive, less reliable) RTCP path in
 // readSubscriberRTCP.
+//
+// A single PLI is not reliable (RTCP is droppable, and the start of a screen share
+// is exactly when loss is most likely), so each track's request is handled by a
+// background retry loop that re-sends PLI until forwardRTP confirms a real keyframe
+// landed. Returns immediately; the loops run on their own goroutines.
 func (ps *ParticipantSession) RequestKeyframe() {
 	for _, t := range ps.Participant.GetTracks() {
 		if t.Kind != domain.TrackKindVideo || t.SendPLI == nil {
 			continue
 		}
-		ps.log.Info("RequestKeyframe: forcing PLI for published video track",
-			"user_id", ps.Participant.UserID,
-			"track_id", t.ID,
-		)
-		t.SendPLI()
+		go ps.ensureKeyframe(t)
 	}
+}
+
+// ensureKeyframe re-sends PLI for a single video track until a fresh keyframe is
+// observed in the publisher's stream or the retry schedule is exhausted. Only one
+// loop runs per track at a time (TryAcquireKeyframeLoop); overlapping requests are
+// coalesced into the in-flight loop, which already covers them.
+func (ps *ParticipantSession) ensureKeyframe(t *domain.PublishedTrack) {
+	if !t.TryAcquireKeyframeLoop() {
+		// A loop is already chasing a keyframe for this track; it covers us too.
+		return
+	}
+	defer t.ReleaseKeyframeLoop()
+
+	requestedAt := time.Now()
+	ps.log.Info("RequestKeyframe: starting keyframe retry loop",
+		"user_id", ps.Participant.UserID,
+		"track_id", t.ID,
+	)
+
+	for attempt, delay := range keyframeRetryDelays {
+		t.SendPLI() // also records MarkPLIRequested internally
+
+		select {
+		case <-ps.ctx.Done():
+			return
+		case <-time.After(delay):
+		}
+
+		if t.KeyframeArrivedSince(requestedAt) {
+			ps.log.Info("RequestKeyframe: keyframe confirmed",
+				"user_id", ps.Participant.UserID,
+				"track_id", t.ID,
+				"attempts", attempt+1,
+				"elapsed_ms", time.Since(requestedAt).Milliseconds(),
+			)
+			return
+		}
+	}
+
+	// Exhausted the schedule without seeing a keyframe. The publisher's encoder
+	// either isn't responding or the stream is idle/paused; subscribers' own
+	// passive PLI path remains as a last resort.
+	ps.log.Warn("RequestKeyframe: no keyframe after retries",
+		"user_id", ps.Participant.UserID,
+		"track_id", t.ID,
+		"attempts", len(keyframeRetryDelays),
+		"elapsed_ms", time.Since(requestedAt).Milliseconds(),
+	)
 }
 
 // RemoveRemoteTrack removes a previously-forwarded track from this subscriber's PC.
@@ -286,7 +353,7 @@ func (ps *ParticipantSession) RemoveRemoteTrack(trackID string) {
 // StartForwarding launches the RTP copying goroutine for a published track.
 // Must be called after domain.PublishedTrack is created from the TrackRemote.
 func (ps *ParticipantSession) StartForwarding(track *domain.PublishedTrack, remote *webrtc.TrackRemote) {
-	go ps.forwardRTP(ps.ctx, remote, track.LocalTrack)
+	go ps.forwardRTP(ps.ctx, remote, track)
 }
 
 // Close stops all goroutines and closes the PeerConnection.
@@ -346,14 +413,25 @@ func (ps *ParticipantSession) handleRemoteTrack(remote *webrtc.TrackRemote, _ *w
 	// Capturing remote.SSRC() here is safe — it's immutable after OnTrack fires.
 	publisherSSRC := remote.SSRC()
 	track.SendPLI = func() {
+		track.MarkPLIRequested()
 		if err := ps.pc.WriteRTCP([]rtcp.Packet{
 			&rtcp.PictureLossIndication{MediaSSRC: uint32(publisherSSRC)},
 		}); err != nil {
-			ps.log.Debug("failed to send PLI to publisher",
+			ps.log.Warn("failed to send PLI to publisher",
 				"user_id", ps.Participant.UserID,
 				"track_id", remote.ID(),
+				"error", err,
 			)
+			return
 		}
+		// Info, not Debug: this is the one line that proves the SFU actually asked
+		// the publisher for a keyframe. Cross-reference with "forwarded keyframe"
+		// in forwardRTP (by track_id) to see whether the publisher responded and
+		// how long it took — that's the key diagnostic for the black-screen reports.
+		ps.log.Info("PLI sent to publisher",
+			"user_id", ps.Participant.UserID,
+			"track_id", remote.ID(),
+		)
 	}
 
 	ps.Participant.AddTrack(track)
@@ -496,13 +574,15 @@ func (ps *ParticipantSession) readSubscriberRTCP(
 func (ps *ParticipantSession) forwardRTP(
 	ctx context.Context,
 	remote *webrtc.TrackRemote,
-	local *webrtc.TrackLocalStaticRTP,
+	track *domain.PublishedTrack,
 ) {
+	local := track.LocalTrack
 	ps.log.Info("RTP forwarding started",
 		"user_id", ps.Participant.UserID,
 		"kind", remote.Kind().String(),
 		"track_id", remote.ID(),
 		"stream_id", remote.StreamID(),
+		"mime_type", track.MimeType,
 	)
 	defer ps.log.Info("RTP forwarding stopped",
 		"user_id", ps.Participant.UserID,
@@ -513,6 +593,8 @@ func (ps *ParticipantSession) forwardRTP(
 	buf := make([]byte, 1500)
 	var pktCount int64
 	var writeErrCount int64
+	var keyframeCount int64
+	var lastKeyframeAt time.Time
 
 	for {
 		select {
@@ -536,6 +618,34 @@ func (ps *ParticipantSession) forwardRTP(
 		}
 
 		pktCount++
+
+		// Detect actual keyframes in the publisher's video bitstream. This serves
+		// two purposes: (1) it closes the loop for the keyframe-retry mechanism in
+		// RequestKeyframe — MarkKeyframeReceived lets a retry loop stop once a fresh
+		// keyframe has demonstrably arrived; (2) the log line lets us tell, from
+		// logs alone, "publisher never sent a keyframe" apart from "keyframe was
+		// sent but lost/never decoded downstream" — the core screen-share question.
+		if track.Kind == domain.TrackKindVideo && detectKeyframe(track.MimeType, buf[:n]) {
+			track.MarkKeyframeReceived()
+			keyframeCount++
+			now := time.Now()
+			var sinceLastKeyframeMs int64 = -1
+			if !lastKeyframeAt.IsZero() {
+				sinceLastKeyframeMs = now.Sub(lastKeyframeAt).Milliseconds()
+			}
+			lastKeyframeAt = now
+			fields := []any{
+				"user_id", ps.Participant.UserID,
+				"track_id", remote.ID(),
+				"keyframe_count", keyframeCount,
+				"since_last_keyframe_ms", sinceLastKeyframeMs,
+				"packets_forwarded", pktCount,
+			}
+			if sincePLI, ok := track.TimeSinceLastPLIRequest(); ok {
+				fields = append(fields, "since_pli_request_ms", sincePLI.Milliseconds())
+			}
+			ps.log.Info("forwarded keyframe from publisher", fields...)
+		}
 
 		if _, err := local.Write(buf[:n]); err != nil {
 			// A subscriber had a transient write error.
