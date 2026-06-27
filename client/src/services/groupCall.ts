@@ -449,7 +449,7 @@ class GroupCallService {
     // this, recovery depends entirely on a viewer's decoder noticing a bad frame
     // and requesting its own PLI, which is unreliable right at the switch and was
     // the cause of intermittent black screens for viewers when sharing started.
-    this.requestKeyframe();
+    this.requestKeyframeWithRetry();
 
     gcLog(this.currentUserId, 'screen share started', { sourceId: sourceId?.slice(0, 16) ?? 'getDisplayMedia', quality });
   }
@@ -462,6 +462,17 @@ class GroupCallService {
     if (this.ws?.readyState === WebSocket.OPEN) {
       this.ws.send(JSON.stringify({ type: 'request_keyframe', payload: {} }));
     }
+  }
+
+  // Sends request_keyframe with retries to handle the race where the SFU hasn't
+  // registered our video track yet (especially after audio-only join → screen
+  // share, where OnTrack on the SFU side may not have fired by the time the
+  // client's request_keyframe arrives). Without retries, the PLI is lost and
+  // subscribers wait for their own PLI detection, causing multi-second black.
+  private requestKeyframeWithRetry(): void {
+    this.requestKeyframe();
+    setTimeout(() => { try { this.requestKeyframe(); } catch {} }, 200);
+    setTimeout(() => { try { this.requestKeyframe(); } catch {} }, 800);
   }
 
   async stopScreenShare(): Promise<void> {
@@ -484,7 +495,7 @@ class GroupCallService {
 
     // Same reasoning as in startScreenShare: switching back to the camera track
     // is another replaceTrack with no renegotiation, so push a keyframe explicitly.
-    this.requestKeyframe();
+    this.requestKeyframeWithRetry();
 
     gcLog(this.currentUserId, 'screen share stopped');
   }

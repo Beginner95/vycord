@@ -3,8 +3,11 @@ package signaling
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"log/slog"
+	"net"
 	"net/http"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
@@ -12,6 +15,12 @@ import (
 
 	"github.com/vycord/server/internal/sfu/application"
 )
+
+// readPumpPollInterval is how often readPump checks its context while waiting
+// for a WebSocket message. A short deadline ensures prompt shutdown when the
+// participant session is cancelled (e.g. ICE timeout) without keeping the WS
+// open indefinitely in a ghost state.
+const readPumpPollInterval = 5 * time.Second
 
 var upgrader = websocket.Upgrader{
 	ReadBufferSize:  4096,
@@ -72,6 +81,18 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	defer rs.Leave(participantID)
 
+	// If the participant session is cancelled server-side (ICE timeout, etc.),
+	// cancel the ServeHTTP context so readPump exits and the WebSocket is closed.
+	// Without this, the WS stays open indefinitely and the client never learns
+	// they were removed — the "ghost participant" bug.
+	go func() {
+		select {
+		case <-ps.Done():
+			cancel()
+		case <-ctx.Done():
+		}
+	}()
+
 	// Notify the joining client about the room state.
 	_ = sigSession.Notify("joined", JoinedPayload{
 		RoomID:        roomID,
@@ -92,9 +113,31 @@ func (h *Handler) readPump(
 	ps *application.ParticipantSession,
 	userID, roomID string,
 ) {
+	defer h.log.Info("readPump stopped", "user_id", userID, "room_id", roomID)
+
 	for {
+		// Check if the session or request context was cancelled before blocking
+		// on ReadMessage. This is the key fix for the "ghost participant" bug:
+		// when ps.cancel() fires (ICE timeout), ctx is cancelled by the goroutine
+		// in ServeHTTP, and readPump exits → WebSocket closes → client learns.
+		select {
+		case <-ctx.Done():
+			return
+		default:
+		}
+
+		// Set a read deadline so we periodically re-check ctx.Done() even when
+		// no message arrives. Without this, readPump blocks on ReadMessage
+		// indefinitely and the participant stays in a ghost state.
+		conn.SetReadDeadline(time.Now().Add(readPumpPollInterval))
+
 		_, raw, err := conn.ReadMessage()
 		if err != nil {
+			// Timeout — loop back and re-check ctx.
+			var netErr net.Error
+			if errors.As(err, &netErr) && netErr.Timeout() {
+				continue
+			}
 			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseNormalClosure) {
 				h.log.Warn("unexpected websocket close", "user_id", userID, "error", err)
 			}

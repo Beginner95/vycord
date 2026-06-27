@@ -6,6 +6,11 @@ import (
 	"github.com/pion/webrtc/v4"
 )
 
+// VP9 RTP payload descriptor first byte bit masks (RFC 7741)
+const (
+	vp9PBit = 0x01 // Picture bit: 0=keyframe, 1=interframe
+)
+
 // detectKeyframe inspects a single raw RTP packet (header + payload, exactly what
 // TrackRemote.Read returns) from a publisher's video track and reports whether it
 // carries the start of a video keyframe.
@@ -32,6 +37,8 @@ func detectKeyframe(mimeType string, rtpPacket []byte) bool {
 	switch mimeType {
 	case webrtc.MimeTypeVP8:
 		return vp8IsKeyframe(payload)
+	case webrtc.MimeTypeVP9:
+		return vp9IsKeyframe(payload)
 	case webrtc.MimeTypeH264:
 		return h264HasKeyframeNALU(payload)
 	default:
@@ -52,6 +59,17 @@ func vp8IsKeyframe(payload []byte) bool {
 		return false
 	}
 	return vp8Payload[0]&0x01 == 0
+}
+
+// vp9IsKeyframe checks the VP9 RTP payload descriptor (RFC 7741 §4.2).
+// The first byte contains the P (Picture) bit at bit 0: 0 = keyframe, 1 = interframe.
+// VP9 does not require partition-start checks like VP8 — a single packet with P=0
+// is sufficient to identify the start of a keyframe.
+func vp9IsKeyframe(payload []byte) bool {
+	if len(payload) == 0 {
+		return false
+	}
+	return payload[0]&vp9PBit == 0
 }
 
 const (
