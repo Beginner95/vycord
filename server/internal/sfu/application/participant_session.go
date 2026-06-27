@@ -29,11 +29,7 @@ const (
 	// disconnectedTimeout is how long we tolerate ICE disconnection before
 	// treating it as a failure. This supplements pion's built-in ICE timers
 	// to provide faster application-level cleanup in degraded networks.
-	//
-	// 30 seconds gives enough headroom for brief network hiccups (WiFi
-	// reconnect, NAT rebinding, mobile handover) while still cleaning up
-	// genuinely disconnected clients faster than pion's internal ~60s timeout.
-	disconnectedTimeout = 30 * time.Second
+	disconnectedTimeout = 15 * time.Second
 )
 
 // keyframeRetryDelays is the back-off schedule for the keyframe-retry loop in
@@ -269,39 +265,12 @@ func (ps *ParticipantSession) AddRemoteTrack(t *domain.PublishedTrack) error {
 // background retry loop that re-sends PLI until forwardRTP confirms a real keyframe
 // landed. Returns immediately; the loops run on their own goroutines.
 func (ps *ParticipantSession) RequestKeyframe() {
-	tracks := ps.Participant.GetTracks()
-	videoTracks := make([]*domain.PublishedTrack, 0, len(tracks))
-	for _, t := range tracks {
-		if t.Kind == domain.TrackKindVideo && t.SendPLI != nil {
-			videoTracks = append(videoTracks, t)
+	for _, t := range ps.Participant.GetTracks() {
+		if t.Kind != domain.TrackKindVideo || t.SendPLI == nil {
+			continue
 		}
+		go ps.ensureKeyframe(t)
 	}
-
-	if len(videoTracks) > 0 {
-		for _, t := range videoTracks {
-			go ps.ensureKeyframe(t)
-		}
-		return
-	}
-
-	// No video tracks yet — the client may have just started sharing after
-	// an audio-only join, and pion's OnTrack hasn't fired yet.  Wait briefly
-	// and retry once before giving up entirely.
-	ps.log.Info("RequestKeyframe: no video tracks yet, will retry in 500ms",
-		"user_id", ps.Participant.UserID,
-	)
-	go func() {
-		select {
-		case <-ps.ctx.Done():
-			return
-		case <-time.After(500 * time.Millisecond):
-		}
-		for _, t := range ps.Participant.GetTracks() {
-			if t.Kind == domain.TrackKindVideo && t.SendPLI != nil {
-				go ps.ensureKeyframe(t)
-			}
-		}
-	}()
 }
 
 // ensureKeyframe re-sends PLI for a single video track until a fresh keyframe is
