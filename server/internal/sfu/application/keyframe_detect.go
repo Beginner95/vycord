@@ -32,11 +32,24 @@ func detectKeyframe(mimeType string, rtpPacket []byte) bool {
 	switch mimeType {
 	case webrtc.MimeTypeVP8:
 		return vp8IsKeyframe(payload)
+	case webrtc.MimeTypeVP9:
+		return vp9IsKeyframe(payload)
 	case webrtc.MimeTypeH264:
 		return h264HasKeyframeNALU(payload)
 	default:
 		return false
 	}
+}
+
+// vp9IsKeyframe checks the VP9 RTP payload descriptor (RFC 7741 §4.2).
+// The first byte encodes: I|P|L|F|B|E|V|Z (MSB→LSB).
+// P (bit 6, mask 0x40) is the inter-picture predicted bit: 0 means keyframe or
+// intra-only frame — both are decodable as reference frames, which is what we need.
+func vp9IsKeyframe(payload []byte) bool {
+	if len(payload) == 0 {
+		return false
+	}
+	return payload[0]&0x40 == 0 // P=0: not inter-picture predicted
 }
 
 // vp8IsKeyframe checks the VP8 payload descriptor + uncompressed data chunk.

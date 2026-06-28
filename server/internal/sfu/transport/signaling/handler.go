@@ -3,8 +3,11 @@ package signaling
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"log/slog"
+	"net"
 	"net/http"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
@@ -12,6 +15,13 @@ import (
 
 	"github.com/vycord/server/internal/sfu/application"
 )
+
+// readPumpPollInterval is the WebSocket read deadline. readPump sets this deadline
+// before each ReadMessage call so the read unblocks periodically even when no
+// message arrives. This lets the loop check ctx.Done() and exit promptly when the
+// participant session is cancelled server-side (e.g. ICE timeout) — without it,
+// ReadMessage blocks indefinitely and the client stays in a ghost state.
+const readPumpPollInterval = 5 * time.Second
 
 var upgrader = websocket.Upgrader{
 	ReadBufferSize:  4096,
@@ -72,6 +82,19 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	defer rs.Leave(participantID)
 
+	// When the participant session is cancelled server-side (ICE timeout,
+	// disconnected timeout, PC failure), propagate that cancellation to this
+	// HTTP handler's context so readPump exits and the WebSocket is closed.
+	// Without this, the WS stays open and the client never learns they were
+	// evicted — they hear silence but their tile disappears from everyone else.
+	go func() {
+		select {
+		case <-ps.Done():
+			cancel()
+		case <-ctx.Done():
+		}
+	}()
+
 	// Notify the joining client about the room state.
 	_ = sigSession.Notify("joined", JoinedPayload{
 		RoomID:        roomID,
@@ -93,8 +116,29 @@ func (h *Handler) readPump(
 	userID, roomID string,
 ) {
 	for {
+		// Exit immediately if the session or request context was cancelled.
+		// This is the primary path when the server evicts the participant
+		// (ICE timeout, PC failure): the goroutine in ServeHTTP cancels ctx,
+		// and on the next loop iteration readPump exits — WebSocket closes —
+		// the client receives a WS close frame and calls onCallEnded.
+		select {
+		case <-ctx.Done():
+			return
+		default:
+		}
+
+		// Set a per-read deadline so ReadMessage unblocks every readPumpPollInterval
+		// even when no message arrives. This ensures the ctx.Done() check above
+		// is re-evaluated promptly after a server-side session cancellation.
+		conn.SetReadDeadline(time.Now().Add(readPumpPollInterval)) //nolint:errcheck
+
 		_, raw, err := conn.ReadMessage()
 		if err != nil {
+			// Deadline exceeded — no message arrived; loop back and check ctx.
+			var netErr net.Error
+			if errors.As(err, &netErr) && netErr.Timeout() {
+				continue
+			}
 			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseNormalClosure) {
 				h.log.Warn("unexpected websocket close", "user_id", userID, "error", err)
 			}

@@ -27,9 +27,10 @@ const (
 	idleConnectionTimeout = 30 * time.Second
 
 	// disconnectedTimeout is how long we tolerate ICE disconnection before
-	// treating it as a failure. This supplements pion's built-in ICE timers
-	// to provide faster application-level cleanup in degraded networks.
-	disconnectedTimeout = 15 * time.Second
+	// treating it as a failure. 30 seconds gives headroom for transient network
+	// hiccups (WiFi reconnect, NAT rebinding, mobile handover) while still
+	// cleaning up genuinely disconnected clients well before pion's ~60s timeout.
+	disconnectedTimeout = 30 * time.Second
 )
 
 // keyframeRetryDelays is the back-off schedule for the keyframe-retry loop in
@@ -264,13 +265,44 @@ func (ps *ParticipantSession) AddRemoteTrack(t *domain.PublishedTrack) error {
 // is exactly when loss is most likely), so each track's request is handled by a
 // background retry loop that re-sends PLI until forwardRTP confirms a real keyframe
 // landed. Returns immediately; the loops run on their own goroutines.
+//
+// When no video tracks are registered yet (common for audio-only joiners or users
+// with video disabled: pion's OnTrack hasn't fired because no RTP arrived yet),
+// a background goroutine retries once after 500ms — by that time the first RTP
+// packet from the client's screen track will have arrived and OnTrack fired.
 func (ps *ParticipantSession) RequestKeyframe() {
-	for _, t := range ps.Participant.GetTracks() {
+	tracks := ps.Participant.GetTracks()
+	started := 0
+	for _, t := range tracks {
 		if t.Kind != domain.TrackKindVideo || t.SendPLI == nil {
 			continue
 		}
 		go ps.ensureKeyframe(t)
+		started++
 	}
+
+	if started > 0 {
+		return
+	}
+
+	// No video tracks yet. The client most likely just called replaceTrack
+	// (screen share start) before the first RTP packet reached pion and
+	// triggered OnTrack. Wait briefly for OnTrack to fire, then retry.
+	ps.log.Info("RequestKeyframe: no video tracks yet, retrying after 500ms",
+		"user_id", ps.Participant.UserID,
+	)
+	go func() {
+		select {
+		case <-ps.ctx.Done():
+			return
+		case <-time.After(500 * time.Millisecond):
+		}
+		for _, t := range ps.Participant.GetTracks() {
+			if t.Kind == domain.TrackKindVideo && t.SendPLI != nil {
+				go ps.ensureKeyframe(t)
+			}
+		}
+	}()
 }
 
 // ensureKeyframe re-sends PLI for a single video track until a fresh keyframe is
