@@ -3,11 +3,8 @@ package signaling
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"log/slog"
-	"net"
 	"net/http"
-	"time"
 
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
@@ -15,13 +12,6 @@ import (
 
 	"github.com/vycord/server/internal/sfu/application"
 )
-
-// readPumpPollInterval is the WebSocket read deadline. readPump sets this deadline
-// before each ReadMessage call so the read unblocks periodically even when no
-// message arrives. This lets the loop check ctx.Done() and exit promptly when the
-// participant session is cancelled server-side (e.g. ICE timeout) — without it,
-// ReadMessage blocks indefinitely and the client stays in a ghost state.
-const readPumpPollInterval = 5 * time.Second
 
 var upgrader = websocket.Upgrader{
 	ReadBufferSize:  4096,
@@ -83,14 +73,18 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	defer rs.Leave(participantID)
 
 	// When the participant session is cancelled server-side (ICE timeout,
-	// disconnected timeout, PC failure), propagate that cancellation to this
-	// HTTP handler's context so readPump exits and the WebSocket is closed.
-	// Without this, the WS stays open and the client never learns they were
-	// evicted — they hear silence but their tile disappears from everyone else.
+	// disconnected timeout, PC failure), close the WebSocket so readPump's
+	// ReadMessage unblocks immediately. ServeHTTP then exits, all defers fire
+	// (Leave, sigSession.Close -> WS close frame), client ws.onclose -> onCallEnded.
+	//
+	// We close conn directly rather than using SetReadDeadline because
+	// gorilla/websocket v1.5+ permanently stores the first read error in
+	// c.readErr; a deadline timeout makes every subsequent ReadMessage return
+	// immediately, spinning 1000+ times until gorilla panics.
 	go func() {
 		select {
 		case <-ps.Done():
-			cancel()
+			conn.Close() //nolint:errcheck
 		case <-ctx.Done():
 		}
 	}()
@@ -104,41 +98,19 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Notify existing participants.
 	h.notifyOthers(rs, participantID, userID)
 
-	// Read pump — drives all client → server messages.
-	h.readPump(ctx, conn, rs, ps, userID, roomID)
+	// Read pump -- drives all client -> server messages.
+	h.readPump(conn, rs, ps, userID, roomID)
 }
 
 func (h *Handler) readPump(
-	ctx context.Context,
 	conn *websocket.Conn,
 	rs *application.RoomSession,
 	ps *application.ParticipantSession,
 	userID, roomID string,
 ) {
 	for {
-		// Exit immediately if the session or request context was cancelled.
-		// This is the primary path when the server evicts the participant
-		// (ICE timeout, PC failure): the goroutine in ServeHTTP cancels ctx,
-		// and on the next loop iteration readPump exits — WebSocket closes —
-		// the client receives a WS close frame and calls onCallEnded.
-		select {
-		case <-ctx.Done():
-			return
-		default:
-		}
-
-		// Set a per-read deadline so ReadMessage unblocks every readPumpPollInterval
-		// even when no message arrives. This ensures the ctx.Done() check above
-		// is re-evaluated promptly after a server-side session cancellation.
-		conn.SetReadDeadline(time.Now().Add(readPumpPollInterval)) //nolint:errcheck
-
 		_, raw, err := conn.ReadMessage()
 		if err != nil {
-			// Deadline exceeded — no message arrived; loop back and check ctx.
-			var netErr net.Error
-			if errors.As(err, &netErr) && netErr.Timeout() {
-				continue
-			}
 			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseNormalClosure) {
 				h.log.Warn("unexpected websocket close", "user_id", userID, "error", err)
 			}
@@ -151,12 +123,11 @@ func (h *Handler) readPump(
 			continue
 		}
 
-		h.routeMessage(ctx, rs, ps, &msg, userID, roomID)
+		h.routeMessage(rs, ps, &msg, userID, roomID)
 	}
 }
 
 func (h *Handler) routeMessage(
-	_ context.Context,
 	rs *application.RoomSession,
 	ps *application.ParticipantSession,
 	msg *Message,
@@ -220,18 +191,13 @@ func (h *Handler) handleICECandidate(
 
 // handleRequestKeyframe forces a fresh keyframe from this participant's published
 // video track(s). The client sends this right after switching the video source
-// (e.g. camera → screen share via replaceTrack), which doesn't renegotiate and
+// (e.g. camera -> screen share via replaceTrack), which doesn't renegotiate and
 // therefore gives the SFU no other signal that the encoded content just changed.
-// Without an explicit push here, recovery relies entirely on a subscriber's decoder
-// noticing the bad frame and emitting its own PLI — which is unreliable exactly at
-// the moment of the switch and is what caused the screen-share black-screen reports.
 func (h *Handler) handleRequestKeyframe(ps *application.ParticipantSession, userID string) {
 	h.log.Info("keyframe requested by client", "user_id", userID)
 	ps.RequestKeyframe()
 }
 
 func (h *Handler) notifyOthers(rs *application.RoomSession, excludeParticipantID, userID string) {
-	// RoomSession.broadcastEvent is unexported; use Notify via existing sessions.
-	// We expose a dedicated method for this.
 	rs.NotifyOthers(excludeParticipantID, "participant_joined", ParticipantEventPayload{UserID: userID})
 }
