@@ -1,0 +1,111 @@
+#!/usr/bin/env bash
+# E2E test: screen sharing from a machine without a camera must not show a black screen.
+#
+# Spins up the real Go SFU and the vite dev server, then runs
+# e2e/no-camera-screenshare.html in headless Chrome. The page drives two real
+# groupCallService instances through the production signaling path and passes only
+# if the viewer actually decodes video frames of the share.
+#
+# Usage: bash client/e2e/run.sh   (or: npm run test:e2e from client/)
+# Env:   SFU_PORT (default 18081), VITE_PORT (default 13999), CHROME_BIN (default google-chrome)
+
+set -u
+
+CLIENT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+ROOT_DIR="$(cd "$CLIENT_DIR/.." && pwd)"
+SFU_PORT="${SFU_PORT:-18081}"
+VITE_PORT="${VITE_PORT:-13999}"
+CHROME_BIN="${CHROME_BIN:-google-chrome}"
+WORK_DIR="$(mktemp -d)"
+
+SFU_PID=""
+VITE_PID=""
+CHROME_PID=""
+
+cleanup() {
+  [ -n "$CHROME_PID" ] && kill "$CHROME_PID" 2>/dev/null
+  [ -n "$VITE_PID" ] && kill "$VITE_PID" 2>/dev/null
+  [ -n "$SFU_PID" ] && kill "$SFU_PID" 2>/dev/null
+  wait 2>/dev/null
+}
+trap cleanup EXIT
+
+fail() {
+  echo "FAIL: $1"
+  echo "--- logs kept in $WORK_DIR"
+  exit 1
+}
+
+# vite requires Node >= 20.19; fall back to the newest nvm-installed node if needed.
+NODE_MAJOR="$(node -v 2>/dev/null | sed 's/^v\([0-9]*\).*/\1/')"
+if [ "${NODE_MAJOR:-0}" -lt 20 ] && [ -d "$HOME/.nvm/versions/node" ]; then
+  NEWEST_NODE_BIN="$(ls -d "$HOME"/.nvm/versions/node/v*/bin 2>/dev/null | sort -V | tail -1)"
+  if [ -n "$NEWEST_NODE_BIN" ]; then
+    export PATH="$NEWEST_NODE_BIN:$PATH"
+    echo "==> using node $(node -v) from $NEWEST_NODE_BIN"
+  fi
+fi
+
+echo "==> building SFU"
+(cd "$ROOT_DIR/server" && go build -o "$WORK_DIR/sfu" ./cmd/sfu) || fail "go build failed"
+
+echo "==> starting SFU on :$SFU_PORT"
+SFU_PORT="$SFU_PORT" "$WORK_DIR/sfu" >"$WORK_DIR/sfu.log" 2>&1 &
+SFU_PID=$!
+for _ in $(seq 1 60); do
+  curl -sf "http://localhost:$SFU_PORT/health" >/dev/null 2>&1 && break
+  kill -0 "$SFU_PID" 2>/dev/null || fail "SFU exited early, see $WORK_DIR/sfu.log"
+  sleep 0.5
+done
+curl -sf "http://localhost:$SFU_PORT/health" >/dev/null 2>&1 || fail "SFU did not become healthy"
+
+echo "==> starting vite dev server on :$VITE_PORT"
+(cd "$CLIENT_DIR" && VITE_SFU_URL="ws://localhost:$SFU_PORT" \
+  ./node_modules/.bin/vite --port "$VITE_PORT" --strictPort >"$WORK_DIR/vite.log" 2>&1) &
+VITE_PID=$!
+PAGE_URL="http://localhost:$VITE_PORT/e2e/no-camera-screenshare.html"
+for _ in $(seq 1 60); do
+  curl -sf "$PAGE_URL" >/dev/null 2>&1 && break
+  kill -0 "$VITE_PID" 2>/dev/null || fail "vite exited early, see $WORK_DIR/vite.log"
+  sleep 0.5
+done
+curl -sf "$PAGE_URL" >/dev/null 2>&1 || fail "vite did not serve the test page"
+
+echo "==> running headless Chrome"
+"$CHROME_BIN" \
+  --headless=new \
+  --no-sandbox \
+  --disable-gpu \
+  --autoplay-policy=no-user-gesture-required \
+  --enable-logging=stderr \
+  --user-data-dir="$WORK_DIR/chrome-profile" \
+  "$PAGE_URL" >"$WORK_DIR/chrome.log" 2>&1 &
+CHROME_PID=$!
+
+# The page prints one "E2E_RESULT {json}" line; poll for it (page watchdog: 90s).
+RESULT=""
+for _ in $(seq 1 220); do
+  RESULT="$(grep -o 'E2E_RESULT .*' "$WORK_DIR/chrome.log" 2>/dev/null | head -1)"
+  [ -n "$RESULT" ] && break
+  kill -0 "$CHROME_PID" 2>/dev/null || break
+  sleep 0.5
+done
+
+kill "$CHROME_PID" 2>/dev/null
+CHROME_PID=""
+
+[ -n "$RESULT" ] || fail "no E2E_RESULT in chrome output, see $WORK_DIR/chrome.log"
+
+# Strip prefix and the console-log quoting artifacts around the JSON.
+JSON="${RESULT#E2E_RESULT }"
+JSON="${JSON%\", source:*}"
+echo "==> result: $JSON"
+
+if echo "$JSON" | grep -q '"pass":true'; then
+  echo "PASS"
+  exit 0
+else
+  echo "--- [E2E] progress lines:"
+  grep -o '\[E2E\].*' "$WORK_DIR/chrome.log" | head -40
+  fail "scenario failed (full logs in $WORK_DIR)"
+fi

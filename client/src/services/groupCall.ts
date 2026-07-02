@@ -117,6 +117,8 @@ class GroupCallService {
 
   private screenStream: MediaStream | null = null;
   private screenSender: RTCRtpSender | null = null;
+  // Placeholder video track sent when no camera is available — see createDummyVideoTrack.
+  private dummyVideoTrack: MediaStreamTrack | null = null;
   private _isScreenSharing = false;
   private _microphoneAvailable = false;
 
@@ -392,6 +394,30 @@ class GroupCallService {
     }
   }
 
+  // Creates a muted, zero-fps canvas video track used as a placeholder sender track
+  // when the machine has no camera.
+  //
+  // Why not a trackless addTransceiver('video', sendrecv)?  Per JSEP §5.10 Chrome
+  // associates only addTrack-created transceivers with the recvonly m-sections of the
+  // server's offer.  A trackless addTransceiver stays unassociated (mid=null), the
+  // answer's video section becomes a=inactive with no a=ssrc, and a later
+  // replaceTrack(screenTrack) sends zero RTP — remote users see a black screen.
+  // pion also can't bind an unsignaled SSRC for non-simulcast tracks, so the SSRC
+  // must be in the answer SDP.
+  //
+  // captureStream(0) produces no frames (frames appear only on requestFrame(), which
+  // is never called), so no RTP flows until screen sharing replaces this track.
+  private createDummyVideoTrack(): MediaStreamTrack {
+    const canvas = document.createElement('canvas');
+    canvas.width = 16;
+    canvas.height = 16;
+    canvas.getContext('2d')?.fillRect(0, 0, 16, 16);
+    const track = canvas.captureStream(0).getVideoTracks()[0];
+    track.enabled = false;
+    this.dummyVideoTrack = track;
+    return track;
+  }
+
   private async acquireMedia(): Promise<MediaStream | null> {
     // Explicit constraints avoid macOS/Android-specific quirks:
     // - channelCount ideal:1 → Opus mono, prevents macOS from injecting stereo fmtp params
@@ -521,19 +547,18 @@ class GroupCallService {
           label: track.label,
         });
       }
-      // If localStream has no video track (audio-only join), pre-create a sendrecv video
-      // transceiver so that the answer SDP carries a video a=ssrc line.  pion fires
-      // OnTrack only for SSRCs it learns from the answer; without this, screen-sharing
-      // replaceTrack sends RTP on an SSRC pion never registered → black screen for others.
+      // If localStream has no video track (no camera), add a dummy video track so the
+      // answer SDP carries a video a=ssrc line — see createDummyVideoTrack for why a
+      // trackless addTransceiver does not achieve this.
       if (!this.localStream.getVideoTracks().length) {
-        pc.addTransceiver('video', { direction: 'sendrecv' });
+        pc.addTrack(this.createDummyVideoTrack(), this.localStream);
       }
     } else {
-      // No local media at all.  Still add sendrecv transceivers so the answer SDP
-      // includes a=ssrc lines for both audio and video.  Without them, pion never
-      // learns the video SSRC and screen-sharing breaks (black screen for remote users).
+      // No local media at all. Audio stays a trackless transceiver (nothing to send
+      // without a mic), but video still needs a dummy track for screen sharing.
       pc.addTransceiver('audio', { direction: 'sendrecv' });
-      pc.addTransceiver('video', { direction: 'sendrecv' });
+      const dummy = this.createDummyVideoTrack();
+      pc.addTrack(dummy, new MediaStream([dummy]));
     }
     gcLog(this.currentUserId, 'PC created', {
       localTracksAdded: addedTracks,
@@ -1043,6 +1068,9 @@ class GroupCallService {
 
     this.localStream?.getTracks().forEach((t) => t.stop());
     this.localStream = null;
+
+    this.dummyVideoTrack?.stop();
+    this.dummyVideoTrack = null;
 
     if (this.audioCtxKeepAlive !== null) {
       clearInterval(this.audioCtxKeepAlive);

@@ -17,7 +17,8 @@
     "build:electron-main": "tsc -p electron/tsconfig.json --outDir electron-dist --declaration false --declarationMap false --sourceMap false && mv electron-dist/main.js electron-dist/main.cjs && mv electron-dist/preload.js electron-dist/preload.cjs",
     "build": "npm run build:vite && npm run build:electron-main",
     "dist": "npm run build && electron-builder",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test:e2e": "bash e2e/run.sh"
   },
   "dependencies": {
     "react-router-dom": "^7.14.0",
