@@ -72,6 +72,23 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	defer rs.Leave(participantID)
 
+	// When the participant session is cancelled server-side (ICE timeout,
+	// disconnected timeout, PC failure), close the WebSocket so readPump's
+	// ReadMessage unblocks immediately. ServeHTTP then exits, all defers fire
+	// (Leave, sigSession.Close -> WS close frame), client ws.onclose -> onCallEnded.
+	//
+	// We close conn directly rather than using SetReadDeadline because
+	// gorilla/websocket v1.5+ permanently stores the first read error in
+	// c.readErr; a deadline timeout makes every subsequent ReadMessage return
+	// immediately, spinning 1000+ times until gorilla panics.
+	go func() {
+		select {
+		case <-ps.Done():
+			conn.Close() //nolint:errcheck
+		case <-ctx.Done():
+		}
+	}()
+
 	// Notify the joining client about the room state.
 	_ = sigSession.Notify("joined", JoinedPayload{
 		RoomID:        roomID,
@@ -81,12 +98,11 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Notify existing participants.
 	h.notifyOthers(rs, participantID, userID)
 
-	// Read pump — drives all client → server messages.
-	h.readPump(ctx, conn, rs, ps, userID, roomID)
+	// Read pump -- drives all client -> server messages.
+	h.readPump(conn, rs, ps, userID, roomID)
 }
 
 func (h *Handler) readPump(
-	ctx context.Context,
 	conn *websocket.Conn,
 	rs *application.RoomSession,
 	ps *application.ParticipantSession,
@@ -107,12 +123,11 @@ func (h *Handler) readPump(
 			continue
 		}
 
-		h.routeMessage(ctx, rs, ps, &msg, userID, roomID)
+		h.routeMessage(rs, ps, &msg, userID, roomID)
 	}
 }
 
 func (h *Handler) routeMessage(
-	_ context.Context,
 	rs *application.RoomSession,
 	ps *application.ParticipantSession,
 	msg *Message,
@@ -124,6 +139,9 @@ func (h *Handler) routeMessage(
 
 	case "ice_candidate":
 		h.handleICECandidate(rs, ps, msg, userID)
+
+	case "request_keyframe":
+		h.handleRequestKeyframe(ps, userID)
 
 	case "leave":
 		// The deferred Leave() in ServeHTTP handles cleanup;
@@ -171,8 +189,15 @@ func (h *Handler) handleICECandidate(
 	})
 }
 
+// handleRequestKeyframe forces a fresh keyframe from this participant's published
+// video track(s). The client sends this right after switching the video source
+// (e.g. camera -> screen share via replaceTrack), which doesn't renegotiate and
+// therefore gives the SFU no other signal that the encoded content just changed.
+func (h *Handler) handleRequestKeyframe(ps *application.ParticipantSession, userID string) {
+	h.log.Info("keyframe requested by client", "user_id", userID)
+	ps.RequestKeyframe()
+}
+
 func (h *Handler) notifyOthers(rs *application.RoomSession, excludeParticipantID, userID string) {
-	// RoomSession.broadcastEvent is unexported; use Notify via existing sessions.
-	// We expose a dedicated method for this.
 	rs.NotifyOthers(excludeParticipantID, "participant_joined", ParticipantEventPayload{UserID: userID})
 }
