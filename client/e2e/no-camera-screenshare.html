@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>E2E: screen share from a machine without a camera</title>
+</head>
+<body>
+  <!-- Viewer-side element: remote video must actually decode frames here. -->
+  <video id="viewer-video" autoplay muted playsinline style="width:640px;height:360px;background:#000"></video>
+  <pre id="status">starting…</pre>
+
+  <script type="module">
+    // E2E scenario for the "black screen when sharing from a machine without a camera" bug.
+    //
+    // Two real groupCallService instances (sharer + viewer) talk to a real SFU through
+    // the production signaling code. The sharer's getUserMedia is patched to behave like
+    // a machine with a microphone but NO camera; getDisplayMedia is patched to return an
+    // animated canvas track (deterministic "screen" content, no OS picker).
+    //
+    // The bug: the sharer's answer SDP carried an a=inactive video section without a=ssrc,
+    // so replaceTrack(screenTrack) sent zero RTP and viewers saw a black tile.
+    // PASS requires the viewer to actually DECODE video frames, not just receive a track.
+    //
+    // Result protocol: a single console.log line "E2E_RESULT {json}" parsed by run.sh.
+
+    const statusEl = document.getElementById('status');
+    const videoEl = document.getElementById('viewer-video');
+    const startedAt = Date.now();
+    const timings = {};
+
+    function log(...args) {
+      console.log('[E2E]', ...args);
+      statusEl.textContent += '\n' + args.map(String).join(' ');
+    }
+
+    let finished = false;
+    function finish(pass, reason, extra = {}) {
+      if (finished) return;
+      finished = true;
+      console.log('E2E_RESULT ' + JSON.stringify({ pass, reason, timings, ...extra }));
+    }
+
+    function waitFor(predicate, timeoutMs, what) {
+      return new Promise((resolve, reject) => {
+        const t0 = Date.now();
+        const id = setInterval(() => {
+          let ok = false;
+          try { ok = predicate(); } catch { /* keep polling */ }
+          if (ok) {
+            clearInterval(id);
+            timings[what] = Date.now() - startedAt;
+            resolve();
+          } else if (Date.now() - t0 > timeoutMs) {
+            clearInterval(id);
+            reject(new Error(`timeout waiting for: ${what}`));
+          }
+        }, 200);
+      });
+    }
+
+    // ── Media device fakes (must be installed before the service is imported) ──
+
+    function makeSilentMicTrack() {
+      const ctx = new AudioContext();
+      const dst = ctx.createMediaStreamDestination();
+      const osc = ctx.createOscillator();
+      osc.frequency.value = 440;
+      osc.connect(dst);
+      osc.start();
+      return dst.stream.getAudioTracks()[0];
+    }
+
+    function makeFakeScreenTrack() {
+      const canvas = document.createElement('canvas');
+      canvas.width = 640; canvas.height = 360;
+      const ctx = canvas.getContext('2d');
+      ctx.fillStyle = '#123456';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      // Keep painting so the encoder always has fresh frames, like a real screen.
+      setInterval(() => {
+        ctx.fillStyle = `hsl(${(Date.now() / 20) % 360}, 80%, 50%)`;
+        ctx.fillRect(Math.random() * 600, Math.random() * 320, 40, 40);
+      }, 66);
+      return canvas.captureStream(15).getVideoTracks()[0];
+    }
+
+    // No camera on this "machine": any request with video fails like a missing device;
+    // audio-only requests get a synthetic mic. This drives acquireMedia() into its
+    // audio-only fallback — the exact code path of the bug.
+    navigator.mediaDevices.getUserMedia = async (constraints) => {
+      if (constraints?.video) {
+        throw new DOMException('Requested device not found', 'NotFoundError');
+      }
+      if (constraints?.audio) {
+        return new MediaStream([makeSilentMicTrack()]);
+      }
+      throw new DOMException('Requested device not found', 'NotFoundError');
+    };
+
+    navigator.mediaDevices.getDisplayMedia = async () => new MediaStream([makeFakeScreenTrack()]);
+
+    // ── Test body ────────────────────────────────────────────────────────────
+
+    // Page-level watchdog: whatever hangs, always emit a result line.
+    setTimeout(() => finish(false, 'global watchdog (90s) fired', snapshot()), 90_000);
+
+    const room = `e2e-${Date.now()}`;
+    const sharerId = `sharer-${crypto.randomUUID()}`;
+    const viewerId = `viewer-${crypto.randomUUID()}`;
+
+    /** @type {Map<string, MediaStream>} */
+    const viewerStreams = new Map();
+
+    function snapshot() {
+      const s = viewerStreams.get(sharerId);
+      return {
+        viewerStreamsFrom: [...viewerStreams.keys()],
+        sharerStreamAudioTracks: s ? s.getAudioTracks().length : null,
+        sharerStreamVideoTracks: s ? s.getVideoTracks().length : null,
+        videoElWidth: videoEl.videoWidth,
+        videoElHeight: videoEl.videoHeight,
+        videoElReadyState: videoEl.readyState,
+      };
+    }
+
+    function countDecodedFrames(minFrames, timeoutMs, what) {
+      return new Promise((resolve, reject) => {
+        let frames = 0;
+        let done = false;
+        const onFrame = () => {
+          if (done) return;
+          frames++;
+          if (frames >= minFrames) {
+            done = true;
+            timings[what] = Date.now() - startedAt;
+            resolve(frames);
+            return;
+          }
+          videoEl.requestVideoFrameCallback(onFrame);
+        };
+        videoEl.requestVideoFrameCallback(onFrame);
+        setTimeout(() => {
+          if (!done) {
+            done = true;
+            reject(new Error(`timeout waiting for: ${what} (decoded ${frames}/${minFrames} frames)`));
+          }
+        }, timeoutMs);
+      });
+    }
+
+    try {
+      // Two independent service instances from the same production module.
+      // The distinct query strings make vite evaluate the module twice.
+      const [modSharer, modViewer] = await Promise.all([
+        import('/src/services/groupCall.ts?inst=sharer'),
+        import('/src/services/groupCall.ts?inst=viewer'),
+      ]);
+      const sharer = modSharer.groupCallService;
+      const viewer = modViewer.groupCallService;
+      if (sharer === viewer) {
+        finish(false, 'test harness broken: got a single service instance for both peers');
+        throw new Error('single instance');
+      }
+
+      const noop = () => {};
+      sharer.init({
+        onRemoteStream: noop, onPeerJoined: noop, onPeerLeft: noop, onCallEnded: noop,
+        onError: (e) => log('sharer onError:', e),
+      });
+      viewer.init({
+        onRemoteStream: (uid, stream) => viewerStreams.set(uid, stream),
+        onPeerJoined: noop, onPeerLeft: noop, onCallEnded: noop,
+        onError: (e) => log('viewer onError:', e),
+      });
+
+      log('joining room', room);
+      await sharer.joinGroupCall(room, sharerId);
+      await viewer.joinGroupCall(room, viewerId);
+      await waitFor(() => sharer.isInGroupCallState && viewer.isInGroupCallState, 15_000, 'both-joined');
+      log('both peers joined');
+
+      // Baseline: the sharer's audio must reach the viewer — proves ICE/DTLS/forwarding
+      // work before we test the video path.
+      await waitFor(
+        () => (viewerStreams.get(sharerId)?.getAudioTracks().length ?? 0) > 0,
+        20_000,
+        'sharer-audio-forwarded',
+      );
+      log('sharer audio reached viewer');
+
+      // The camera-less sender must stay silent on video until sharing starts:
+      // the dummy placeholder track must not leak frames to the SFU.
+      if ((viewerStreams.get(sharerId)?.getVideoTracks().length ?? 0) > 0) {
+        finish(false, 'viewer received a video track BEFORE screen share started (dummy track leaked RTP)', snapshot());
+        throw new Error('premature video');
+      }
+      log('no premature video track — OK');
+
+      // ── The actual bug scenario: share the screen from a camera-less machine ──
+      log('starting screen share');
+      await sharer.startScreenShare(undefined, '720p');
+
+      await waitFor(
+        () => (viewerStreams.get(sharerId)?.getVideoTracks().length ?? 0) > 0,
+        20_000,
+        'viewer-got-video-track',
+      );
+      log('viewer received video track');
+
+      videoEl.srcObject = viewerStreams.get(sharerId);
+      await videoEl.play().catch((e) => log('play():', e));
+
+      // The decisive check: frames must actually decode. A black tile from the original
+      // bug never gets here (no track), and a track with no RTP never fires rVFC.
+      const frames = await countDecodedFrames(10, 20_000, 'frames-decoded');
+      if (videoEl.videoWidth === 0) {
+        finish(false, 'frames reported but videoWidth is 0', snapshot());
+        throw new Error('zero size');
+      }
+      log(`decoded ${frames} frames at ${videoEl.videoWidth}x${videoEl.videoHeight}`);
+
+      // ── Regression: stop and restart sharing must resume frames on the same sender ──
+      log('restarting screen share');
+      await sharer.stopScreenShare();
+      await new Promise((r) => setTimeout(r, 1000));
+      await sharer.startScreenShare(undefined, '720p');
+      await countDecodedFrames(10, 20_000, 'frames-after-restart');
+      log('frames resumed after share restart');
+
+      sharer.leaveGroupCall();
+      viewer.leaveGroupCall();
+
+      finish(true, 'viewer decoded screen-share frames from a camera-less sharer', snapshot());
+    } catch (err) {
+      finish(false, String(err && err.message || err), snapshot());
+    }
+  </script>
+</body>
+</html>
