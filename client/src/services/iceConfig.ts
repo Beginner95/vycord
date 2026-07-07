@@ -29,9 +29,12 @@ export async function getIceServers(): Promise<RTCIceServer[]> {
       .map((s) => ({ urls: s.urls, username: s.username, credential: s.credential }));
 
     const servers = [...STUN_SERVERS, ...turnServers];
-    // Refresh 5 minutes before credential expiry; if TURN is not configured
-    // (empty list, ttl=0), re-check in 5 minutes in case it gets enabled.
-    const ttlMs = res.ttl > 0 ? Math.max((res.ttl - 300) * 1000, 60_000) : 5 * 60_000;
+    // Cache at most 1 hour (and never past ttl-5min): a call may start at the
+    // very end of the cache window, so the creds it gets must keep most of
+    // their TTL — otherwise coturn kills the relay mid-call at the next
+    // allocation refresh. If TURN is not configured (empty list, ttl=0),
+    // re-check in 5 minutes in case it gets enabled.
+    const ttlMs = res.ttl > 0 ? Math.max(Math.min(res.ttl - 300, 3600) * 1000, 60_000) : 5 * 60_000;
     cache = { servers, expiresAt: Date.now() + ttlMs };
     return servers;
   } catch (err) {
