@@ -74,7 +74,8 @@ services:
     container_name: vycord-coturn
     # Host networking for the same reason as the SFU: TURN relays UDP and
     # allocates relay ports dynamically; bridge NAT breaks candidate addresses.
-    # Firewall must allow 3478/udp, 3478/tcp and the relay range 49160-49360/udp.
+    # Firewall must allow 3478/udp, 3478/tcp, 5349/tcp (TLS) and the relay
+    # range 49160-49360/udp.
     network_mode: host
     command:
       - --listening-port=3478
@@ -88,7 +89,16 @@ services:
       - --static-auth-secret=${TURN_SECRET}
       - --realm=vycord
       - --no-cli
-      - --no-tls
+      # TLS (turns:5349) for networks that block UDP and plain TCP. Certs are
+      # copied into /var/lib/vycord/coturn-certs by deploy/coturn-cert-hook.sh
+      # (a certbot deploy-hook installed by deploy/deploy.sh) which also
+      # restarts this container on every renewal.
+      - --tls-listening-port=5349
+      - --cert=/certs/fullchain.pem
+      - --pkey=/certs/privkey.pem
+      - --no-tlsv1
+      - --no-tlsv1_1
+      # turns effectively always runs over TCP; DTLS stays off.
       - --no-dtls
       - --log-file=stdout
       # Abuse protection: never relay into local/private networks (the API and
@@ -101,6 +111,8 @@ services:
       - --denied-peer-ip=192.168.0.0-192.168.255.255
       - --denied-peer-ip=169.254.0.0-169.254.255.255
       - --denied-peer-ip=100.64.0.0-100.127.255.255
+    volumes:
+      - /var/lib/vycord/coturn-certs:/certs:ro
     restart: unless-stopped
 
   client:
