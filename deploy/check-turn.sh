@@ -50,8 +50,11 @@ FAILED=0
 # а не просто открытый порт. Успех = получены эхо-ответы (tot_recv_msgs>0).
 check() {
     local name=$1 flags=$2 port=$3 hint=$4 out
-    if out=$(timeout 30 docker run --rm --network host "$IMAGE" \
-            turnutils_uclient ${flags} -p "$port" -u "$USERNAME" -w "$PASSWORD" \
+    # --entrypoint обязателен: docker-entrypoint.sh образа coturn парсит
+    # аргументы своим getopts и часть съедает (например -e и хост) — без него
+    # uclient молча откатывается на сервер по умолчанию 127.0.0.1.
+    if out=$(timeout 30 docker run --rm --network host --entrypoint turnutils_uclient "$IMAGE" \
+            ${flags} -p "$port" -u "$USERNAME" -w "$PASSWORD" \
             -y -n 5 "$HOST" 2>&1) \
         && grep -qE 'tot_recv_msgs=[1-9]' <<<"$out"; then
         echo "OK   ${name}"
