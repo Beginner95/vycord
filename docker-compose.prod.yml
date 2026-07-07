@@ -69,6 +69,40 @@ services:
     network_mode: host
     restart: unless-stopped
 
+  coturn:
+    image: coturn/coturn:4.7-alpine
+    container_name: vycord-coturn
+    # Host networking for the same reason as the SFU: TURN relays UDP and
+    # allocates relay ports dynamically; bridge NAT breaks candidate addresses.
+    # Firewall must allow 3478/udp, 3478/tcp and the relay range 49160-49360/udp.
+    network_mode: host
+    command:
+      - --listening-port=3478
+      - --min-port=49160
+      - --max-port=49360
+      - --fingerprint
+      # Ephemeral credentials (TURN REST API): username="<expiry>:<user-id>",
+      # password=base64(HMAC-SHA1(secret, username)). The API server issues
+      # them at GET /api/v1/turn/credentials using the same TURN_SECRET.
+      - --use-auth-secret
+      - --static-auth-secret=${TURN_SECRET}
+      - --realm=vycord
+      - --no-cli
+      - --no-tls
+      - --no-dtls
+      - --log-file=stdout
+      # Abuse protection: never relay into local/private networks (the API and
+      # DB listen on 127.0.0.1). If this server's own interface has a private
+      # IP (cloud NAT), additionally allow it with --allowed-peer-ip=<that IP>.
+      - --no-multicast-peers
+      - --denied-peer-ip=127.0.0.0-127.255.255.255
+      - --denied-peer-ip=10.0.0.0-10.255.255.255
+      - --denied-peer-ip=172.16.0.0-172.31.255.255
+      - --denied-peer-ip=192.168.0.0-192.168.255.255
+      - --denied-peer-ip=169.254.0.0-169.254.255.255
+      - --denied-peer-ip=100.64.0.0-100.127.255.255
+    restart: unless-stopped
+
   client:
     build:
       context: ./client

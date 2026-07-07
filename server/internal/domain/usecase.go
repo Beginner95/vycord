@@ -31,3 +31,9 @@ type MessageUseCase interface {
 	CreateMessage(channelID, userID uuid.UUID, content string) (*Message, error)
 	GetMessages(channelID uuid.UUID, limit, offset int) ([]*Message, error)
 }
+
+type TURNUseCase interface {
+	// GetCredentials returns ephemeral TURN credentials for the user, or
+	// (nil, nil) when no TURN server is configured.
+	GetCredentials(userID uuid.UUID) (*TURNCredentials, error)
+}

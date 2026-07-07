@@ -1,4 +1,5 @@
 import { noiseCancellationService } from './noiseCancellation';
+import { getIceServers, STUN_SERVERS } from './iceConfig';
 
 const SFU_URL = import.meta.env.VITE_SFU_URL || 'ws://localhost:8081';
 
@@ -111,6 +112,8 @@ type RemoteStreams = Map<string, MediaStream>;
 class GroupCallService {
   private ws: WebSocket | null = null;
   private pc: RTCPeerConnection | null = null;
+  // Refreshed on every joinGroupCall; TURN entries carry ephemeral credentials.
+  private iceServers: RTCIceServer[] = STUN_SERVERS;
   private localStream: MediaStream | null = null;
   private audioCtx: AudioContext | null = null;
   private audioCtxKeepAlive: ReturnType<typeof setInterval> | null = null;
@@ -155,6 +158,15 @@ class GroupCallService {
 
     this.currentUserId = userId;
     this.currentRoomId = roomId;
+
+    // Fetch STUN+TURN config before signaling: the SFU sends its offer right
+    // after the WS connects, and the PC must be created with a relay available —
+    // behind symmetric NAT/VPN media never flows without TURN.
+    this.iceServers = await getIceServers();
+    gcLog(userId, 'ICE servers', {
+      urls: this.iceServers.flatMap((s) => s.urls),
+      hasTurn: this.iceServers.some((s) => String(s.urls).startsWith('turn')),
+    });
 
     try {
       const raw = await this.acquireMedia();
@@ -541,10 +553,7 @@ class GroupCallService {
   private createPeerConnection(): RTCPeerConnection {
     this.pcCreatedAt = Date.now();
     const pc = new RTCPeerConnection({
-      iceServers: [
-        { urls: 'stun:stun.l.google.com:19302' },
-        { urls: 'stun:stun1.l.google.com:19302' },
-      ],
+      iceServers: this.iceServers,
     });
 
     // Add local tracks before the first offer arrives.

@@ -148,6 +148,14 @@ class ApiService {
   async getOnlineUsers() {
     return this.request('/api/v1/users/online');
   }
+
+  // TURN credentials for WebRTC (ephemeral, per-user)
+  async getTurnCredentials() {
+    return this.request<{
+      ice_servers: Array<{ urls: string[]; username?: string; credential?: string }>;
+      ttl: number;
+    }>('/api/v1/turn/credentials');
+  }
 }
 
 export const apiService = new ApiService();
