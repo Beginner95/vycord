@@ -1,6 +1,7 @@
 package application
 
 import (
+	"errors"
 	"log/slog"
 	"sync"
 
@@ -52,12 +53,15 @@ func (m *RoomManager) GetOrCreateRoom(roomID string) *RoomSession {
 	rs := NewRoomSession(room, m.peerFactory, m.log)
 	m.rooms[roomID] = rs
 
-	// Remove room when it becomes empty.
+	// Remove room when it becomes empty. Guarded by identity (evictClosedRoom)
+	// rather than an unconditional delete: Join's ErrRoomClosed retry path can
+	// evict this same closed room and register a fresh one under roomID before
+	// this goroutine wakes up (rs.Done() was already closed by the eviction
+	// that triggered the retry) — an unconditional delete here would then wipe
+	// out the newly registered room instead of the stale one.
 	go func() {
 		<-rs.Done()
-		m.mu.Lock()
-		delete(m.rooms, roomID)
-		m.mu.Unlock()
+		m.evictClosedRoom(roomID, rs)
 		m.log.Info("room closed", "room_id", roomID)
 	}()
 
@@ -125,8 +129,37 @@ func (m *RoomManager) Join(
 	participant := domain.NewParticipant(participantID, userID, roomID)
 	ps, err := rs.Join(participant, session)
 	if err != nil {
-		return nil, nil, err
+		if errors.Is(err, domain.ErrRoomClosed) {
+			// Solo-reconnect race: when the only participant in the room
+			// reconnects, RoomSession.Join evicts their stale session first
+			// (same user_id) to avoid a duplicate. That eviction empties the
+			// domain Room, which closes it — so the very next line,
+			// room.AddParticipant, returns ErrRoomClosed and this join fails
+			// even though it should trivially succeed. Without this retry the
+			// join only recovers once the reaper goroutine in
+			// GetOrCreateRoom (waiting on rs.Done()) removes the closed room
+			// from the map, which races with the client's own retry loop.
+			// Mirror the reaper here: evict the closed room ourselves and
+			// retry once against a freshly created one.
+			m.evictClosedRoom(roomID, rs)
+			rs = m.GetOrCreateRoom(roomID)
+			ps, err = rs.Join(participant, session)
+		}
+		if err != nil {
+			return nil, nil, err
+		}
 	}
 
 	return rs, ps, nil
+}
+
+// evictClosedRoom removes rs from the room map if it is still the current
+// session registered for roomID. Guards against racing with a concurrent
+// GetOrCreateRoom/reaper that may have already replaced or removed it.
+func (m *RoomManager) evictClosedRoom(roomID string, rs *RoomSession) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if cur, ok := m.rooms[roomID]; ok && cur == rs {
+		delete(m.rooms, roomID)
+	}
 }
