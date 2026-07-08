@@ -10,12 +10,16 @@ export interface ScreenQualityPreset {
   readonly width: number;
   readonly height: number;
   readonly frameRate: number;
+  // Sender-side encoder cap (bps). Without an explicit cap Chrome limits VP8 to
+  // ~2.5 Mbps, which starves 1080p+ screen content: the encoder hits the ceiling
+  // and drops frames, so the share turns into a slideshow even on a good link.
+  readonly maxBitrate: number;
 }
 
 export const SCREEN_QUALITY_PRESETS = {
-  '720p':  { label: '720p',  width: 1280, height:  720, frameRate: 30 },
-  '1080p': { label: '1080p', width: 1920, height: 1080, frameRate: 30 },
-  '2K':    { label: '2K',    width: 2560, height: 1440, frameRate: 30 },
+  '720p':  { label: '720p',  width: 1280, height:  720, frameRate: 30, maxBitrate: 3_000_000 },
+  '1080p': { label: '1080p', width: 1920, height: 1080, frameRate: 30, maxBitrate: 5_000_000 },
+  '2K':    { label: '2K',    width: 2560, height: 1440, frameRate: 30, maxBitrate: 8_000_000 },
 } as const satisfies Record<string, ScreenQualityPreset>;
 
 export type ScreenQuality = keyof typeof SCREEN_QUALITY_PRESETS;
@@ -420,6 +424,12 @@ class GroupCallService {
       throw new Error('Screen stream has no video track');
     }
 
+    // Chrome treats screen-capture tracks as 'detail' content by default and,
+    // when constrained by bandwidth or CPU, keeps resolution while dropping
+    // framerate — the share stays sharp but turns into a few-fps slideshow.
+    // 'motion' flips that trade-off: keep framerate, degrade resolution.
+    screenTrack.contentHint = 'motion';
+
     // Log requested vs actual resolution so we can diagnose fallback behaviour.
     const actual = screenTrack.getSettings();
     gcLog(this.currentUserId, 'screen share track settings', {
@@ -454,6 +464,8 @@ class GroupCallService {
 
     await videoTransceiver.sender.replaceTrack(screenTrack);
     screenTrack.enabled = true;
+
+    await this.applyScreenShareEncoding(videoTransceiver.sender, preset.maxBitrate);
 
     this.screenStream = stream;
     this.screenSender = videoTransceiver.sender;
@@ -492,6 +504,37 @@ class GroupCallService {
     setTimeout(() => { this.requestKeyframe(); }, 800);
   }
 
+  // Applies (maxBitrate set) or clears (maxBitrate null) screen-share encoder
+  // settings on the video sender. degradationPreference is the spec-level way to
+  // ask for framerate-over-resolution; Chrome largely decides from
+  // track.contentHint instead, so both are set. Failure is non-fatal — the share
+  // still runs, just on default encoder settings.
+  private async applyScreenShareEncoding(sender: RTCRtpSender, maxBitrate: number | null): Promise<void> {
+    try {
+      const params = sender.getParameters() as RTCRtpSendParameters & {
+        degradationPreference?: 'maintain-framerate' | 'maintain-resolution' | 'balanced';
+      };
+      params.degradationPreference = maxBitrate !== null ? 'maintain-framerate' : undefined;
+      // setParameters can only modify existing encodings, never add them; the list
+      // can be empty until the first negotiation completes.
+      for (const enc of params.encodings ?? []) {
+        if (maxBitrate !== null) {
+          enc.maxBitrate = maxBitrate;
+        } else {
+          delete enc.maxBitrate;
+        }
+      }
+      await sender.setParameters(params);
+      gcLog(this.currentUserId, 'screen share encoding applied', {
+        maxBitrate,
+        degradationPreference: params.degradationPreference ?? 'default',
+        encodings: params.encodings?.length ?? 0,
+      });
+    } catch (err) {
+      gcLog(this.currentUserId, 'screen share encoding setParameters failed', { error: String(err) });
+    }
+  }
+
   async stopScreenShare(): Promise<void> {
     if (!this._isScreenSharing) return;
 
@@ -504,6 +547,9 @@ class GroupCallService {
       await this.screenSender.replaceTrack(cameraTrack).catch((err) => {
         gcLog(this.currentUserId, 'stopScreenShare replaceTrack error', { error: String(err) });
       });
+      // Lift the screen-share bitrate cap and degradation preference off the
+      // sender — the camera (or dummy) track should run on browser defaults.
+      await this.applyScreenShareEncoding(this.screenSender, null);
     }
 
     this.screenStream?.getTracks().forEach((t) => t.stop());
