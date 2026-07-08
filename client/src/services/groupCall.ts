@@ -640,7 +640,11 @@ class GroupCallService {
   }
 
   private connectSignaling(roomId: string, userId: string): Promise<boolean> {
-    const url = `${SFU_URL}/ws?user_id=${userId}&room_id=${roomId}`;
+    // Read the token on every attempt, not once per call: a VYC-24 reconnect
+    // may run after the user re-logged in, and a token frozen at join time
+    // would be stale.
+    const token = localStorage.getItem('vycord_token') ?? '';
+    const url = `${SFU_URL}/ws?room_id=${encodeURIComponent(roomId)}&token=${encodeURIComponent(token)}`;
     const socket = new WebSocket(url);
     this.ws = socket;
 
@@ -670,7 +674,7 @@ class GroupCallService {
       }, 10_000);
 
       this.ws!.onopen = () => {
-        gcLog(userId, 'WS connected', { url });
+        gcLog(userId, 'WS connected', { roomId });
         // The server creates the PC on its side upon WS upgrade — no explicit join message needed.
         // The server will immediately send us an "offer".
       };

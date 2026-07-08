@@ -50,7 +50,9 @@ echo "==> building SFU"
 (cd "$ROOT_DIR/server" && go build -o "$WORK_DIR/sfu" ./cmd/sfu) || fail "go build failed"
 
 echo "==> starting SFU on :$SFU_PORT"
-SFU_PORT="$SFU_PORT" "$WORK_DIR/sfu" >"$WORK_DIR/sfu.log" 2>&1 &
+# The SFU refuses to start without JWT_SECRET (VYC-25); the page signs its
+# test tokens with the same value via WebCrypto.
+JWT_SECRET="e2e-test-secret" SFU_PORT="$SFU_PORT" "$WORK_DIR/sfu" >"$WORK_DIR/sfu.log" 2>&1 &
 SFU_PID=$!
 for _ in $(seq 1 60); do
   curl -sf "http://localhost:$SFU_PORT/health" >/dev/null 2>&1 && break

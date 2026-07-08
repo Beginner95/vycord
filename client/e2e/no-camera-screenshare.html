@@ -105,8 +105,29 @@
     setTimeout(() => finish(false, 'global watchdog (90s) fired', snapshot()), 90_000);
 
     const room = `e2e-${Date.now()}`;
-    const sharerId = `sharer-${crypto.randomUUID()}`;
-    const viewerId = `viewer-${crypto.randomUUID()}`;
+    // Must be plain UUIDs: the SFU takes the identity from the token's
+    // user_id claim (VYC-25) and rejects non-UUID values.
+    const sharerId = crypto.randomUUID();
+    const viewerId = crypto.randomUUID();
+
+    // Mirrors run.sh's JWT_SECRET for the test SFU.
+    const E2E_JWT_SECRET = 'e2e-test-secret';
+
+    async function makeToken(secret, userId) {
+      const enc = new TextEncoder();
+      const b64url = (bytes) => btoa(String.fromCharCode(...new Uint8Array(bytes)))
+        .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+      const header = b64url(enc.encode(JSON.stringify({ alg: 'HS256', typ: 'JWT' })));
+      const payload = b64url(enc.encode(JSON.stringify({
+        user_id: userId,
+        exp: Math.floor(Date.now() / 1000) + 3600,
+      })));
+      const key = await crypto.subtle.importKey(
+        'raw', enc.encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign'],
+      );
+      const sig = await crypto.subtle.sign('HMAC', key, enc.encode(`${header}.${payload}`));
+      return `${header}.${payload}.${b64url(sig)}`;
+    }
 
     /** @type {Map<string, MediaStream>} */
     const viewerStreams = new Map();
@@ -174,7 +195,13 @@
       });
 
       log('joining room', room);
+      // groupCallService reads the token from localStorage at connect time and
+      // the two instances share this page's localStorage — set each
+      // participant's token right before their (awaited) join. Distinct tokens
+      // matter: the SFU evicts a stale session with the same user_id (VYC-24).
+      localStorage.setItem('vycord_token', await makeToken(E2E_JWT_SECRET, sharerId));
       await sharer.joinGroupCall(room, sharerId);
+      localStorage.setItem('vycord_token', await makeToken(E2E_JWT_SECRET, viewerId));
       await viewer.joinGroupCall(room, viewerId);
       await waitFor(() => sharer.isInGroupCallState && viewer.isInGroupCallState, 15_000, 'both-joined');
       log('both peers joined');

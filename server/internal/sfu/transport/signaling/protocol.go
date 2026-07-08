@@ -10,11 +10,6 @@ type Message struct {
 
 // --- Client → Server ---
 
-type JoinPayload struct {
-	RoomID string `json:"room_id"`
-	UserID string `json:"user_id"`
-}
-
 type AnswerPayload struct {
 	Type string `json:"type"` // "answer"
 	SDP  string `json:"sdp"`

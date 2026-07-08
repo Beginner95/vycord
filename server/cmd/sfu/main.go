@@ -10,6 +10,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/joho/godotenv"
+
 	"github.com/vycord/server/internal/sfu/application"
 	sfuwebrtc "github.com/vycord/server/internal/sfu/infrastructure/webrtc"
 	"github.com/vycord/server/internal/sfu/transport/signaling"
@@ -18,6 +20,23 @@ import (
 
 func main() {
 	log := logger.New(slog.LevelDebug)
+
+	// Load .env like cmd/api does: `make run-sfu` runs from server/ without
+	// injected env; in docker the variables come from env_file directly.
+	for _, p := range []string{".env", "../.env", "../../.env"} {
+		if _, err := os.Stat(p); err == nil {
+			if err := godotenv.Load(p); err != nil {
+				log.Warn("failed to load .env file", "path", p, "error", err)
+			}
+			break
+		}
+	}
+
+	jwtSecret := os.Getenv("JWT_SECRET")
+	if jwtSecret == "" {
+		log.Error("JWT_SECRET environment variable is required")
+		os.Exit(1)
+	}
 
 	port := os.Getenv("SFU_PORT")
 	if port == "" {
@@ -41,7 +60,7 @@ func main() {
 	}
 
 	manager := application.NewRoomManager(peerFactory, log)
-	handler := signaling.NewHandler(manager, log)
+	handler := signaling.NewHandler(manager, log, jwtSecret)
 
 	mux := http.NewServeMux()
 	mux.Handle("/ws", handler)

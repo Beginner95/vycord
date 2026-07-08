@@ -11,6 +11,7 @@ import (
 	"github.com/pion/webrtc/v4"
 
 	"github.com/vycord/server/internal/sfu/application"
+	"github.com/vycord/server/pkg/authtoken"
 )
 
 var upgrader = websocket.Upgrader{
@@ -22,21 +23,34 @@ var upgrader = websocket.Upgrader{
 // Handler is the HTTP handler that upgrades connections to WebSocket and
 // drives the per-client signaling lifecycle.
 type Handler struct {
-	manager *application.RoomManager
-	log     *slog.Logger
+	manager   *application.RoomManager
+	log       *slog.Logger
+	jwtSecret string
 }
 
-func NewHandler(manager *application.RoomManager, log *slog.Logger) *Handler {
-	return &Handler{manager: manager, log: log}
+func NewHandler(manager *application.RoomManager, log *slog.Logger, jwtSecret string) *Handler {
+	return &Handler{manager: manager, log: log, jwtSecret: jwtSecret}
 }
 
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	userID := r.URL.Query().Get("user_id")
-	roomID := r.URL.Query().Get("room_id")
-	if userID == "" || roomID == "" {
-		http.Error(w, "missing user_id or room_id", http.StatusBadRequest)
+	token := r.URL.Query().Get("token")
+	if token == "" {
+		http.Error(w, "missing token", http.StatusUnauthorized)
 		return
 	}
+	roomID := r.URL.Query().Get("room_id")
+	if roomID == "" {
+		http.Error(w, "missing room_id", http.StatusBadRequest)
+		return
+	}
+
+	uid, err := authtoken.ValidateToken(h.jwtSecret, token)
+	if err != nil {
+		h.log.Warn("rejected connection: invalid token", "room_id", roomID, "error", err)
+		http.Error(w, "invalid token", http.StatusUnauthorized)
+		return
+	}
+	userID := uid.String()
 
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
