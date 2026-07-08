@@ -102,6 +102,10 @@ export interface GroupCallCallbacks {
   onError: (error: string) => void;
   // Called when the OS screen-capture source is closed by the user (e.g. stop button in Chrome bar).
   onScreenShareEnded?: () => void;
+  // Fired when the call dropped due to a network change and auto-reconnect started.
+  onReconnecting?: () => void;
+  // Fired when auto-reconnect restored the call.
+  onReconnected?: () => void;
 }
 
 // ─── Internal state ──────────────────────────────────────────────────────────
@@ -137,8 +141,16 @@ class GroupCallService {
   private inCall = false;
 
   // True once the user asked to leave — suppresses auto-reconnect (Task 3).
-  // @ts-ignore TS6133: used by Task 3 (auto-reconnect)
   private intentionalLeave = false;
+  // True while the reconnect loop owns the WS/PC lifecycle — suppresses
+  // onclose/onerror side effects from failed attempts.
+  private reconnecting = false;
+  // Started when the PC goes 'disconnected'; fires reconnect if it doesn't
+  // recover — the browser can sit in 'disconnected' for tens of seconds
+  // before 'failed' while the WS hangs half-open (VPN case).
+  private disconnectedTimer: ReturnType<typeof setTimeout> | null = null;
+  // Screen track waiting to be re-attached to the new PC after reconnect.
+  private pendingScreenRestore: MediaStreamTrack | null = null;
 
   // Timestamps for mobile diagnostic metrics (milliseconds since epoch).
   private joinedAt = 0;
@@ -216,6 +228,122 @@ class GroupCallService {
       this.ws.close();
     }
     this.teardown();
+  }
+
+  // ── Auto-reconnect ─────────────────────────────────────────────────────────
+
+  private async reconnect(trigger: string): Promise<void> {
+    if (this.reconnecting || this.intentionalLeave || !this.inCall) return;
+    this.reconnecting = true;
+    gcLog(this.currentUserId, 'reconnect: started', { trigger });
+    this.callbacks?.onReconnecting?.();
+
+    // A live local screen track survives a network change — remember it to
+    // re-attach to the new PC. Mic/camera mute needs no snapshot: localStream
+    // tracks are reused as-is, their .enabled flags persist.
+    const screenTrack = this._isScreenSharing
+      ? this.screenStream?.getVideoTracks()[0] ?? null
+      : null;
+
+    this.partialTeardown();
+
+    // ~30s total.
+    const delaysMs = [500, 1000, 2000, 4000, 8000, 8000, 8000];
+    for (const [attempt, delay] of delaysMs.entries()) {
+      await new Promise((r) => setTimeout(r, delay));
+      if (this.intentionalLeave) {
+        this.reconnecting = false;
+        return;
+      }
+      gcLog(this.currentUserId, 'reconnect: attempt', { attempt: attempt + 1, delay });
+      try {
+        await this.connect(this.currentRoomId, this.currentUserId);
+      } catch (err) {
+        gcLog(this.currentUserId, 'reconnect: attempt failed', { error: String(err) });
+      }
+      // connectSignaling's boolean means "alone in room", not success —
+      // success is inCall (set on 'joined') plus an open WS.
+      if (this.inCall && this.ws?.readyState === WebSocket.OPEN) {
+        this.restoreScreenShare(screenTrack);
+        this.reconnecting = false;
+        gcLog(this.currentUserId, 'reconnect: succeeded', { attempt: attempt + 1 });
+        this.callbacks?.onReconnected?.();
+        return;
+      }
+    }
+
+    this.reconnecting = false;
+    gcLog(this.currentUserId, 'reconnect: gave up');
+    this.teardown();
+    this.callbacks?.onCallEnded();
+  }
+
+  // Transport-only teardown for reconnect: closes PC/WS and clears remote
+  // state, but keeps local capture (mic/camera/screen tracks, AudioContext,
+  // noise cancellation) alive so rejoin doesn't re-prompt or rebuild audio.
+  private partialTeardown(): void {
+    if (this.ws) {
+      // Detach handlers first — ws.close() must not trigger onclose teardown.
+      this.ws.onclose = null;
+      this.ws.onerror = null;
+      this.ws.onmessage = null;
+      this.ws.close();
+      this.ws = null;
+    }
+    if (this.disconnectedTimer !== null) {
+      clearTimeout(this.disconnectedTimer);
+      this.disconnectedTimer = null;
+    }
+    this.pc?.close();
+    this.pc = null;
+    // The new PC creates its own dummy track in createPeerConnection.
+    this.dummyVideoTrack?.stop();
+    this.dummyVideoTrack = null;
+    this.screenSender = null; // belonged to the old PC
+    this.remoteStreams.clear();
+    this.pendingCandidates = [];
+    this.inCall = false;
+  }
+
+  private restoreScreenShare(screenTrack: MediaStreamTrack | null): void {
+    if (!screenTrack) return;
+    if (screenTrack.readyState !== 'live') {
+      // The OS capture died during the outage — drop share state honestly.
+      gcLog(this.currentUserId, 'reconnect: screen track dead, stopping share');
+      this._isScreenSharing = false;
+      this.screenStream?.getTracks().forEach((t) => t.stop());
+      this.screenStream = null;
+      this.callbacks?.onScreenShareEnded?.();
+      return;
+    }
+    this.pendingScreenRestore = screenTrack;
+    // The PC may already exist: the server's offer often precedes 'joined'.
+    this.applyScreenRestore();
+  }
+
+  // Re-attaches the pending screen track to the new PC's video sender. Also
+  // called after each answer in handleOffer: if 'joined' resolved before the
+  // first offer, the PC doesn't exist yet when restoreScreenShare runs.
+  private applyScreenRestore(): void {
+    const track = this.pendingScreenRestore;
+    if (!track || !this.pc) return;
+    const videoTransceiver = this.pc.getTransceivers().find(
+      (t) => t.receiver.track.kind === 'video',
+    );
+    if (!videoTransceiver) return; // a later offer will bring the m-line
+    this.pendingScreenRestore = null;
+    if (videoTransceiver.direction === 'recvonly') {
+      videoTransceiver.direction = 'sendrecv';
+    }
+    videoTransceiver.sender.replaceTrack(track).then(() => {
+      this.screenSender = videoTransceiver.sender;
+      // Same reasoning as startScreenShare: replaceTrack doesn't renegotiate,
+      // the SFU needs an explicit keyframe push.
+      this.requestKeyframeWithRetry();
+      gcLog(this.currentUserId, 'reconnect: screen share restored');
+    }).catch((err) => {
+      gcLog(this.currentUserId, 'reconnect: screen restore failed', { error: String(err) });
+    });
   }
 
   // ── Controls ───────────────────────────────────────────────────────────────
@@ -544,6 +672,11 @@ class GroupCallService {
       this.ws!.onclose = (ev) => {
         gcLog(userId, 'WS closed', { code: ev.code, reason: ev.reason });
         settle(false);
+        if (this.reconnecting) return; // reconnect loop owns the lifecycle
+        if (this.inCall && !this.intentionalLeave) {
+          void this.reconnect('ws_closed');
+          return;
+        }
         this.inCall = false;
         this.callbacks?.onCallEnded();
         this.teardown();
@@ -552,7 +685,7 @@ class GroupCallService {
       this.ws!.onerror = () => {
         gcLog(userId, 'WS ERROR');
         settle(false);
-        this.callbacks?.onError('SFU connection failed');
+        if (!this.reconnecting) this.callbacks?.onError('SFU connection failed');
       };
     });
   }
@@ -811,9 +944,21 @@ class GroupCallService {
     pc.onconnectionstatechange = () => {
       gcLog(this.currentUserId, 'PC connectionState', { state: pc.connectionState });
       if (pc.connectionState === 'failed') {
-        this.callbacks?.onError('WebRTC connection failed');
+        void this.reconnect('pc_failed');
+      }
+      if (pc.connectionState === 'disconnected' && this.disconnectedTimer === null) {
+        this.disconnectedTimer = setTimeout(() => {
+          this.disconnectedTimer = null;
+          if (this.pc && this.pc.connectionState !== 'connected') {
+            void this.reconnect('pc_disconnected_3s');
+          }
+        }, 3000);
       }
       if (pc.connectionState === 'connected') {
+        if (this.disconnectedTimer !== null) {
+          clearTimeout(this.disconnectedTimer);
+          this.disconnectedTimer = null;
+        }
         this.pcConnectedAt = Date.now();
         gcLog(this.currentUserId, '[METRIC] pc-connected', {
           elapsedFromJoinMs: this.joinedAt ? this.pcConnectedAt - this.joinedAt : -1,
@@ -947,7 +1092,9 @@ class GroupCallService {
       }
 
       case 'error':
-        this.callbacks?.onError((msg.payload as ErrorPayload).message);
+        if (!this.reconnecting) {
+          this.callbacks?.onError((msg.payload as ErrorPayload).message);
+        }
         break;
 
       default:
@@ -1071,6 +1218,8 @@ class GroupCallService {
         payload: { type: answer.type, sdp: answer.sdp },
       }));
     }
+
+    this.applyScreenRestore();
   }
 
   private async handleIceCandidate(payload: IceCandidatePayload): Promise<void> {
@@ -1139,6 +1288,11 @@ class GroupCallService {
     this.pcCreatedAt = 0;
     this.pcConnectedAt = 0;
     this.firstAudioFrameAt.clear();
+    if (this.disconnectedTimer !== null) {
+      clearTimeout(this.disconnectedTimer);
+      this.disconnectedTimer = null;
+    }
+    this.pendingScreenRestore = null;
     this.ws = null;
   }
 }
