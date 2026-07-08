@@ -173,6 +173,9 @@ class GroupCallService {
     }
 
     this.intentionalLeave = false;
+    // A hung previous reconnect cycle (e.g. its attempt never settled) must not
+    // silently disable auto-reconnect for this new call.
+    this.reconnecting = false;
     this.currentUserId = userId;
     this.currentRoomId = roomId;
 
@@ -308,6 +311,9 @@ class GroupCallService {
   private restoreScreenShare(screenTrack: MediaStreamTrack | null): void {
     if (!screenTrack) return;
     if (screenTrack.readyState !== 'live') {
+      // The OS 'ended' handler may have already stopped the share during the
+      // outage (stopScreenShare sets _isScreenSharing = false) — don't double-fire.
+      if (!this._isScreenSharing) return;
       // The OS capture died during the outage — drop share state honestly.
       gcLog(this.currentUserId, 'reconnect: screen track dead, stopping share');
       this._isScreenSharing = false;
@@ -635,11 +641,33 @@ class GroupCallService {
 
   private connectSignaling(roomId: string, userId: string): Promise<boolean> {
     const url = `${SFU_URL}/ws?user_id=${userId}&room_id=${roomId}`;
-    this.ws = new WebSocket(url);
+    const socket = new WebSocket(url);
+    this.ws = socket;
 
     return new Promise<boolean>((resolve) => {
       let resolved = false;
-      const settle = (v: boolean) => { if (!resolved) { resolved = true; resolve(v); } };
+      const settle = (v: boolean) => {
+        if (resolved) return;
+        resolved = true;
+        clearTimeout(connectTimeout);
+        resolve(v);
+      };
+
+      // Guarantees this attempt's promise always settles even if the WS never
+      // opens or hangs without close/error firing (seen on some mobile networks
+      // and VPN transitions) — otherwise the reconnect loop stalls forever on
+      // this attempt instead of moving on to the next delay.
+      const connectTimeout = setTimeout(() => {
+        if (resolved) return;
+        gcLog(userId, 'WS connect timeout');
+        socket.onclose = null;
+        socket.onerror = null;
+        socket.onmessage = null;
+        socket.close();
+        if (this.ws === socket) this.ws = null;
+        if (!this.reconnecting) this.callbacks?.onError('SFU connection timeout');
+        settle(false);
+      }, 10_000);
 
       this.ws!.onopen = () => {
         gcLog(userId, 'WS connected', { url });
@@ -656,13 +684,17 @@ class GroupCallService {
           const joined = msg.payload as JoinedPayload;
           gcLog(userId, 'joined room', { existingPeers: joined.existing_peers ?? [] });
           // Notify the UI about participants who are already in the room.
-          joined.existing_peers?.forEach((uid) => this.callbacks?.onPeerJoined(uid));
+          // Stale self entry may be present during reconnect: the server snapshots
+          // existing peers before evicting our old session, so it can still include us —
+          // rendering that would create a ghost self-tile.
+          const peers = (joined.existing_peers ?? []).filter((uid) => uid !== userId);
+          peers.forEach((uid) => this.callbacks?.onPeerJoined(uid));
           this.ws!.onmessage = (ev) => {
             const m = JSON.parse(ev.data as string) as SignalingMessage;
             gcLog(userId, 'WS message', { type: m.type });
             void this.handleMessage(m);
           };
-          settle((joined.existing_peers?.length ?? 0) === 0);
+          settle(peers.length === 0);
         } else {
           // Server may send an offer before 'joined' arrives — handle immediately.
           void this.handleMessage(msg);
@@ -1293,6 +1325,13 @@ class GroupCallService {
       this.disconnectedTimer = null;
     }
     this.pendingScreenRestore = null;
+    // Detach handlers before dropping the reference: a late onclose from the
+    // last retry attempt's socket must not re-fire onCallEnded/teardown.
+    if (this.ws) {
+      this.ws.onclose = null;
+      this.ws.onerror = null;
+      this.ws.onmessage = null;
+    }
     this.ws = null;
   }
 }

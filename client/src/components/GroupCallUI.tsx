@@ -411,6 +411,7 @@ export function GroupCallUI() {
     }
     groupCallService.leaveGroupCall();
     setIsInGroupCall(false);
+    setIsReconnecting(false);
     setParticipants([]);
     setIsScreenSharing(false);
     setShowSourcePicker(false);
