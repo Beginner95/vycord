@@ -79,6 +79,7 @@ func main() {
 	serverUseCase := usecase.NewServerUseCase(serverRepo, channelRepo, userRepo)
 	messageUseCase := usecase.NewMessageUseCase(messageRepo, channelRepo)
 	callUseCase := usecase.NewCallUseCase(callRepo)
+	turnUseCase := usecase.NewTURNUseCase(cfg.TURNSecret, cfg.TURNURLs, cfg.TURNTTL)
 
 	// Initialize hub for WebSocket connections
 	hub := ws.NewHub(log)
@@ -91,6 +92,7 @@ func main() {
 	messageHandler := handler.NewMessageHandler(messageUseCase, hub, log)
 	onlineUsersHandler := handler.NewOnlineUsersHandler(hub, userRepo, log)
 	wsHandler := handler.NewWebSocketHandler(hub, authUseCase, callUseCase, userUseCase, log)
+	turnHandler := handler.NewTURNHandler(turnUseCase, log)
 
 	// Setup router
 	router := http.NewServeMux()
@@ -124,6 +126,9 @@ func main() {
 	// Message routes
 	router.HandleFunc("POST /api/v1/channels/{channel_id}/messages", authMid.RequireAuth(messageHandler.CreateMessage))
 	router.HandleFunc("GET /api/v1/channels/{channel_id}/messages", authMid.RequireAuth(messageHandler.GetMessages))
+
+	// TURN credentials for WebRTC (ephemeral, per-user)
+	router.HandleFunc("GET /api/v1/turn/credentials", authMid.RequireAuth(turnHandler.GetCredentials))
 
 	// WebSocket route
 	router.HandleFunc("GET /ws", wsHandler.HandleWebSocket)

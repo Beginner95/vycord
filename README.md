@@ -199,3 +199,46 @@ users ──< servers ──< channels ──< messages
 | Screen sharing | 🚧 TODO |
 | File uploads | 🚧 TODO |
 | Windows 11 installer | 🚧 TODO |
+
+## TURN (prod)
+
+Голос и видео у клиентов за симметричным NAT или VPN работают только через
+TURN-релей (coturn, поднимается в `docker-compose.prod.yml`). Креденшелы
+ephemeral — их выдаёт API: `GET /api/v1/turn/credentials`.
+
+### Порты (фаервол)
+
+| Порт | Назначение |
+|---|---|
+| 3478/udp | TURN, основной транспорт |
+| 3478/tcp | TURN по TCP — когда UDP заблокирован |
+| 5349/tcp | TURN по TLS (`turns:`) — жёсткие фаерволы, где режется и plain-TCP |
+| 49160–49360/udp | relay-диапазон |
+
+```bash
+sudo ufw allow 3478/udp && sudo ufw allow 3478/tcp
+sudo ufw allow 5349/tcp
+sudo ufw allow 49160:49360/udp
+```
+
+### Проверка после деплоя
+
+```bash
+./deploy/check-turn.sh          # ждём OK по 3478/udp, 3478/tcp, 5349/tls
+./deploy/check-turn.sh --print  # креды для ручной проверки
+```
+
+Скрипт гоняет проверку с самого сервера: он доказывает, что coturn, секрет и
+TLS исправны, но **не** внешнюю доступность портов. Внешняя проверка: открыть
+[Trickle ICE](https://webrtc.github.io/samples/src/content/peerconnection/trickle-ice/)
+из другой сети, добавить `turns:api.vycord.webvaha.ru:5349?transport=tcp` с
+кредами из `--print` и убедиться, что появляется кандидат типа `relay`.
+
+### Сертификат
+
+coturn использует Let's Encrypt-сертификат api-домена: certbot deploy-hook
+(`deploy/coturn-cert-hook.sh`, устанавливается `deploy.sh`) копирует его в
+`/var/lib/vycord/coturn-certs/` и рестартует контейнер при каждом продлении.
+Продление рвёт активные relay-аллокации (~раз в 60 дней, ночью) — активный
+звонок у relay-клиентов при этом падает, нужно перезайти в звонок
+(авто-ICE-restart пока не реализован).

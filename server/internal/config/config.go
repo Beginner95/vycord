@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"strings"
 	"time"
 )
 
@@ -18,6 +19,9 @@ type Config struct {
 	RedisHost     string
 	RedisPort     string
 	ClientURL     string
+	TURNSecret    string
+	TURNURLs      []string
+	TURNTTL       time.Duration
 }
 
 func New() (*Config, error) {
@@ -38,9 +42,23 @@ func New() (*Config, error) {
 		RedisHost:     getEnv("REDIS_HOST", "localhost"),
 		RedisPort:     getEnv("REDIS_PORT", "6379"),
 		ClientURL:     getEnv("CLIENT_URL", "http://localhost:3000"),
+		TURNSecret:    getEnv("TURN_SECRET", ""),
+		TURNURLs:      splitList(getEnv("TURN_URLS", "")),
+		TURNTTL:       parseDuration(getEnv("TURN_CREDENTIAL_TTL", "12h")),
 	}
 
 	return cfg, nil
+}
+
+// splitList parses a comma-separated env value into a slice, skipping empty items.
+func splitList(s string) []string {
+	var out []string
+	for _, item := range strings.Split(s, ",") {
+		if item = strings.TrimSpace(item); item != "" {
+			out = append(out, item)
+		}
+	}
+	return out
 }
 
 func (c *Config) ServerAddr() string {

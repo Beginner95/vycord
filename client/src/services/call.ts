@@ -1,5 +1,6 @@
 import { wsService } from './websocket';
 import { noiseCancellationService } from './noiseCancellation';
+import { getIceServers } from './iceConfig';
 
 interface WebRTCCallbacks {
   onRemoteStream: (stream: MediaStream) => void;
@@ -18,16 +19,6 @@ class CallService {
   private callbacks: WebRTCCallbacks | null = null;
   private pendingOffer: RTCSessionDescriptionInit | null = null;
   private callAccepted = false;
-
-  private readonly iceServers: RTCConfiguration = {
-    iceServers: [
-      { urls: 'stun:stun.l.google.com:19302' },
-      { urls: 'stun:stun1.l.google.com:19302' },
-      { urls: 'stun:stun2.l.google.com:19302' },
-      { urls: 'stun:stun3.l.google.com:19302' },
-      { urls: 'stun:stun4.l.google.com:19302' },
-    ],
-  };
 
   init(callbacks: WebRTCCallbacks): void {
     this.callbacks = callbacks;
@@ -71,7 +62,7 @@ class CallService {
       }
 
       // Create peer connection
-      this.createPeerConnection();
+      await this.createPeerConnection();
 
       // Add local stream tracks (if any)
       if (this.localStream) {
@@ -139,7 +130,7 @@ class CallService {
       }
     }
 
-    this.createPeerConnection();
+    await this.createPeerConnection();
 
     if (this.localStream) {
       this.localStream.getTracks().forEach((track) => {
@@ -205,8 +196,10 @@ class CallService {
     return false;
   }
 
-  private createPeerConnection(): void {
-    this.peerConnection = new RTCPeerConnection(this.iceServers);
+  private async createPeerConnection(): Promise<void> {
+    // STUN+TURN: TURN credentials are ephemeral and fetched per call — without
+    // a relay, peers behind symmetric NAT/VPN never connect.
+    this.peerConnection = new RTCPeerConnection({ iceServers: await getIceServers() });
 
     this.peerConnection.ontrack = (event) => {
       if (!this.remoteStream) {
