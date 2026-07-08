@@ -136,6 +136,10 @@ class GroupCallService {
   private currentRoomId = '';
   private inCall = false;
 
+  // True once the user asked to leave — suppresses auto-reconnect (Task 3).
+  // @ts-ignore TS6133: used by Task 3 (auto-reconnect)
+  private intentionalLeave = false;
+
   // Timestamps for mobile diagnostic metrics (milliseconds since epoch).
   private joinedAt = 0;
   private pcCreatedAt = 0;
@@ -156,17 +160,9 @@ class GroupCallService {
       return false;
     }
 
+    this.intentionalLeave = false;
     this.currentUserId = userId;
     this.currentRoomId = roomId;
-
-    // Fetch STUN+TURN config before signaling: the SFU sends its offer right
-    // after the WS connects, and the PC must be created with a relay available —
-    // behind symmetric NAT/VPN media never flows without TURN.
-    this.iceServers = await getIceServers();
-    gcLog(userId, 'ICE servers', {
-      urls: this.iceServers.flatMap((s) => s.urls),
-      hasTurn: this.iceServers.some((s) => String(s.urls).startsWith('turn')),
-    });
 
     try {
       const raw = await this.acquireMedia();
@@ -210,10 +206,11 @@ class GroupCallService {
       gcLog(userId, 'continuing without local media after unexpected error');
     }
 
-    return this.connectSignaling(roomId, userId);
+    return this.connect(roomId, userId);
   }
 
   leaveGroupCall(): void {
+    this.intentionalLeave = true;
     if (this.ws?.readyState === WebSocket.OPEN) {
       this.ws.send(JSON.stringify({ type: 'leave', payload: {} }));
       this.ws.close();
@@ -495,6 +492,18 @@ class GroupCallService {
   }
 
   // ── Private: signaling connection ─────────────────────────────────────────
+
+  // Establishes signaling and (via the server's offer) a new PC. Shared by the
+  // initial join and reconnect. Fetches ICE servers every time: TURN entries
+  // carry ephemeral credentials that may have expired during a network outage.
+  private async connect(roomId: string, userId: string): Promise<boolean> {
+    this.iceServers = await getIceServers();
+    gcLog(userId, 'ICE servers', {
+      urls: this.iceServers.flatMap((s) => s.urls),
+      hasTurn: this.iceServers.some((s) => String(s.urls).startsWith('turn')),
+    });
+    return this.connectSignaling(roomId, userId);
+  }
 
   private connectSignaling(roomId: string, userId: string): Promise<boolean> {
     const url = `${SFU_URL}/ws?user_id=${userId}&room_id=${roomId}`;
