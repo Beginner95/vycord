@@ -179,6 +179,7 @@ export function GroupCallUI() {
   const { currentServer, currentChannel } = useServerStore();
   const { messages, addMessage } = useMessageStore();
   const [isInGroupCall, setIsInGroupCall] = useState(false);
+  const [isReconnecting, setIsReconnecting] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
   const [isMicAvailable, setIsMicAvailable] = useState(true);
   const [isVideoOff, setIsVideoOff] = useState(true);
@@ -238,7 +239,19 @@ export function GroupCallUI() {
       onPeerLeft: (userId) => {
         setParticipants((prev) => prev.filter((p) => p.userId !== userId));
       },
+      onReconnecting: () => {
+        setIsReconnecting(true);
+        // Participants are re-announced via 'joined'/onPeerJoined after
+        // rejoin; clear now so users who left during the outage don't linger.
+        setParticipants([]);
+        setScreenSharers(new Set());
+        setFocusedUserId(null);
+      },
+      onReconnected: () => {
+        setIsReconnecting(false);
+      },
       onCallEnded: () => {
+        setIsReconnecting(false);
         setIsInGroupCall(false);
         setParticipants([]);
         setIsMuted(false);
@@ -251,6 +264,7 @@ export function GroupCallUI() {
         if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
       },
       onError: (msg) => {
+        setIsReconnecting(false);
         console.error('[GroupCall] Error:', msg);
         setIsInGroupCall(false);
         setParticipants([]);
@@ -539,6 +553,9 @@ export function GroupCallUI() {
 
   return (
     <div className="group-call-overlay">
+      {isReconnecting && (
+        <div className="gc-reconnecting-banner">Переподключение…</div>
+      )}
       {showSourcePickerModal && (
         <ScreenSourcePicker
           sources={screenSources}

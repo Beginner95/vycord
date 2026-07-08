@@ -8,6 +8,19 @@
   flex-direction: column;
 }
 
+.gc-reconnecting-banner {
+  position: absolute;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 30;
+  padding: 8px 16px;
+  border-radius: 8px;
+  background: rgba(230, 160, 30, 0.92);
+  color: #1a1a1a;
+  font-weight: 600;
+}
+
 .group-call-header {
   display: flex;
   align-items: center;
