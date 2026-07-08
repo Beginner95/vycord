@@ -39,6 +39,28 @@ func (rs *RoomSession) Join(
 	participant *domain.Participant,
 	sigSession SignalingSession,
 ) (*ParticipantSession, error) {
+	// A reconnecting user may still have a stale session here: after a network
+	// change the old WS hangs half-open until disconnectedTimeout, its tracks
+	// keep being forwarded and other participants see a duplicate. Evict it
+	// before adding the new session.
+	rs.mu.RLock()
+	staleID := ""
+	for id, s := range rs.sessions {
+		if s.Participant.UserID == participant.UserID {
+			staleID = id
+			break
+		}
+	}
+	rs.mu.RUnlock()
+	if staleID != "" {
+		rs.log.Info("evicting stale session for reconnecting user",
+			"room_id", rs.room.ID,
+			"user_id", participant.UserID,
+			"stale_participant_id", staleID,
+		)
+		rs.Leave(staleID)
+	}
+
 	pc, err := rs.peerFactory.NewPeerConnection()
 	if err != nil {
 		return nil, err
