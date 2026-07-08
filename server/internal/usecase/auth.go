@@ -9,6 +9,7 @@ import (
 	"golang.org/x/crypto/bcrypt"
 
 	"github.com/vycord/server/internal/domain"
+	"github.com/vycord/server/pkg/authtoken"
 )
 
 type authUseCase struct {
@@ -92,25 +93,9 @@ func (uc *authUseCase) Login(email, password string) (*domain.User, string, erro
 }
 
 func (uc *authUseCase) ValidateToken(tokenString string) (*domain.User, error) {
-	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
-		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
-			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
-		}
-		return []byte(uc.jwtSecret), nil
-	})
-
+	userID, err := authtoken.ValidateToken(uc.jwtSecret, tokenString)
 	if err != nil {
-		return nil, fmt.Errorf("invalid token: %w", err)
-	}
-
-	claims, ok := token.Claims.(jwt.MapClaims)
-	if !ok || !token.Valid {
-		return nil, fmt.Errorf("invalid token claims")
-	}
-
-	userID, err := uuid.Parse(claims["user_id"].(string))
-	if err != nil {
-		return nil, fmt.Errorf("invalid user id in token")
+		return nil, err
 	}
 
 	user, err := uc.userRepo.GetByID(userID)
