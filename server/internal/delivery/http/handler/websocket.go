@@ -4,11 +4,18 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 	"github.com/vycord/server/internal/delivery/ws"
 	"github.com/vycord/server/internal/domain"
+)
+
+const (
+	defaultWriteWait  = 10 * time.Second
+	defaultPongWait   = 60 * time.Second
+	defaultPingPeriod = (defaultPongWait * 9) / 10
 )
 
 var upgrader = websocket.Upgrader{
@@ -25,6 +32,10 @@ type WebSocketHandler struct {
 	callUseCase domain.CallUseCase
 	userUseCase domain.UserUseCase
 	log         *slog.Logger
+
+	writeWait  time.Duration
+	pongWait   time.Duration
+	pingPeriod time.Duration
 }
 
 func NewWebSocketHandler(hub *ws.Hub, authUseCase domain.AuthUseCase, callUseCase domain.CallUseCase, userUseCase domain.UserUseCase, log *slog.Logger) *WebSocketHandler {
@@ -34,6 +45,9 @@ func NewWebSocketHandler(hub *ws.Hub, authUseCase domain.AuthUseCase, callUseCas
 		callUseCase: callUseCase,
 		userUseCase: userUseCase,
 		log:         log,
+		writeWait:   defaultWriteWait,
+		pongWait:    defaultPongWait,
+		pingPeriod:  defaultPingPeriod,
 	}
 }
 
@@ -86,6 +100,12 @@ func (h *WebSocketHandler) readPump(client *ws.Client) {
 		}
 	}()
 
+	client.Conn.SetReadDeadline(time.Now().Add(h.pongWait))
+	client.Conn.SetPongHandler(func(string) error {
+		client.Conn.SetReadDeadline(time.Now().Add(h.pongWait))
+		return nil
+	})
+
 	for {
 		_, message, err := client.Conn.ReadMessage()
 		if err != nil {
@@ -106,25 +126,33 @@ func (h *WebSocketHandler) readPump(client *ws.Client) {
 }
 
 func (h *WebSocketHandler) writePump(client *ws.Client) {
+	ticker := time.NewTicker(h.pingPeriod)
 	defer func() {
+		ticker.Stop()
 		client.Conn.Close()
 	}()
 
 	for {
-		message, ok := <-client.Send
-		if !ok {
-			client.Conn.WriteMessage(websocket.CloseMessage, []byte{})
-			return
-		}
-
-		w, err := client.Conn.NextWriter(websocket.TextMessage)
-		if err != nil {
-			return
-		}
-		w.Write(message)
-
-		if err := w.Close(); err != nil {
-			return
+		select {
+		case message, ok := <-client.Send:
+			client.Conn.SetWriteDeadline(time.Now().Add(h.writeWait))
+			if !ok {
+				client.Conn.WriteMessage(websocket.CloseMessage, []byte{})
+				return
+			}
+			w, err := client.Conn.NextWriter(websocket.TextMessage)
+			if err != nil {
+				return
+			}
+			w.Write(message)
+			if err := w.Close(); err != nil {
+				return
+			}
+		case <-ticker.C:
+			client.Conn.SetWriteDeadline(time.Now().Add(h.writeWait))
+			if err := client.Conn.WriteMessage(websocket.PingMessage, nil); err != nil {
+				return
+			}
 		}
 	}
 }
