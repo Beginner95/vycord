@@ -133,10 +133,6 @@ func (h *WebSocketHandler) handleMessage(client *ws.Client, msg *ws.Message) {
 	switch msg.Type {
 	case "join_channel":
 		h.handleJoinChannel(client, msg)
-	case "chat_message":
-		h.handleChatMessage(client, msg)
-	case "typing":
-		h.handleTyping(client, msg)
 	case "call_start":
 		h.handleCallStart(client, msg)
 	case "call_accept":
@@ -182,34 +178,6 @@ func (h *WebSocketHandler) handleJoinChannel(client *ws.Client, msg *ws.Message)
 		return
 	}
 	h.hub.SetClientChannel(client.UserID, &channelID)
-}
-
-func (h *WebSocketHandler) handleChatMessage(client *ws.Client, msg *ws.Message) {
-	var payload struct {
-		ChannelID string `json:"channel_id"`
-	}
-	if err := json.Unmarshal(msg.Payload, &payload); err == nil && payload.ChannelID != "" {
-		channelID, err := uuid.Parse(payload.ChannelID)
-		if err == nil {
-			h.hub.SendToChannel(channelID, &ws.Message{Type: "chat_message", Payload: msg.Payload})
-			return
-		}
-	}
-	h.hub.BroadcastMessage(&ws.Message{Type: "chat_message", Payload: msg.Payload})
-}
-
-func (h *WebSocketHandler) handleTyping(client *ws.Client, msg *ws.Message) {
-	var payload struct {
-		ChannelID string `json:"channel_id"`
-	}
-	if err := json.Unmarshal(msg.Payload, &payload); err == nil && payload.ChannelID != "" {
-		channelID, err := uuid.Parse(payload.ChannelID)
-		if err == nil {
-			h.hub.SendToChannel(channelID, &ws.Message{Type: "typing", Payload: msg.Payload})
-			return
-		}
-	}
-	h.hub.BroadcastMessage(&ws.Message{Type: "typing", Payload: msg.Payload})
 }
 
 // --- Call Signalling ---
