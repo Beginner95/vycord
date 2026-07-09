@@ -7,7 +7,9 @@ import (
 	"net/http/httptest"
 	"os"
 	"testing"
+	"time"
 
+	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -140,4 +142,63 @@ func getTestToken(t *testing.T) string {
 	err = json.NewDecoder(resp.Body).Decode(&result)
 	require.NoError(t, err)
 	return result["token"]
+}
+
+// TestWSSenderSpoofing проверяет, что сервер не пересылает в канал
+// присланные клиентом chat_message/typing — идентичность отправителя должна
+// браться из JWT, а не из payload. Регрессия на фикс подделки отправителя.
+//
+// До фикса: клиент, "просматривающий" канал (join_channel), получал бы своё же
+// подделанное chat_message/typing обратно через SendToChannel. После фикса эти
+// события уходят в ветку default и наружу не рассылаются.
+func TestWSSenderSpoofing(t *testing.T) {
+	if os.Getenv("RUN_E2E") != "true" {
+		t.Skip("Skipping E2E test. Set RUN_E2E=true to run.")
+	}
+
+	token := getTestToken(t)
+	wsURL := "ws://localhost:8080/ws?token=" + token
+
+	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Skip("WebSocket server not running")
+	}
+	defer conn.Close()
+
+	channelID := uuid.NewString()
+
+	// Начинаем "просматривать" канал, чтобы SendToChannel таргетил это соединение.
+	err = conn.WriteMessage(websocket.TextMessage,
+		[]byte(`{"type":"join_channel","payload":{"channel_id":"`+channelID+`"}}`))
+	require.NoError(t, err)
+
+	// Подделываем chat_message от чужого user_id.
+	err = conn.WriteMessage(websocket.TextMessage,
+		[]byte(`{"type":"chat_message","payload":{"channel_id":"`+channelID+`","user_id":"00000000-0000-0000-0000-000000000001","content":"spoofed"}}`))
+	require.NoError(t, err)
+
+	// Подделываем typing от чужого user_id.
+	err = conn.WriteMessage(websocket.TextMessage,
+		[]byte(`{"type":"typing","payload":{"channel_id":"`+channelID+`","user_id":"00000000-0000-0000-0000-000000000001"}}`))
+	require.NoError(t, err)
+
+	// Читаем входящие кадры короткое окно. Кадры online_users/user_joined,
+	// приходящие при подключении, дренируем. Тест падает, только если сервер
+	// прислал обратно chat_message или typing.
+	_ = conn.SetReadDeadline(time.Now().Add(500 * time.Millisecond))
+	for {
+		_, raw, err := conn.ReadMessage()
+		if err != nil {
+			break // дедлайн — эха нет, успех
+		}
+		var m struct {
+			Type string `json:"type"`
+		}
+		if json.Unmarshal(raw, &m) != nil {
+			continue
+		}
+		if m.Type == "chat_message" || m.Type == "typing" {
+			t.Fatalf("server echoed spoofed %q back to channel", m.Type)
+		}
+	}
 }
