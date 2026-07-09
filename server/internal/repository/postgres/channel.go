@@ -2,12 +2,13 @@ package postgres
 
 import (
 	"context"
-	"database/sql"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/vycord/server/internal/domain"
 )
@@ -70,8 +71,8 @@ func (r *channelRepository) GetByID(id uuid.UUID) (*domain.Channel, error) {
 		&channel.UpdatedAt,
 	)
 
-	if err == sql.ErrNoRows {
-		return nil, fmt.Errorf("channel not found")
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, fmt.Errorf("channel %s: %w", id, domain.ErrChannelNotFound)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to get channel: %w", err)
