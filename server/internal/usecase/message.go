@@ -34,6 +34,16 @@ func (uc *messageUseCase) requireMembership(channelID, userID uuid.UUID) error {
 		return fmt.Errorf("get channel: %w", err)
 	}
 
+	server, err := uc.serverRepo.GetByID(ch.ServerID)
+	if err != nil {
+		return fmt.Errorf("get server: %w", err)
+	}
+	// Владелец сервера трекается через servers.owner_id, а не в server_members
+	// (см. JoinServer), поэтому доступ владельца проверяем отдельно.
+	if server.OwnerID == userID {
+		return nil
+	}
+
 	isMember, err := uc.serverRepo.IsMember(ch.ServerID, userID)
 	if err != nil {
 		return fmt.Errorf("check membership: %w", err)

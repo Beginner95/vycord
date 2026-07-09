@@ -126,6 +126,7 @@ func TestCreateMessage_Member_Success(t *testing.T) {
 	srvRepo := new(MockServerRepository)
 
 	chRepo.On("GetByID", channelID).Return(&domain.Channel{ID: channelID, ServerID: serverID}, nil)
+	srvRepo.On("GetByID", serverID).Return(&domain.Server{ID: serverID, OwnerID: uuid.New()}, nil)
 	srvRepo.On("IsMember", serverID, userID).Return(true, nil)
 	msgRepo.On("Create", mock.AnythingOfType("*domain.Message")).Return(nil)
 
@@ -147,6 +148,7 @@ func TestCreateMessage_NotMember_Forbidden(t *testing.T) {
 	srvRepo := new(MockServerRepository)
 
 	chRepo.On("GetByID", channelID).Return(&domain.Channel{ID: channelID, ServerID: serverID}, nil)
+	srvRepo.On("GetByID", serverID).Return(&domain.Server{ID: serverID, OwnerID: uuid.New()}, nil)
 	srvRepo.On("IsMember", serverID, userID).Return(false, nil)
 
 	uc := usecase.NewMessageUseCase(msgRepo, chRepo, srvRepo)
@@ -171,8 +173,29 @@ func TestCreateMessage_ChannelNotFound(t *testing.T) {
 
 	assert.Nil(t, msg)
 	assert.ErrorIs(t, err, domain.ErrChannelNotFound)
+	srvRepo.AssertNotCalled(t, "GetByID", mock.Anything)
 	srvRepo.AssertNotCalled(t, "IsMember", mock.Anything, mock.Anything)
 	msgRepo.AssertNotCalled(t, "Create", mock.Anything)
+}
+
+func TestCreateMessage_Owner_Success(t *testing.T) {
+	channelID, serverID, ownerID := uuid.New(), uuid.New(), uuid.New()
+
+	msgRepo := new(MockMessageRepository)
+	chRepo := new(MockChannelRepository)
+	srvRepo := new(MockServerRepository)
+
+	chRepo.On("GetByID", channelID).Return(&domain.Channel{ID: channelID, ServerID: serverID}, nil)
+	srvRepo.On("GetByID", serverID).Return(&domain.Server{ID: serverID, OwnerID: ownerID}, nil)
+	msgRepo.On("Create", mock.AnythingOfType("*domain.Message")).Return(nil)
+
+	uc := usecase.NewMessageUseCase(msgRepo, chRepo, srvRepo)
+	msg, err := uc.CreateMessage(channelID, ownerID, "hello")
+
+	assert.NoError(t, err)
+	assert.NotNil(t, msg)
+	srvRepo.AssertNotCalled(t, "IsMember", mock.Anything, mock.Anything)
+	msgRepo.AssertCalled(t, "Create", mock.AnythingOfType("*domain.Message"))
 }
 
 func TestGetMessages_Member_ReturnsMessages(t *testing.T) {
@@ -184,6 +207,7 @@ func TestGetMessages_Member_ReturnsMessages(t *testing.T) {
 
 	want := []*domain.Message{{ID: uuid.New(), ChannelID: channelID, Content: "hi"}}
 	chRepo.On("GetByID", channelID).Return(&domain.Channel{ID: channelID, ServerID: serverID}, nil)
+	srvRepo.On("GetByID", serverID).Return(&domain.Server{ID: serverID, OwnerID: uuid.New()}, nil)
 	srvRepo.On("IsMember", serverID, userID).Return(true, nil)
 	msgRepo.On("GetByChannelID", channelID, 50, 0).Return(want, nil)
 
@@ -202,6 +226,7 @@ func TestGetMessages_NotMember_Forbidden(t *testing.T) {
 	srvRepo := new(MockServerRepository)
 
 	chRepo.On("GetByID", channelID).Return(&domain.Channel{ID: channelID, ServerID: serverID}, nil)
+	srvRepo.On("GetByID", serverID).Return(&domain.Server{ID: serverID, OwnerID: uuid.New()}, nil)
 	srvRepo.On("IsMember", serverID, userID).Return(false, nil)
 
 	uc := usecase.NewMessageUseCase(msgRepo, chRepo, srvRepo)
@@ -210,4 +235,24 @@ func TestGetMessages_NotMember_Forbidden(t *testing.T) {
 	assert.Nil(t, got)
 	assert.ErrorIs(t, err, domain.ErrForbidden)
 	msgRepo.AssertNotCalled(t, "GetByChannelID", mock.Anything, mock.Anything, mock.Anything)
+}
+
+func TestGetMessages_Owner_ReturnsMessages(t *testing.T) {
+	channelID, serverID, ownerID := uuid.New(), uuid.New(), uuid.New()
+
+	msgRepo := new(MockMessageRepository)
+	chRepo := new(MockChannelRepository)
+	srvRepo := new(MockServerRepository)
+
+	want := []*domain.Message{{ID: uuid.New(), ChannelID: channelID, Content: "hi"}}
+	chRepo.On("GetByID", channelID).Return(&domain.Channel{ID: channelID, ServerID: serverID}, nil)
+	srvRepo.On("GetByID", serverID).Return(&domain.Server{ID: serverID, OwnerID: ownerID}, nil)
+	msgRepo.On("GetByChannelID", channelID, 50, 0).Return(want, nil)
+
+	uc := usecase.NewMessageUseCase(msgRepo, chRepo, srvRepo)
+	got, err := uc.GetMessages(channelID, ownerID, 50, 0)
+
+	assert.NoError(t, err)
+	assert.Equal(t, want, got)
+	srvRepo.AssertNotCalled(t, "IsMember", mock.Anything, mock.Anything)
 }
