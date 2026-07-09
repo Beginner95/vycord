@@ -9,25 +9,54 @@ import (
 )
 
 type messageUseCase struct {
-	messageRepo   domain.MessageRepository
-	channelRepo   domain.ChannelRepository
+	messageRepo domain.MessageRepository
+	channelRepo domain.ChannelRepository
+	serverRepo  domain.ServerRepository
 }
 
 func NewMessageUseCase(
 	messageRepo domain.MessageRepository,
 	channelRepo domain.ChannelRepository,
+	serverRepo domain.ServerRepository,
 ) domain.MessageUseCase {
 	return &messageUseCase{
 		messageRepo: messageRepo,
 		channelRepo: channelRepo,
+		serverRepo:  serverRepo,
 	}
 }
 
-func (uc *messageUseCase) CreateMessage(channelID, userID uuid.UUID, content string) (*domain.Message, error) {
-	// Verify channel exists
-	_, err := uc.channelRepo.GetByID(channelID)
+// requireMembership проверяет, что канал существует и пользователь состоит в его
+// сервере. Возвращает domain.ErrChannelNotFound (обёрнуто) или domain.ErrForbidden.
+func (uc *messageUseCase) requireMembership(channelID, userID uuid.UUID) error {
+	ch, err := uc.channelRepo.GetByID(channelID)
 	if err != nil {
-		return nil, fmt.Errorf("channel not found: %w", err)
+		return fmt.Errorf("get channel: %w", err)
+	}
+
+	server, err := uc.serverRepo.GetByID(ch.ServerID)
+	if err != nil {
+		return fmt.Errorf("get server: %w", err)
+	}
+	// Владелец сервера трекается через servers.owner_id, а не в server_members
+	// (см. JoinServer), поэтому доступ владельца проверяем отдельно.
+	if server.OwnerID == userID {
+		return nil
+	}
+
+	isMember, err := uc.serverRepo.IsMember(ch.ServerID, userID)
+	if err != nil {
+		return fmt.Errorf("check membership: %w", err)
+	}
+	if !isMember {
+		return domain.ErrForbidden
+	}
+	return nil
+}
+
+func (uc *messageUseCase) CreateMessage(channelID, userID uuid.UUID, content string) (*domain.Message, error) {
+	if err := uc.requireMembership(channelID, userID); err != nil {
+		return nil, err
 	}
 
 	now := time.Now()
@@ -47,7 +76,11 @@ func (uc *messageUseCase) CreateMessage(channelID, userID uuid.UUID, content str
 	return msg, nil
 }
 
-func (uc *messageUseCase) GetMessages(channelID uuid.UUID, limit, offset int) ([]*domain.Message, error) {
+func (uc *messageUseCase) GetMessages(channelID, userID uuid.UUID, limit, offset int) ([]*domain.Message, error) {
+	if err := uc.requireMembership(channelID, userID); err != nil {
+		return nil, err
+	}
+
 	if limit <= 0 {
 		limit = 50
 	}

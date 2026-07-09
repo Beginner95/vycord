@@ -2,6 +2,7 @@ package handler
 
 import (
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -52,7 +53,7 @@ func (h *MessageHandler) CreateMessage(w http.ResponseWriter, r *http.Request) {
 
 	msg, err := h.messageUseCase.CreateMessage(channelID, userID, req.Content)
 	if err != nil {
-		h.sendError(w, http.StatusInternalServerError, err.Error())
+		h.writeUseCaseError(w, err)
 		return
 	}
 
@@ -67,6 +68,8 @@ func (h *MessageHandler) CreateMessage(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *MessageHandler) GetMessages(w http.ResponseWriter, r *http.Request) {
+	userID := r.Context().Value("user_id").(uuid.UUID)
+
 	channelIDStr := r.PathValue("channel_id")
 	channelID, err := uuid.Parse(channelIDStr)
 	if err != nil {
@@ -81,9 +84,9 @@ func (h *MessageHandler) GetMessages(w http.ResponseWriter, r *http.Request) {
 		limit = 50
 	}
 
-	messages, err := h.messageUseCase.GetMessages(channelID, limit, offset)
+	messages, err := h.messageUseCase.GetMessages(channelID, userID, limit, offset)
 	if err != nil {
-		h.sendError(w, http.StatusInternalServerError, "failed to get messages")
+		h.writeUseCaseError(w, err)
 		return
 	}
 
@@ -92,6 +95,20 @@ func (h *MessageHandler) GetMessages(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.sendJSON(w, http.StatusOK, messages)
+}
+
+// writeUseCaseError транслирует доменные ошибки в HTTP-статусы, не раскрывая
+// внутренние детали (err.Error()) наружу.
+func (h *MessageHandler) writeUseCaseError(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, domain.ErrChannelNotFound):
+		h.sendError(w, http.StatusNotFound, "channel not found")
+	case errors.Is(err, domain.ErrForbidden):
+		h.sendError(w, http.StatusForbidden, "access denied")
+	default:
+		h.log.Error("message request failed", "error", err)
+		h.sendError(w, http.StatusInternalServerError, "internal server error")
+	}
 }
 
 func (h *MessageHandler) sendJSON(w http.ResponseWriter, status int, data interface{}) {

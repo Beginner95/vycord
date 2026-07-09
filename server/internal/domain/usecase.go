@@ -29,7 +29,7 @@ type ServerUseCase interface {
 
 type MessageUseCase interface {
 	CreateMessage(channelID, userID uuid.UUID, content string) (*Message, error)
-	GetMessages(channelID uuid.UUID, limit, offset int) ([]*Message, error)
+	GetMessages(channelID, userID uuid.UUID, limit, offset int) ([]*Message, error)
 }
 
 type TURNUseCase interface {

@@ -77,7 +77,7 @@ func main() {
 	authUseCase := usecase.NewAuthUseCase(userRepo, cfg.JWTSecret, cfg.JWTExpiration)
 	userUseCase := usecase.NewUserUseCase(userRepo)
 	serverUseCase := usecase.NewServerUseCase(serverRepo, channelRepo, userRepo)
-	messageUseCase := usecase.NewMessageUseCase(messageRepo, channelRepo)
+	messageUseCase := usecase.NewMessageUseCase(messageRepo, channelRepo, serverRepo)
 	callUseCase := usecase.NewCallUseCase(callRepo)
 	turnUseCase := usecase.NewTURNUseCase(cfg.TURNSecret, cfg.TURNURLs, cfg.TURNTTL)
 
