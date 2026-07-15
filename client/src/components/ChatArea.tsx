@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, type FormEvent } from 'react';
+import { useState, useEffect, useRef, type FormEvent, type KeyboardEvent } from 'react';
 import { useMessageStore } from '@/stores/messageStore';
 import type { Message } from '@/types';
 import { apiService } from '@/services/api';
@@ -15,7 +15,7 @@ interface ChatAreaProps {
 }
 
 export function ChatArea({ channel, user, onMobileBack, onShowMembers }: ChatAreaProps) {
-  const { messages, addMessage } = useMessageStore();
+  const { messages, addMessage, updateMessage, removeMessage } = useMessageStore();
   const [input, setInput] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -91,6 +91,21 @@ export function ChatArea({ channel, user, onMobileBack, onShowMembers }: ChatAre
     return unsub;
   }, [user, userCache]);
 
+  useEffect(() => {
+    const unsubUpdate = wsService.on('message_update', (payload) => {
+      const msg = payload as Message;
+      updateMessage(msg.id, msg);
+    });
+    const unsubDelete = wsService.on('message_delete', (payload) => {
+      const { id } = payload as { id: string; channel_id: string };
+      removeMessage(id);
+    });
+    return () => {
+      unsubUpdate();
+      unsubDelete();
+    };
+  }, [updateMessage, removeMessage]);
+
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
@@ -105,6 +120,51 @@ export function ChatArea({ channel, user, onMobileBack, onShowMembers }: ChatAre
       setInput('');
     } catch (err) {
       console.error('Failed to send message:', err);
+    }
+  };
+
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editValue, setEditValue] = useState('');
+
+  const startEdit = (msg: Message) => {
+    setEditingId(msg.id);
+    setEditValue(msg.content);
+  };
+
+  const cancelEdit = () => {
+    setEditingId(null);
+    setEditValue('');
+  };
+
+  const saveEdit = async (messageId: string) => {
+    if (!channel || !editValue.trim()) return;
+    try {
+      const updated = await apiService.updateMessage(channel.id, messageId, editValue.trim()) as Message;
+      updateMessage(messageId, updated);
+      cancelEdit();
+    } catch (err) {
+      console.error('Failed to update message:', err);
+    }
+  };
+
+  const handleEditKeyDown = (e: KeyboardEvent<HTMLInputElement>, messageId: string) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      saveEdit(messageId);
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      cancelEdit();
+    }
+  };
+
+  const handleDelete = async (messageId: string) => {
+    if (!channel) return;
+    if (!window.confirm('Удалить сообщение?')) return;
+    try {
+      await apiService.deleteMessage(channel.id, messageId);
+      removeMessage(messageId);
+    } catch (err) {
+      console.error('Failed to delete message:', err);
     }
   };
 
@@ -169,6 +229,9 @@ export function ChatArea({ channel, user, onMobileBack, onShowMembers }: ChatAre
                 ? user!.username
                 : (userCache.get(msg.user_id) || msg.user_id.slice(0, 8));
 
+              const isEdited = msg.updated_at !== msg.created_at;
+              const isEditing = editingId === msg.id;
+
               return (
                 <div
                   key={msg.id}
@@ -185,6 +248,7 @@ export function ChatArea({ channel, user, onMobileBack, onShowMembers }: ChatAre
                         <span className="message-author">{displayName}</span>
                         <span className="message-timestamp">
                           {formatTime(msg.created_at)}
+                          {isEdited && ' (изменено)'}
                         </span>
                       </div>
                     )}
@@ -192,15 +256,48 @@ export function ChatArea({ channel, user, onMobileBack, onShowMembers }: ChatAre
                       <div className="message-header self">
                         <span className="message-timestamp">
                           {formatTime(msg.created_at)}
+                          {isEdited && ' (изменено)'}
                         </span>
                         <span className="message-author">{displayName}</span>
                       </div>
                     )}
-                    <p className="message-text">{msg.content}</p>
+                    {isEditing ? (
+                      <input
+                        className="message-edit-input"
+                        value={editValue}
+                        onChange={(e) => setEditValue(e.target.value)}
+                        onKeyDown={(e) => handleEditKeyDown(e, msg.id)}
+                        onBlur={cancelEdit}
+                        maxLength={2000}
+                        autoFocus
+                      />
+                    ) : (
+                      <p className="message-text">{msg.content}</p>
+                    )}
                   </div>
                   {!isCompact && isFromMe && (
                     <div className="message-avatar self">
                       {displayName.charAt(0).toUpperCase()}
+                    </div>
+                  )}
+                  {isFromMe && !isEditing && (
+                    <div className="message-actions">
+                      <button
+                        type="button"
+                        className="message-action-btn"
+                        aria-label="Edit"
+                        onClick={() => startEdit(msg)}
+                      >
+                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg>
+                      </button>
+                      <button
+                        type="button"
+                        className="message-action-btn message-action-btn--danger"
+                        aria-label="Delete"
+                        onClick={() => handleDelete(msg.id)}
+                      >
+                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+                      </button>
                     </div>
                   )}
                 </div>
