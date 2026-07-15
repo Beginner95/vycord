@@ -138,6 +138,11 @@ export function ChatArea({ channel, user, onMobileBack, onShowMembers }: ChatAre
 
   const saveEdit = async (messageId: string) => {
     if (!channel || !editValue.trim()) return;
+    const original = messages.find((m) => m.id === messageId);
+    if (original && editValue.trim() === original.content) {
+      cancelEdit();
+      return;
+    }
     try {
       const updated = await apiService.updateMessage(channel.id, messageId, editValue.trim()) as Message;
       updateMessage(messageId, updated);
