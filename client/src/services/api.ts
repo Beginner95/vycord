@@ -134,6 +134,19 @@ class ApiService {
     return this.request(`/api/v1/channels/${channelId}/messages?limit=${limit}&offset=${offset}`);
   }
 
+  async updateMessage(channelId: string, messageId: string, content: string) {
+    return this.request(`/api/v1/channels/${channelId}/messages/${messageId}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ content }),
+    });
+  }
+
+  async deleteMessage(channelId: string, messageId: string) {
+    return this.request(`/api/v1/channels/${channelId}/messages/${messageId}`, {
+      method: 'DELETE',
+    });
+  }
+
   async updateLastVisited(serverId: string | null, channelId: string | null) {
     return this.request('/api/v1/users/me/last-visited', {
       method: 'PUT',
