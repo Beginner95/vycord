@@ -205,6 +205,70 @@
   background: linear-gradient(135deg, var(--brand-400), var(--brand-600));
 }
 
+/* ── Message hover actions ── */
+.message {
+  position: relative;
+}
+
+.message-actions {
+  display: none;
+  position: absolute;
+  top: -14px;
+  gap: 2px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-sm);
+  padding: 2px;
+}
+
+.message.self .message-actions {
+  right: 54px;
+}
+
+.message.other .message-actions {
+  left: 54px;
+}
+
+.message:hover .message-actions {
+  display: flex;
+}
+
+.message-action-btn {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  width: 26px;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: all var(--transition);
+}
+
+.message-action-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.message-action-btn--danger:hover {
+  background: var(--red-500);
+  color: white;
+}
+
+.message-edit-input {
+  width: 100%;
+  padding: 8px 14px;
+  border: 1.5px solid var(--brand-color);
+  border-radius: var(--radius-sm);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-size: 14px;
+  outline: none;
+}
+
 /* ── Chat Input ── */
 .chat-input {
   padding: 0 24px 20px;
