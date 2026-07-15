@@ -97,12 +97,90 @@ func (h *MessageHandler) GetMessages(w http.ResponseWriter, r *http.Request) {
 	h.sendJSON(w, http.StatusOK, messages)
 }
 
+type UpdateMessageRequest struct {
+	Content string `json:"content"`
+}
+
+func (h *MessageHandler) UpdateMessage(w http.ResponseWriter, r *http.Request) {
+	userID := r.Context().Value("user_id").(uuid.UUID)
+
+	channelID, err := uuid.Parse(r.PathValue("channel_id"))
+	if err != nil {
+		h.sendError(w, http.StatusBadRequest, "invalid channel id")
+		return
+	}
+	messageID, err := uuid.Parse(r.PathValue("message_id"))
+	if err != nil {
+		h.sendError(w, http.StatusBadRequest, "invalid message id")
+		return
+	}
+
+	var req UpdateMessageRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		h.sendError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if req.Content == "" {
+		h.sendError(w, http.StatusBadRequest, "message content is required")
+		return
+	}
+
+	msg, err := h.messageUseCase.UpdateMessage(channelID, messageID, userID, req.Content)
+	if err != nil {
+		h.writeUseCaseError(w, err)
+		return
+	}
+
+	payload, _ := json.Marshal(msg)
+	h.hub.SendToChannel(channelID, &ws.Message{
+		Type:    "message_update",
+		Payload: payload,
+	})
+
+	h.sendJSON(w, http.StatusOK, msg)
+}
+
+type deleteMessagePayload struct {
+	ID        uuid.UUID `json:"id"`
+	ChannelID uuid.UUID `json:"channel_id"`
+}
+
+func (h *MessageHandler) DeleteMessage(w http.ResponseWriter, r *http.Request) {
+	userID := r.Context().Value("user_id").(uuid.UUID)
+
+	channelID, err := uuid.Parse(r.PathValue("channel_id"))
+	if err != nil {
+		h.sendError(w, http.StatusBadRequest, "invalid channel id")
+		return
+	}
+	messageID, err := uuid.Parse(r.PathValue("message_id"))
+	if err != nil {
+		h.sendError(w, http.StatusBadRequest, "invalid message id")
+		return
+	}
+
+	if err := h.messageUseCase.DeleteMessage(channelID, messageID, userID); err != nil {
+		h.writeUseCaseError(w, err)
+		return
+	}
+
+	payload, _ := json.Marshal(deleteMessagePayload{ID: messageID, ChannelID: channelID})
+	h.hub.SendToChannel(channelID, &ws.Message{
+		Type:    "message_delete",
+		Payload: payload,
+	})
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
 // writeUseCaseError транслирует доменные ошибки в HTTP-статусы, не раскрывая
 // внутренние детали (err.Error()) наружу.
 func (h *MessageHandler) writeUseCaseError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, domain.ErrChannelNotFound):
 		h.sendError(w, http.StatusNotFound, "channel not found")
+	case errors.Is(err, domain.ErrMessageNotFound):
+		h.sendError(w, http.StatusNotFound, "message not found")
 	case errors.Is(err, domain.ErrForbidden):
 		h.sendError(w, http.StatusForbidden, "access denied")
 	default:
