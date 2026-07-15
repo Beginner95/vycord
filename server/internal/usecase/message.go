@@ -95,3 +95,32 @@ func (uc *messageUseCase) GetMessages(channelID, userID uuid.UUID, limit, offset
 
 	return messages, nil
 }
+
+func (uc *messageUseCase) UpdateMessage(channelID, messageID, userID uuid.UUID, content string) (*domain.Message, error) {
+	if err := uc.requireMembership(channelID, userID); err != nil {
+		return nil, err
+	}
+
+	msg, err := uc.messageRepo.GetByID(messageID)
+	if err != nil {
+		return nil, fmt.Errorf("get message: %w", err)
+	}
+	if msg.ChannelID != channelID {
+		return nil, fmt.Errorf("message %s: %w", messageID, domain.ErrMessageNotFound)
+	}
+	if msg.UserID != userID {
+		return nil, domain.ErrForbidden
+	}
+
+	if msg.Content == content {
+		return msg, nil
+	}
+
+	if err := uc.messageRepo.Update(messageID, map[string]interface{}{"content": content}); err != nil {
+		return nil, fmt.Errorf("failed to update message: %w", err)
+	}
+
+	msg.Content = content
+	msg.UpdatedAt = time.Now()
+	return msg, nil
+}

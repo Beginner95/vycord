@@ -256,3 +256,126 @@ func TestGetMessages_Owner_ReturnsMessages(t *testing.T) {
 	assert.Equal(t, want, got)
 	srvRepo.AssertNotCalled(t, "IsMember", mock.Anything, mock.Anything)
 }
+
+func TestUpdateMessage_Author_ContentChanged_Success(t *testing.T) {
+	channelID, serverID, userID, messageID := uuid.New(), uuid.New(), uuid.New(), uuid.New()
+
+	msgRepo := new(MockMessageRepository)
+	chRepo := new(MockChannelRepository)
+	srvRepo := new(MockServerRepository)
+
+	chRepo.On("GetByID", channelID).Return(&domain.Channel{ID: channelID, ServerID: serverID}, nil)
+	srvRepo.On("GetByID", serverID).Return(&domain.Server{ID: serverID, OwnerID: uuid.New()}, nil)
+	srvRepo.On("IsMember", serverID, userID).Return(true, nil)
+	existing := &domain.Message{ID: messageID, ChannelID: channelID, UserID: userID, Content: "old"}
+	msgRepo.On("GetByID", messageID).Return(existing, nil)
+	msgRepo.On("Update", messageID, map[string]interface{}{"content": "new"}).Return(nil)
+
+	uc := usecase.NewMessageUseCase(msgRepo, chRepo, srvRepo)
+	msg, err := uc.UpdateMessage(channelID, messageID, userID, "new")
+
+	assert.NoError(t, err)
+	assert.Equal(t, "new", msg.Content)
+	msgRepo.AssertCalled(t, "Update", messageID, map[string]interface{}{"content": "new"})
+}
+
+func TestUpdateMessage_ContentUnchanged_NoOp(t *testing.T) {
+	channelID, serverID, userID, messageID := uuid.New(), uuid.New(), uuid.New(), uuid.New()
+
+	msgRepo := new(MockMessageRepository)
+	chRepo := new(MockChannelRepository)
+	srvRepo := new(MockServerRepository)
+
+	chRepo.On("GetByID", channelID).Return(&domain.Channel{ID: channelID, ServerID: serverID}, nil)
+	srvRepo.On("GetByID", serverID).Return(&domain.Server{ID: serverID, OwnerID: uuid.New()}, nil)
+	srvRepo.On("IsMember", serverID, userID).Return(true, nil)
+	existing := &domain.Message{ID: messageID, ChannelID: channelID, UserID: userID, Content: "same"}
+	msgRepo.On("GetByID", messageID).Return(existing, nil)
+
+	uc := usecase.NewMessageUseCase(msgRepo, chRepo, srvRepo)
+	msg, err := uc.UpdateMessage(channelID, messageID, userID, "same")
+
+	assert.NoError(t, err)
+	assert.Equal(t, "same", msg.Content)
+	msgRepo.AssertNotCalled(t, "Update", mock.Anything, mock.Anything)
+}
+
+func TestUpdateMessage_NotAuthor_Forbidden(t *testing.T) {
+	channelID, serverID, userID, authorID, messageID := uuid.New(), uuid.New(), uuid.New(), uuid.New(), uuid.New()
+
+	msgRepo := new(MockMessageRepository)
+	chRepo := new(MockChannelRepository)
+	srvRepo := new(MockServerRepository)
+
+	chRepo.On("GetByID", channelID).Return(&domain.Channel{ID: channelID, ServerID: serverID}, nil)
+	srvRepo.On("GetByID", serverID).Return(&domain.Server{ID: serverID, OwnerID: uuid.New()}, nil)
+	srvRepo.On("IsMember", serverID, userID).Return(true, nil)
+	existing := &domain.Message{ID: messageID, ChannelID: channelID, UserID: authorID, Content: "old"}
+	msgRepo.On("GetByID", messageID).Return(existing, nil)
+
+	uc := usecase.NewMessageUseCase(msgRepo, chRepo, srvRepo)
+	msg, err := uc.UpdateMessage(channelID, messageID, userID, "new")
+
+	assert.Nil(t, msg)
+	assert.ErrorIs(t, err, domain.ErrForbidden)
+	msgRepo.AssertNotCalled(t, "Update", mock.Anything, mock.Anything)
+}
+
+func TestUpdateMessage_MessageNotFound(t *testing.T) {
+	channelID, serverID, userID, messageID := uuid.New(), uuid.New(), uuid.New(), uuid.New()
+
+	msgRepo := new(MockMessageRepository)
+	chRepo := new(MockChannelRepository)
+	srvRepo := new(MockServerRepository)
+
+	chRepo.On("GetByID", channelID).Return(&domain.Channel{ID: channelID, ServerID: serverID}, nil)
+	srvRepo.On("GetByID", serverID).Return(&domain.Server{ID: serverID, OwnerID: uuid.New()}, nil)
+	srvRepo.On("IsMember", serverID, userID).Return(true, nil)
+	msgRepo.On("GetByID", messageID).Return(nil, fmt.Errorf("message %s: %w", messageID, domain.ErrMessageNotFound))
+
+	uc := usecase.NewMessageUseCase(msgRepo, chRepo, srvRepo)
+	msg, err := uc.UpdateMessage(channelID, messageID, userID, "new")
+
+	assert.Nil(t, msg)
+	assert.ErrorIs(t, err, domain.ErrMessageNotFound)
+}
+
+func TestUpdateMessage_WrongChannel_NotFound(t *testing.T) {
+	channelID, otherChannelID, serverID, userID, messageID := uuid.New(), uuid.New(), uuid.New(), uuid.New(), uuid.New()
+
+	msgRepo := new(MockMessageRepository)
+	chRepo := new(MockChannelRepository)
+	srvRepo := new(MockServerRepository)
+
+	chRepo.On("GetByID", channelID).Return(&domain.Channel{ID: channelID, ServerID: serverID}, nil)
+	srvRepo.On("GetByID", serverID).Return(&domain.Server{ID: serverID, OwnerID: uuid.New()}, nil)
+	srvRepo.On("IsMember", serverID, userID).Return(true, nil)
+	existing := &domain.Message{ID: messageID, ChannelID: otherChannelID, UserID: userID, Content: "old"}
+	msgRepo.On("GetByID", messageID).Return(existing, nil)
+
+	uc := usecase.NewMessageUseCase(msgRepo, chRepo, srvRepo)
+	msg, err := uc.UpdateMessage(channelID, messageID, userID, "new")
+
+	assert.Nil(t, msg)
+	assert.ErrorIs(t, err, domain.ErrMessageNotFound)
+	msgRepo.AssertNotCalled(t, "Update", mock.Anything, mock.Anything)
+}
+
+func TestUpdateMessage_NotMember_Forbidden(t *testing.T) {
+	channelID, serverID, userID, messageID := uuid.New(), uuid.New(), uuid.New(), uuid.New()
+
+	msgRepo := new(MockMessageRepository)
+	chRepo := new(MockChannelRepository)
+	srvRepo := new(MockServerRepository)
+
+	chRepo.On("GetByID", channelID).Return(&domain.Channel{ID: channelID, ServerID: serverID}, nil)
+	srvRepo.On("GetByID", serverID).Return(&domain.Server{ID: serverID, OwnerID: uuid.New()}, nil)
+	srvRepo.On("IsMember", serverID, userID).Return(false, nil)
+
+	uc := usecase.NewMessageUseCase(msgRepo, chRepo, srvRepo)
+	msg, err := uc.UpdateMessage(channelID, messageID, userID, "new")
+
+	assert.Nil(t, msg)
+	assert.ErrorIs(t, err, domain.ErrForbidden)
+	msgRepo.AssertNotCalled(t, "GetByID", mock.Anything)
+}
