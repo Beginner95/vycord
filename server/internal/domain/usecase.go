@@ -31,6 +31,7 @@ type MessageUseCase interface {
 	CreateMessage(channelID, userID uuid.UUID, content string) (*Message, error)
 	GetMessages(channelID, userID uuid.UUID, limit, offset int) ([]*Message, error)
 	UpdateMessage(channelID, messageID, userID uuid.UUID, content string) (*Message, error)
+	DeleteMessage(channelID, messageID, userID uuid.UUID) error
 }
 
 type TURNUseCase interface {

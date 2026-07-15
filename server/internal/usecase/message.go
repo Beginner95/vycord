@@ -124,3 +124,25 @@ func (uc *messageUseCase) UpdateMessage(channelID, messageID, userID uuid.UUID, 
 	msg.UpdatedAt = time.Now()
 	return msg, nil
 }
+
+func (uc *messageUseCase) DeleteMessage(channelID, messageID, userID uuid.UUID) error {
+	if err := uc.requireMembership(channelID, userID); err != nil {
+		return err
+	}
+
+	msg, err := uc.messageRepo.GetByID(messageID)
+	if err != nil {
+		return fmt.Errorf("get message: %w", err)
+	}
+	if msg.ChannelID != channelID {
+		return fmt.Errorf("message %s: %w", messageID, domain.ErrMessageNotFound)
+	}
+	if msg.UserID != userID {
+		return domain.ErrForbidden
+	}
+
+	if err := uc.messageRepo.Delete(messageID); err != nil {
+		return fmt.Errorf("failed to delete message: %w", err)
+	}
+	return nil
+}
