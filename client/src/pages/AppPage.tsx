@@ -181,6 +181,7 @@ export function AppPage() {
         const server = data.find((s) => s.id === lastServerId);
         if (server) {
           setCurrentServer(server);
+          setMembers([]);
           const channelsData = await apiService.getChannels(server.id) as Channel[];
           setChannels(channelsData);
           loadServerMembers(server.id);
@@ -232,6 +233,7 @@ export function AppPage() {
 
   const handleSelectServer = async (server: Server) => {
     setCurrentServer(server);
+    setMembers([]);
     setMobilePanel('channels');
     try {
       const data = await apiService.getChannels(server.id) as Channel[];
