@@ -47,6 +47,16 @@ const (
 	RoleMember Role = "member"
 )
 
+// MemberWithUser — участник сервера с данными профиля, для списка участников
+// (эндпоинт GET /servers/{id}/members) и для автокомплита упоминаний на клиенте.
+type MemberWithUser struct {
+	UserID    uuid.UUID `json:"user_id"`
+	Username  string    `json:"username"`
+	AvatarURL *string   `json:"avatar_url,omitempty"`
+	Role      Role      `json:"role"`
+	JoinedAt  time.Time `json:"joined_at"`
+}
+
 type ServerRepository interface {
 	Create(server *Server) error
 	GetByID(id uuid.UUID) (*Server, error)
@@ -58,6 +68,12 @@ type ServerRepository interface {
 	AddMember(serverID, userID uuid.UUID) error
 	RemoveMember(serverID, userID uuid.UUID) error
 	IsMember(serverID, userID uuid.UUID) (bool, error)
+	// GetMembersWithUsers возвращает всех участников сервера (включая владельца,
+	// который не хранится в server_members) вместе с данными профиля.
+	GetMembersWithUsers(serverID uuid.UUID) ([]*MemberWithUser, error)
+	// GetMemberRole возвращает роль пользователя в сервере (RoleOwner для владельца).
+	// Если пользователь не владелец и не участник — возвращает "" без ошибки.
+	GetMemberRole(serverID, userID uuid.UUID) (Role, error)
 }
 
 type ChannelRepository interface {

@@ -115,6 +115,17 @@ func (m *MockServerRepository) IsMember(serverID, userID uuid.UUID) (bool, error
 	args := m.Called(serverID, userID)
 	return args.Bool(0), args.Error(1)
 }
+func (m *MockServerRepository) GetMembersWithUsers(serverID uuid.UUID) ([]*domain.MemberWithUser, error) {
+	args := m.Called(serverID)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]*domain.MemberWithUser), args.Error(1)
+}
+func (m *MockServerRepository) GetMemberRole(serverID, userID uuid.UUID) (domain.Role, error) {
+	args := m.Called(serverID, userID)
+	return args.Get(0).(domain.Role), args.Error(1)
+}
 
 // --- Тесты ---
 
