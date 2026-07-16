@@ -25,6 +25,7 @@ type ServerUseCase interface {
 	SearchServers(query string, limit int) ([]*Server, error)
 	CreateChannel(serverID uuid.UUID, name string, channelType ChannelType) (*Channel, error)
 	GetChannels(serverID uuid.UUID) ([]*Channel, error)
+	GetMembers(serverID, userID uuid.UUID) ([]*MemberWithUser, error)
 }
 
 type MessageUseCase interface {
