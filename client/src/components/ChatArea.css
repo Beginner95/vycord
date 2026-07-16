@@ -418,3 +418,23 @@
     font-size: 16px;
   }
 }
+
+/* ── Mentions ── */
+.mention {
+  color: var(--brand-600);
+  background: var(--brand-50);
+  border-radius: 4px;
+  padding: 0 2px;
+  font-weight: 500;
+}
+
+.mention-self {
+  background: var(--brand-200);
+  font-weight: 600;
+}
+
+.mention-everyone {
+  color: var(--red-500);
+  background: var(--brand-50);
+  font-weight: 600;
+}

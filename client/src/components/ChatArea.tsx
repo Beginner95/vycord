@@ -4,7 +4,9 @@ import type { Message } from '@/types';
 import { apiService } from '@/services/api';
 import { wsService } from '@/services/websocket';
 import { audioService } from '@/services/audio';
-import type { Channel, User } from '@/types';
+import { useServerStore } from '@/stores/serverStore';
+import { tokenizeMentions, roleLabel } from '@/utils/mentions';
+import type { Channel, User, MemberWithUser } from '@/types';
 import './ChatArea.css';
 
 interface ChatAreaProps {
@@ -14,8 +16,38 @@ interface ChatAreaProps {
   onShowMembers?: () => void;
 }
 
+function renderMessageContent(content: string, members: MemberWithUser[], currentUserId?: string) {
+  return tokenizeMentions(content).map((token, i) => {
+    if (token.type === 'text') {
+      return token.value;
+    }
+    if (token.type === 'role') {
+      return (
+        <span key={i} className="mention mention-role">
+          @{roleLabel(token.value)}
+        </span>
+      );
+    }
+    if (token.type === 'everyone') {
+      return (
+        <span key={i} className="mention mention-everyone">
+          @everyone
+        </span>
+      );
+    }
+    const member = members.find((m) => m.user_id === token.value);
+    const isSelf = token.value === currentUserId;
+    return (
+      <span key={i} className={`mention${isSelf ? ' mention-self' : ''}`}>
+        @{member?.username ?? 'unknown-user'}
+      </span>
+    );
+  });
+}
+
 export function ChatArea({ channel, user, onMobileBack, onShowMembers }: ChatAreaProps) {
   const { messages, addMessage, updateMessage, removeMessage } = useMessageStore();
+  const { members } = useServerStore();
   const [input, setInput] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -277,7 +309,7 @@ export function ChatArea({ channel, user, onMobileBack, onShowMembers }: ChatAre
                         autoFocus
                       />
                     ) : (
-                      <p className="message-text">{msg.content}</p>
+                      <p className="message-text">{renderMessageContent(msg.content, members, user?.id)}</p>
                     )}
                   </div>
                   {!isCompact && isFromMe && (
