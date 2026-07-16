@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, type FormEvent, type KeyboardEvent } from 'react';
+import { useState, useEffect, useMemo, useRef, type FormEvent, type KeyboardEvent, type ChangeEvent } from 'react';
 import { useMessageStore } from '@/stores/messageStore';
 import type { Message } from '@/types';
 import { apiService } from '@/services/api';
@@ -6,7 +6,7 @@ import { wsService } from '@/services/websocket';
 import { audioService } from '@/services/audio';
 import { useServerStore } from '@/stores/serverStore';
 import { tokenizeMentions, roleLabel } from '@/utils/mentions';
-import type { Channel, User, MemberWithUser } from '@/types';
+import type { Channel, User, MemberWithUser, Role } from '@/types';
 import './ChatArea.css';
 
 interface ChatAreaProps {
@@ -54,6 +54,45 @@ export function ChatArea({ channel, user, onMobileBack, onShowMembers }: ChatAre
 
   // Cache for user info (id → username)
   const [userCache, setUserCache] = useState<Map<string, string>>(new Map());
+
+  type MentionEntry =
+    | { kind: 'user'; id: string; label: string }
+    | { kind: 'role'; role: Role; label: string }
+    | { kind: 'everyone'; label: string };
+
+  const [mentionQuery, setMentionQuery] = useState<string | null>(null);
+  const [mentionIndex, setMentionIndex] = useState(0);
+
+  const currentUserRole = members.find((m) => m.user_id === user?.id)?.role;
+
+  const mentionEntries: MentionEntry[] = useMemo(() => {
+    if (mentionQuery === null) return [];
+    const q = mentionQuery.toLowerCase();
+    const entries: MentionEntry[] = [];
+
+    for (const m of members) {
+      if (m.username.toLowerCase().includes(q)) {
+        entries.push({ kind: 'user', id: m.user_id, label: m.username });
+      }
+    }
+
+    const roleEntries: Array<{ role: Role; label: string }> = [
+      { role: 'owner', label: roleLabel('owner') },
+      { role: 'admin', label: roleLabel('admin') },
+      { role: 'member', label: roleLabel('member') },
+    ];
+    for (const r of roleEntries) {
+      if (r.label.toLowerCase().includes(q) || r.role.includes(q)) {
+        entries.push({ kind: 'role', role: r.role, label: r.label });
+      }
+    }
+
+    if ((currentUserRole === 'owner' || currentUserRole === 'admin') && 'everyone'.includes(q)) {
+      entries.push({ kind: 'everyone', label: 'everyone' });
+    }
+
+    return entries;
+  }, [mentionQuery, members, currentUserRole]);
 
   useEffect(() => {
     scrollToBottom();
@@ -154,6 +193,63 @@ export function ChatArea({ channel, user, onMobileBack, onShowMembers }: ChatAre
       console.error('Failed to send message:', err);
     }
   };
+
+  const handleInputChange = (e: ChangeEvent<HTMLInputElement>) => {
+    const value = e.target.value;
+    setInput(value);
+
+    const caret = e.target.selectionStart ?? value.length;
+    const upToCaret = value.slice(0, caret);
+    const atIndex = upToCaret.lastIndexOf('@');
+    if (atIndex === -1 || /\s/.test(upToCaret.slice(atIndex + 1))) {
+      setMentionQuery(null);
+      return;
+    }
+    setMentionQuery(upToCaret.slice(atIndex + 1));
+    setMentionIndex(0);
+  };
+
+  const selectMentionEntry = (entry: MentionEntry) => {
+    const caret = inputRef.current?.selectionStart ?? input.length;
+    const upToCaret = input.slice(0, caret);
+    const atIndex = upToCaret.lastIndexOf('@');
+    if (atIndex === -1) return;
+
+    const token =
+      entry.kind === 'user' ? `<@${entry.id}>` :
+      entry.kind === 'role' ? `<@&${entry.role}>` :
+      '@everyone';
+
+    const before = input.slice(0, atIndex);
+    const after = input.slice(caret);
+    setInput(`${before}${token} ${after}`);
+    setMentionQuery(null);
+
+    requestAnimationFrame(() => {
+      const pos = before.length + token.length + 1;
+      inputRef.current?.setSelectionRange(pos, pos);
+      inputRef.current?.focus();
+    });
+  };
+
+  const handleInputKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
+    if (mentionQuery === null || mentionEntries.length === 0) return;
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      setMentionIndex((i) => (i + 1) % mentionEntries.length);
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      setMentionIndex((i) => (i - 1 + mentionEntries.length) % mentionEntries.length);
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      selectMentionEntry(mentionEntries[mentionIndex]);
+    } else if (e.key === 'Escape') {
+      setMentionQuery(null);
+    }
+  };
+
+  const mentionEntryKey = (entry: MentionEntry) =>
+    entry.kind === 'user' ? entry.id : entry.kind === 'role' ? entry.role : 'everyone';
 
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editValue, setEditValue] = useState('');
@@ -350,10 +446,27 @@ export function ChatArea({ channel, user, onMobileBack, onShowMembers }: ChatAre
           ref={inputRef}
           type="text"
           value={input}
-          onChange={(e) => setInput(e.target.value)}
+          onChange={handleInputChange}
+          onKeyDown={handleInputKeyDown}
           placeholder={`Message #${channel.name}`}
           maxLength={2000}
         />
+        {mentionQuery !== null && mentionEntries.length > 0 && (
+          <ul className="mention-dropdown">
+            {mentionEntries.map((entry, i) => (
+              <li
+                key={mentionEntryKey(entry)}
+                className={i === mentionIndex ? 'active' : ''}
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  selectMentionEntry(entry);
+                }}
+              >
+                @{entry.label}
+              </li>
+            ))}
+          </ul>
+        )}
 
       </form>
     </main>
