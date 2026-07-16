@@ -100,6 +100,8 @@ export function ChatArea({ channel, user, onMobileBack, onShowMembers }: ChatAre
 
   useEffect(() => {
     inputRef.current?.focus();
+    setMentionQuery(null);
+    setMentionIndex(0);
   }, [channel?.id]);
 
   // Fetch usernames for all unique user_ids in messages
