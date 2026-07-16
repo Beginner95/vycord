@@ -269,6 +269,15 @@
   outline: none;
 }
 
+.message-edit-wrapper {
+  position: relative;
+}
+
+.message-edit-wrapper .mention-dropdown {
+  left: 0;
+  right: 0;
+}
+
 /* ── Chat Input ── */
 .chat-input {
   padding: 0 24px 20px;
