@@ -2,6 +2,7 @@ package handler
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -174,6 +175,33 @@ func (h *ServerHandler) GetChannels(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.sendJSON(w, http.StatusOK, channels)
+}
+
+func (h *ServerHandler) GetMembers(w http.ResponseWriter, r *http.Request) {
+	userID := r.Context().Value("user_id").(uuid.UUID)
+
+	idStr := r.PathValue("server_id")
+	serverID, err := uuid.Parse(idStr)
+	if err != nil {
+		h.sendError(w, http.StatusBadRequest, "invalid server id")
+		return
+	}
+
+	members, err := h.serverUseCase.GetMembers(serverID, userID)
+	if err != nil {
+		if errors.Is(err, domain.ErrForbidden) {
+			h.sendError(w, http.StatusForbidden, "access denied")
+			return
+		}
+		h.sendError(w, http.StatusInternalServerError, "failed to get members")
+		return
+	}
+
+	if members == nil {
+		members = []*domain.MemberWithUser{}
+	}
+
+	h.sendJSON(w, http.StatusOK, members)
 }
 
 func (h *ServerHandler) SearchServers(w http.ResponseWriter, r *http.Request) {
