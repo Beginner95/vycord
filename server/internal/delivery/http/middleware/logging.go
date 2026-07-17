@@ -1,7 +1,10 @@
 package middleware
 
 import (
+	"bufio"
+	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"time"
 )
@@ -17,6 +20,22 @@ type statusRecorder struct {
 func (w *statusRecorder) WriteHeader(status int) {
 	w.status = status
 	w.ResponseWriter.WriteHeader(status)
+}
+
+// Hijack forwards to the underlying ResponseWriter's Hijacker implementation
+// if it has one. Without this, statusRecorder only promotes the methods of
+// the embedded http.ResponseWriter interface (Header, Write, WriteHeader),
+// so it would NOT satisfy http.Hijacker even though the real underlying
+// net/http ResponseWriter does. That would break any handler that needs to
+// hijack the connection, most importantly WebSocket upgrades performed by
+// gorilla/websocket, which type-asserts the ResponseWriter to http.Hijacker
+// and fails the upgrade with an explicit 500 error if the assertion fails.
+func (w *statusRecorder) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	hj, ok := w.ResponseWriter.(http.Hijacker)
+	if !ok {
+		return nil, nil, fmt.Errorf("statusRecorder: underlying ResponseWriter does not implement http.Hijacker")
+	}
+	return hj.Hijack()
 }
 
 // Logging returns middleware that writes one structured log line per
