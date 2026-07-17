@@ -394,10 +394,13 @@ export function GroupCallUI() {
 
   const handleJoinGroupCall = useCallback(async (roomId: string): Promise<boolean> => {
     if (!user) return false;
+    // joinGroupCall's "already in a call" guard is a no-op when re-invoked for
+    // the room we're already in (e.g. re-clicking the active voice channel) —
+    // it doesn't touch currentRoomId either, so capture the prior value here
+    // to avoid a spurious duplicate voice_joined on that path.
+    const alreadyInThisRoom = groupCallService.currentRoomIdState === roomId;
     const isFirst = await groupCallService.joinGroupCall(roomId, user.id);
-    // currentRoomIdState only equals roomId if joinGroupCall actually proceeded
-    // past its "already in a call" guard — skips the send on that error path.
-    if (groupCallService.currentRoomIdState === roomId) {
+    if (!alreadyInThisRoom && groupCallService.currentRoomIdState === roomId) {
       wsService.send('voice_joined', { channel_id: roomId });
     }
     setIsInGroupCall(true);
