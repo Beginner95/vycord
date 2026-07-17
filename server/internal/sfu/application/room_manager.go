@@ -11,9 +11,9 @@ import (
 
 // Stats is a snapshot of SFU runtime state for observability.
 type Stats struct {
-	Rooms        int            `json:"rooms"`
-	Participants int            `json:"participants"`
-	RoomDetails  []RoomStats    `json:"room_details,omitempty"`
+	Rooms        int         `json:"rooms"`
+	Participants int         `json:"participants"`
+	RoomDetails  []RoomStats `json:"room_details,omitempty"`
 }
 
 // RoomStats holds per-room snapshot data.

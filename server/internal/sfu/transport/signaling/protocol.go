@@ -25,7 +25,7 @@ type ICECandidatePayload struct {
 // --- Server → Client ---
 
 type JoinedPayload struct {
-	RoomID       string   `json:"room_id"`
+	RoomID        string   `json:"room_id"`
 	ExistingPeers []string `json:"existing_peers"`
 }
 
