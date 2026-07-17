@@ -52,11 +52,13 @@ func (h *Hub) Run() {
 			h.mu.Lock()
 			h.clients[client.UserID] = client
 			currentIDs := h.getOnlineUserIDsLocked()
+			voiceState := h.voiceStateLocked()
 			h.mu.Unlock()
 			h.log.Info("client connected", "user_id", client.UserID, "total", len(h.clients))
 
-			// Send online users list to the newly connected client
+			// Send online users list and current voice-channel roster to the newly connected client
 			h.sendOnlineUsersToClient(client, currentIDs)
+			h.sendVoiceStateToClient(client, voiceState)
 
 			// Notify all other clients about the new online user
 			h.notifyAllOnlineUsers(client.UserID.String())
@@ -72,6 +74,14 @@ func (h *Hub) Run() {
 
 				// Notify all clients about the disconnected user
 				h.notifyAllOnlineUsersAfterDisconnect(client.UserID.String(), currentIDs)
+
+				// Clean up voice-channel presence left behind by an unexpected disconnect.
+				// Dispatched via goroutine: BroadcastVoiceParticipants sends on h.broadcast,
+				// which only Run()'s own select loop drains — calling it synchronously here
+				// would deadlock Run() against itself.
+				if channelID, participants, ok := h.LeaveVoiceChannel(client.UserID); ok {
+					go h.BroadcastVoiceParticipants(channelID, participants)
+				}
 			} else {
 				h.mu.Unlock()
 			}
@@ -110,6 +120,43 @@ func (h *Hub) sendOnlineUsersToClient(client *Client, userIDs []string) {
 	}):
 	default:
 	}
+}
+
+func (h *Hub) sendVoiceStateToClient(client *Client, state map[uuid.UUID][]uuid.UUID) {
+	channels := make(map[string][]string, len(state))
+	for channelID, userIDs := range state {
+		ids := make([]string, len(userIDs))
+		for i, id := range userIDs {
+			ids[i] = id.String()
+		}
+		channels[channelID.String()] = ids
+	}
+	payload := mustMarshal(map[string]interface{}{
+		"channels": channels,
+	})
+	select {
+	case client.Send <- mustMarshal(map[string]interface{}{
+		"type":    "voice_state",
+		"payload": json.RawMessage(payload),
+	}):
+	default:
+	}
+}
+
+// BroadcastVoiceParticipants notifies all connected clients about the current
+// participant list for a voice channel.
+func (h *Hub) BroadcastVoiceParticipants(channelID uuid.UUID, participants []uuid.UUID) {
+	ids := make([]string, len(participants))
+	for i, id := range participants {
+		ids[i] = id.String()
+	}
+	h.BroadcastMessage(&Message{
+		Type: "voice_participants",
+		Payload: mustMarshal(map[string]interface{}{
+			"channel_id": channelID.String(),
+			"user_ids":   ids,
+		}),
+	})
 }
 
 func (h *Hub) notifyAllOnlineUsers(newUserID string) {
