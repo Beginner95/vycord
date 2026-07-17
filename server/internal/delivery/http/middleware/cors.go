@@ -23,7 +23,7 @@ func DefaultCORS() *CORSConfig {
 			"https://192.168.1.109",
 			"https://192.168.1.109:443",
 		},
-		AllowedMethods: []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
+		AllowedMethods: []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
 		AllowedHeaders: []string{"Content-Type", "Authorization"},
 	}
 }
