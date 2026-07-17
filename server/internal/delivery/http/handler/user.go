@@ -7,6 +7,7 @@ import (
 	"net/http"
 
 	"github.com/google/uuid"
+	"github.com/vycord/server/internal/delivery/http/middleware"
 	"github.com/vycord/server/internal/domain"
 )
 
@@ -82,7 +83,7 @@ func (h *UserHandler) UpdateLastVisited(w http.ResponseWriter, r *http.Request) 
 	}
 
 	if err := h.userUseCase.UpdateLastVisited(userID, serverID, channelID); err != nil {
-		h.log.Error("failed to update last visited", "error", err)
+		h.log.Error("failed to update last visited", "request_id", middleware.RequestIDFromContext(r.Context()), "error", err)
 		h.sendError(w, http.StatusInternalServerError, "failed to update last visited")
 		return
 	}

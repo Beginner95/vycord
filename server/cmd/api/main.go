@@ -145,10 +145,15 @@ func main() {
 	}
 	handlerWithCORS := corsMid.Handler(router)
 
+	// Request ID + access logging wrap the whole stack so every request,
+	// including CORS preflight, gets a trace ID and a log line.
+	handlerWithLogging := middleware.Logging(log)(handlerWithCORS)
+	rootHandler := middleware.RequestID(handlerWithLogging)
+
 	// Start server
 	srv := &http.Server{
 		Addr:    cfg.ServerAddr(),
-		Handler: handlerWithCORS,
+		Handler: rootHandler,
 	}
 
 	// Graceful shutdown

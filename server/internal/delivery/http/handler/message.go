@@ -8,6 +8,7 @@ import (
 	"strconv"
 
 	"github.com/google/uuid"
+	"github.com/vycord/server/internal/delivery/http/middleware"
 	"github.com/vycord/server/internal/delivery/ws"
 	"github.com/vycord/server/internal/domain"
 )
@@ -53,7 +54,7 @@ func (h *MessageHandler) CreateMessage(w http.ResponseWriter, r *http.Request) {
 
 	msg, err := h.messageUseCase.CreateMessage(channelID, userID, req.Content)
 	if err != nil {
-		h.writeUseCaseError(w, err)
+		h.writeUseCaseError(w, r, err)
 		return
 	}
 
@@ -86,7 +87,7 @@ func (h *MessageHandler) GetMessages(w http.ResponseWriter, r *http.Request) {
 
 	messages, err := h.messageUseCase.GetMessages(channelID, userID, limit, offset)
 	if err != nil {
-		h.writeUseCaseError(w, err)
+		h.writeUseCaseError(w, r, err)
 		return
 	}
 
@@ -127,7 +128,7 @@ func (h *MessageHandler) UpdateMessage(w http.ResponseWriter, r *http.Request) {
 
 	msg, err := h.messageUseCase.UpdateMessage(channelID, messageID, userID, req.Content)
 	if err != nil {
-		h.writeUseCaseError(w, err)
+		h.writeUseCaseError(w, r, err)
 		return
 	}
 
@@ -160,7 +161,7 @@ func (h *MessageHandler) DeleteMessage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.messageUseCase.DeleteMessage(channelID, messageID, userID); err != nil {
-		h.writeUseCaseError(w, err)
+		h.writeUseCaseError(w, r, err)
 		return
 	}
 
@@ -175,7 +176,7 @@ func (h *MessageHandler) DeleteMessage(w http.ResponseWriter, r *http.Request) {
 
 // writeUseCaseError транслирует доменные ошибки в HTTP-статусы, не раскрывая
 // внутренние детали (err.Error()) наружу.
-func (h *MessageHandler) writeUseCaseError(w http.ResponseWriter, err error) {
+func (h *MessageHandler) writeUseCaseError(w http.ResponseWriter, r *http.Request, err error) {
 	switch {
 	case errors.Is(err, domain.ErrChannelNotFound):
 		h.sendError(w, http.StatusNotFound, "channel not found")
@@ -188,7 +189,7 @@ func (h *MessageHandler) writeUseCaseError(w http.ResponseWriter, err error) {
 	case errors.Is(err, domain.ErrForbidden):
 		h.sendError(w, http.StatusForbidden, "access denied")
 	default:
-		h.log.Error("message request failed", "error", err)
+		h.log.Error("message request failed", "request_id", middleware.RequestIDFromContext(r.Context()), "error", err)
 		h.sendError(w, http.StatusInternalServerError, "internal server error")
 	}
 }
