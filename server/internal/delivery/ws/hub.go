@@ -10,12 +10,14 @@ import (
 )
 
 type Hub struct {
-	clients    map[uuid.UUID]*Client
-	register   chan *Client
-	unregister chan *Client
-	broadcast  chan *Message
-	mu         sync.RWMutex
-	log        *slog.Logger
+	clients            map[uuid.UUID]*Client
+	register           chan *Client
+	unregister         chan *Client
+	broadcast          chan *Message
+	voiceChannels      map[uuid.UUID]map[uuid.UUID]struct{} // channelID → set(userID)
+	clientVoiceChannel map[uuid.UUID]uuid.UUID              // userID → channelID
+	mu                 sync.RWMutex
+	log                *slog.Logger
 }
 
 type Message struct {
@@ -33,11 +35,13 @@ type Client struct {
 
 func NewHub(log *slog.Logger) *Hub {
 	return &Hub{
-		clients:    make(map[uuid.UUID]*Client),
-		register:   make(chan *Client),
-		unregister: make(chan *Client),
-		broadcast:  make(chan *Message),
-		log:        log,
+		clients:            make(map[uuid.UUID]*Client),
+		register:           make(chan *Client),
+		unregister:         make(chan *Client),
+		broadcast:          make(chan *Message),
+		voiceChannels:      make(map[uuid.UUID]map[uuid.UUID]struct{}),
+		clientVoiceChannel: make(map[uuid.UUID]uuid.UUID),
+		log:                log,
 	}
 }
 
@@ -132,8 +136,8 @@ func (h *Hub) notifyAllOnlineUsersAfterDisconnect(disconnectedUserID string, rem
 		case client.Send <- mustMarshal(map[string]interface{}{
 			"type": "user_left",
 			"payload": mustMarshal(map[string]interface{}{
-				"user_id":    disconnectedUserID,
-				"user_ids":   remainingIDs,
+				"user_id":  disconnectedUserID,
+				"user_ids": remainingIDs,
 			}),
 		}):
 		default:
@@ -177,6 +181,78 @@ func (h *Hub) IsOnline(userID uuid.UUID) bool {
 	defer h.mu.RUnlock()
 	_, ok := h.clients[userID]
 	return ok
+}
+
+// JoinVoiceChannel registers userID as present in the given voice channel,
+// moving it out of any previous voice channel first. Returns the updated
+// participant list for channelID.
+func (h *Hub) JoinVoiceChannel(userID, channelID uuid.UUID) []uuid.UUID {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	if prevChannelID, ok := h.clientVoiceChannel[userID]; ok {
+		delete(h.voiceChannels[prevChannelID], userID)
+		if len(h.voiceChannels[prevChannelID]) == 0 {
+			delete(h.voiceChannels, prevChannelID)
+		}
+	}
+
+	if h.voiceChannels[channelID] == nil {
+		h.voiceChannels[channelID] = make(map[uuid.UUID]struct{})
+	}
+	h.voiceChannels[channelID][userID] = struct{}{}
+	h.clientVoiceChannel[userID] = channelID
+
+	return h.voiceParticipantsLocked(channelID)
+}
+
+// LeaveVoiceChannel removes userID from whatever voice channel it is
+// currently in. ok is false if the user was not in any voice channel —
+// safe to call repeatedly (e.g. voluntary leave followed by SFU teardown).
+func (h *Hub) LeaveVoiceChannel(userID uuid.UUID) (channelID uuid.UUID, participants []uuid.UUID, ok bool) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	channelID, ok = h.clientVoiceChannel[userID]
+	if !ok {
+		return uuid.Nil, nil, false
+	}
+
+	delete(h.clientVoiceChannel, userID)
+	delete(h.voiceChannels[channelID], userID)
+	if len(h.voiceChannels[channelID]) == 0 {
+		delete(h.voiceChannels, channelID)
+	}
+
+	return channelID, h.voiceParticipantsLocked(channelID), true
+}
+
+// GetVoiceState returns a snapshot of all non-empty voice channels and their participants.
+func (h *Hub) GetVoiceState() map[uuid.UUID][]uuid.UUID {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	return h.voiceStateLocked()
+}
+
+// voiceParticipantsLocked returns the participant list for channelID.
+// Caller must hold h.mu.
+func (h *Hub) voiceParticipantsLocked(channelID uuid.UUID) []uuid.UUID {
+	set := h.voiceChannels[channelID]
+	ids := make([]uuid.UUID, 0, len(set))
+	for id := range set {
+		ids = append(ids, id)
+	}
+	return ids
+}
+
+// voiceStateLocked returns a snapshot of all non-empty voice channels.
+// Caller must hold h.mu (read or write lock).
+func (h *Hub) voiceStateLocked() map[uuid.UUID][]uuid.UUID {
+	state := make(map[uuid.UUID][]uuid.UUID, len(h.voiceChannels))
+	for channelID := range h.voiceChannels {
+		state[channelID] = h.voiceParticipantsLocked(channelID)
+	}
+	return state
 }
 
 func (h *Hub) RegisterClient(client *Client) {
