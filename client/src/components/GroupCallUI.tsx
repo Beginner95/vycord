@@ -251,6 +251,8 @@ export function GroupCallUI() {
         setIsReconnecting(false);
       },
       onCallEnded: () => {
+        const channelId = groupCallService.currentRoomIdState;
+        if (channelId) wsService.send('voice_left', { channel_id: channelId });
         setIsReconnecting(false);
         setIsInGroupCall(false);
         setParticipants([]);
@@ -264,6 +266,8 @@ export function GroupCallUI() {
         if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
       },
       onError: (msg) => {
+        const channelId = groupCallService.currentRoomIdState;
+        if (channelId) wsService.send('voice_left', { channel_id: channelId });
         setIsReconnecting(false);
         console.error('[GroupCall] Error:', msg);
         setIsInGroupCall(false);
@@ -391,6 +395,11 @@ export function GroupCallUI() {
   const handleJoinGroupCall = useCallback(async (roomId: string): Promise<boolean> => {
     if (!user) return false;
     const isFirst = await groupCallService.joinGroupCall(roomId, user.id);
+    // currentRoomIdState only equals roomId if joinGroupCall actually proceeded
+    // past its "already in a call" guard — skips the send on that error path.
+    if (groupCallService.currentRoomIdState === roomId) {
+      wsService.send('voice_joined', { channel_id: roomId });
+    }
     setIsInGroupCall(true);
     const micAvailable = groupCallService.isMicrophoneAvailable;
     setIsMicAvailable(micAvailable);
@@ -408,6 +417,7 @@ export function GroupCallUI() {
         channel_id: channelId,
         server_id: currentServer?.id,
       });
+      wsService.send('voice_left', { channel_id: channelId });
     }
     groupCallService.leaveGroupCall();
     setIsInGroupCall(false);
