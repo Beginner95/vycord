@@ -295,6 +295,18 @@ func TestVoiceLeftBroadcastsParticipants(t *testing.T) {
 
 	hub.JoinVoiceChannel(userA, channelID)
 
+	// Фоновое чтение connA: держим соединение "живым" для gorilla (auto-pong
+	// на серверные ping), чтобы тест не мог пройти через фолбэк
+	// Hub.Run()'s unregister-на-мёртвое-соединение — только через реальный
+	// handleVoiceLeft.
+	go func() {
+		for {
+			if _, _, err := connA.ReadMessage(); err != nil {
+				return
+			}
+		}
+	}()
+
 	sendJSON(t, connA, "voice_left", map[string]string{"channel_id": channelID.String()})
 
 	msg := readUntilType(t, connB, "voice_participants", 2*time.Second)
