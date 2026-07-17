@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react';
-import type { Server, Channel, User } from '@/types';
+import { useState, useEffect, useMemo } from 'react';
+import type { Server, Channel, User, MemberWithUser } from '@/types';
 import { Settings } from '@/components/Settings';
 import { noiseCancellationService } from '@/services/noiseCancellation';
 import './ChannelSidebar.css';
@@ -12,6 +12,8 @@ interface ChannelSidebarProps {
   user: User | null;
   onLogout: () => void;
   onMobileBack?: () => void;
+  voiceParticipants?: Map<string, string[]>;
+  members: MemberWithUser[];
 }
 
 export function ChannelSidebar({
@@ -22,9 +24,19 @@ export function ChannelSidebar({
   user,
   onLogout,
   onMobileBack,
+  voiceParticipants,
+  members,
 }: ChannelSidebarProps) {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [ncEnabled, setNcEnabled] = useState(false);
+
+  const usernameById = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const m of members) map.set(m.user_id, m.username);
+    return map;
+  }, [members]);
+
+  const resolveUsername = (userId: string): string => usernameById.get(userId) ?? userId.slice(0, 8);
 
   useEffect(() => {
     const unsub = noiseCancellationService.onStateChange((state) => {
@@ -88,15 +100,38 @@ export function ChannelSidebar({
             <div className="channel-category">
               <span>Voice Channels</span>
             </div>
-            {voiceChannels.map((channel) => (
-              <div
-                key={channel.id}
-                className={`channel voice ${currentChannel?.id === channel.id ? 'active' : ''}`}
-                onClick={() => onSelectChannel(channel)}
-              >
-                {channel.name}
-              </div>
-            ))}
+            {voiceChannels.map((channel) => {
+              const participantIds = voiceParticipants?.get(channel.id) ?? [];
+              return (
+                <div key={channel.id} className="voice-channel-group">
+                  <div
+                    className={`channel voice ${currentChannel?.id === channel.id ? 'active' : ''}`}
+                    onClick={() => onSelectChannel(channel)}
+                  >
+                    {channel.name}
+                    {participantIds.length > 0 && (
+                      <span className="voice-count">({participantIds.length})</span>
+                    )}
+                  </div>
+                  {participantIds.length > 0 && (
+                    <div className="voice-participant-list">
+                      {participantIds.map((userId) => (
+                        <div
+                          key={userId}
+                          className={`voice-participant ${userId === user?.id ? 'is-self' : ''}`}
+                          onClick={() => onSelectChannel(channel)}
+                        >
+                          <div className="voice-participant-avatar">
+                            {resolveUsername(userId).charAt(0).toUpperCase()}
+                          </div>
+                          <span className="voice-participant-name">{resolveUsername(userId)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </>
         )}
       </div>
