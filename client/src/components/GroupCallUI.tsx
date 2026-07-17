@@ -394,10 +394,27 @@ export function GroupCallUI() {
 
   const handleJoinGroupCall = useCallback(async (roomId: string): Promise<boolean> => {
     if (!user) return false;
+    if (groupCallService.isInGroupCallState && groupCallService.currentRoomIdState === roomId) {
+      // Already actively in this exact call (e.g. re-clicking the active voice
+      // channel, or your own row in the participant list) — no-op. Without this,
+      // groupCallService.joinGroupCall's "already in a call" guard fires
+      // onError, whose handler in this file reads currentRoomIdState, sends a
+      // spurious voice_left, and tears down the still-active call.
+      return false;
+    }
     // joinGroupCall's "already in a call" guard is a no-op when re-invoked for
     // the room we're already in (e.g. re-clicking the active voice channel) —
     // it doesn't touch currentRoomId either, so capture the prior value here
     // to avoid a spurious duplicate voice_joined on that path.
+    //
+    // The guard above handles the case where we're actively in this room.
+    // This check still matters for a narrower window: mid-reconnect, inCall
+    // is briefly false (see partialTeardown) while currentRoomId is
+    // deliberately left set to the room being reconnected to (reconnect()
+    // reads it to rejoin the SAME room). A re-invocation during that window
+    // skips the guard above (isInGroupCallState is false) but must still
+    // suppress the duplicate voice_joined once joinGroupCall's own call
+    // completes and lands back on the same room.
     const alreadyInThisRoom = groupCallService.currentRoomIdState === roomId;
     const isFirst = await groupCallService.joinGroupCall(roomId, user.id);
     if (!alreadyInThisRoom && groupCallService.currentRoomIdState === roomId) {
