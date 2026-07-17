@@ -50,6 +50,7 @@ export function ChatArea({ channel, user, onMobileBack, onShowMembers }: ChatAre
   const { messages, addMessage, updateMessage, removeMessage } = useMessageStore();
   const { members } = useServerStore();
   const [input, setInput] = useState('');
+  const [sendError, setSendError] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -165,6 +166,8 @@ export function ChatArea({ channel, user, onMobileBack, onShowMembers }: ChatAre
       setInput('');
     } catch (err) {
       console.error('Failed to send message:', err);
+      setSendError(err instanceof Error ? err.message : 'Failed to send message');
+      setTimeout(() => setSendError(null), 5000);
     }
   };
 
@@ -204,6 +207,8 @@ export function ChatArea({ channel, user, onMobileBack, onShowMembers }: ChatAre
       cancelEdit();
     } catch (err) {
       console.error('Failed to update message:', err);
+      setSendError(err instanceof Error ? err.message : 'Failed to update message');
+      setTimeout(() => setSendError(null), 5000);
     }
   };
 
@@ -387,6 +392,12 @@ export function ChatArea({ channel, user, onMobileBack, onShowMembers }: ChatAre
           </>
         )}
       </div>
+
+      {sendError && (
+        <div className="error-toast">
+          {sendError}
+        </div>
+      )}
 
       <form className="chat-input" onSubmit={handleSubmit}>
         <input
