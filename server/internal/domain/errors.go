@@ -10,4 +10,8 @@ var (
 	ErrChannelNotFound = errors.New("channel not found")
 	// ErrMessageNotFound — сообщение с указанным ID не существует или не принадлежит каналу из URL.
 	ErrMessageNotFound = errors.New("message not found")
+	// ErrInvalidMention — упомянутый через <@uuid> пользователь не состоит в сервере.
+	ErrInvalidMention = errors.New("invalid mention")
+	// ErrMentionForbidden — @everyone от пользователя без прав owner/admin.
+	ErrMentionForbidden = errors.New("mention not allowed")
 )

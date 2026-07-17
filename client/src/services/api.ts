@@ -122,6 +122,10 @@ class ApiService {
     return this.request(`/api/v1/servers/${serverId}/channels`);
   }
 
+  async getServerMembers(serverId: string) {
+    return this.request(`/api/v1/servers/${serverId}/members`);
+  }
+
   // Messages
   async createMessage(channelId: string, content: string) {
     return this.request(`/api/v1/channels/${channelId}/messages`, {

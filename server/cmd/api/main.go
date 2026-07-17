@@ -123,6 +123,9 @@ func main() {
 	router.HandleFunc("POST /api/v1/servers/{server_id}/channels", authMid.RequireAuth(serverHandler.CreateChannel))
 	router.HandleFunc("GET /api/v1/servers/{server_id}/channels", authMid.RequireAuth(serverHandler.GetChannels))
 
+	// Server member routes
+	router.HandleFunc("GET /api/v1/servers/{server_id}/members", authMid.RequireAuth(serverHandler.GetMembers))
+
 	// Message routes
 	router.HandleFunc("POST /api/v1/channels/{channel_id}/messages", authMid.RequireAuth(messageHandler.CreateMessage))
 	router.HandleFunc("GET /api/v1/channels/{channel_id}/messages", authMid.RequireAuth(messageHandler.GetMessages))

@@ -3,11 +3,13 @@ package postgres
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/vycord/server/internal/domain"
 )
@@ -265,4 +267,66 @@ func (r *serverRepository) Search(query string, limit, offset int) ([]*domain.Se
 	}
 
 	return servers, nil
+}
+
+func (r *serverRepository) GetMembersWithUsers(serverID uuid.UUID) ([]*domain.MemberWithUser, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	query := `
+		SELECT u.id, u.username, u.avatar_url, m.role, m.joined_at
+		FROM server_members m
+		INNER JOIN users u ON u.id = m.user_id
+		WHERE m.server_id = $1
+
+		UNION ALL
+
+		SELECT u.id, u.username, u.avatar_url, 'owner', s.created_at
+		FROM servers s
+		INNER JOIN users u ON u.id = s.owner_id
+		WHERE s.id = $1
+
+		ORDER BY joined_at ASC
+	`
+
+	rows, err := r.db.Query(ctx, query, serverID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query members: %w", err)
+	}
+	defer rows.Close()
+
+	var members []*domain.MemberWithUser
+	for rows.Next() {
+		m := &domain.MemberWithUser{}
+		if err := rows.Scan(&m.UserID, &m.Username, &m.AvatarURL, &m.Role, &m.JoinedAt); err != nil {
+			return nil, fmt.Errorf("failed to scan member: %w", err)
+		}
+		members = append(members, m)
+	}
+
+	return members, nil
+}
+
+func (r *serverRepository) GetMemberRole(serverID, userID uuid.UUID) (domain.Role, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	var ownerID uuid.UUID
+	err := r.db.QueryRow(ctx, `SELECT owner_id FROM servers WHERE id = $1`, serverID).Scan(&ownerID)
+	if err != nil {
+		return "", fmt.Errorf("failed to get server owner: %w", err)
+	}
+	if ownerID == userID {
+		return domain.RoleOwner, nil
+	}
+
+	var role string
+	err = r.db.QueryRow(ctx, `SELECT role FROM server_members WHERE server_id = $1 AND user_id = $2`, serverID, userID).Scan(&role)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("failed to get member role: %w", err)
+	}
+	return domain.Role(role), nil
 }

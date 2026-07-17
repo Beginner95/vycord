@@ -12,7 +12,7 @@ import { TitleBar } from '@/components/TitleBar';
 import { CallUI } from '@/components/CallUI';
 import { GroupCallUI } from '@/components/GroupCallUI';
 import { groupCallService } from '@/services/groupCall';
-import type { Server, Channel, Message } from '@/types';
+import type { Server, Channel, Message, MemberWithUser } from '@/types';
 import './AppPage.css';
 
 type MobilePanel = 'servers' | 'channels' | 'chat' | 'members';
@@ -71,7 +71,7 @@ function startCallRingtone(): () => void {
 
 export function AppPage() {
   const { user, token, logout } = useAuthStore();
-  const { servers, setServers, setCurrentServer, currentServer, setChannels, channels, currentChannel, setCurrentChannel } = useServerStore();
+  const { servers, setServers, setCurrentServer, currentServer, setChannels, channels, currentChannel, setCurrentChannel, setMembers } = useServerStore();
   const { setMessages } = useMessageStore();
   const [showCreateServer, setShowCreateServer] = useState(false);
   const [newServerName, setNewServerName] = useState('');
@@ -157,6 +157,12 @@ export function AppPage() {
     return () => unsubscribe();
   }, []);
 
+  const loadServerMembers = (serverId: string) => {
+    apiService.getServerMembers(serverId)
+      .then((members) => setMembers(members as MemberWithUser[]))
+      .catch((err) => console.error('Failed to load server members:', err));
+  };
+
   const loadServers = async () => {
     try {
       type UserWithLastVisited = { last_server_id?: string; last_channel_id?: string };
@@ -175,8 +181,10 @@ export function AppPage() {
         const server = data.find((s) => s.id === lastServerId);
         if (server) {
           setCurrentServer(server);
+          setMembers([]);
           const channelsData = await apiService.getChannels(server.id) as Channel[];
           setChannels(channelsData);
+          loadServerMembers(server.id);
 
           if (lastChannelId) {
             const channel = channelsData.find((c) => c.id === lastChannelId);
@@ -225,10 +233,12 @@ export function AppPage() {
 
   const handleSelectServer = async (server: Server) => {
     setCurrentServer(server);
+    setMembers([]);
     setMobilePanel('channels');
     try {
       const data = await apiService.getChannels(server.id) as Channel[];
       setChannels(data);
+      loadServerMembers(server.id);
       const textChannel = data.find((c) => c.type === 'text');
       if (textChannel) {
         handleSelectChannel(textChannel);

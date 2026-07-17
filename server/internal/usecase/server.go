@@ -203,3 +203,26 @@ func (uc *serverUseCase) GetChannels(serverID uuid.UUID) ([]*domain.Channel, err
 
 	return channels, nil
 }
+
+func (uc *serverUseCase) GetMembers(serverID, userID uuid.UUID) ([]*domain.MemberWithUser, error) {
+	server, err := uc.serverRepo.GetByID(serverID)
+	if err != nil {
+		return nil, fmt.Errorf("server not found: %w", err)
+	}
+
+	if server.OwnerID != userID {
+		isMember, err := uc.serverRepo.IsMember(serverID, userID)
+		if err != nil {
+			return nil, fmt.Errorf("check membership: %w", err)
+		}
+		if !isMember {
+			return nil, domain.ErrForbidden
+		}
+	}
+
+	members, err := uc.serverRepo.GetMembersWithUsers(serverID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get members: %w", err)
+	}
+	return members, nil
+}

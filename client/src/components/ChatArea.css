@@ -269,9 +269,19 @@
   outline: none;
 }
 
+.message-edit-wrapper {
+  position: relative;
+}
+
+.message-edit-wrapper .mention-dropdown {
+  left: 0;
+  right: 0;
+}
+
 /* ── Chat Input ── */
 .chat-input {
   padding: 0 24px 20px;
+  position: relative;
 }
 
 .chat-input form {
@@ -417,4 +427,54 @@
   .chat-input input {
     font-size: 16px;
   }
+}
+
+/* ── Mentions ── */
+.mention {
+  color: var(--brand-600);
+  background: var(--brand-50);
+  border-radius: 4px;
+  padding: 0 2px;
+  font-weight: 500;
+}
+
+.mention-self {
+  background: var(--brand-200);
+  font-weight: 600;
+}
+
+.mention-everyone {
+  color: var(--red-500);
+  background: var(--brand-50);
+  font-weight: 600;
+}
+
+.mention-dropdown {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 24px;
+  right: 24px;
+  max-height: 220px;
+  overflow-y: auto;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-md);
+  list-style: none;
+  margin: 0;
+  padding: 4px;
+  z-index: 20;
+}
+
+.mention-dropdown li {
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  color: var(--text-primary);
+  font-size: 14px;
+}
+
+.mention-dropdown li.active,
+.mention-dropdown li:hover {
+  background: var(--bg-hover);
 }

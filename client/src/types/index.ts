@@ -50,6 +50,14 @@ export interface Member {
 
 export type Role = 'owner' | 'admin' | 'member';
 
+export interface MemberWithUser {
+  user_id: string;
+  username: string;
+  avatar_url?: string;
+  role: Role;
+  joined_at: string;
+}
+
 export interface AuthState {
   user: User | null;
   token: string | null;

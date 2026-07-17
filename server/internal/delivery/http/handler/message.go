@@ -181,6 +181,10 @@ func (h *MessageHandler) writeUseCaseError(w http.ResponseWriter, err error) {
 		h.sendError(w, http.StatusNotFound, "channel not found")
 	case errors.Is(err, domain.ErrMessageNotFound):
 		h.sendError(w, http.StatusNotFound, "message not found")
+	case errors.Is(err, domain.ErrInvalidMention):
+		h.sendError(w, http.StatusBadRequest, "invalid mention: user is not a member of this server")
+	case errors.Is(err, domain.ErrMentionForbidden):
+		h.sendError(w, http.StatusForbidden, "only server owner/admin can mention @everyone")
 	case errors.Is(err, domain.ErrForbidden):
 		h.sendError(w, http.StatusForbidden, "access denied")
 	default:

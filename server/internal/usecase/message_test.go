@@ -115,6 +115,17 @@ func (m *MockServerRepository) IsMember(serverID, userID uuid.UUID) (bool, error
 	args := m.Called(serverID, userID)
 	return args.Bool(0), args.Error(1)
 }
+func (m *MockServerRepository) GetMembersWithUsers(serverID uuid.UUID) ([]*domain.MemberWithUser, error) {
+	args := m.Called(serverID)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]*domain.MemberWithUser), args.Error(1)
+}
+func (m *MockServerRepository) GetMemberRole(serverID, userID uuid.UUID) (domain.Role, error) {
+	args := m.Called(serverID, userID)
+	return args.Get(0).(domain.Role), args.Error(1)
+}
 
 // --- Тесты ---
 
@@ -475,4 +486,129 @@ func TestDeleteMessage_NotMember_Forbidden(t *testing.T) {
 
 	assert.ErrorIs(t, err, domain.ErrForbidden)
 	msgRepo.AssertNotCalled(t, "GetByID", mock.Anything)
+}
+
+func TestCreateMessage_ValidUserMention_Success(t *testing.T) {
+	channelID, serverID, userID, mentionedID := uuid.New(), uuid.New(), uuid.New(), uuid.New()
+
+	msgRepo := new(MockMessageRepository)
+	chRepo := new(MockChannelRepository)
+	srvRepo := new(MockServerRepository)
+
+	chRepo.On("GetByID", channelID).Return(&domain.Channel{ID: channelID, ServerID: serverID}, nil)
+	srvRepo.On("GetByID", serverID).Return(&domain.Server{ID: serverID, OwnerID: uuid.New()}, nil)
+	srvRepo.On("IsMember", serverID, userID).Return(true, nil)
+	srvRepo.On("GetMemberRole", serverID, mentionedID).Return(domain.RoleMember, nil)
+	msgRepo.On("Create", mock.AnythingOfType("*domain.Message")).Return(nil)
+
+	content := "hi <@" + mentionedID.String() + ">"
+	uc := usecase.NewMessageUseCase(msgRepo, chRepo, srvRepo)
+	msg, err := uc.CreateMessage(channelID, userID, content)
+
+	assert.NoError(t, err)
+	assert.Equal(t, content, msg.Content)
+}
+
+func TestCreateMessage_MentionNonMember_InvalidMention(t *testing.T) {
+	channelID, serverID, userID, mentionedID := uuid.New(), uuid.New(), uuid.New(), uuid.New()
+
+	msgRepo := new(MockMessageRepository)
+	chRepo := new(MockChannelRepository)
+	srvRepo := new(MockServerRepository)
+
+	chRepo.On("GetByID", channelID).Return(&domain.Channel{ID: channelID, ServerID: serverID}, nil)
+	srvRepo.On("GetByID", serverID).Return(&domain.Server{ID: serverID, OwnerID: uuid.New()}, nil)
+	srvRepo.On("IsMember", serverID, userID).Return(true, nil)
+	srvRepo.On("GetMemberRole", serverID, mentionedID).Return(domain.Role(""), nil)
+
+	content := "hi <@" + mentionedID.String() + ">"
+	uc := usecase.NewMessageUseCase(msgRepo, chRepo, srvRepo)
+	msg, err := uc.CreateMessage(channelID, userID, content)
+
+	assert.Nil(t, msg)
+	assert.ErrorIs(t, err, domain.ErrInvalidMention)
+	msgRepo.AssertNotCalled(t, "Create", mock.Anything)
+}
+
+func TestCreateMessage_EveryoneFromAdmin_Success(t *testing.T) {
+	channelID, serverID, userID := uuid.New(), uuid.New(), uuid.New()
+
+	msgRepo := new(MockMessageRepository)
+	chRepo := new(MockChannelRepository)
+	srvRepo := new(MockServerRepository)
+
+	chRepo.On("GetByID", channelID).Return(&domain.Channel{ID: channelID, ServerID: serverID}, nil)
+	srvRepo.On("GetByID", serverID).Return(&domain.Server{ID: serverID, OwnerID: uuid.New()}, nil)
+	srvRepo.On("IsMember", serverID, userID).Return(true, nil)
+	srvRepo.On("GetMemberRole", serverID, userID).Return(domain.RoleAdmin, nil)
+	msgRepo.On("Create", mock.AnythingOfType("*domain.Message")).Return(nil)
+
+	uc := usecase.NewMessageUseCase(msgRepo, chRepo, srvRepo)
+	msg, err := uc.CreateMessage(channelID, userID, "@everyone hi")
+
+	assert.NoError(t, err)
+	assert.NotNil(t, msg)
+}
+
+func TestCreateMessage_EveryoneFromMember_Forbidden(t *testing.T) {
+	channelID, serverID, userID := uuid.New(), uuid.New(), uuid.New()
+
+	msgRepo := new(MockMessageRepository)
+	chRepo := new(MockChannelRepository)
+	srvRepo := new(MockServerRepository)
+
+	chRepo.On("GetByID", channelID).Return(&domain.Channel{ID: channelID, ServerID: serverID}, nil)
+	srvRepo.On("GetByID", serverID).Return(&domain.Server{ID: serverID, OwnerID: uuid.New()}, nil)
+	srvRepo.On("IsMember", serverID, userID).Return(true, nil)
+	srvRepo.On("GetMemberRole", serverID, userID).Return(domain.RoleMember, nil)
+
+	uc := usecase.NewMessageUseCase(msgRepo, chRepo, srvRepo)
+	msg, err := uc.CreateMessage(channelID, userID, "@everyone hi")
+
+	assert.Nil(t, msg)
+	assert.ErrorIs(t, err, domain.ErrMentionForbidden)
+	msgRepo.AssertNotCalled(t, "Create", mock.Anything)
+}
+
+func TestCreateMessage_NoMentions_SkipsRoleLookup(t *testing.T) {
+	channelID, serverID, userID := uuid.New(), uuid.New(), uuid.New()
+
+	msgRepo := new(MockMessageRepository)
+	chRepo := new(MockChannelRepository)
+	srvRepo := new(MockServerRepository)
+
+	chRepo.On("GetByID", channelID).Return(&domain.Channel{ID: channelID, ServerID: serverID}, nil)
+	srvRepo.On("GetByID", serverID).Return(&domain.Server{ID: serverID, OwnerID: uuid.New()}, nil)
+	srvRepo.On("IsMember", serverID, userID).Return(true, nil)
+	msgRepo.On("Create", mock.AnythingOfType("*domain.Message")).Return(nil)
+
+	uc := usecase.NewMessageUseCase(msgRepo, chRepo, srvRepo)
+	msg, err := uc.CreateMessage(channelID, userID, "just a normal message")
+
+	assert.NoError(t, err)
+	assert.NotNil(t, msg)
+	srvRepo.AssertNotCalled(t, "GetMemberRole", mock.Anything, mock.Anything)
+}
+
+func TestUpdateMessage_MentionNonMember_InvalidMention(t *testing.T) {
+	channelID, serverID, userID, messageID, mentionedID := uuid.New(), uuid.New(), uuid.New(), uuid.New(), uuid.New()
+
+	msgRepo := new(MockMessageRepository)
+	chRepo := new(MockChannelRepository)
+	srvRepo := new(MockServerRepository)
+
+	chRepo.On("GetByID", channelID).Return(&domain.Channel{ID: channelID, ServerID: serverID}, nil)
+	srvRepo.On("GetByID", serverID).Return(&domain.Server{ID: serverID, OwnerID: uuid.New()}, nil)
+	srvRepo.On("IsMember", serverID, userID).Return(true, nil)
+	srvRepo.On("GetMemberRole", serverID, mentionedID).Return(domain.Role(""), nil)
+	existing := &domain.Message{ID: messageID, ChannelID: channelID, UserID: userID, Content: "old"}
+	msgRepo.On("GetByID", messageID).Return(existing, nil)
+
+	content := "hi <@" + mentionedID.String() + ">"
+	uc := usecase.NewMessageUseCase(msgRepo, chRepo, srvRepo)
+	msg, err := uc.UpdateMessage(channelID, messageID, userID, content)
+
+	assert.Nil(t, msg)
+	assert.ErrorIs(t, err, domain.ErrInvalidMention)
+	msgRepo.AssertNotCalled(t, "Update", mock.Anything, mock.Anything)
 }

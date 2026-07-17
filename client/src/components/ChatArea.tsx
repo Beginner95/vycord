@@ -4,7 +4,10 @@ import type { Message } from '@/types';
 import { apiService } from '@/services/api';
 import { wsService } from '@/services/websocket';
 import { audioService } from '@/services/audio';
-import type { Channel, User } from '@/types';
+import { useServerStore } from '@/stores/serverStore';
+import { tokenizeMentions, roleLabel } from '@/utils/mentions';
+import { useMentionAutocomplete } from '@/hooks/useMentionAutocomplete';
+import type { Channel, User, MemberWithUser } from '@/types';
 import './ChatArea.css';
 
 interface ChatAreaProps {
@@ -14,14 +17,55 @@ interface ChatAreaProps {
   onShowMembers?: () => void;
 }
 
+function renderMessageContent(content: string, members: MemberWithUser[], currentUserId?: string) {
+  return tokenizeMentions(content).map((token, i) => {
+    if (token.type === 'text') {
+      return token.value;
+    }
+    if (token.type === 'role') {
+      return (
+        <span key={i} className="mention mention-role">
+          @{roleLabel(token.value)}
+        </span>
+      );
+    }
+    if (token.type === 'everyone') {
+      return (
+        <span key={i} className="mention mention-everyone">
+          @everyone
+        </span>
+      );
+    }
+    const member = members.find((m) => m.user_id === token.value);
+    const isSelf = token.value === currentUserId;
+    return (
+      <span key={i} className={`mention${isSelf ? ' mention-self' : ''}`}>
+        @{member?.username ?? 'unknown-user'}
+      </span>
+    );
+  });
+}
+
 export function ChatArea({ channel, user, onMobileBack, onShowMembers }: ChatAreaProps) {
   const { messages, addMessage, updateMessage, removeMessage } = useMessageStore();
+  const { members } = useServerStore();
   const [input, setInput] = useState('');
+  const [sendError, setSendError] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   // Cache for user info (id → username)
   const [userCache, setUserCache] = useState<Map<string, string>>(new Map());
+
+  const currentUserRole = members.find((m) => m.user_id === user?.id)?.role;
+
+  const composeMention = useMentionAutocomplete({
+    value: input,
+    setValue: setInput,
+    inputRef,
+    members,
+    currentUserRole,
+  });
 
   useEffect(() => {
     scrollToBottom();
@@ -29,6 +73,8 @@ export function ChatArea({ channel, user, onMobileBack, onShowMembers }: ChatAre
 
   useEffect(() => {
     inputRef.current?.focus();
+    composeMention.reset();
+    editMention.reset();
   }, [channel?.id]);
 
   // Fetch usernames for all unique user_ids in messages
@@ -120,20 +166,32 @@ export function ChatArea({ channel, user, onMobileBack, onShowMembers }: ChatAre
       setInput('');
     } catch (err) {
       console.error('Failed to send message:', err);
+      setSendError(err instanceof Error ? err.message : 'Failed to send message');
+      setTimeout(() => setSendError(null), 5000);
     }
   };
 
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editValue, setEditValue] = useState('');
+  const editInputRef = useRef<HTMLInputElement>(null);
+  const editMention = useMentionAutocomplete({
+    value: editValue,
+    setValue: setEditValue,
+    inputRef: editInputRef,
+    members,
+    currentUserRole,
+  });
 
   const startEdit = (msg: Message) => {
     setEditingId(msg.id);
     setEditValue(msg.content);
+    editMention.reset();
   };
 
   const cancelEdit = () => {
     setEditingId(null);
     setEditValue('');
+    editMention.reset();
   };
 
   const saveEdit = async (messageId: string) => {
@@ -149,10 +207,13 @@ export function ChatArea({ channel, user, onMobileBack, onShowMembers }: ChatAre
       cancelEdit();
     } catch (err) {
       console.error('Failed to update message:', err);
+      setSendError(err instanceof Error ? err.message : 'Failed to update message');
+      setTimeout(() => setSendError(null), 5000);
     }
   };
 
   const handleEditKeyDown = (e: KeyboardEvent<HTMLInputElement>, messageId: string) => {
+    if (editMention.handleKeyDown(e)) return;
     if (e.key === 'Enter') {
       e.preventDefault();
       saveEdit(messageId);
@@ -267,17 +328,36 @@ export function ChatArea({ channel, user, onMobileBack, onShowMembers }: ChatAre
                       </div>
                     )}
                     {isEditing ? (
-                      <input
-                        className="message-edit-input"
-                        value={editValue}
-                        onChange={(e) => setEditValue(e.target.value)}
-                        onKeyDown={(e) => handleEditKeyDown(e, msg.id)}
-                        onBlur={cancelEdit}
-                        maxLength={2000}
-                        autoFocus
-                      />
+                      <div className="message-edit-wrapper">
+                        <input
+                          ref={editInputRef}
+                          className="message-edit-input"
+                          value={editValue}
+                          onChange={editMention.handleChange}
+                          onKeyDown={(e) => handleEditKeyDown(e, msg.id)}
+                          onBlur={cancelEdit}
+                          maxLength={2000}
+                          autoFocus
+                        />
+                        {editMention.mentionQuery !== null && editMention.mentionEntries.length > 0 && (
+                          <ul className="mention-dropdown">
+                            {editMention.mentionEntries.map((entry, i) => (
+                              <li
+                                key={editMention.entryKey(entry)}
+                                className={i === editMention.mentionIndex ? 'active' : ''}
+                                onMouseDown={(e) => {
+                                  e.preventDefault();
+                                  editMention.selectEntry(entry);
+                                }}
+                              >
+                                @{entry.label}
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                      </div>
                     ) : (
-                      <p className="message-text">{msg.content}</p>
+                      <p className="message-text">{renderMessageContent(msg.content, members, user?.id)}</p>
                     )}
                   </div>
                   {!isCompact && isFromMe && (
@@ -313,15 +393,38 @@ export function ChatArea({ channel, user, onMobileBack, onShowMembers }: ChatAre
         )}
       </div>
 
+      {sendError && (
+        <div className="error-toast">
+          {sendError}
+        </div>
+      )}
+
       <form className="chat-input" onSubmit={handleSubmit}>
         <input
           ref={inputRef}
           type="text"
           value={input}
-          onChange={(e) => setInput(e.target.value)}
+          onChange={composeMention.handleChange}
+          onKeyDown={composeMention.handleKeyDown}
           placeholder={`Message #${channel.name}`}
           maxLength={2000}
         />
+        {composeMention.mentionQuery !== null && composeMention.mentionEntries.length > 0 && (
+          <ul className="mention-dropdown">
+            {composeMention.mentionEntries.map((entry, i) => (
+              <li
+                key={composeMention.entryKey(entry)}
+                className={i === composeMention.mentionIndex ? 'active' : ''}
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  composeMention.selectEntry(entry);
+                }}
+              >
+                @{entry.label}
+              </li>
+            ))}
+          </ul>
+        )}
 
       </form>
     </main>
