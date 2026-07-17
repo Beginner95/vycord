@@ -183,6 +183,10 @@ func (h *WebSocketHandler) handleMessage(client *ws.Client, msg *ws.Message) {
 		h.handleScreenShareStarted(client)
 	case "screen_share_stopped":
 		h.handleScreenShareStopped(client)
+	case "voice_joined":
+		h.handleVoiceJoined(client, msg)
+	case "voice_left":
+		h.handleVoiceLeft(client, msg)
 	case "ping":
 		h.handlePing(client)
 	default:
@@ -206,6 +210,36 @@ func (h *WebSocketHandler) handleJoinChannel(client *ws.Client, msg *ws.Message)
 		return
 	}
 	h.hub.SetClientChannel(client.UserID, &channelID)
+}
+
+func (h *WebSocketHandler) handleVoiceJoined(client *ws.Client, msg *ws.Message) {
+	var payload struct {
+		ChannelID string `json:"channel_id"`
+	}
+	if err := json.Unmarshal(msg.Payload, &payload); err != nil {
+		return
+	}
+	channelID, err := uuid.Parse(payload.ChannelID)
+	if err != nil {
+		return
+	}
+
+	participants := h.hub.JoinVoiceChannel(client.UserID, channelID)
+	h.log.Info("voice channel joined", "user_id", client.UserID, "channel_id", channelID)
+	h.hub.BroadcastVoiceParticipants(channelID, participants)
+}
+
+// handleVoiceLeft ignores the message body — the hub already knows which
+// channel client.UserID is in, so it's the sole source of truth for "which
+// channel did they leave" (protects against a stale/mismatched channel_id
+// in the payload).
+func (h *WebSocketHandler) handleVoiceLeft(client *ws.Client, _ *ws.Message) {
+	channelID, participants, ok := h.hub.LeaveVoiceChannel(client.UserID)
+	if !ok {
+		return
+	}
+	h.log.Info("voice channel left", "user_id", client.UserID, "channel_id", channelID)
+	h.hub.BroadcastVoiceParticipants(channelID, participants)
 }
 
 // --- Call Signalling ---
