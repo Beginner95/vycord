@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { useAuthStore } from '@/stores/authStore';
 import { callService } from '@/services/call';
 import { audioService } from '@/services/audio';
+import { wsService } from '@/services/websocket';
 import './CallUI.css';
 
 function useMicLevel(stream: MediaStream | null, isMuted: boolean): number {
@@ -49,9 +50,14 @@ export function CallUI() {
   const [isMuted, setIsMuted] = useState(false);
   const [isMicAvailable, setIsMicAvailable] = useState(true);
   const [isVideoOff, setIsVideoOff] = useState(true);
+  const [remoteMicMuted, setRemoteMicMuted] = useState(false);
   const micLevel = useMicLevel(
     activeCall ? callService.localStreamState : null,
     isMuted,
+  );
+  const remoteMicLevel = useMicLevel(
+    activeCall ? remoteStream : null,
+    remoteMicMuted,
   );
   const [error, setError] = useState<string | null>(null);
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
@@ -74,6 +80,7 @@ export function CallUI() {
         setIsMuted(false);
         setIsMicAvailable(true);
         setIsVideoOff(false);
+        setRemoteMicMuted(false);
       },
       onError: (msg) => {
         audioService.stopRingtone();
@@ -96,6 +103,7 @@ export function CallUI() {
       const micAvailable = callService.isMicrophoneAvailable;
       setIsMicAvailable(micAvailable);
       if (!micAvailable) setIsMuted(true);
+      wsService.send(micAvailable ? 'mic_unmuted' : 'mic_muted', {});
     };
     window.addEventListener('discrod:call_started', handleCallStarted as EventListener);
 
@@ -118,6 +126,7 @@ export function CallUI() {
     const micAvailable = callService.isMicrophoneAvailable;
     setIsMicAvailable(micAvailable);
     if (!micAvailable) setIsMuted(true);
+    wsService.send(micAvailable ? 'mic_unmuted' : 'mic_muted', {});
     if (incomingCall) {
       setActiveCall({ call_id: incomingCall.call_id });
     }
@@ -137,6 +146,7 @@ export function CallUI() {
   const handleToggleMute = () => {
     const muted = callService.toggleMuteAudio();
     setIsMuted(muted);
+    wsService.send(muted ? 'mic_muted' : 'mic_unmuted', {});
   };
 
   const handleToggleVideo = () => {
@@ -156,6 +166,24 @@ export function CallUI() {
       remoteVideoRef.current.srcObject = remoteStream;
     }
   }, [remoteStream, activeCall]);
+
+  // Listen for the remote peer's mic mute state via the main WS
+  useEffect(() => {
+    if (!activeCall) return;
+
+    const unsubMuted = wsService.on('mic_muted', (payload) => {
+      const p = payload as { user_id: string };
+      if (p.user_id !== callService.remoteUserIdState) return;
+      setRemoteMicMuted(true);
+    });
+    const unsubUnmuted = wsService.on('mic_unmuted', (payload) => {
+      const p = payload as { user_id: string };
+      if (p.user_id !== callService.remoteUserIdState) return;
+      setRemoteMicMuted(false);
+    });
+
+    return () => { unsubMuted(); unsubUnmuted(); };
+  }, [activeCall]);
 
   // If no active call or incoming call, don't render anything
   if (!activeCall && !incomingCall) {
@@ -187,7 +215,7 @@ export function CallUI() {
       {activeCall && (
         <div className="call-overlay active">
           <div className="call-videos">
-            <div className="remote-video">
+            <div className={`remote-video ${remoteMicLevel > 0.05 ? 'speaking' : ''}`}>
               <video
                 ref={remoteVideoRef}
                 autoPlay
@@ -196,6 +224,11 @@ export function CallUI() {
               <div className="call-timer">
                 <CallTimer />
               </div>
+              {remoteStream && (
+                <div className={`mic-badge ${remoteMicMuted ? 'mic-badge--muted' : remoteMicLevel > 0.05 ? 'mic-badge--speaking' : 'mic-badge--idle'}`}>
+                  {remoteMicMuted ? '🔇' : '🎤'}
+                </div>
+              )}
             </div>
             <div className={`local-video ${micLevel > 0.05 ? 'speaking' : ''}`}>
               <video
@@ -204,9 +237,11 @@ export function CallUI() {
                 playsInline
                 muted
               />
+              <div className={`mic-badge ${isMuted ? 'mic-badge--muted' : micLevel > 0.05 ? 'mic-badge--speaking' : 'mic-badge--idle'}`}>
+                {isMuted ? '🔇' : '🎤'}
+              </div>
               {user && (
                 <div className="local-video-label">
-                  {!isMuted && micLevel > 0.05 && <span className="mic-dot" />}
                   {user.username} (You)
                 </div>
               )}

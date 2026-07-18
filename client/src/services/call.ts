@@ -322,6 +322,10 @@ class CallService {
   get isMicrophoneAvailable(): boolean {
     return this._microphoneAvailable;
   }
+
+  get remoteUserIdState(): string | null {
+    return this.remoteUserId;
+  }
 }
 
 export const callService = new CallService();

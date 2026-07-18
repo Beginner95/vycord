@@ -36,3 +36,6 @@ docker-compose.override.yml
 # Certificates
 certs/*.pem
 certs/*.key
+
+# Superpowers brainstorming companion
+.superpowers/

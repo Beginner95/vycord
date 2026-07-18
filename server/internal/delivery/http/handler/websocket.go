@@ -183,6 +183,10 @@ func (h *WebSocketHandler) handleMessage(client *ws.Client, msg *ws.Message) {
 		h.handleScreenShareStarted(client)
 	case "screen_share_stopped":
 		h.handleScreenShareStopped(client)
+	case "mic_muted":
+		h.handleMicMuted(client)
+	case "mic_unmuted":
+		h.handleMicUnmuted(client)
 	case "voice_joined":
 		h.handleVoiceJoined(client, msg)
 	case "voice_left":
@@ -576,6 +580,22 @@ func (h *WebSocketHandler) handleScreenShareStopped(client *ws.Client) {
 	h.log.Info("screen share stopped", "user_id", client.UserID)
 	h.hub.BroadcastMessage(&ws.Message{
 		Type:    "screen_share_stopped",
+		Payload: mustMarshal(map[string]interface{}{"user_id": client.UserID.String()}),
+	})
+}
+
+func (h *WebSocketHandler) handleMicMuted(client *ws.Client) {
+	h.log.Info("mic muted", "user_id", client.UserID)
+	h.hub.BroadcastMessage(&ws.Message{
+		Type:    "mic_muted",
+		Payload: mustMarshal(map[string]interface{}{"user_id": client.UserID.String()}),
+	})
+}
+
+func (h *WebSocketHandler) handleMicUnmuted(client *ws.Client) {
+	h.log.Info("mic unmuted", "user_id", client.UserID)
+	h.hub.BroadcastMessage(&ws.Message{
+		Type:    "mic_unmuted",
 		Payload: mustMarshal(map[string]interface{}{"user_id": client.UserID.String()}),
 	})
 }
