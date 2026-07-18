@@ -39,3 +39,4 @@ certs/*.key
 
 # Superpowers brainstorming companion
 .superpowers/
+.worktrees/

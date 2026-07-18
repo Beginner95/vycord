@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, type FormEvent, type KeyboardEvent } from 'react';
+import { useState, useEffect, useRef, type FormEvent, type KeyboardEvent, type ChangeEvent } from 'react';
 import { useMessageStore } from '@/stores/messageStore';
 import type { Message } from '@/types';
 import { apiService } from '@/services/api';
@@ -7,6 +7,7 @@ import { audioService } from '@/services/audio';
 import { useServerStore } from '@/stores/serverStore';
 import { tokenizeMentions, roleLabel } from '@/utils/mentions';
 import { useMentionAutocomplete } from '@/hooks/useMentionAutocomplete';
+import { useFloatingSelectionToolbar } from '@/hooks/useFloatingSelectionToolbar';
 import type { Channel, User, MemberWithUser } from '@/types';
 import './ChatArea.css';
 
@@ -15,6 +16,54 @@ interface ChatAreaProps {
   user: User | null;
   onMobileBack?: () => void;
   onShowMembers?: () => void;
+}
+
+const QUOTE_PREFIX = '> ';
+
+function lineRangeForSelection(value: string, start: number, end: number) {
+  const lineStart = start <= 0 ? 0 : value.lastIndexOf('\n', start - 1) + 1;
+  // A selection that ends exactly at the start of a new line (e.g. Shift+Down
+  // stopping at column 0 of the next line) has selected 0 characters of that
+  // line — don't treat it as touched.
+  const selEnd = end > start && value[end - 1] === '\n' ? end - 1 : end;
+  const searchFrom = Math.max(selEnd, lineStart);
+  const endIdx = value.indexOf('\n', searchFrom);
+  const lineEnd = endIdx === -1 ? value.length : endIdx;
+  return { lineStart, lineEnd };
+}
+
+function toggleQuoteLinesInRange(value: string, start: number, end: number) {
+  const { lineStart, lineEnd } = lineRangeForSelection(value, start, end);
+  const block = value.slice(lineStart, lineEnd);
+  const lines = block.split('\n');
+  const allQuoted = lines.every((line) => line.startsWith(QUOTE_PREFIX));
+  const newLines = lines.map((line) => {
+    if (allQuoted) return line.slice(QUOTE_PREFIX.length);
+    return line.startsWith(QUOTE_PREFIX) ? line : `${QUOTE_PREFIX}${line}`;
+  });
+  const newBlock = newLines.join('\n');
+  const newValue = value.slice(0, lineStart) + newBlock + value.slice(lineEnd);
+  const delta = newBlock.length - block.length;
+
+  // How far a position within [lineStart, lineEnd] shifts after the toggle: the
+  // sum of the per-line length deltas for every line up to and including the
+  // line the position sits on. A line's prefix is always inserted/removed at
+  // that line's own start, which is at-or-before any position within it, so
+  // that line's full delta always applies — this is the same reasoning the
+  // old single-line `toggleQuotePrefix` relied on (`pos = caret + delta`),
+  // generalized to a block that can contain several lines with different
+  // per-line deltas (e.g. a mixed selection where some lines were already
+  // quoted and others weren't, in add-mode).
+  const shiftFor = (pos: number) => {
+    const lineIndex = (value.slice(lineStart, pos).match(/\n/g) ?? []).length;
+    let shift = 0;
+    for (let i = 0; i <= lineIndex && i < lines.length; i++) {
+      shift += newLines[i].length - lines[i].length;
+    }
+    return shift;
+  };
+
+  return { newValue, delta, allQuoted, shiftFor };
 }
 
 function renderMessageContent(content: string, members: MemberWithUser[], currentUserId?: string) {
@@ -46,13 +95,56 @@ function renderMessageContent(content: string, members: MemberWithUser[], curren
   });
 }
 
+function renderMessageBody(content: string, members: MemberWithUser[], currentUserId?: string) {
+  const lines = content.split('\n');
+  const groups: { quoted: boolean; lines: string[] }[] = [];
+
+  for (const line of lines) {
+    const quoted = line.startsWith(QUOTE_PREFIX);
+    const text = quoted ? line.slice(QUOTE_PREFIX.length) : line;
+    const last = groups[groups.length - 1];
+    if (last && last.quoted === quoted) {
+      last.lines.push(text);
+    } else {
+      groups.push({ quoted, lines: [text] });
+    }
+  }
+
+  return groups.map((group, i) => {
+    const text = group.lines.join('\n');
+    const rendered = renderMessageContent(text, members, currentUserId);
+    return group.quoted
+      ? <span key={i} className="message-quote">{rendered}</span>
+      : <span key={i}>{rendered}</span>;
+  });
+}
+
+function FloatingQuoteButton({ x, y, onConfirm }: { x: number; y: number; onConfirm: () => void }) {
+  return (
+    <button
+      type="button"
+      className="floating-quote-btn"
+      style={{ left: x, top: y }}
+      onMouseDown={(e) => {
+        e.preventDefault();
+        onConfirm();
+      }}
+    >
+      <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 21c3 0 7-1 7-8V5c0-1.25-.756-2.017-2-2H4c-1.25 0-2 .75-2 1.972V11c0 1.25.75 2 2 2 1 0 1 0 1 1v1c0 1-1 2-2 2s-1 .008-1 1.031V20c0 1 0 1 1 1z"/><path d="M15 21c3 0 7-1 7-8V5c0-1.25-.757-2.017-2-2h-4c-1.25 0-2 .75-2 1.972V11c0 1.25.75 2 2 2h.75c0 2.25.25 4-2.75 4v3c0 1 0 1 1 1z"/></svg>
+      <span>Цитата</span>
+    </button>
+  );
+}
+
 export function ChatArea({ channel, user, onMobileBack, onShowMembers }: ChatAreaProps) {
   const { messages, addMessage, updateMessage, removeMessage } = useMessageStore();
   const { members } = useServerStore();
   const [input, setInput] = useState('');
+  const [caretInQuoteLine, setCaretInQuoteLine] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+  const chatMessagesRef = useRef<HTMLDivElement>(null);
 
   // Cache for user info (id → username)
   const [userCache, setUserCache] = useState<Map<string, string>>(new Map());
@@ -75,7 +167,15 @@ export function ChatArea({ channel, user, onMobileBack, onShowMembers }: ChatAre
     inputRef.current?.focus();
     composeMention.reset();
     editMention.reset();
+    setCaretInQuoteLine(false);
   }, [channel?.id]);
+
+  useEffect(() => {
+    const el = inputRef.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = `${el.scrollHeight}px`;
+  }, [input]);
 
   // Fetch usernames for all unique user_ids in messages
   useEffect(() => {
@@ -164,6 +264,7 @@ export function ChatArea({ channel, user, onMobileBack, onShowMembers }: ChatAre
       const msg = await apiService.createMessage(channel.id, input.trim()) as Message;
       addMessage(msg);
       setInput('');
+      setCaretInQuoteLine(false);
     } catch (err) {
       console.error('Failed to send message:', err);
       setSendError(err instanceof Error ? err.message : 'Failed to send message');
@@ -171,15 +272,155 @@ export function ChatArea({ channel, user, onMobileBack, onShowMembers }: ChatAre
     }
   };
 
+  const handleComposeKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (composeMention.handleKeyDown(e)) return;
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      handleSubmit(e as unknown as FormEvent);
+    }
+  };
+
+  const updateQuoteButtonActive = (value: string = input, caret?: number) => {
+    const el = inputRef.current;
+    const pos = caret ?? el?.selectionStart ?? 0;
+    const { lineStart, lineEnd } = lineRangeForSelection(value, pos, pos);
+    setCaretInQuoteLine(value.slice(lineStart, lineEnd).startsWith(QUOTE_PREFIX));
+  };
+
+  const handleComposeChange = (e: ChangeEvent<HTMLTextAreaElement>) => {
+    composeMention.handleChange(e);
+    updateQuoteButtonActive(e.target.value, e.target.selectionStart ?? undefined);
+  };
+
+  const toggleQuotePrefixRange = (start: number, end: number) => {
+    const el = inputRef.current;
+    const { newValue, allQuoted, shiftFor } = toggleQuoteLinesInRange(input, start, end);
+    const newStart = start + shiftFor(start);
+    const newEnd = end + shiftFor(end);
+    setInput(newValue);
+    setCaretInQuoteLine(!allQuoted);
+    requestAnimationFrame(() => {
+      el?.focus();
+      el?.setSelectionRange(newStart, newEnd);
+    });
+  };
+
+  const toggleQuotePrefix = () => {
+    const el = inputRef.current;
+    const start = el?.selectionStart ?? input.length;
+    const end = el?.selectionEnd ?? input.length;
+    toggleQuotePrefixRange(start, end);
+  };
+
+  const composeSelectionToolbar = useFloatingSelectionToolbar({
+    containerRef: inputRef,
+    resubscribeKey: channel?.id,
+    getSelectionInfo: (e) => {
+      const el = inputRef.current;
+      const start = el?.selectionStart;
+      const end = el?.selectionEnd;
+      if (!el || start == null || end == null || start === end) return null;
+      const text = el.value.slice(start, end);
+      if (e) return { text, x: e.clientX, y: e.clientY + 16 };
+      const rect = el.getBoundingClientRect();
+      return { text, x: rect.left + 24, y: rect.top - 8 };
+    },
+    onConfirm: () => {
+      const el = inputRef.current;
+      const start = el?.selectionStart;
+      const end = el?.selectionEnd;
+      if (!el || start == null || end == null) return;
+      toggleQuotePrefixRange(start, end);
+    },
+  });
+
+  const insertQuoteIntoCompose = (text: string) => {
+    const el = inputRef.current;
+    if (!el) return;
+    const quotedBlock = text
+      .split('\n')
+      .map((line) => (line.startsWith(QUOTE_PREFIX) ? line : `${QUOTE_PREFIX}${line}`))
+      .join('\n');
+    const newValue = input.length === 0 ? quotedBlock : `${quotedBlock}\n${input}`;
+    const caret = input.length === 0 ? quotedBlock.length : quotedBlock.length + 1;
+    setInput(newValue);
+    requestAnimationFrame(() => {
+      el.focus();
+      el.setSelectionRange(caret, caret);
+      updateQuoteButtonActive(newValue, caret);
+    });
+  };
+
+  const chatSelectionToolbar = useFloatingSelectionToolbar({
+    containerRef: chatMessagesRef,
+    resubscribeKey: channel?.id,
+    keyupTarget: 'document',
+    getSelectionInfo: () => {
+      const sel = window.getSelection();
+      if (!sel || sel.isCollapsed || sel.rangeCount === 0) return null;
+      const range = sel.getRangeAt(0);
+      if (!chatMessagesRef.current?.contains(range.commonAncestorContainer)) return null;
+      const text = sel.toString();
+      if (text.trim().length === 0) return null;
+      const rect = range.getBoundingClientRect();
+      return { text, x: rect.right, y: rect.bottom + 8 };
+    },
+    onConfirm: (text) => {
+      insertQuoteIntoCompose(text);
+      window.getSelection()?.removeAllRanges();
+    },
+  });
+
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editValue, setEditValue] = useState('');
-  const editInputRef = useRef<HTMLInputElement>(null);
+  const editInputRef = useRef<HTMLTextAreaElement>(null);
   const editMention = useMentionAutocomplete({
     value: editValue,
     setValue: setEditValue,
     inputRef: editInputRef,
     members,
     currentUserRole,
+  });
+
+  useEffect(() => {
+    const el = editInputRef.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = `${el.scrollHeight}px`;
+  }, [editValue, editingId]);
+
+  const toggleEditQuotePrefixRange = (start: number, end: number) => {
+    const el = editInputRef.current;
+    const { newValue, shiftFor } = toggleQuoteLinesInRange(editValue, start, end);
+    const newStart = start + shiftFor(start);
+    const newEnd = end + shiftFor(end);
+    setEditValue(newValue);
+    requestAnimationFrame(() => {
+      el?.focus();
+      el?.setSelectionRange(newStart, newEnd);
+    });
+  };
+
+  const editSelectionToolbar = useFloatingSelectionToolbar({
+    containerRef: editInputRef,
+    resubscribeKey: editingId,
+    getSelectionInfo: (e) => {
+      const el = editInputRef.current;
+      const start = el?.selectionStart;
+      const end = el?.selectionEnd;
+      if (!el || start == null || end == null || start === end) return null;
+      const text = el.value.slice(start, end);
+      if (e) return { text, x: e.clientX, y: e.clientY + 16 };
+      const rect = el.getBoundingClientRect();
+      return { text, x: rect.left + 24, y: rect.top - 8 };
+    },
+    onConfirm: () => {
+      const el = editInputRef.current;
+      const start = el?.selectionStart;
+      const end = el?.selectionEnd;
+      if (!el || start == null || end == null) return;
+      toggleEditQuotePrefixRange(start, end);
+    },
   });
 
   const startEdit = (msg: Message) => {
@@ -212,9 +453,9 @@ export function ChatArea({ channel, user, onMobileBack, onShowMembers }: ChatAre
     }
   };
 
-  const handleEditKeyDown = (e: KeyboardEvent<HTMLInputElement>, messageId: string) => {
+  const handleEditKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>, messageId: string) => {
     if (editMention.handleKeyDown(e)) return;
-    if (e.key === 'Enter') {
+    if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       saveEdit(messageId);
     } else if (e.key === 'Escape') {
@@ -274,7 +515,7 @@ export function ChatArea({ channel, user, onMobileBack, onShowMembers }: ChatAre
         )}
       </div>
 
-      <div className="chat-messages">
+      <div className="chat-messages" ref={chatMessagesRef}>
         {messages.length === 0 ? (
           <div className="welcome-message">
             <h1>Welcome to #{channel.name}!</h1>
@@ -329,7 +570,7 @@ export function ChatArea({ channel, user, onMobileBack, onShowMembers }: ChatAre
                     )}
                     {isEditing ? (
                       <div className="message-edit-wrapper">
-                        <input
+                        <textarea
                           ref={editInputRef}
                           className="message-edit-input"
                           value={editValue}
@@ -337,6 +578,7 @@ export function ChatArea({ channel, user, onMobileBack, onShowMembers }: ChatAre
                           onKeyDown={(e) => handleEditKeyDown(e, msg.id)}
                           onBlur={cancelEdit}
                           maxLength={2000}
+                          rows={1}
                           autoFocus
                         />
                         {editMention.mentionQuery !== null && editMention.mentionEntries.length > 0 && (
@@ -357,7 +599,7 @@ export function ChatArea({ channel, user, onMobileBack, onShowMembers }: ChatAre
                         )}
                       </div>
                     ) : (
-                      <p className="message-text">{renderMessageContent(msg.content, members, user?.id)}</p>
+                      <p className="message-text">{renderMessageBody(msg.content, members, user?.id)}</p>
                     )}
                   </div>
                   {!isCompact && isFromMe && (
@@ -399,34 +641,71 @@ export function ChatArea({ channel, user, onMobileBack, onShowMembers }: ChatAre
         </div>
       )}
 
-      <form className="chat-input" onSubmit={handleSubmit}>
-        <input
-          ref={inputRef}
-          type="text"
-          value={input}
-          onChange={composeMention.handleChange}
-          onKeyDown={composeMention.handleKeyDown}
-          placeholder={`Message #${channel.name}`}
-          maxLength={2000}
-        />
-        {composeMention.mentionQuery !== null && composeMention.mentionEntries.length > 0 && (
-          <ul className="mention-dropdown">
-            {composeMention.mentionEntries.map((entry, i) => (
-              <li
-                key={composeMention.entryKey(entry)}
-                className={i === composeMention.mentionIndex ? 'active' : ''}
-                onMouseDown={(e) => {
-                  e.preventDefault();
-                  composeMention.selectEntry(entry);
-                }}
-              >
-                @{entry.label}
-              </li>
-            ))}
-          </ul>
-        )}
+      <div className="chat-input">
+        <div className="chat-input-toolbar">
+          <button
+            type="button"
+            className={`quote-toggle-btn${caretInQuoteLine ? ' active' : ''}`}
+            aria-pressed={caretInQuoteLine}
+            onClick={toggleQuotePrefix}
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 21c3 0 7-1 7-8V5c0-1.25-.756-2.017-2-2H4c-1.25 0-2 .75-2 1.972V11c0 1.25.75 2 2 2 1 0 1 0 1 1v1c0 1-1 2-2 2s-1 .008-1 1.031V20c0 1 0 1 1 1z"/><path d="M15 21c3 0 7-1 7-8V5c0-1.25-.757-2.017-2-2h-4c-1.25 0-2 .75-2 1.972V11c0 1.25.75 2 2 2h.75c0 2.25.25 4-2.75 4v3c0 1 0 1 1 1z"/></svg>
+            <span>Цитата</span>
+          </button>
+        </div>
+        <form onSubmit={handleSubmit}>
+          <textarea
+            ref={inputRef}
+            value={input}
+            onChange={handleComposeChange}
+            onKeyDown={handleComposeKeyDown}
+            onSelect={() => updateQuoteButtonActive()}
+            onClick={() => updateQuoteButtonActive()}
+            onKeyUp={() => updateQuoteButtonActive()}
+            placeholder={`Message #${channel.name}`}
+            maxLength={2000}
+            rows={1}
+          />
+          {composeMention.mentionQuery !== null && composeMention.mentionEntries.length > 0 && (
+            <ul className="mention-dropdown">
+              {composeMention.mentionEntries.map((entry, i) => (
+                <li
+                  key={composeMention.entryKey(entry)}
+                  className={i === composeMention.mentionIndex ? 'active' : ''}
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    composeMention.selectEntry(entry);
+                  }}
+                >
+                  @{entry.label}
+                </li>
+              ))}
+            </ul>
+          )}
+        </form>
+      </div>
 
-      </form>
+      {composeSelectionToolbar.visible && (
+        <FloatingQuoteButton
+          x={composeSelectionToolbar.x}
+          y={composeSelectionToolbar.y}
+          onConfirm={composeSelectionToolbar.confirm}
+        />
+      )}
+      {editSelectionToolbar.visible && (
+        <FloatingQuoteButton
+          x={editSelectionToolbar.x}
+          y={editSelectionToolbar.y}
+          onConfirm={editSelectionToolbar.confirm}
+        />
+      )}
+      {chatSelectionToolbar.visible && (
+        <FloatingQuoteButton
+          x={chatSelectionToolbar.x}
+          y={chatSelectionToolbar.y}
+          onConfirm={chatSelectionToolbar.confirm}
+        />
+      )}
     </main>
   );
 }
