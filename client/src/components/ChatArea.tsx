@@ -264,6 +264,13 @@ export function ChatArea({ channel, user, onMobileBack, onShowMembers }: ChatAre
     currentUserRole,
   });
 
+  useEffect(() => {
+    const el = editInputRef.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = `${el.scrollHeight}px`;
+  }, [editValue, editingId]);
+
   const startEdit = (msg: Message) => {
     setEditingId(msg.id);
     setEditValue(msg.content);
@@ -296,7 +303,7 @@ export function ChatArea({ channel, user, onMobileBack, onShowMembers }: ChatAre
 
   const handleEditKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>, messageId: string) => {
     if (editMention.handleKeyDown(e)) return;
-    if (e.key === 'Enter') {
+    if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       saveEdit(messageId);
     } else if (e.key === 'Escape') {

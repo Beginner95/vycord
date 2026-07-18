@@ -270,7 +270,11 @@
   background: var(--bg-primary);
   color: var(--text-primary);
   font-size: 14px;
+  font-family: inherit;
   outline: none;
+  resize: none;
+  max-height: 40vh;
+  overflow-y: auto;
 }
 
 .message-edit-wrapper {
