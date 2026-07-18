@@ -321,7 +321,9 @@ export function ChatArea({ channel, user, onMobileBack, onShowMembers }: ChatAre
       const end = el?.selectionEnd;
       if (!el || start == null || end == null || start === end) return null;
       const text = el.value.slice(start, end);
-      return { text, x: e.clientX, y: e.clientY + 16 };
+      if (e) return { text, x: e.clientX, y: e.clientY + 16 };
+      const rect = el.getBoundingClientRect();
+      return { text, x: rect.left + 24, y: rect.top - 8 };
     },
     onConfirm: () => {
       const el = inputRef.current;
@@ -352,6 +354,7 @@ export function ChatArea({ channel, user, onMobileBack, onShowMembers }: ChatAre
   const chatSelectionToolbar = useFloatingSelectionToolbar({
     containerRef: chatMessagesRef,
     resubscribeKey: channel?.id,
+    keyupTarget: 'document',
     getSelectionInfo: () => {
       const sel = window.getSelection();
       if (!sel || sel.isCollapsed || sel.rangeCount === 0) return null;
@@ -407,7 +410,9 @@ export function ChatArea({ channel, user, onMobileBack, onShowMembers }: ChatAre
       const end = el?.selectionEnd;
       if (!el || start == null || end == null || start === end) return null;
       const text = el.value.slice(start, end);
-      return { text, x: e.clientX, y: e.clientY + 16 };
+      if (e) return { text, x: e.clientX, y: e.clientY + 16 };
+      const rect = el.getBoundingClientRect();
+      return { text, x: rect.left + 24, y: rect.top - 8 };
     },
     onConfirm: () => {
       const el = editInputRef.current;

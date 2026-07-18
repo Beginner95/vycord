@@ -8,7 +8,7 @@ export interface SelectionInfo {
 
 interface UseFloatingSelectionToolbarArgs {
   containerRef: RefObject<HTMLElement | null>;
-  getSelectionInfo: (e: MouseEvent) => SelectionInfo | null;
+  getSelectionInfo: (e?: MouseEvent) => SelectionInfo | null;
   onConfirm: (text: string) => void;
   /**
    * Extra value to re-run the subscription effect on. Needed whenever
@@ -18,6 +18,18 @@ interface UseFloatingSelectionToolbarArgs {
    * `editingId`) re-attaches listeners to the freshly mounted node.
    */
   resubscribeKey?: unknown;
+  /**
+   * Where to listen for keyup-driven selection changes (e.g. Shift+arrows).
+   * Textareas dispatch keyup to themselves while focused, so `containerRef`
+   * ('container', the default) is the correct, naturally-scoped target
+   * there. Plain rendered text (e.g. the chat message list) isn't a
+   * keyboard event target — focus can remain elsewhere while the user
+   * extends a selection there — so that usage opts into listening at the
+   * document level instead; getSelectionInfo's own containment check
+   * (only returning non-null for selections actually inside that
+   * container) keeps that safe.
+   */
+  keyupTarget?: 'container' | 'document';
 }
 
 export function useFloatingSelectionToolbar({
@@ -25,6 +37,7 @@ export function useFloatingSelectionToolbar({
   getSelectionInfo,
   onConfirm,
   resubscribeKey,
+  keyupTarget = 'container',
 }: UseFloatingSelectionToolbarArgs) {
   const [state, setState] = useState<SelectionInfo | null>(null);
   const getSelectionInfoRef = useRef(getSelectionInfo);
@@ -36,37 +49,44 @@ export function useFloatingSelectionToolbar({
     const container = containerRef.current;
     if (!container) return;
 
-    const handleMouseUp = (e: MouseEvent) => {
-      const info = getSelectionInfoRef.current(e);
+    const show = (info: SelectionInfo | null) => {
       if (!info || info.text.trim().length === 0) {
         setState(null);
         return;
       }
       const clampedX = Math.max(70, Math.min(info.x, window.innerWidth - 70));
-      setState({ ...info, x: clampedX });
+      const clampedY = Math.min(info.y, window.innerHeight - 40);
+      setState({ ...info, x: clampedX, y: clampedY });
     };
 
+    const handleMouseUp = (e: MouseEvent) => show(getSelectionInfoRef.current(e));
+    const handleKeyUp = () => show(getSelectionInfoRef.current());
+
     const hide = () => setState(null);
-    const handleKeyDown = (e: KeyboardEvent) => {
+    const handleEscape = (e: KeyboardEvent) => {
       if (e.key === 'Escape') hide();
     };
+
+    const keyupTargetEl: Document | Element = keyupTarget === 'document' ? document : container;
 
     container.addEventListener('mouseup', handleMouseUp);
     container.addEventListener('input', hide);
     container.addEventListener('scroll', hide);
+    keyupTargetEl.addEventListener('keyup', handleKeyUp);
     document.addEventListener('mousedown', hide);
-    document.addEventListener('keydown', handleKeyDown);
+    document.addEventListener('keydown', handleEscape);
     window.addEventListener('resize', hide);
 
     return () => {
       container.removeEventListener('mouseup', handleMouseUp);
       container.removeEventListener('input', hide);
       container.removeEventListener('scroll', hide);
+      keyupTargetEl.removeEventListener('keyup', handleKeyUp);
       document.removeEventListener('mousedown', hide);
-      document.removeEventListener('keydown', handleKeyDown);
+      document.removeEventListener('keydown', handleEscape);
       window.removeEventListener('resize', hide);
     };
-  }, [containerRef, resubscribeKey]);
+  }, [containerRef, resubscribeKey, keyupTarget]);
 
   const confirm = () => {
     if (!state) return;
