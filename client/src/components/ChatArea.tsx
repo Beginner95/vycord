@@ -43,7 +43,26 @@ function toggleQuoteLinesInRange(value: string, start: number, end: number) {
   const newBlock = newLines.join('\n');
   const newValue = value.slice(0, lineStart) + newBlock + value.slice(lineEnd);
   const delta = newBlock.length - block.length;
-  return { newValue, delta, allQuoted };
+
+  // How far a position within [lineStart, lineEnd] shifts after the toggle: the
+  // sum of the per-line length deltas for every line up to and including the
+  // line the position sits on. A line's prefix is always inserted/removed at
+  // that line's own start, which is at-or-before any position within it, so
+  // that line's full delta always applies — this is the same reasoning the
+  // old single-line `toggleQuotePrefix` relied on (`pos = caret + delta`),
+  // generalized to a block that can contain several lines with different
+  // per-line deltas (e.g. a mixed selection where some lines were already
+  // quoted and others weren't, in add-mode).
+  const shiftFor = (pos: number) => {
+    const lineIndex = (value.slice(lineStart, pos).match(/\n/g) ?? []).length;
+    let shift = 0;
+    for (let i = 0; i <= lineIndex && i < lines.length; i++) {
+      shift += newLines[i].length - lines[i].length;
+    }
+    return shift;
+  };
+
+  return { newValue, delta, allQuoted, shiftFor };
 }
 
 function renderMessageContent(content: string, members: MemberWithUser[], currentUserId?: string) {
@@ -256,12 +275,14 @@ export function ChatArea({ channel, user, onMobileBack, onShowMembers }: ChatAre
 
   const toggleQuotePrefixRange = (start: number, end: number) => {
     const el = inputRef.current;
-    const { newValue, delta, allQuoted } = toggleQuoteLinesInRange(input, start, end);
+    const { newValue, allQuoted, shiftFor } = toggleQuoteLinesInRange(input, start, end);
+    const newStart = start + shiftFor(start);
+    const newEnd = end + shiftFor(end);
     setInput(newValue);
     setCaretInQuoteLine(!allQuoted);
     requestAnimationFrame(() => {
       el?.focus();
-      el?.setSelectionRange(start, end + delta);
+      el?.setSelectionRange(newStart, newEnd);
     });
   };
 
