@@ -7,6 +7,7 @@ import { audioService } from '@/services/audio';
 import { useServerStore } from '@/stores/serverStore';
 import { tokenizeMentions, roleLabel } from '@/utils/mentions';
 import { useMentionAutocomplete } from '@/hooks/useMentionAutocomplete';
+import { useFloatingSelectionToolbar } from '@/hooks/useFloatingSelectionToolbar';
 import type { Channel, User, MemberWithUser } from '@/types';
 import './ChatArea.css';
 
@@ -116,6 +117,23 @@ function renderMessageBody(content: string, members: MemberWithUser[], currentUs
       ? <span key={i} className="message-quote">{rendered}</span>
       : <span key={i}>{rendered}</span>;
   });
+}
+
+function FloatingQuoteButton({ x, y, onConfirm }: { x: number; y: number; onConfirm: () => void }) {
+  return (
+    <button
+      type="button"
+      className="floating-quote-btn"
+      style={{ left: x, top: y }}
+      onMouseDown={(e) => {
+        e.preventDefault();
+        onConfirm();
+      }}
+    >
+      <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 21c3 0 7-1 7-8V5c0-1.25-.756-2.017-2-2H4c-1.25 0-2 .75-2 1.972V11c0 1.25.75 2 2 2 1 0 1 0 1 1v1c0 1-1 2-2 2s-1 .008-1 1.031V20c0 1 0 1 1 1z"/><path d="M15 21c3 0 7-1 7-8V5c0-1.25-.757-2.017-2-2h-4c-1.25 0-2 .75-2 1.972V11c0 1.25.75 2 2 2h.75c0 2.25.25 4-2.75 4v3c0 1 0 1 1 1z"/></svg>
+      <span>Цитата</span>
+    </button>
+  );
 }
 
 export function ChatArea({ channel, user, onMobileBack, onShowMembers }: ChatAreaProps) {
@@ -292,6 +310,26 @@ export function ChatArea({ channel, user, onMobileBack, onShowMembers }: ChatAre
     const end = el?.selectionEnd ?? input.length;
     toggleQuotePrefixRange(start, end);
   };
+
+  const composeSelectionToolbar = useFloatingSelectionToolbar({
+    containerRef: inputRef,
+    resubscribeKey: channel?.id,
+    getSelectionInfo: (e) => {
+      const el = inputRef.current;
+      const start = el?.selectionStart;
+      const end = el?.selectionEnd;
+      if (!el || start == null || end == null || start === end) return null;
+      const text = el.value.slice(start, end);
+      return { text, x: e.clientX, y: e.clientY + 16 };
+    },
+    onConfirm: () => {
+      const el = inputRef.current;
+      const start = el?.selectionStart;
+      const end = el?.selectionEnd;
+      if (!el || start == null || end == null) return;
+      toggleQuotePrefixRange(start, end);
+    },
+  });
 
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editValue, setEditValue] = useState('');
@@ -572,6 +610,14 @@ export function ChatArea({ channel, user, onMobileBack, onShowMembers }: ChatAre
           )}
         </form>
       </div>
+
+      {composeSelectionToolbar.visible && (
+        <FloatingQuoteButton
+          x={composeSelectionToolbar.x}
+          y={composeSelectionToolbar.y}
+          onConfirm={composeSelectionToolbar.confirm}
+        />
+      )}
     </main>
   );
 }
