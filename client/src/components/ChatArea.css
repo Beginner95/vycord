@@ -491,8 +491,8 @@
 .mention-dropdown {
   position: absolute;
   bottom: calc(100% + 6px);
-  left: 24px;
-  right: 24px;
+  left: 0;
+  right: 0;
   max-height: 220px;
   overflow-y: auto;
   background: var(--bg-primary);
