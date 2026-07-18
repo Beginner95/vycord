@@ -17,6 +17,8 @@ interface ChatAreaProps {
   onShowMembers?: () => void;
 }
 
+const QUOTE_PREFIX = '> ';
+
 function renderMessageContent(content: string, members: MemberWithUser[], currentUserId?: string) {
   return tokenizeMentions(content).map((token, i) => {
     if (token.type === 'text') {
@@ -44,6 +46,14 @@ function renderMessageContent(content: string, members: MemberWithUser[], curren
       </span>
     );
   });
+}
+
+function renderMessageBody(content: string, members: MemberWithUser[], currentUserId?: string) {
+  if (!content.startsWith(QUOTE_PREFIX)) {
+    return renderMessageContent(content, members, currentUserId);
+  }
+  const body = content.slice(QUOTE_PREFIX.length);
+  return <span className="message-quote">{renderMessageContent(body, members, currentUserId)}</span>;
 }
 
 export function ChatArea({ channel, user, onMobileBack, onShowMembers }: ChatAreaProps) {
@@ -357,7 +367,7 @@ export function ChatArea({ channel, user, onMobileBack, onShowMembers }: ChatAre
                         )}
                       </div>
                     ) : (
-                      <p className="message-text">{renderMessageContent(msg.content, members, user?.id)}</p>
+                      <p className="message-text">{renderMessageBody(msg.content, members, user?.id)}</p>
                     )}
                   </div>
                   {!isCompact && isFromMe && (

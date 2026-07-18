@@ -429,6 +429,14 @@
   }
 }
 
+/* ── Quotes ── */
+.message-quote {
+  display: block;
+  border-left: 3px solid var(--border-color);
+  padding-left: 10px;
+  color: var(--text-muted);
+}
+
 /* ── Mentions ── */
 .mention {
   color: var(--brand-600);
