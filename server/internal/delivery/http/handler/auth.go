@@ -77,8 +77,8 @@ type LoginRequest struct {
 }
 
 type LoginResponse struct {
-	Token string         `json:"token"`
-	User  *domain.User   `json:"user"`
+	Token string       `json:"token"`
+	User  *domain.User `json:"user"`
 }
 
 func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {

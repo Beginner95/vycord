@@ -71,12 +71,13 @@ function startCallRingtone(): () => void {
 
 export function AppPage() {
   const { user, token, logout } = useAuthStore();
-  const { servers, setServers, setCurrentServer, currentServer, setChannels, channels, currentChannel, setCurrentChannel, setMembers } = useServerStore();
+  const { servers, setServers, setCurrentServer, currentServer, setChannels, channels, currentChannel, setCurrentChannel, setMembers, members } = useServerStore();
   const { setMessages } = useMessageStore();
   const [showCreateServer, setShowCreateServer] = useState(false);
   const [newServerName, setNewServerName] = useState('');
   const [mobilePanel, setMobilePanel] = useState<MobilePanel>('servers');
   const [callNotif, setCallNotif] = useState<CallNotif | null>(null);
+  const [voiceParticipants, setVoiceParticipants] = useState<Map<string, string[]>>(new Map());
   const stopRingtoneRef = useRef<(() => void) | null>(null);
   const callNotifRef = useRef<CallNotif | null>(null);
   useEffect(() => { callNotifRef.current = callNotif; }, [callNotif]);
@@ -155,6 +156,26 @@ export function AppPage() {
       }
     });
     return () => unsubscribe();
+  }, []);
+
+  useEffect(() => {
+    const unsubState = wsService.on('voice_state', (payload) => {
+      const p = payload as { channels: Record<string, string[]> };
+      setVoiceParticipants(new Map(Object.entries(p.channels ?? {})));
+    });
+    const unsubParticipants = wsService.on('voice_participants', (payload) => {
+      const p = payload as { channel_id: string; user_ids: string[] };
+      setVoiceParticipants((prev) => {
+        const next = new Map(prev);
+        if (p.user_ids.length === 0) {
+          next.delete(p.channel_id);
+        } else {
+          next.set(p.channel_id, p.user_ids);
+        }
+        return next;
+      });
+    });
+    return () => { unsubState(); unsubParticipants(); };
   }, []);
 
   const loadServerMembers = (serverId: string) => {
@@ -320,6 +341,8 @@ export function AppPage() {
           user={user}
           onLogout={logout}
           onMobileBack={() => setMobilePanel('servers')}
+          voiceParticipants={voiceParticipants}
+          members={members}
         />
 
         <ChatArea

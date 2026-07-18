@@ -3,12 +3,12 @@ package domain
 import "github.com/google/uuid"
 
 type Call struct {
-	ID          uuid.UUID `json:"id"`
-	CallerID    uuid.UUID `json:"caller_id"`
-	ReceiverID  uuid.UUID `json:"receiver_id"`
-	Status      CallStatus `json:"status"`
-	StartedAt   string    `json:"started_at"`
-	EndedAt     *string   `json:"ended_at,omitempty"`
+	ID         uuid.UUID  `json:"id"`
+	CallerID   uuid.UUID  `json:"caller_id"`
+	ReceiverID uuid.UUID  `json:"receiver_id"`
+	Status     CallStatus `json:"status"`
+	StartedAt  string     `json:"started_at"`
+	EndedAt    *string    `json:"ended_at,omitempty"`
 }
 
 type CallStatus string

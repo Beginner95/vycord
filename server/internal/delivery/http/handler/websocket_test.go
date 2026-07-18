@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"encoding/json"
 	"io"
 	"log/slog"
 	"net/http"
@@ -169,4 +170,146 @@ func TestLiveClientStaysOnline(t *testing.T) {
 	// Ждём заметно дольше pongWait; живой клиент не должен отвалиться.
 	time.Sleep(300 * time.Millisecond)
 	assert.True(t, hub.IsOnline(userID), "живой клиент должен оставаться онлайн")
+}
+
+// --- Multi-user test harness (for tests needing more than one distinct user) ---
+
+func newMultiUserTestHandler(t *testing.T, users map[string]*domain.User) (*WebSocketHandler, *ws.Hub) {
+	t.Helper()
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+
+	auth := &mockAuthUseCase{}
+	for token, user := range users {
+		auth.On("ValidateToken", token).Return(user, nil)
+	}
+
+	userUC := &mockUserUseCase{}
+	userUC.On("UpdateStatus", mock.Anything, mock.Anything).Return(nil)
+
+	calls := &mockCallUseCase{}
+	calls.On("EndAllActiveCalls", mock.Anything).Return(nil)
+
+	hub := ws.NewHub(log)
+	go hub.Run()
+
+	h := NewWebSocketHandler(hub, auth, calls, userUC, log)
+	h.pongWait = 200 * time.Millisecond
+	h.pingPeriod = 80 * time.Millisecond
+	h.writeWait = 100 * time.Millisecond
+
+	return h, hub
+}
+
+func dialWSWithToken(t *testing.T, srv *httptest.Server, token string) *websocket.Conn {
+	t.Helper()
+	url := "ws" + strings.TrimPrefix(srv.URL, "http") + "/?token=" + token
+	conn, _, err := websocket.DefaultDialer.Dial(url, nil)
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	return conn
+}
+
+func sendJSON(t *testing.T, conn *websocket.Conn, msgType string, payload interface{}) {
+	t.Helper()
+	p, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatalf("marshal payload: %v", err)
+	}
+	msg := ws.Message{Type: msgType, Payload: p}
+	data, err := json.Marshal(msg)
+	if err != nil {
+		t.Fatalf("marshal message: %v", err)
+	}
+	if err := conn.WriteMessage(websocket.TextMessage, data); err != nil {
+		t.Fatalf("write message: %v", err)
+	}
+}
+
+func readUntilType(t *testing.T, conn *websocket.Conn, wantType string, timeout time.Duration) []byte {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for {
+		conn.SetReadDeadline(deadline)
+		_, data, err := conn.ReadMessage()
+		if err != nil {
+			t.Fatalf("did not receive %q message before timeout: %v", wantType, err)
+		}
+		var msg ws.Message
+		if err := json.Unmarshal(data, &msg); err != nil {
+			continue
+		}
+		if msg.Type == wantType {
+			return data
+		}
+	}
+}
+
+// --- Tests ---
+
+func TestVoiceJoinedBroadcastsParticipants(t *testing.T) {
+	userA := uuid.New()
+	userB := uuid.New()
+	channelID := uuid.New()
+
+	h, _ := newMultiUserTestHandler(t, map[string]*domain.User{
+		"token-a": {ID: userA, Username: "alice", Email: "a@e.st", Status: domain.StatusOffline},
+		"token-b": {ID: userB, Username: "bob", Email: "b@e.st", Status: domain.StatusOffline},
+	})
+
+	srv := httptest.NewServer(http.HandlerFunc(h.HandleWebSocket))
+	defer srv.Close()
+
+	connA := dialWSWithToken(t, srv, "token-a")
+	defer connA.Close()
+	connB := dialWSWithToken(t, srv, "token-b")
+	defer connB.Close()
+
+	sendJSON(t, connA, "voice_joined", map[string]string{"channel_id": channelID.String()})
+
+	msg := readUntilType(t, connB, "voice_participants", 2*time.Second)
+	assert.Contains(t, string(msg), channelID.String())
+	assert.Contains(t, string(msg), userA.String())
+}
+
+func TestVoiceLeftBroadcastsParticipants(t *testing.T) {
+	userA := uuid.New()
+	userB := uuid.New()
+	channelID := uuid.New()
+
+	h, hub := newMultiUserTestHandler(t, map[string]*domain.User{
+		"token-a": {ID: userA, Username: "alice", Email: "a@e.st", Status: domain.StatusOffline},
+		"token-b": {ID: userB, Username: "bob", Email: "b@e.st", Status: domain.StatusOffline},
+	})
+
+	srv := httptest.NewServer(http.HandlerFunc(h.HandleWebSocket))
+	defer srv.Close()
+
+	connA := dialWSWithToken(t, srv, "token-a")
+	defer connA.Close()
+	connB := dialWSWithToken(t, srv, "token-b")
+	defer connB.Close()
+
+	assert.Eventually(t, func() bool { return hub.IsOnline(userA) && hub.IsOnline(userB) },
+		time.Second, 10*time.Millisecond)
+
+	hub.JoinVoiceChannel(userA, channelID)
+
+	// Фоновое чтение connA: держим соединение "живым" для gorilla (auto-pong
+	// на серверные ping), чтобы тест не мог пройти через фолбэк
+	// Hub.Run()'s unregister-на-мёртвое-соединение — только через реальный
+	// handleVoiceLeft.
+	go func() {
+		for {
+			if _, _, err := connA.ReadMessage(); err != nil {
+				return
+			}
+		}
+	}()
+
+	sendJSON(t, connA, "voice_left", map[string]string{"channel_id": channelID.String()})
+
+	msg := readUntilType(t, connB, "voice_participants", 2*time.Second)
+	assert.Contains(t, string(msg), channelID.String())
+	assert.NotContains(t, string(msg), userA.String())
 }

@@ -281,8 +281,11 @@ class GroupCallService {
 
     this.reconnecting = false;
     gcLog(this.currentUserId, 'reconnect: gave up');
-    this.teardown();
+    // onCallEnded must run before teardown(): GroupCallUI's onCallEnded reads
+    // currentRoomIdState to send voice_left, and teardown() now clears
+    // currentRoomId — see the onclose handler above for the same ordering.
     this.callbacks?.onCallEnded();
+    this.teardown();
   }
 
   // Transport-only teardown for reconnect: closes PC/WS and clears remote
@@ -1365,6 +1368,12 @@ class GroupCallService {
     this.remoteStreams.clear();
     this.pendingCandidates = [];
     this.inCall = false;
+    // Cleared only on full teardown (not partialTeardown, which the reconnect
+    // loop relies on reading this.currentRoomId from to rejoin the SAME room —
+    // see reconnect()). Stale currentRoomId after a real leave would make a
+    // same-room rejoin's "already in this room" check misfire and suppress
+    // the voice_joined WS send.
+    this.currentRoomId = '';
     this._microphoneAvailable = false;
     this.joinedAt = 0;
     this.pcCreatedAt = 0;

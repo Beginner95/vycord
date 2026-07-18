@@ -33,7 +33,7 @@ func main() {
 			envPath = ".env"
 		}
 	}
-	
+
 	if envPath != "" {
 		if err := godotenv.Load(envPath); err != nil {
 			fmt.Println("Warning: Failed to load .env file:", err)

@@ -120,7 +120,7 @@ func (h *ServerHandler) LeaveServer(w http.ResponseWriter, r *http.Request) {
 }
 
 type CreateChannelRequest struct {
-	Name string        `json:"name"`
+	Name string             `json:"name"`
 	Type domain.ChannelType `json:"type"`
 }
 
