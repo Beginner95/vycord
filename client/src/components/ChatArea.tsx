@@ -144,6 +144,7 @@ export function ChatArea({ channel, user, onMobileBack, onShowMembers }: ChatAre
   const [sendError, setSendError] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const chatMessagesRef = useRef<HTMLDivElement>(null);
 
   // Cache for user info (id → username)
   const [userCache, setUserCache] = useState<Map<string, string>>(new Map());
@@ -331,6 +332,42 @@ export function ChatArea({ channel, user, onMobileBack, onShowMembers }: ChatAre
     },
   });
 
+  const insertQuoteIntoCompose = (text: string) => {
+    const el = inputRef.current;
+    if (!el) return;
+    const quotedBlock = text
+      .split('\n')
+      .map((line) => (line.startsWith(QUOTE_PREFIX) ? line : `${QUOTE_PREFIX}${line}`))
+      .join('\n');
+    const newValue = input.length === 0 ? quotedBlock : `${quotedBlock}\n${input}`;
+    const caret = input.length === 0 ? quotedBlock.length : quotedBlock.length + 1;
+    setInput(newValue);
+    requestAnimationFrame(() => {
+      el.focus();
+      el.setSelectionRange(caret, caret);
+      updateQuoteButtonActive(newValue, caret);
+    });
+  };
+
+  const chatSelectionToolbar = useFloatingSelectionToolbar({
+    containerRef: chatMessagesRef,
+    resubscribeKey: channel?.id,
+    getSelectionInfo: () => {
+      const sel = window.getSelection();
+      if (!sel || sel.isCollapsed || sel.rangeCount === 0) return null;
+      const range = sel.getRangeAt(0);
+      if (!chatMessagesRef.current?.contains(range.commonAncestorContainer)) return null;
+      const text = sel.toString();
+      if (text.trim().length === 0) return null;
+      const rect = range.getBoundingClientRect();
+      return { text, x: rect.right, y: rect.bottom + 8 };
+    },
+    onConfirm: (text) => {
+      insertQuoteIntoCompose(text);
+      window.getSelection()?.removeAllRanges();
+    },
+  });
+
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editValue, setEditValue] = useState('');
   const editInputRef = useRef<HTMLTextAreaElement>(null);
@@ -473,7 +510,7 @@ export function ChatArea({ channel, user, onMobileBack, onShowMembers }: ChatAre
         )}
       </div>
 
-      <div className="chat-messages">
+      <div className="chat-messages" ref={chatMessagesRef}>
         {messages.length === 0 ? (
           <div className="welcome-message">
             <h1>Welcome to #{channel.name}!</h1>
@@ -655,6 +692,13 @@ export function ChatArea({ channel, user, onMobileBack, onShowMembers }: ChatAre
           x={editSelectionToolbar.x}
           y={editSelectionToolbar.y}
           onConfirm={editSelectionToolbar.confirm}
+        />
+      )}
+      {chatSelectionToolbar.visible && (
+        <FloatingQuoteButton
+          x={chatSelectionToolbar.x}
+          y={chatSelectionToolbar.y}
+          onConfirm={chatSelectionToolbar.confirm}
         />
       )}
     </main>
