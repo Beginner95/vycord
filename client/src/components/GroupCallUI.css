@@ -272,20 +272,39 @@
   pointer-events: none;
 }
 
-.mic-dot {
-  display: inline-block;
-  width: 6px;
-  height: 6px;
+.mic-badge {
+  position: absolute;
+  bottom: 10px;
+  right: 10px;
+  width: 26px;
+  height: 26px;
   border-radius: 50%;
-  background: #22c55e;
-  margin-right: 5px;
-  vertical-align: middle;
-  animation: mic-blink 0.6s ease-in-out infinite alternate;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  z-index: 2;
 }
 
-@keyframes mic-blink {
-  from { opacity: 1; transform: scale(1); }
-  to   { opacity: 0.5; transform: scale(0.75); }
+.mic-badge--idle {
+  background: rgba(15, 17, 23, 0.65);
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.mic-badge--muted {
+  background: rgba(239, 68, 68, 0.92);
+  color: white;
+}
+
+.mic-badge--speaking {
+  background: rgba(34, 197, 94, 0.92);
+  color: white;
+  animation: mic-badge-pulse 1s ease-in-out infinite;
+}
+
+@keyframes mic-badge-pulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.15); }
 }
 
 /* ── Controls ── */
@@ -793,6 +812,19 @@
 .thumbnail-tile--focused {
   border-color: var(--brand-500, #6366f1);
   box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.4);
+}
+
+.thumbnail-tile.speaking {
+  border-color: rgba(34, 197, 94, 0.85);
+  box-shadow: 0 0 0 2px rgba(34, 197, 94, 0.45);
+}
+
+.thumbnail-tile .mic-badge {
+  width: 16px;
+  height: 16px;
+  font-size: 8px;
+  bottom: 4px;
+  right: 4px;
 }
 
 .thumbnail-tile video {
