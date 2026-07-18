@@ -323,7 +323,7 @@
   color: var(--brand-600);
 }
 
-.chat-input input {
+.chat-input textarea {
   width: 100%;
   padding: 13px 18px;
   border: 1.5px solid var(--border-color);
@@ -331,16 +331,20 @@
   background: var(--bg-primary);
   color: var(--text-primary);
   font-size: 14px;
+  font-family: inherit;
   outline: none;
+  resize: none;
+  max-height: 40vh;
+  overflow-y: auto;
   transition: all var(--transition);
   box-shadow: var(--shadow-sm);
 }
 
-.chat-input input::placeholder {
+.chat-input textarea::placeholder {
   color: var(--text-muted);
 }
 
-.chat-input input:focus {
+.chat-input textarea:focus {
   border-color: var(--brand-color);
   box-shadow: 0 0 0 3px var(--brand-subtle), var(--shadow-md);
 }
@@ -459,7 +463,7 @@
     padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px));
   }
 
-  .chat-input input {
+  .chat-input textarea {
     font-size: 16px;
   }
 }

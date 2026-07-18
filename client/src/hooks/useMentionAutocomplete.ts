@@ -10,7 +10,7 @@ export type MentionEntry =
 interface UseMentionAutocompleteArgs {
   value: string;
   setValue: (value: string) => void;
-  inputRef: RefObject<HTMLInputElement | null>;
+  inputRef: RefObject<HTMLTextAreaElement | null>;
   members: MemberWithUser[];
   currentUserRole: Role | undefined;
 }
@@ -59,7 +59,7 @@ export function useMentionAutocomplete({
     setMentionIndex(0);
   };
 
-  const handleChange = (e: ChangeEvent<HTMLInputElement>) => {
+  const handleChange = (e: ChangeEvent<HTMLTextAreaElement>) => {
     const val = e.target.value;
     setValue(val);
 
@@ -98,7 +98,7 @@ export function useMentionAutocomplete({
   };
 
   // Возвращает true, если клавиша обработана навигацией по дропдауну (вызывающий должен остановиться и не выполнять свою логику Enter/Escape).
-  const handleKeyDown = (e: KeyboardEvent<HTMLInputElement>): boolean => {
+  const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>): boolean => {
     if (mentionQuery === null || mentionEntries.length === 0) return false;
     if (e.key === 'ArrowDown') {
       e.preventDefault();

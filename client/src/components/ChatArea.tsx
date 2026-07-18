@@ -78,7 +78,7 @@ export function ChatArea({ channel, user, onMobileBack, onShowMembers }: ChatAre
   const [input, setInput] = useState('');
   const [sendError, setSendError] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
 
   // Cache for user info (id → username)
   const [userCache, setUserCache] = useState<Map<string, string>>(new Map());
@@ -102,6 +102,13 @@ export function ChatArea({ channel, user, onMobileBack, onShowMembers }: ChatAre
     composeMention.reset();
     editMention.reset();
   }, [channel?.id]);
+
+  useEffect(() => {
+    const el = inputRef.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = `${el.scrollHeight}px`;
+  }, [input]);
 
   // Fetch usernames for all unique user_ids in messages
   useEffect(() => {
@@ -197,6 +204,14 @@ export function ChatArea({ channel, user, onMobileBack, onShowMembers }: ChatAre
     }
   };
 
+  const handleComposeKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (composeMention.handleKeyDown(e)) return;
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      handleSubmit(e as unknown as FormEvent);
+    }
+  };
+
   const toggleQuotePrefix = () => {
     setInput((prev) => (prev.startsWith(QUOTE_PREFIX) ? prev.slice(QUOTE_PREFIX.length) : `${QUOTE_PREFIX}${prev}`));
     requestAnimationFrame(() => inputRef.current?.focus());
@@ -204,7 +219,7 @@ export function ChatArea({ channel, user, onMobileBack, onShowMembers }: ChatAre
 
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editValue, setEditValue] = useState('');
-  const editInputRef = useRef<HTMLInputElement>(null);
+  const editInputRef = useRef<HTMLTextAreaElement>(null);
   const editMention = useMentionAutocomplete({
     value: editValue,
     setValue: setEditValue,
@@ -243,7 +258,7 @@ export function ChatArea({ channel, user, onMobileBack, onShowMembers }: ChatAre
     }
   };
 
-  const handleEditKeyDown = (e: KeyboardEvent<HTMLInputElement>, messageId: string) => {
+  const handleEditKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>, messageId: string) => {
     if (editMention.handleKeyDown(e)) return;
     if (e.key === 'Enter') {
       e.preventDefault();
@@ -360,7 +375,7 @@ export function ChatArea({ channel, user, onMobileBack, onShowMembers }: ChatAre
                     )}
                     {isEditing ? (
                       <div className="message-edit-wrapper">
-                        <input
+                        <textarea
                           ref={editInputRef}
                           className="message-edit-input"
                           value={editValue}
@@ -368,6 +383,7 @@ export function ChatArea({ channel, user, onMobileBack, onShowMembers }: ChatAre
                           onKeyDown={(e) => handleEditKeyDown(e, msg.id)}
                           onBlur={cancelEdit}
                           maxLength={2000}
+                          rows={1}
                           autoFocus
                         />
                         {editMention.mentionQuery !== null && editMention.mentionEntries.length > 0 && (
@@ -443,14 +459,14 @@ export function ChatArea({ channel, user, onMobileBack, onShowMembers }: ChatAre
           </button>
         </div>
         <form onSubmit={handleSubmit}>
-          <input
+          <textarea
             ref={inputRef}
-            type="text"
             value={input}
             onChange={composeMention.handleChange}
-            onKeyDown={composeMention.handleKeyDown}
+            onKeyDown={handleComposeKeyDown}
             placeholder={`Message #${channel.name}`}
             maxLength={2000}
+            rows={1}
           />
           {composeMention.mentionQuery !== null && composeMention.mentionEntries.length > 0 && (
             <ul className="mention-dropdown">
