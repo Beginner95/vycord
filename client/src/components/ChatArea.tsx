@@ -349,6 +349,38 @@ export function ChatArea({ channel, user, onMobileBack, onShowMembers }: ChatAre
     el.style.height = `${el.scrollHeight}px`;
   }, [editValue, editingId]);
 
+  const toggleEditQuotePrefixRange = (start: number, end: number) => {
+    const el = editInputRef.current;
+    const { newValue, shiftFor } = toggleQuoteLinesInRange(editValue, start, end);
+    const newStart = start + shiftFor(start);
+    const newEnd = end + shiftFor(end);
+    setEditValue(newValue);
+    requestAnimationFrame(() => {
+      el?.focus();
+      el?.setSelectionRange(newStart, newEnd);
+    });
+  };
+
+  const editSelectionToolbar = useFloatingSelectionToolbar({
+    containerRef: editInputRef,
+    resubscribeKey: editingId,
+    getSelectionInfo: (e) => {
+      const el = editInputRef.current;
+      const start = el?.selectionStart;
+      const end = el?.selectionEnd;
+      if (!el || start == null || end == null || start === end) return null;
+      const text = el.value.slice(start, end);
+      return { text, x: e.clientX, y: e.clientY + 16 };
+    },
+    onConfirm: () => {
+      const el = editInputRef.current;
+      const start = el?.selectionStart;
+      const end = el?.selectionEnd;
+      if (!el || start == null || end == null) return;
+      toggleEditQuotePrefixRange(start, end);
+    },
+  });
+
   const startEdit = (msg: Message) => {
     setEditingId(msg.id);
     setEditValue(msg.content);
@@ -616,6 +648,13 @@ export function ChatArea({ channel, user, onMobileBack, onShowMembers }: ChatAre
           x={composeSelectionToolbar.x}
           y={composeSelectionToolbar.y}
           onConfirm={composeSelectionToolbar.confirm}
+        />
+      )}
+      {editSelectionToolbar.visible && (
+        <FloatingQuoteButton
+          x={editSelectionToolbar.x}
+          y={editSelectionToolbar.y}
+          onConfirm={editSelectionToolbar.confirm}
         />
       )}
     </main>
