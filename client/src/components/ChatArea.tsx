@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, type FormEvent, type KeyboardEvent } from 'react';
+import { useState, useEffect, useRef, type FormEvent, type KeyboardEvent, type ChangeEvent } from 'react';
 import { useMessageStore } from '@/stores/messageStore';
 import type { Message } from '@/types';
 import { apiService } from '@/services/api';
@@ -18,6 +18,13 @@ interface ChatAreaProps {
 }
 
 const QUOTE_PREFIX = '> ';
+
+function currentLineRange(value: string, caret: number) {
+  const start = caret <= 0 ? 0 : value.lastIndexOf('\n', caret - 1) + 1;
+  const endIdx = value.indexOf('\n', caret);
+  const end = endIdx === -1 ? value.length : endIdx;
+  return { start, end };
+}
 
 function renderMessageContent(content: string, members: MemberWithUser[], currentUserId?: string) {
   return tokenizeMentions(content).map((token, i) => {
@@ -76,6 +83,7 @@ export function ChatArea({ channel, user, onMobileBack, onShowMembers }: ChatAre
   const { messages, addMessage, updateMessage, removeMessage } = useMessageStore();
   const { members } = useServerStore();
   const [input, setInput] = useState('');
+  const [caretInQuoteLine, setCaretInQuoteLine] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -101,6 +109,7 @@ export function ChatArea({ channel, user, onMobileBack, onShowMembers }: ChatAre
     inputRef.current?.focus();
     composeMention.reset();
     editMention.reset();
+    setCaretInQuoteLine(false);
   }, [channel?.id]);
 
   useEffect(() => {
@@ -197,6 +206,7 @@ export function ChatArea({ channel, user, onMobileBack, onShowMembers }: ChatAre
       const msg = await apiService.createMessage(channel.id, input.trim()) as Message;
       addMessage(msg);
       setInput('');
+      setCaretInQuoteLine(false);
     } catch (err) {
       console.error('Failed to send message:', err);
       setSendError(err instanceof Error ? err.message : 'Failed to send message');
@@ -212,9 +222,35 @@ export function ChatArea({ channel, user, onMobileBack, onShowMembers }: ChatAre
     }
   };
 
+  const updateQuoteButtonActive = (value: string = input, caret?: number) => {
+    const el = inputRef.current;
+    const pos = caret ?? el?.selectionStart ?? 0;
+    const { start, end } = currentLineRange(value, pos);
+    setCaretInQuoteLine(value.slice(start, end).startsWith(QUOTE_PREFIX));
+  };
+
+  const handleComposeChange = (e: ChangeEvent<HTMLTextAreaElement>) => {
+    composeMention.handleChange(e);
+    updateQuoteButtonActive(e.target.value, e.target.selectionStart ?? undefined);
+  };
+
   const toggleQuotePrefix = () => {
-    setInput((prev) => (prev.startsWith(QUOTE_PREFIX) ? prev.slice(QUOTE_PREFIX.length) : `${QUOTE_PREFIX}${prev}`));
-    requestAnimationFrame(() => inputRef.current?.focus());
+    const el = inputRef.current;
+    const caret = el?.selectionStart ?? input.length;
+    const { start, end } = currentLineRange(input, caret);
+    const line = input.slice(start, end);
+    const quoted = line.startsWith(QUOTE_PREFIX);
+    const newLine = quoted ? line.slice(QUOTE_PREFIX.length) : `${QUOTE_PREFIX}${line}`;
+    const newValue = input.slice(0, start) + newLine + input.slice(end);
+    const delta = newLine.length - line.length;
+
+    setInput(newValue);
+    setCaretInQuoteLine(!quoted);
+    requestAnimationFrame(() => {
+      el?.focus();
+      const pos = caret + delta;
+      el?.setSelectionRange(pos, pos);
+    });
   };
 
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -450,8 +486,8 @@ export function ChatArea({ channel, user, onMobileBack, onShowMembers }: ChatAre
         <div className="chat-input-toolbar">
           <button
             type="button"
-            className={`quote-toggle-btn${input.startsWith(QUOTE_PREFIX) ? ' active' : ''}`}
-            aria-pressed={input.startsWith(QUOTE_PREFIX)}
+            className={`quote-toggle-btn${caretInQuoteLine ? ' active' : ''}`}
+            aria-pressed={caretInQuoteLine}
             onClick={toggleQuotePrefix}
           >
             <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 21c3 0 7-1 7-8V5c0-1.25-.756-2.017-2-2H4c-1.25 0-2 .75-2 1.972V11c0 1.25.75 2 2 2 1 0 1 0 1 1v1c0 1-1 2-2 2s-1 .008-1 1.031V20c0 1 0 1 1 1z"/><path d="M15 21c3 0 7-1 7-8V5c0-1.25-.757-2.017-2-2h-4c-1.25 0-2 .75-2 1.972V11c0 1.25.75 2 2 2h.75c0 2.25.25 4-2.75 4v3c0 1 0 1 1 1z"/></svg>
@@ -462,8 +498,11 @@ export function ChatArea({ channel, user, onMobileBack, onShowMembers }: ChatAre
           <textarea
             ref={inputRef}
             value={input}
-            onChange={composeMention.handleChange}
+            onChange={handleComposeChange}
             onKeyDown={handleComposeKeyDown}
+            onSelect={() => updateQuoteButtonActive()}
+            onClick={() => updateQuoteButtonActive()}
+            onKeyUp={() => updateQuoteButtonActive()}
             placeholder={`Message #${channel.name}`}
             maxLength={2000}
             rows={1}
