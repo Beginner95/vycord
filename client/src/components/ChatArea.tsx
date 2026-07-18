@@ -19,11 +19,31 @@ interface ChatAreaProps {
 
 const QUOTE_PREFIX = '> ';
 
-function currentLineRange(value: string, caret: number) {
-  const start = caret <= 0 ? 0 : value.lastIndexOf('\n', caret - 1) + 1;
-  const endIdx = value.indexOf('\n', caret);
-  const end = endIdx === -1 ? value.length : endIdx;
-  return { start, end };
+function lineRangeForSelection(value: string, start: number, end: number) {
+  const lineStart = start <= 0 ? 0 : value.lastIndexOf('\n', start - 1) + 1;
+  // A selection that ends exactly at the start of a new line (e.g. Shift+Down
+  // stopping at column 0 of the next line) has selected 0 characters of that
+  // line — don't treat it as touched.
+  const selEnd = end > start && value[end - 1] === '\n' ? end - 1 : end;
+  const searchFrom = Math.max(selEnd, lineStart);
+  const endIdx = value.indexOf('\n', searchFrom);
+  const lineEnd = endIdx === -1 ? value.length : endIdx;
+  return { lineStart, lineEnd };
+}
+
+function toggleQuoteLinesInRange(value: string, start: number, end: number) {
+  const { lineStart, lineEnd } = lineRangeForSelection(value, start, end);
+  const block = value.slice(lineStart, lineEnd);
+  const lines = block.split('\n');
+  const allQuoted = lines.every((line) => line.startsWith(QUOTE_PREFIX));
+  const newLines = lines.map((line) => {
+    if (allQuoted) return line.slice(QUOTE_PREFIX.length);
+    return line.startsWith(QUOTE_PREFIX) ? line : `${QUOTE_PREFIX}${line}`;
+  });
+  const newBlock = newLines.join('\n');
+  const newValue = value.slice(0, lineStart) + newBlock + value.slice(lineEnd);
+  const delta = newBlock.length - block.length;
+  return { newValue, delta, allQuoted };
 }
 
 function renderMessageContent(content: string, members: MemberWithUser[], currentUserId?: string) {
@@ -225,8 +245,8 @@ export function ChatArea({ channel, user, onMobileBack, onShowMembers }: ChatAre
   const updateQuoteButtonActive = (value: string = input, caret?: number) => {
     const el = inputRef.current;
     const pos = caret ?? el?.selectionStart ?? 0;
-    const { start, end } = currentLineRange(value, pos);
-    setCaretInQuoteLine(value.slice(start, end).startsWith(QUOTE_PREFIX));
+    const { lineStart, lineEnd } = lineRangeForSelection(value, pos, pos);
+    setCaretInQuoteLine(value.slice(lineStart, lineEnd).startsWith(QUOTE_PREFIX));
   };
 
   const handleComposeChange = (e: ChangeEvent<HTMLTextAreaElement>) => {
@@ -234,23 +254,22 @@ export function ChatArea({ channel, user, onMobileBack, onShowMembers }: ChatAre
     updateQuoteButtonActive(e.target.value, e.target.selectionStart ?? undefined);
   };
 
-  const toggleQuotePrefix = () => {
+  const toggleQuotePrefixRange = (start: number, end: number) => {
     const el = inputRef.current;
-    const caret = el?.selectionStart ?? input.length;
-    const { start, end } = currentLineRange(input, caret);
-    const line = input.slice(start, end);
-    const quoted = line.startsWith(QUOTE_PREFIX);
-    const newLine = quoted ? line.slice(QUOTE_PREFIX.length) : `${QUOTE_PREFIX}${line}`;
-    const newValue = input.slice(0, start) + newLine + input.slice(end);
-    const delta = newLine.length - line.length;
-
+    const { newValue, delta, allQuoted } = toggleQuoteLinesInRange(input, start, end);
     setInput(newValue);
-    setCaretInQuoteLine(!quoted);
+    setCaretInQuoteLine(!allQuoted);
     requestAnimationFrame(() => {
       el?.focus();
-      const pos = caret + delta;
-      el?.setSelectionRange(pos, pos);
+      el?.setSelectionRange(start, end + delta);
     });
+  };
+
+  const toggleQuotePrefix = () => {
+    const el = inputRef.current;
+    const start = el?.selectionStart ?? input.length;
+    const end = el?.selectionEnd ?? input.length;
+    toggleQuotePrefixRange(start, end);
   };
 
   const [editingId, setEditingId] = useState<string | null>(null);
