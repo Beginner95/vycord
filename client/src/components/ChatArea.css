@@ -132,6 +132,10 @@
   color: var(--text-primary);
 }
 
+.message-text {
+  white-space: pre-wrap;
+}
+
 .message.other .message-text {
   background: var(--bg-primary);
   padding: 8px 14px;

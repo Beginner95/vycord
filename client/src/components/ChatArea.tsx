@@ -49,11 +49,27 @@ function renderMessageContent(content: string, members: MemberWithUser[], curren
 }
 
 function renderMessageBody(content: string, members: MemberWithUser[], currentUserId?: string) {
-  if (!content.startsWith(QUOTE_PREFIX)) {
-    return renderMessageContent(content, members, currentUserId);
+  const lines = content.split('\n');
+  const groups: { quoted: boolean; lines: string[] }[] = [];
+
+  for (const line of lines) {
+    const quoted = line.startsWith(QUOTE_PREFIX);
+    const text = quoted ? line.slice(QUOTE_PREFIX.length) : line;
+    const last = groups[groups.length - 1];
+    if (last && last.quoted === quoted) {
+      last.lines.push(text);
+    } else {
+      groups.push({ quoted, lines: [text] });
+    }
   }
-  const body = content.slice(QUOTE_PREFIX.length);
-  return <span className="message-quote">{renderMessageContent(body, members, currentUserId)}</span>;
+
+  return groups.map((group, i) => {
+    const text = group.lines.join('\n');
+    const rendered = renderMessageContent(text, members, currentUserId);
+    return group.quoted
+      ? <span key={i} className="message-quote">{rendered}</span>
+      : <span key={i}>{rendered}</span>;
+  });
 }
 
 export function ChatArea({ channel, user, onMobileBack, onShowMembers }: ChatAreaProps) {
