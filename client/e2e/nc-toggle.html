@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>E2E: noise cancellation default-on and mid-call toggle</title>
+</head>
+<body>
+  <pre id="status">starting…</pre>
+
+  <script type="module">
+    // E2E: шумоподавление default-on, реально влияет на звук, переключается на лету.
+    //
+    // Фаза 1 (чистый localStorage):
+    //   1. isEnabled === true без каких-либо действий (default-on).
+    //   2. createChain(белый шум) → isActive === true; медианный RMS выхода при
+    //      включённом NC заметно ниже RMS bypass — алгоритм реально давит шум,
+    //      а не только меняет флаг в UI.
+    //   3. setEnabled(false) mid-chain → isActive === false, шум проходит (bypass).
+    //   4. setEnabled(true) mid-chain → шум снова подавлен.
+    //   5. setEnabled(false) + reload → фаза 2.
+    // Фаза 2 (свежая загрузка): isEnabled === false (ручное выключение персистится).
+    //
+    // Result protocol: одна строка "E2E_RESULT {json}" — как в no-camera-screenshare.
+
+    const statusEl = document.getElementById('status');
+    function log(...args) {
+      console.log('[E2E]', ...args);
+      statusEl.textContent += '\n' + args.map(String).join(' ');
+    }
+
+    let finished = false;
+    function finish(pass, reason, extra = {}) {
+      if (finished) return;
+      finished = true;
+      console.log('E2E_RESULT ' + JSON.stringify({ pass, reason, ...extra }));
+    }
+
+    // Страница обязана дать результат сама; после reload таймер стартует заново.
+    setTimeout(() => finish(false, 'watchdog timeout (90s)'), 90000);
+
+    function makeNoiseStream() {
+      const ctx = new AudioContext({ sampleRate: 48000 });
+      const buf = ctx.createBuffer(1, 48000, 48000);
+      const data = buf.getChannelData(0);
+      for (let i = 0; i < data.length; i++) data[i] = Math.random() * 0.6 - 0.3;
+      const src = ctx.createBufferSource();
+      src.buffer = buf;
+      src.loop = true;
+      const dst = ctx.createMediaStreamDestination();
+      src.connect(dst);
+      src.start();
+      return dst.stream;
+    }
+
+    // Медианный RMS трека за durationMs после warmupMs (медиана гасит выбросы
+    // на границах переключения).
+    async function measureRms(stream, warmupMs, durationMs) {
+      const ctx = new AudioContext({ sampleRate: 48000 });
+      if (ctx.state !== 'running') await ctx.resume();
+      const src = ctx.createMediaStreamSource(stream);
+      const analyser = ctx.createAnalyser();
+      analyser.fftSize = 2048;
+      src.connect(analyser);
+      const data = new Float32Array(analyser.fftSize);
+      await new Promise((r) => setTimeout(r, warmupMs));
+      const samples = [];
+      const t0 = Date.now();
+      while (Date.now() - t0 < durationMs) {
+        analyser.getFloatTimeDomainData(data);
+        let sum = 0;
+        for (let i = 0; i < data.length; i++) sum += data[i] * data[i];
+        samples.push(Math.sqrt(sum / data.length));
+        await new Promise((r) => setTimeout(r, 100));
+      }
+      ctx.close().catch(() => {});
+      samples.sort((a, b) => a - b);
+      return samples[Math.floor(samples.length / 2)];
+    }
+
+    async function main() {
+      if (location.hash !== '#phase2') {
+        // ── Фаза 1 ──
+        localStorage.clear();
+        const { noiseCancellationService } = await import('/src/services/noiseCancellation.ts');
+
+        const s0 = noiseCancellationService.getState();
+        log('initial state:', JSON.stringify(s0));
+        if (!s0.isEnabled) return finish(false, 'default-on failed: isEnabled=false on fresh storage', { state: s0 });
+
+        const noise = makeNoiseStream();
+        const out = await noiseCancellationService.createChain(noise);
+        const s1 = noiseCancellationService.getState();
+        log('after createChain:', JSON.stringify(s1));
+        if (!s1.isActive) return finish(false, 'isActive=false after createChain with NC enabled', { state: s1 });
+        if (out.getAudioTracks().length !== 1) return finish(false, 'no audio track in chain output');
+
+        const rmsOn1 = await measureRms(out, 2000, 3000);
+        log('rmsOn1 =', rmsOn1);
+
+        await noiseCancellationService.setEnabled(false);
+        const s2 = noiseCancellationService.getState();
+        log('after setEnabled(false):', JSON.stringify(s2));
+        if (s2.isActive) return finish(false, 'isActive=true after setEnabled(false)', { state: s2 });
+        const rmsOff = await measureRms(out, 1000, 3000);
+        log('rmsOff =', rmsOff);
+        if (rmsOff < 0.05) return finish(false, 'bypass silent: noise does not pass when NC off', { rmsOff });
+
+        await noiseCancellationService.setEnabled(true);
+        const s3 = noiseCancellationService.getState();
+        log('after re-enable:', JSON.stringify(s3));
+        if (!s3.isActive) return finish(false, 'isActive=false after re-enable mid-chain', { state: s3 });
+        const rmsOn2 = await measureRms(out, 2000, 3000);
+        log('rmsOn2 =', rmsOn2);
+
+        // Главная проверка: подавление реально меняет обрабатываемый звук.
+        if (!(rmsOn1 < rmsOff * 0.5)) return finish(false, 'NC does not attenuate noise (initial)', { rmsOn1, rmsOff });
+        if (!(rmsOn2 < rmsOff * 0.5)) return finish(false, 'NC does not attenuate noise (after re-enable)', { rmsOn2, rmsOff });
+
+        // Ручное выключение + reload → фаза 2 проверит персист.
+        await noiseCancellationService.setEnabled(false);
+        sessionStorage.setItem('nc-e2e-phase1', JSON.stringify({ rmsOn1, rmsOff, rmsOn2 }));
+        location.hash = '#phase2';
+        location.reload();
+      } else {
+        // ── Фаза 2 ──
+        const phase1 = JSON.parse(sessionStorage.getItem('nc-e2e-phase1') ?? 'null');
+        if (!phase1) return finish(false, 'phase2 without phase1 results');
+        const { noiseCancellationService } = await import('/src/services/noiseCancellation.ts');
+        const s = noiseCancellationService.getState();
+        log('phase2 state:', JSON.stringify(s));
+        if (s.isEnabled) return finish(false, 'persisted disable lost after reload', { state: s });
+        finish(true, 'ok', { ...phase1 });
+      }
+    }
+
+    main().catch((err) => finish(false, 'exception: ' + (err && err.message ? err.message : String(err))));
+  </script>
+</body>
+</html>
