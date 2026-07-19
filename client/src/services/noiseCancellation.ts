@@ -265,6 +265,13 @@ class NoiseCancellationService {
     chain.context.close().catch(() => {});
     chain.rawStream.getAudioTracks().forEach((t) => t.stop());
     this.chains.delete(streamId);
+    if (this.chains.size === 0) {
+      // Runtime-сброс isEnabled после ошибки инициализации не должен пережить
+      // конец звонка: намерение персистится, при следующем звонке попытка
+      // повторяется (спека, секция 3).
+      this.state.isEnabled = this.intendedEnabled;
+      this.state.error = null;
+    }
     this.refreshActive();
     this.notify();
   }

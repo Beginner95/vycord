@@ -123,7 +123,7 @@ run_scenario() {
   fi
 }
 
-run_scenario "no-camera-screenshare" "http://localhost:$VITE_PORT/e2e/no-camera-screenshare.html"
+run_scenario "no-camera-screenshare" "$PAGE_URL"
 run_scenario "nc-toggle" "http://localhost:$VITE_PORT/e2e/nc-toggle.html"
 
 echo "PASS"
