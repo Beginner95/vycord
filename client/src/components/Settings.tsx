@@ -17,7 +17,6 @@ export function Settings({ isOpen, onClose }: SettingsProps) {
   const [msgSound, setMsgSound] = useState(true);
   const [callSound, setCallSound] = useState(true);
   const [volume, setVolume] = useState(0.5);
-  const [testStreamId, setTestStreamId] = useState<string | null>(null);
 
   useEffect(() => {
     setIsSupported(NoiseCancellationService.isSupported());
@@ -37,16 +36,10 @@ export function Settings({ isOpen, onClose }: SettingsProps) {
 
   const handleToggleNoiseCancellation = async () => {
     if (ncLoading) return;
-    const next = !noiseCancellation;
     try {
-      if (next) {
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        setTestStreamId(stream.id);
-        await noiseCancellationService.enableNoiseCancellation(stream);
-      } else {
-        noiseCancellationService.disableNoiseCancellation(testStreamId ?? '');
-        setTestStreamId(null);
-      }
+      // Вне звонка меняет только персистентный флаг (микрофон не захватывается);
+      // в звонке сервис перекоммутирует активную аудиоцепочку.
+      await noiseCancellationService.setEnabled(!noiseCancellation);
     } catch (err) {
       console.error('Failed to toggle noise cancellation:', err);
     }
