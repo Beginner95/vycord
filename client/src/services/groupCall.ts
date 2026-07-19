@@ -123,8 +123,6 @@ class GroupCallService {
   // Refreshed on every joinGroupCall; TURN entries carry ephemeral credentials.
   private iceServers: RTCIceServer[] = STUN_SERVERS;
   private localStream: MediaStream | null = null;
-  private audioCtx: AudioContext | null = null;
-  private audioCtxKeepAlive: ReturnType<typeof setInterval> | null = null;
 
   private screenStream: MediaStream | null = null;
   private screenSender: RTCRtpSender | null = null;
@@ -205,20 +203,14 @@ class GroupCallService {
     try {
       const raw = await this.acquireMedia();
       if (raw !== null) {
-        const hasAudio = raw.getAudioTracks().length > 0;
-        this._microphoneAvailable = hasAudio;
-        if (hasAudio) {
-          // When NC is disabled, Chrome's push-model audio capture may fail silently
-          // on certain hardware (track reports live/enabled but Opus gets zero frames).
-          // Routing through Web Audio forces a pull-model render cycle that always
-          // produces frames, ensuring RTP actually reaches the SFU.
-          this.localStream = await noiseCancellationService.applyToStream(raw);
-          if (!noiseCancellationService.getState().isEnabled) {
-            this.localStream = await this.routeAudioThroughWebAudio(this.localStream);
-          }
-        } else {
-          this.localStream = raw;
-        }
+        this._microphoneAvailable = raw.getAudioTracks().length > 0;
+        // Единая Web Audio цепочка NC-сервиса: worklet при включённом NC, bypass
+        // при выключенном. Пропуск через Web Audio обязателен в обоих режимах —
+        // Chrome's push-model audio capture may fail silently on certain hardware
+        // (track reports live/enabled but Opus gets zero frames); pull-model
+        // рендер всегда производит фреймы. Без аудиотреков createChain вернёт
+        // raw как есть.
+        this.localStream = await noiseCancellationService.createChain(raw);
         // Video starts disabled to avoid immediate bandwidth spike.
         this.localStream.getVideoTracks().forEach((t) => { t.enabled = false; });
         gcLog(userId, 'media acquired', {
@@ -596,48 +588,6 @@ class GroupCallService {
   get peerCount(): number { return this.remoteStreams.size; }
 
   // ── Private: media acquisition ────────────────────────────────────────────
-
-  private async routeAudioThroughWebAudio(stream: MediaStream): Promise<MediaStream> {
-    const audioTracks = stream.getAudioTracks();
-    if (!audioTracks.length) return stream;
-    try {
-      const ctx = new AudioContext({ sampleRate: 48000 });
-      gcLog(this.currentUserId, 'WebAudio passthrough: AudioContext state', { state: ctx.state });
-      if (ctx.state !== 'running') {
-        await ctx.resume();
-        gcLog(this.currentUserId, 'WebAudio passthrough: AudioContext resumed', { state: ctx.state });
-      }
-      const src = ctx.createMediaStreamSource(stream);
-      const dst = ctx.createMediaStreamDestination();
-      src.connect(dst);
-      this.audioCtx = ctx;
-
-      // macOS Chrome and Android Chrome both suspend AudioContext to save power when
-      // there's no ongoing audio output — even with active getUserMedia capture.
-      // A suspended context means dst.stream tracks produce silence: RTP packets are
-      // sent but Opus frames are zeroed, so the receiver hears nothing.
-      // Polling at 2s intervals and resuming keeps the context in 'running' state
-      // without adding audio output (ctx.resume() alone is enough per the spec).
-      this.audioCtxKeepAlive = setInterval(() => {
-        if (ctx.state !== 'running') {
-          gcLog(this.currentUserId, 'WebAudio: AudioContext not running — resuming', { state: ctx.state });
-          ctx.resume().catch(() => {});
-        }
-      }, 2000);
-
-      const out = new MediaStream([
-        ...dst.stream.getAudioTracks(),
-        ...stream.getVideoTracks(),
-      ]);
-      gcLog(this.currentUserId, 'WebAudio passthrough: stream created', {
-        audioTracks: out.getAudioTracks().map((t) => ({ id: t.id.slice(0, 8), label: t.label })),
-      });
-      return out;
-    } catch (err) {
-      gcLog(this.currentUserId, 'WebAudio passthrough failed', { error: String(err) });
-      return stream;
-    }
-  }
 
   // Creates a muted, zero-fps canvas video track used as a placeholder sender track
   // when the machine has no camera.
@@ -1145,7 +1095,9 @@ class GroupCallService {
                     enabled: t.enabled, muted: t.muted, readyState: t.readyState,
                     settings: t.getSettings(),
                   })),
-                  audioCtxState: this.audioCtx?.state ?? 'no-ctx',
+                  audioCtxState: this.localStream
+                    ? noiseCancellationService.getChainContextState(this.localStream.id)
+                    : 'no-ctx',
                   pcSignalingState: this.pc?.signalingState ?? null,
                   transceivers: this.pc?.getTransceivers().map((t) => ({
                     mid: t.mid,
@@ -1396,18 +1348,16 @@ class GroupCallService {
     this.screenSender = null;
     this._isScreenSharing = false;
 
-    this.localStream?.getTracks().forEach((t) => t.stop());
-    this.localStream = null;
+    if (this.localStream) {
+      // Демонтаж NC-цепочки: стопает raw-треки микрофона, закрывает AudioContext
+      // и снимает keepAlive-поллинг (всё это теперь живёт внутри сервиса).
+      noiseCancellationService.releaseChain(this.localStream.id);
+      this.localStream.getTracks().forEach((t) => t.stop());
+      this.localStream = null;
+    }
 
     this.dummyVideoTrack?.stop();
     this.dummyVideoTrack = null;
-
-    if (this.audioCtxKeepAlive !== null) {
-      clearInterval(this.audioCtxKeepAlive);
-      this.audioCtxKeepAlive = null;
-    }
-    this.audioCtx?.close().catch(() => {});
-    this.audioCtx = null;
 
     this.remoteStreams.clear();
     this.pendingCandidates = [];
