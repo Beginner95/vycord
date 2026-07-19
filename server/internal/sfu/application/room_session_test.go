@@ -2,6 +2,7 @@ package application
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"log/slog"
 	"sync"
@@ -78,5 +79,82 @@ func TestJoinEvictsStaleSessionOfSameUser(t *testing.T) {
 	}
 	if !bobSig.received("participant_left") {
 		t.Fatal("bob was not notified that stale alice session left")
+	}
+}
+
+// TestConcurrentJoinsSameUserLeaveSingleSession: two joins of the same user
+// racing each other (double-click, overlapping reconnect attempts) must never
+// leave two live sessions — the stale-session scan and the registration of the
+// new session have to be atomic.
+func TestConcurrentJoinsSameUserLeaveSingleSession(t *testing.T) {
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	pf, err := sfuwebrtc.NewPeerFactory([]string{}, "")
+	if err != nil {
+		t.Fatalf("NewPeerFactory: %v", err)
+	}
+
+	for i := 0; i < 30; i++ {
+		room := domain.NewRoom("room1", func(domain.Event) {})
+		rs := NewRoomSession(room, pf, log)
+
+		var wg sync.WaitGroup
+		start := make(chan struct{})
+		for j := 0; j < 2; j++ {
+			wg.Add(1)
+			go func(j int) {
+				defer wg.Done()
+				<-start
+				// Errors are acceptable (the loser may fail); duplicates are not.
+				_, _ = rs.Join(domain.NewParticipant(fmt.Sprintf("p%d", j), "alice", "room1"), &fakeSignalingSession{})
+			}(j)
+		}
+		close(start)
+		wg.Wait()
+
+		// Eviction cleanup is asynchronous (watchSession) — poll briefly.
+		deadline := time.Now().Add(2 * time.Second)
+		for {
+			sessions := rs.participantCount()
+			roomParts := len(room.GetAll())
+			if sessions == 1 && roomParts == 1 {
+				break
+			}
+			if time.Now().After(deadline) {
+				t.Fatalf("iteration %d: sessions=%d roomParticipants=%d, want 1/1 (duplicate or ghost session)",
+					i, sessions, roomParts)
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+	}
+}
+
+// TestEvictedSessionNotifiedSessionReplaced: the evicted client must be told
+// its session was superseded, so it suppresses auto-rejoin instead of starting
+// an eviction ping-pong with the new session (two devices of the same user).
+func TestEvictedSessionNotifiedSessionReplaced(t *testing.T) {
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	pf, err := sfuwebrtc.NewPeerFactory([]string{}, "")
+	if err != nil {
+		t.Fatalf("NewPeerFactory: %v", err)
+	}
+	room := domain.NewRoom("room1", func(domain.Event) {})
+	rs := NewRoomSession(room, pf, log)
+
+	oldSig := &fakeSignalingSession{}
+	psOld, err := rs.Join(domain.NewParticipant("p1", "alice", "room1"), oldSig)
+	if err != nil {
+		t.Fatalf("first alice join: %v", err)
+	}
+	if _, err := rs.Join(domain.NewParticipant("p2", "alice", "room1"), &fakeSignalingSession{}); err != nil {
+		t.Fatalf("alice rejoin: %v", err)
+	}
+
+	select {
+	case <-psOld.Done():
+	case <-time.After(2 * time.Second):
+		t.Fatal("stale session was not closed on rejoin")
+	}
+	if !oldSig.received("session_replaced") {
+		t.Fatal("evicted session did not receive session_replaced")
 	}
 }
