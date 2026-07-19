@@ -48,7 +48,7 @@ class CallService {
         } catch {
           rawStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
         }
-        this.localStream = await noiseCancellationService.applyToStream(rawStream);
+        this.localStream = await noiseCancellationService.createChain(rawStream);
         this.localStream.getVideoTracks().forEach((t) => { t.enabled = false; });
         this._microphoneAvailable = this.localStream.getAudioTracks().length > 0;
       } catch {
@@ -116,7 +116,7 @@ class CallService {
         } catch {
           rawStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
         }
-        this.localStream = await noiseCancellationService.applyToStream(rawStream);
+        this.localStream = await noiseCancellationService.createChain(rawStream);
         this.localStream.getVideoTracks().forEach((t) => { t.enabled = false; });
         this._microphoneAvailable = this.localStream.getAudioTracks().length > 0;
       } catch {
@@ -295,6 +295,9 @@ class CallService {
 
   private cleanup(): void {
     if (this.localStream) {
+      // Демонтаж NC-цепочки стопает и raw-треки микрофона; для стримов без
+      // цепочки (video-only fallback) releaseChain — no-op.
+      noiseCancellationService.releaseChain(this.localStream.id);
       this.localStream.getTracks().forEach((track) => track.stop());
       this.localStream = null;
     }

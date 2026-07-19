@@ -73,41 +73,58 @@ for _ in $(seq 1 60); do
 done
 curl -sf "$PAGE_URL" >/dev/null 2>&1 || fail "vite did not serve the test page"
 
-echo "==> running headless Chrome"
-"$CHROME_BIN" \
-  --headless=new \
-  --no-sandbox \
-  --disable-gpu \
-  --autoplay-policy=no-user-gesture-required \
-  --enable-logging=stderr \
-  --user-data-dir="$WORK_DIR/chrome-profile" \
-  "$PAGE_URL" >"$WORK_DIR/chrome.log" 2>&1 &
-CHROME_PID=$!
+# Запускает один сценарий: страница обязана напечатать "E2E_RESULT {json}".
+# E2E_ONLY=<имя> — прогнать только один сценарий.
+run_scenario() {
+  local name="$1"
+  local page_url="$2"
+  local log_file="$WORK_DIR/chrome-$name.log"
+  if [ -n "${E2E_ONLY:-}" ] && [ "$E2E_ONLY" != "$name" ]; then
+    echo "==> skipping scenario $name (E2E_ONLY=$E2E_ONLY)"
+    return 0
+  fi
 
-# The page prints one "E2E_RESULT {json}" line; poll for it (page watchdog: 90s).
-RESULT=""
-for _ in $(seq 1 220); do
-  RESULT="$(grep -o 'E2E_RESULT .*' "$WORK_DIR/chrome.log" 2>/dev/null | head -1)"
-  [ -n "$RESULT" ] && break
-  kill -0 "$CHROME_PID" 2>/dev/null || break
-  sleep 0.5
-done
+  echo "==> running headless Chrome: $name"
+  "$CHROME_BIN" \
+    --headless=new \
+    --no-sandbox \
+    --disable-gpu \
+    --autoplay-policy=no-user-gesture-required \
+    --enable-logging=stderr \
+    --user-data-dir="$WORK_DIR/chrome-profile-$name" \
+    "$page_url" >"$log_file" 2>&1 &
+  CHROME_PID=$!
 
-kill "$CHROME_PID" 2>/dev/null
-CHROME_PID=""
+  # The page prints one "E2E_RESULT {json}" line; poll for it (page watchdog: 90s).
+  local result=""
+  for _ in $(seq 1 220); do
+    result="$(grep -o 'E2E_RESULT .*' "$log_file" 2>/dev/null | head -1)"
+    [ -n "$result" ] && break
+    kill -0 "$CHROME_PID" 2>/dev/null || break
+    sleep 0.5
+  done
 
-[ -n "$RESULT" ] || fail "no E2E_RESULT in chrome output, see $WORK_DIR/chrome.log"
+  kill "$CHROME_PID" 2>/dev/null
+  CHROME_PID=""
 
-# Strip prefix and the console-log quoting artifacts around the JSON.
-JSON="${RESULT#E2E_RESULT }"
-JSON="${JSON%\", source:*}"
-echo "==> result: $JSON"
+  [ -n "$result" ] || fail "$name: no E2E_RESULT in chrome output, see $log_file"
 
-if echo "$JSON" | grep -q '"pass":true'; then
-  echo "PASS"
-  exit 0
-else
-  echo "--- [E2E] progress lines:"
-  grep -o '\[E2E\].*' "$WORK_DIR/chrome.log" | head -40
-  fail "scenario failed (full logs in $WORK_DIR)"
-fi
+  # Strip prefix and the console-log quoting artifacts around the JSON.
+  local json="${result#E2E_RESULT }"
+  json="${json%\", source:*}"
+  echo "==> $name result: $json"
+
+  if echo "$json" | grep -q '"pass":true'; then
+    echo "PASS: $name"
+  else
+    echo "--- [E2E] progress lines ($name):"
+    grep -o '\[E2E\].*' "$log_file" | head -40
+    fail "$name failed (full logs in $WORK_DIR)"
+  fi
+}
+
+run_scenario "no-camera-screenshare" "$PAGE_URL"
+run_scenario "nc-toggle" "http://localhost:$VITE_PORT/e2e/nc-toggle.html"
+
+echo "PASS"
+exit 0

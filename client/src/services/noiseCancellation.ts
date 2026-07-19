@@ -1,5 +1,17 @@
 /**
- * DeepFilterNet3 noise cancellation via AudioWorklet + Web Worker.
+ * Noise cancellation via AudioWorklet + Web Worker (модели — см. ncModels.ts).
+ *
+ * Аудио звонка ВСЕГДА идёт через единую Web Audio цепочку:
+ *   mic → source → [worklet] → destination → sender
+ * Трек destination стабилен на весь звонок; включение/выключение NC —
+ * перекоммутация нод внутри того же AudioContext, без replaceTrack и
+ * ренегоциации. Постоянный пропуск через Web Audio также решает баг Chrome с
+ * push-model захватом (track live, но Opus получает ноль фреймов) — pull-model
+ * рендер всегда производит фреймы для RTP.
+ *
+ * Источник истины для UI и пайплайна — состояние этого синглтона. Намерение
+ * пользователя персистится в localStorage (default-on) и не перетирается
+ * runtime-ошибками инициализации.
  *
  * Assets base URL is provided by the Electron preload (window.electronAPI.audioAssetsUrl),
  * which resolves to the correct path regardless of asar packaging or install location.
@@ -9,42 +21,94 @@
  *   AudioPipelineWorklet.js  — real-time audio I/O worklet
  *   AudioPipelineWorker.js   — WASM compute worker
  *   deepfilter.wasm          — DeepFilterNet3 model (17 MB, weights embedded)
- *   rnnoise.wasm             — RNNoise fallback model
+ *   rnnoise.wasm             — RNNoise model
  */
+
+import { NC_MODELS, DEFAULT_NC_MODEL, type NcModelId } from './ncModels';
 
 // window.electronAPI is populated synchronously by the preload before renderer scripts run.
 const ASSETS_BASE: string = window.electronAPI?.audioAssetsUrl ?? '/audio/';
 const WORKLET_NAME = 'AudioPipelineWorklet';
+const NC_SETTINGS_KEY = 'vycord_nc_settings';
+
+interface NcSettings {
+  enabled: boolean;
+  modelId: NcModelId;
+}
 
 interface NoiseCancellationState {
+  /** Намерение пользователя (персистится; runtime-сброс при ошибке персист не трогает). */
   isEnabled: boolean;
-  isInitialized: boolean;
+  /** Worklet реально стоит в аудиоцепочке хотя бы одного активного звонка. */
+  isActive: boolean;
   isLoading: boolean;
   error: string | null;
+  modelId: NcModelId;
 }
 
 type StateListener = (state: NoiseCancellationState) => void;
 
-interface ActiveProcessor {
-  context: AudioContext;
+interface WorkletStage {
+  node: AudioWorkletNode;
   worker: Worker;
-  workletNode: AudioWorkletNode;
+  modelId: NcModelId;
+}
+
+interface AudioChain {
+  context: AudioContext;
   source: MediaStreamAudioSourceNode;
   destination: MediaStreamAudioDestinationNode;
+  /** Исходный getUserMedia-стрим: его аудиотреки стопаются в releaseChain,
+   *  иначе микрофон остаётся захваченным после звонка. */
+  rawStream: MediaStream;
+  keepAlive: ReturnType<typeof setInterval>;
+  /** addModule уже выполнен для этого AudioContext. */
+  workletLoaded: boolean;
+  stage: WorkletStage | null;
+  /** true: source → worklet → destination; false: source → destination (bypass). */
+  active: boolean;
+}
+
+function loadSettings(): NcSettings {
+  try {
+    const raw = localStorage.getItem(NC_SETTINGS_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw) as Partial<NcSettings>;
+      return {
+        enabled: parsed.enabled ?? true,
+        modelId:
+          parsed.modelId && parsed.modelId in NC_MODELS ? parsed.modelId : DEFAULT_NC_MODEL,
+      };
+    }
+  } catch {
+    /* битый storage — дефолты */
+  }
+  return { enabled: true, modelId: DEFAULT_NC_MODEL };
 }
 
 class NoiseCancellationService {
-  private state: NoiseCancellationState = {
-    isEnabled: false,
-    isInitialized: false,
-    isLoading: false,
-    error: null,
-  };
-
+  private state: NoiseCancellationState;
+  /** Персистируемое намерение. Отличается от state.isEnabled только после
+   *  runtime-ошибки (ошибка ≠ ручное выключение). */
+  private intendedEnabled: boolean;
   private listeners = new Set<StateListener>();
-  private processors = new Map<string, ActiveProcessor>();
-  // AudioContext instances whose worklet module is already loaded — avoid double addModule
-  private loadedContexts = new WeakSet<AudioContext>();
+  /** key — id стрима, который вернул createChain. */
+  private chains = new Map<string, AudioChain>();
+  /** Сериализация createChain/setEnabled: коммутация нод не должна гоняться
+   *  с построением worklet-этапа. */
+  private opQueue: Promise<unknown> = Promise.resolve();
+
+  constructor() {
+    const settings = loadSettings();
+    this.intendedEnabled = settings.enabled;
+    this.state = {
+      isEnabled: settings.enabled,
+      isActive: false,
+      isLoading: false,
+      error: null,
+      modelId: settings.modelId,
+    };
+  }
 
   onStateChange(listener: StateListener): () => void {
     this.listeners.add(listener);
@@ -68,100 +132,250 @@ class NoiseCancellationService {
     );
   }
 
-  /**
-   * Enable noise cancellation.
-   * Returns the processed MediaStream (audio through DeepFilterNet, video unchanged).
-   */
-  async enableNoiseCancellation(stream: MediaStream): Promise<MediaStream | null> {
-    this.state.isEnabled = true;
-    this.state.isLoading = true;
-    this.state.error = null;
-    this.notify();
+  /** Диагностика для логов звонков. */
+  getChainContextState(streamId: string): string {
+    return this.chains.get(streamId)?.context.state ?? 'no-ctx';
+  }
 
-    const result = await this.buildProcessor(stream);
-
-    this.state.isLoading = false;
-    if (result) {
-      this.state.isInitialized = true;
+  private persist(): void {
+    try {
+      localStorage.setItem(
+        NC_SETTINGS_KEY,
+        JSON.stringify({ enabled: this.intendedEnabled, modelId: this.state.modelId }),
+      );
+    } catch {
+      /* private mode / quota — настройка не переживёт перезапуск, не фатально */
     }
-    this.notify();
+  }
+
+  private enqueue<T>(op: () => Promise<T>): Promise<T> {
+    const result = this.opQueue.then(op, op);
+    this.opQueue = result.then(
+      () => undefined,
+      () => undefined,
+    );
     return result;
   }
 
   /**
-   * Apply noise cancellation to a MediaStream if globally enabled.
-   * Called by call services — returns processed stream or original if disabled.
+   * Строит аудиоцепочку звонка. Возвращает стрим со стабильным аудиотреком
+   * (processed или bypass — трек один и тот же при любых toggle) плюс исходные
+   * видеотреки. Без аудиотреков или без Web Audio возвращает rawStream как есть.
    */
-  async applyToStream(stream: MediaStream): Promise<MediaStream> {
-    if (!this.state.isEnabled) return stream;
-    const processed = await this.buildProcessor(stream);
-    return processed ?? stream;
+  createChain(rawStream: MediaStream): Promise<MediaStream> {
+    return this.enqueue(() => this.doCreateChain(rawStream));
   }
 
-  disableNoiseCancellation(streamId: string): void {
-    this.releaseProcessor(streamId);
-    this.state.isEnabled = false;
-    this.state.isInitialized = false;
+  private async doCreateChain(rawStream: MediaStream): Promise<MediaStream> {
+    if (!rawStream.getAudioTracks().length || !NoiseCancellationService.isSupported()) {
+      return rawStream;
+    }
+
+    const context = new AudioContext({ sampleRate: 48000 });
+    // Chrome создаёт контекст suspended вне окна user-gesture; suspended контекст
+    // даёт ноль фреймов → destination-трек не генерирует RTP и pion не видит трек.
+    if (context.state !== 'running') {
+      await context.resume().catch(() => {});
+    }
+
+    const source = context.createMediaStreamSource(rawStream);
+    const destination = context.createMediaStreamDestination();
+
+    // macOS/Android Chrome suspend-ят AudioContext без аудиовывода даже при
+    // активном захвате: RTP шлётся, но Opus-фреймы зазероены. Поллинг + resume
+    // держит контекст running (перенесено из groupCall.routeAudioThroughWebAudio).
+    const keepAlive = setInterval(() => {
+      if (context.state !== 'running') {
+        context.resume().catch(() => {});
+      }
+    }, 2000);
+
+    const chain: AudioChain = {
+      context,
+      source,
+      destination,
+      rawStream,
+      keepAlive,
+      workletLoaded: false,
+      stage: null,
+      active: false,
+    };
+
+    const outputStream = new MediaStream();
+    destination.stream.getAudioTracks().forEach((t) => outputStream.addTrack(t));
+    rawStream.getVideoTracks().forEach((t) => outputStream.addTrack(t));
+    this.chains.set(outputStream.id, chain);
+
+    if (this.state.isEnabled) {
+      await this.activateChain(chain); // при ошибке сам уходит в bypass
+    } else {
+      this.wireBypass(chain);
+    }
+    this.refreshActive();
+    this.notify();
+    return outputStream;
+  }
+
+  /**
+   * Единственная точка включения/выключения. Персистит намерение и
+   * перекоммутирует все активные цепочки; вызовы сериализуются.
+   */
+  setEnabled(enabled: boolean): Promise<void> {
+    return this.enqueue(() => this.doSetEnabled(enabled));
+  }
+
+  private async doSetEnabled(enabled: boolean): Promise<void> {
+    this.intendedEnabled = enabled;
+    this.state.isEnabled = enabled;
+    this.state.error = null;
+    this.persist();
+    this.notify();
+    for (const chain of this.chains.values()) {
+      if (enabled) {
+        await this.activateChain(chain);
+      } else {
+        this.wireBypass(chain);
+      }
+    }
+    this.refreshActive();
     this.notify();
   }
 
-  private releaseProcessor(streamId: string): void {
-    const p = this.processors.get(streamId);
-    if (!p) return;
-    p.workletNode.disconnect();
-    p.source.disconnect();
-    p.worker.terminate();
-    p.context.close().catch(() => {});
-    this.processors.delete(streamId);
+  /**
+   * Выбор модели. Применяется при следующем построении worklet-этапа
+   * (следующий звонок либо выкл/вкл NC); горячая смена в звонке — вне скоупа.
+   */
+  setModel(modelId: NcModelId): void {
+    if (!(modelId in NC_MODELS)) return;
+    this.state.modelId = modelId;
+    this.persist();
+    this.notify();
   }
 
-  private async buildProcessor(stream: MediaStream): Promise<MediaStream | null> {
-    const audioTracks = stream.getAudioTracks();
-    if (!audioTracks.length) return null;
+  /**
+   * Полный демонтаж цепочки в конце звонка. streamId — id стрима, который
+   * вернул createChain; неизвестный id — no-op.
+   */
+  releaseChain(streamId: string): void {
+    const chain = this.chains.get(streamId);
+    if (!chain) return;
+    this.destroyStage(chain);
+    chain.source.disconnect();
+    clearInterval(chain.keepAlive);
+    chain.context.close().catch(() => {});
+    chain.rawStream.getAudioTracks().forEach((t) => t.stop());
+    this.chains.delete(streamId);
+    if (this.chains.size === 0) {
+      // Runtime-сброс isEnabled после ошибки инициализации не должен пережить
+      // конец звонка: намерение персистится, при следующем звонке попытка
+      // повторяется (спека, секция 3).
+      this.state.isEnabled = this.intendedEnabled;
+      this.state.error = null;
+    }
+    this.refreshActive();
+    this.notify();
+  }
+
+  /** Сносит все цепочки. Настройки (enabled/model) сохраняются. */
+  cleanup(): void {
+    for (const id of [...this.chains.keys()]) {
+      this.releaseChain(id);
+    }
+    this.state.isLoading = false;
+    this.state.error = null;
+    // Runtime-сброс isEnabled из-за ошибки не должен пережить конец звонка.
+    this.state.isEnabled = this.intendedEnabled;
+    this.notify();
+  }
+
+  // ── Private: коммутация и построение worklet-этапа ─────────────────────────
+
+  /**
+   * Вставляет worklet в цепочку. При ошибке оставляет bypass (звонок не
+   * ломается), пишет error и сбрасывает runtime isEnabled; персист-намерение
+   * не трогает — при следующем звонке попытка повторится.
+   */
+  private async activateChain(chain: AudioChain): Promise<void> {
+    this.state.isLoading = true;
+    this.state.error = null;
+    this.notify();
+    try {
+      if (!chain.stage || chain.stage.modelId !== this.state.modelId) {
+        this.destroyStage(chain);
+        chain.stage = await this.buildStage(chain);
+      }
+      chain.source.disconnect();
+      chain.source.connect(chain.stage.node);
+      chain.stage.node.connect(chain.destination);
+      chain.active = true;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'noise suppression init failed';
+      console.error('[NC] pipeline init failed:', message, err);
+      console.error('[NC] ASSETS_BASE resolved to:', new URL(ASSETS_BASE, document.baseURI).href);
+      this.wireBypass(chain);
+      this.state.error = message;
+      this.state.isEnabled = false;
+    } finally {
+      this.state.isLoading = false;
+      this.refreshActive();
+      this.notify();
+    }
+  }
+
+  private wireBypass(chain: AudioChain): void {
+    chain.source.disconnect();
+    if (chain.stage) {
+      chain.stage.node.disconnect();
+    }
+    chain.source.connect(chain.destination);
+    chain.active = false;
+  }
+
+  private destroyStage(chain: AudioChain): void {
+    if (!chain.stage) return;
+    chain.stage.node.disconnect();
+    chain.stage.worker.terminate();
+    chain.stage = null;
+    chain.active = false;
+  }
+
+  private refreshActive(): void {
+    let active = false;
+    for (const chain of this.chains.values()) {
+      if (chain.active) {
+        active = true;
+        break;
+      }
+    }
+    this.state.isActive = active;
+  }
+
+  /** Загружает WASM, поднимает worker и worklet-ноду для текущей модели. */
+  private async buildStage(chain: AudioChain): Promise<WorkletStage> {
+    const model = NC_MODELS[this.state.modelId];
+
+    // Контракт INIT воркера требует оба бинарника независимо от выбранной модели.
+    const [rnnoiseWasm, deepfilterWasm] = await Promise.all([
+      fetch(`${ASSETS_BASE}rnnoise.wasm`).then((r) => {
+        if (!r.ok) throw new Error(`rnnoise.wasm fetch failed: ${r.status}`);
+        return r.arrayBuffer();
+      }),
+      fetch(`${ASSETS_BASE}deepfilter.wasm`).then((r) => {
+        if (!r.ok) throw new Error(`deepfilter.wasm fetch failed: ${r.status}`);
+        return r.arrayBuffer();
+      }),
+    ]);
+
+    if (!chain.workletLoaded) {
+      await chain.context.audioWorklet.addModule(`${ASSETS_BASE}AudioPipelineWorklet.js`);
+      chain.workletLoaded = true;
+    }
+
+    const worker = new Worker(`${ASSETS_BASE}AudioPipelineWorker.js`);
+    const channel = new MessageChannel();
+    worker.postMessage({ type: 'CONNECT_PORT', port: channel.port1 }, [channel.port1]);
 
     try {
-      // Fetch WASM binaries on the main thread before transferring to worker
-      const [rnnoiseWasm, deepfilterWasm] = await Promise.all([
-        fetch(`${ASSETS_BASE}rnnoise.wasm`).then((r) => {
-          if (!r.ok) throw new Error(`rnnoise.wasm fetch failed: ${r.status}`);
-          return r.arrayBuffer();
-        }),
-        fetch(`${ASSETS_BASE}deepfilter.wasm`).then((r) => {
-          if (!r.ok) throw new Error(`deepfilter.wasm fetch failed: ${r.status}`);
-          return r.arrayBuffer();
-        }),
-      ]);
-
-      const audioContext = new AudioContext({ sampleRate: 48000 });
-
-      // Chrome creates AudioContext in "suspended" state when called outside a user-gesture
-      // window (which happens here because WASM fetch above takes several seconds and
-      // exhausts the ~1-5 s gesture window). A suspended context produces zero audio
-      // frames, so the MediaStreamDestinationNode track never generates RTP packets and
-      // pion never fires OnTrack for the audio track. Resume explicitly to ensure audio
-      // flows through the pipeline.
-      console.log('[NC] AudioContext state after create:', audioContext.state);
-      if (audioContext.state !== 'running') {
-        await audioContext.resume();
-        console.log('[NC] AudioContext state after resume:', audioContext.state);
-      }
-
-      // Load worklet module once per AudioContext
-      if (!this.loadedContexts.has(audioContext)) {
-        await audioContext.audioWorklet.addModule(`${ASSETS_BASE}AudioPipelineWorklet.js`);
-        this.loadedContexts.add(audioContext);
-      }
-
-      // Start Web Worker
-      const worker = new Worker(`${ASSETS_BASE}AudioPipelineWorker.js`);
-
-      // Create MessageChannel for worklet ↔ worker communication
-      const channel = new MessageChannel();
-
-      // Give port1 to the worker
-      worker.postMessage({ type: 'CONNECT_PORT', port: channel.port1 }, [channel.port1]);
-
-      // Initialize worker with WASM binaries; wait for INIT_OK
       const frameLength = await new Promise<number>((resolve, reject) => {
         channel.port2.onmessage = (e: MessageEvent) => {
           const msg = e.data as { type: string; frameLength?: number; error?: string };
@@ -172,34 +386,29 @@ class NoiseCancellationService {
           {
             type: 'INIT',
             wasmBinaries: { rnnoiseWasm, deepfilterWasm },
-            moduleId: 'deepfilternet',
-            moduleConfigs: {
-              deepfilternet: { attenLimDb: 100, postFilterBeta: 0.02 },
-            },
+            moduleId: model.workerModuleId,
+            moduleConfigs: { [model.workerModuleId]: model.moduleConfig },
             debugLogs: false,
           },
           [rnnoiseWasm, deepfilterWasm],
         );
       });
 
-      // Create AudioWorkletNode
-      const workletNode = new AudioWorkletNode(audioContext, WORKLET_NAME);
-
-      // Initialize worklet pipeline; wait for COMMAND_OK
+      const node = new AudioWorkletNode(chain.context, WORKLET_NAME);
       await new Promise<void>((resolve, reject) => {
         const handler = (e: MessageEvent) => {
           const msg = e.data as { type: string; requestId?: string; error?: string };
           if (msg.type === 'COMMAND_OK' && msg.requestId === 'init-pipeline') {
-            workletNode.port.removeEventListener('message', handler);
+            node.port.removeEventListener('message', handler);
             resolve();
           } else if (msg.type === 'COMMAND_ERROR' && msg.requestId === 'init-pipeline') {
-            workletNode.port.removeEventListener('message', handler);
+            node.port.removeEventListener('message', handler);
             reject(new Error(msg.error ?? 'Worklet init error'));
           }
         };
-        workletNode.port.addEventListener('message', handler);
-        workletNode.port.start();
-        workletNode.port.postMessage(
+        node.port.addEventListener('message', handler);
+        node.port.start();
+        node.port.postMessage(
           {
             type: 'INIT_PIPELINE',
             requestId: 'init-pipeline',
@@ -208,48 +417,21 @@ class NoiseCancellationService {
             workerPort: channel.port2,
             frameLength,
             batchFrames: 1,
-            stages: { denoise: 'deepfilternet' },
-            moduleConfigs: {
-              deepfilternet: { attenLimDb: 100, postFilterBeta: 0.02 },
-            },
+            stages: { denoise: model.workerModuleId },
+            moduleConfigs: { [model.workerModuleId]: model.moduleConfig },
           },
           [channel.port2],
         );
       });
 
-      // Wire: source → worklet → destination
-      const source = audioContext.createMediaStreamSource(stream);
-      const destination = audioContext.createMediaStreamDestination();
-      source.connect(workletNode);
-      workletNode.connect(destination);
-
-      this.processors.set(stream.id, { context: audioContext, worker, workletNode, source, destination });
-
-      // Build output stream: processed audio + original video tracks
-      const processedStream = new MediaStream();
-      destination.stream.getAudioTracks().forEach((t) => processedStream.addTrack(t));
-      stream.getVideoTracks().forEach((t) => processedStream.addTrack(t));
-
-      return processedStream;
+      return { node, worker, modelId: this.state.modelId };
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'DeepFilterNet init failed';
-      console.error('[NC] Failed to initialize noise cancellation pipeline:', message, err);
-      console.error('[NC] ASSETS_BASE resolved to:', new URL(ASSETS_BASE, document.baseURI).href);
-      this.state.error = message;
-      this.state.isEnabled = false;
-      this.notify();
-      return null;
+      worker.terminate();
+      throw err;
     }
-  }
-
-  async cleanup(): Promise<void> {
-    for (const [id] of this.processors) {
-      this.releaseProcessor(id);
-    }
-    this.state = { isEnabled: false, isInitialized: false, isLoading: false, error: null };
-    this.notify();
   }
 }
 
 export const noiseCancellationService = new NoiseCancellationService();
 export { NoiseCancellationService };
+export type { NoiseCancellationState };
