@@ -20,6 +20,11 @@ export function Settings({ isOpen, onClose }: SettingsProps) {
 
   useEffect(() => {
     setIsSupported(NoiseCancellationService.isSupported());
+    // Подписка не выдаёт текущее состояние при регистрации — без явного чтения
+    // default-on не виден до первого notify() (старта звонка).
+    const initial = noiseCancellationService.getState();
+    setNoiseCancellation(initial.isEnabled);
+    setNcLoading(initial.isLoading);
     const unsub = noiseCancellationService.onStateChange((state) => {
       setNoiseCancellation(state.isEnabled);
       setNcLoading(state.isLoading);

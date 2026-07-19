@@ -39,6 +39,9 @@ export function ChannelSidebar({
   const resolveUsername = (userId: string): string => usernameById.get(userId) ?? userId.slice(0, 8);
 
   useEffect(() => {
+    // Подписка не выдаёт текущее состояние при регистрации — без явного чтения
+    // default-on не виден до первого notify() (старта звонка).
+    setNcEnabled(noiseCancellationService.getState().isEnabled);
     const unsub = noiseCancellationService.onStateChange((state) => {
       setNcEnabled(state.isEnabled);
     });
