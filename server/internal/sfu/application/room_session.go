@@ -39,28 +39,6 @@ func (rs *RoomSession) Join(
 	participant *domain.Participant,
 	sigSession SignalingSession,
 ) (*ParticipantSession, error) {
-	// A reconnecting user may still have a stale session here: after a network
-	// change the old WS hangs half-open until disconnectedTimeout, its tracks
-	// keep being forwarded and other participants see a duplicate. Evict it
-	// before adding the new session.
-	rs.mu.RLock()
-	staleID := ""
-	for id, s := range rs.sessions {
-		if s.Participant.UserID == participant.UserID {
-			staleID = id
-			break
-		}
-	}
-	rs.mu.RUnlock()
-	if staleID != "" {
-		rs.log.Info("evicting stale session for reconnecting user",
-			"room_id", rs.room.ID,
-			"user_id", participant.UserID,
-			"stale_participant_id", staleID,
-		)
-		rs.Leave(staleID)
-	}
-
 	pc, err := rs.peerFactory.NewPeerConnection()
 	if err != nil {
 		return nil, err
@@ -74,8 +52,25 @@ func (rs *RoomSession) Join(
 		rs.onNewTrack, // called when this participant publishes a track
 	)
 
-	// Deliver all already-published tracks from existing participants.
-	rs.mu.RLock()
+	// A reconnecting user may still have a stale session here: after a network
+	// change the old WS hangs half-open until disconnectedTimeout, its tracks
+	// keep being forwarded and other participants see a duplicate. The stale
+	// scan, its removal from the map and the registration of the new session
+	// happen under one write lock: with separate lock sections two concurrent
+	// joins of the same user (double-click, overlapping reconnect attempts)
+	// would each miss the other and leave two live sessions in the room.
+	rs.mu.Lock()
+	var stale *ParticipantSession
+	for id, s := range rs.sessions {
+		if s.Participant.UserID == participant.UserID {
+			stale = s
+			delete(rs.sessions, id)
+			break
+		}
+	}
+
+	// Deliver all already-published tracks from existing participants
+	// (the stale session is already removed, so its dying tracks are skipped).
 	for _, existingSession := range rs.sessions {
 		existingTracks := existingSession.Participant.GetTracks()
 		rs.log.Info("existing participant tracks for new joiner",
@@ -103,18 +98,39 @@ func (rs *RoomSession) Join(
 			}
 		}
 	}
-	rs.mu.RUnlock()
 
-	rs.mu.Lock()
 	rs.sessions[participant.ID] = ps
 	rs.mu.Unlock()
 
-	if err := rs.room.AddParticipant(participant); err != nil {
+	// The new participant is added to the domain room BEFORE the stale one is
+	// removed, so a solo reconnect no longer empties (and thereby closes) the
+	// room between the two steps — the ErrRoomClosed retry in RoomManager.Join
+	// remains only as a safety net.
+	addErr := rs.room.AddParticipant(participant)
+
+	if stale != nil {
+		rs.log.Info("evicting stale session for reconnecting user",
+			"room_id", rs.room.ID,
+			"user_id", participant.UserID,
+			"stale_participant_id", stale.Participant.ID,
+		)
+		// Tell the old client its session was superseded: it must NOT
+		// auto-rejoin, otherwise two devices of one user evict each other in an
+		// endless ping-pong. Best effort — the socket may already be gone.
+		_ = stale.session.Notify("session_replaced", map[string]any{
+			"room_id": rs.room.ID,
+		})
+		rs.finishLeave(stale)
+	}
+
+	if addErr != nil {
 		ps.Close()
 		rs.mu.Lock()
-		delete(rs.sessions, participant.ID)
+		if cur, ok := rs.sessions[participant.ID]; ok && cur == ps {
+			delete(rs.sessions, participant.ID)
+		}
 		rs.mu.Unlock()
-		return nil, err
+		return nil, addErr
 	}
 
 	ps.Start()
@@ -141,11 +157,23 @@ func (rs *RoomSession) Leave(participantID string) {
 	rs.mu.Unlock()
 
 	if !ok {
+		// The session may have been evicted from the map while its own Join was
+		// still registering the participant in the domain room (concurrent
+		// same-user joins). Its watchSession lands here — make sure no ghost
+		// participant stays behind. Idempotent for already-removed IDs.
+		rs.room.RemoveParticipant(participantID)
 		return
 	}
 
+	rs.finishLeave(ps)
+}
+
+// finishLeave tears down a session already removed from rs.sessions: closes it,
+// removes it from the domain room, cleans its forwarded tracks out of the
+// remaining subscribers and notifies them. Must be called without rs.mu held.
+func (rs *RoomSession) finishLeave(ps *ParticipantSession) {
 	ps.Close()
-	rs.room.RemoveParticipant(participantID)
+	rs.room.RemoveParticipant(ps.Participant.ID)
 
 	rs.log.Info("participant left room",
 		"room_id", rs.room.ID,

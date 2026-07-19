@@ -1,6 +1,7 @@
 package ws
 
 import (
+	"sync"
 	"io"
 	"log/slog"
 	"strings"
@@ -155,4 +156,98 @@ func TestUnregister_BroadcastsVoiceParticipantsToOtherClients(t *testing.T) {
 			t.Fatal("client B did not receive a voice_participants broadcast after A disconnected")
 		}
 	}
+}
+
+// TestUnregisterStaleClientKeepsNewConnection: when a user reconnects, the new
+// connection replaces the old one in the map. The old connection's readPump
+// exits up to pongWait later and unregisters — that must NOT remove the NEW
+// client from the hub or kick the user out of their voice channel.
+func TestUnregisterStaleClientKeepsNewConnection(t *testing.T) {
+	h := newTestHub()
+	go h.Run()
+
+	userID := uuid.New()
+	channelID := uuid.New()
+	oldClient := &Client{UserID: userID, Send: make(chan []byte, 512)}
+	newClient := &Client{UserID: userID, Send: make(chan []byte, 512)}
+
+	h.RegisterClient(oldClient)
+	h.RegisterClient(newClient) // reconnect: replaces oldClient
+	h.JoinVoiceChannel(userID, channelID)
+
+	h.UnregisterClient(oldClient) // stale connection finally dies
+
+	// Run processes ops sequentially; poll until the unregister settles.
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if h.IsOnline(userID) {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+
+	assert.True(t, h.IsOnline(userID), "user must stay online: only the stale connection died")
+	state := h.GetVoiceState()
+	assert.Contains(t, state, channelID, "user must stay in the voice channel")
+
+	// The stale client's send channel must be closed so its writePump exits.
+	// Drain buffered messages (online_users, voice_state, …) until close.
+	timeout := time.After(time.Second)
+	for {
+		select {
+		case _, open := <-oldClient.Send:
+			if !open {
+				return // closed — writePump would exit
+			}
+		case <-timeout:
+			t.Fatal("stale client's Send was never closed")
+		}
+	}
+}
+
+// TestHubConcurrentBroadcastAndChurnNoRace hammers broadcast (which evicts
+// slow clients) concurrently with register/unregister and SendToUser. Run with
+// -race: the old implementation deleted from h.clients under RLock inside the
+// broadcast fan-out.
+func TestHubConcurrentBroadcastAndChurnNoRace(t *testing.T) {
+	h := newTestHub()
+	go h.Run()
+
+	stop := make(chan struct{})
+	var wg sync.WaitGroup
+
+	// Churn: clients with tiny buffers so broadcasts hit the slow-client path.
+	for g := 0; g < 4; g++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for {
+				select {
+				case <-stop:
+					return
+				default:
+				}
+				c := &Client{UserID: uuid.New(), Send: make(chan []byte, 1)}
+				h.RegisterClient(c)
+				h.SendToUser(c.UserID, &Message{Type: "ping"})
+				h.UnregisterClient(c)
+			}
+		}()
+	}
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+			}
+			h.BroadcastMessage(&Message{Type: "noise"})
+		}
+	}()
+
+	time.Sleep(300 * time.Millisecond)
+	close(stop)
+	wg.Wait()
 }

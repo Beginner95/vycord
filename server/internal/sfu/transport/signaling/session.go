@@ -5,10 +5,16 @@ import (
 	"encoding/json"
 	"log/slog"
 	"sync"
+	"time"
 
 	"github.com/gorilla/websocket"
 	"github.com/pion/webrtc/v4"
 )
+
+// writeWait bounds every WebSocket write. Without it a peer with a dead TCP
+// connection (the typical evicted-after-network-change session) would block
+// writePump forever and leak the connection handler.
+const writeWait = 5 * time.Second
 
 // Session implements application.SignalingSession over a WebSocket connection.
 // It owns the write pump goroutine and guarantees ordered, non-concurrent writes.
@@ -60,11 +66,14 @@ func (s *Session) Context() context.Context {
 }
 
 // Close signals the session to stop.
+//
+// The send channel is deliberately NOT closed here: a session can be closed
+// while other goroutines (negotiator of an evicted session, room broadcasts)
+// are still inside sendMsg, and closing the channel turns their pending send
+// into a process-wide "send on closed channel" panic. Cancelling the context
+// both unblocks those senders and tells writePump to finish.
 func (s *Session) Close() {
-	s.once.Do(func() {
-		s.cancel()
-		close(s.send)
-	})
+	s.once.Do(s.cancel)
 }
 
 // sendMsg marshals and enqueues a message for sending.
@@ -75,6 +84,13 @@ func (s *Session) sendMsg(msgType string, payload any) error {
 	})
 	if err != nil {
 		return err
+	}
+
+	// Fast-fail once the session is closed: with a buffered channel the send
+	// below could otherwise "succeed" into a queue nobody drains anymore,
+	// making the select outcome (and the returned error) nondeterministic.
+	if s.ctx.Err() != nil {
+		return s.ctx.Err()
 	}
 
 	select {
@@ -92,25 +108,49 @@ func (s *Session) writePump() {
 	defer s.conn.Close()
 
 	for {
-		msg, ok := <-s.send
-		if !ok {
-			s.conn.WriteMessage(websocket.CloseMessage, []byte{})
-			return
-		}
-
-		w, err := s.conn.NextWriter(websocket.TextMessage)
-		if err != nil {
-			s.log.Warn("writePump: failed to get writer", "error", err)
-			return
-		}
-		if _, err := w.Write(msg); err != nil {
-			s.log.Warn("writePump: write failed", "error", err)
-			_ = w.Close()
-			return
-		}
-		if err := w.Close(); err != nil {
-			s.log.Warn("writePump: close writer failed", "error", err)
-			return
+		select {
+		case <-s.ctx.Done():
+			// Flush whatever is already queued (e.g. the "error" notification
+			// on a failed join) so it reaches the client before the close frame.
+			for {
+				select {
+				case msg := <-s.send:
+					if !s.writeMsg(msg) {
+						return
+					}
+				default:
+					s.conn.SetWriteDeadline(time.Now().Add(writeWait)) //nolint:errcheck
+					s.conn.WriteMessage(websocket.CloseMessage, []byte{})
+					return
+				}
+			}
+		case msg := <-s.send:
+			if !s.writeMsg(msg) {
+				return
+			}
 		}
 	}
+}
+
+// writeMsg writes one text message; false means the connection is unusable
+// and writePump must stop.
+func (s *Session) writeMsg(msg []byte) bool {
+	if err := s.conn.SetWriteDeadline(time.Now().Add(writeWait)); err != nil {
+		return false
+	}
+	w, err := s.conn.NextWriter(websocket.TextMessage)
+	if err != nil {
+		s.log.Warn("writePump: failed to get writer", "error", err)
+		return false
+	}
+	if _, err := w.Write(msg); err != nil {
+		s.log.Warn("writePump: write failed", "error", err)
+		_ = w.Close()
+		return false
+	}
+	if err := w.Close(); err != nil {
+		s.log.Warn("writePump: close writer failed", "error", err)
+		return false
+	}
+	return true
 }

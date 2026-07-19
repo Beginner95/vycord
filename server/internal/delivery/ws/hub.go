@@ -50,6 +50,17 @@ func (h *Hub) Run() {
 		select {
 		case client := <-h.register:
 			h.mu.Lock()
+			if old, ok := h.clients[client.UserID]; ok && old != client {
+				// Reconnect: the new connection supersedes the old one. Kill
+				// the replaced connection now so its pumps exit instead of
+				// lingering until pongWait. Closing under the write lock is
+				// safe — every sender (SendToUser, notify*, SendToChannel)
+				// holds at least the read lock while sending.
+				close(old.Send)
+				if old.Conn != nil {
+					old.Conn.Close()
+				}
+			}
 			h.clients[client.UserID] = client
 			currentIDs := h.getOnlineUserIDsLocked()
 			voiceState := h.voiceStateLocked()
@@ -65,38 +76,57 @@ func (h *Hub) Run() {
 
 		case client := <-h.unregister:
 			h.mu.Lock()
-			if _, ok := h.clients[client.UserID]; ok {
+			cur, ok := h.clients[client.UserID]
+			isCurrent := ok && cur == client
+			var currentIDs []string
+			if isCurrent {
 				delete(h.clients, client.UserID)
 				close(client.Send)
-				currentIDs := h.getOnlineUserIDsLocked()
-				h.mu.Unlock()
-				h.log.Info("client disconnected", "user_id", client.UserID, "total", len(h.clients))
+				currentIDs = h.getOnlineUserIDsLocked()
+			}
+			h.mu.Unlock()
 
-				// Notify all clients about the disconnected user
-				h.notifyAllOnlineUsersAfterDisconnect(client.UserID.String(), currentIDs)
+			if !isCurrent {
+				// A stale connection of a user who already reconnected: the
+				// register case closed its Send when it was replaced. Removing
+				// the map entry or the voice presence here would kick the
+				// user's LIVE connection instead of the dead one.
+				continue
+			}
 
-				// Clean up voice-channel presence left behind by an unexpected disconnect.
-				// Dispatched via goroutine: BroadcastVoiceParticipants sends on h.broadcast,
-				// which only Run()'s own select loop drains — calling it synchronously here
-				// would deadlock Run() against itself.
-				if channelID, participants, ok := h.LeaveVoiceChannel(client.UserID); ok {
-					go h.BroadcastVoiceParticipants(channelID, participants)
-				}
-			} else {
-				h.mu.Unlock()
+			h.log.Info("client disconnected", "user_id", client.UserID, "total", len(h.clients))
+
+			// Notify all clients about the disconnected user
+			h.notifyAllOnlineUsersAfterDisconnect(client.UserID.String(), currentIDs)
+
+			// Clean up voice-channel presence left behind by an unexpected disconnect.
+			// Dispatched via goroutine: BroadcastVoiceParticipants sends on h.broadcast,
+			// which only Run()'s own select loop drains — calling it synchronously here
+			// would deadlock Run() against itself.
+			if channelID, participants, ok := h.LeaveVoiceChannel(client.UserID); ok {
+				go h.BroadcastVoiceParticipants(channelID, participants)
 			}
 
 		case message := <-h.broadcast:
-			h.mu.RLock()
+			// Write lock, not RLock: evicting a slow client mutates the map
+			// (concurrent map write) and closes its Send, which must never
+			// happen while a SendToUser holding RLock is sending into it —
+			// that combination panics with "send on closed channel" and takes
+			// down the whole API process.
+			data := mustMarshal(message)
+			h.mu.Lock()
 			for _, client := range h.clients {
 				select {
-				case client.Send <- mustMarshal(message):
+				case client.Send <- data:
 				default:
 					close(client.Send)
+					if client.Conn != nil {
+						client.Conn.Close()
+					}
 					delete(h.clients, client.UserID)
 				}
 			}
-			h.mu.RUnlock()
+			h.mu.Unlock()
 		}
 	}
 }
@@ -228,6 +258,16 @@ func (h *Hub) IsOnline(userID uuid.UUID) bool {
 	defer h.mu.RUnlock()
 	_, ok := h.clients[userID]
 	return ok
+}
+
+// IsCurrentClient reports whether c is the connection currently registered for
+// its user. False once a reconnect has replaced it — the stale connection's
+// teardown must not apply user-level side effects (offline status, voice
+// presence) that belong to the live connection.
+func (h *Hub) IsCurrentClient(c *Client) bool {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	return h.clients[c.UserID] == c
 }
 
 // JoinVoiceChannel registers userID as present in the given voice channel,

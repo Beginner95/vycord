@@ -143,6 +143,11 @@ class GroupCallService {
   private currentUserId = '';
   private currentRoomId = '';
   private inCall = false;
+  // True while joinGroupCall is in flight. inCall becomes true only when
+  // 'joined' arrives, so without this flag a double-click on the voice channel
+  // slips past the inCall guard (media acquisition takes ~1-2s) and opens two
+  // parallel SFU connections for the same user.
+  private joining = false;
 
   // True once the user asked to leave — suppresses auto-reconnect (Task 3).
   private intentionalLeave = false;
@@ -175,7 +180,21 @@ class GroupCallService {
       this.callbacks?.onError('Already in a call');
       return false;
     }
+    if (this.joining) {
+      // No onError here: this is a benign repeated click while the first join
+      // is still acquiring media/connecting — onError would tear down the call.
+      gcLog(userId, 'joinGroupCall ignored: join already in progress');
+      return false;
+    }
+    this.joining = true;
+    try {
+      return await this.doJoinGroupCall(roomId, userId);
+    } finally {
+      this.joining = false;
+    }
+  }
 
+  private async doJoinGroupCall(roomId: string, userId: string): Promise<boolean> {
     this.intentionalLeave = false;
     // A hung previous reconnect cycle (e.g. its attempt never settled) must not
     // silently disable auto-reconnect for this new call.
@@ -722,13 +741,20 @@ class GroupCallService {
         settle(false);
       }, 10_000);
 
-      this.ws!.onopen = () => {
+      // All handlers close over `socket` and bail when `this.ws` has moved on
+      // to a newer socket. Without the identity check, a late event from a
+      // stale socket (e.g. the server evicting our old session after a rejoin)
+      // mutates shared state or — worst case — onclose fires reconnect(),
+      // whose partialTeardown closes the CURRENT healthy socket, kicking us
+      // out of a perfectly working call.
+      socket.onopen = () => {
         gcLog(userId, 'WS connected', { roomId });
         // The server creates the PC on its side upon WS upgrade — no explicit join message needed.
         // The server will immediately send us an "offer".
       };
 
-      this.ws!.onmessage = (e) => {
+      socket.onmessage = (e) => {
+        if (this.ws !== socket) return; // stale socket — not ours anymore
         const msg = JSON.parse(e.data as string) as SignalingMessage;
         gcLog(userId, 'WS message', { type: msg.type });
         if (msg.type === 'joined') {
@@ -742,7 +768,8 @@ class GroupCallService {
           // rendering that would create a ghost self-tile.
           const peers = (joined.existing_peers ?? []).filter((uid) => uid !== userId);
           peers.forEach((uid) => this.callbacks?.onPeerJoined(uid));
-          this.ws!.onmessage = (ev) => {
+          socket.onmessage = (ev) => {
+            if (this.ws !== socket) return;
             const m = JSON.parse(ev.data as string) as SignalingMessage;
             gcLog(userId, 'WS message', { type: m.type });
             void this.handleMessage(m);
@@ -754,9 +781,10 @@ class GroupCallService {
         }
       };
 
-      this.ws!.onclose = (ev) => {
+      socket.onclose = (ev) => {
         gcLog(userId, 'WS closed', { code: ev.code, reason: ev.reason });
         settle(false);
+        if (this.ws !== socket) return; // stale socket — must not touch the live call
         if (this.reconnecting) return; // reconnect loop owns the lifecycle
         if (this.inCall && !this.intentionalLeave) {
           void this.reconnect('ws_closed');
@@ -767,9 +795,10 @@ class GroupCallService {
         this.teardown();
       };
 
-      this.ws!.onerror = () => {
+      socket.onerror = () => {
         gcLog(userId, 'WS ERROR');
         settle(false);
+        if (this.ws !== socket) return;
         if (!this.reconnecting) this.callbacks?.onError('SFU connection failed');
       };
     });
@@ -1175,6 +1204,21 @@ class GroupCallService {
         this.callbacks?.onPeerLeft(user_id);
         break;
       }
+
+      case 'session_replaced':
+        // The server evicted this session because the same user joined from
+        // another device/tab. Auto-rejoining here would evict THAT session and
+        // start an endless mutual-eviction ping-pong — treat it as an
+        // intentional leave instead and let the close event end the call.
+        gcLog(this.currentUserId, 'session replaced by another connection — suppressing auto-rejoin');
+        this.intentionalLeave = true;
+        if (this.reconnecting) {
+          // The reconnect loop exits silently on intentionalLeave, so reset
+          // the UI ourselves.
+          this.callbacks?.onCallEnded();
+          this.teardown();
+        }
+        break;
 
       case 'error':
         if (!this.reconnecting) {

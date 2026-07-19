@@ -87,18 +87,23 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	defer rs.Leave(participantID)
 
 	// When the participant session is cancelled server-side (ICE timeout,
-	// disconnected timeout, PC failure), close the WebSocket so readPump's
-	// ReadMessage unblocks immediately. ServeHTTP then exits, all defers fire
-	// (Leave, sigSession.Close -> WS close frame), client ws.onclose -> onCallEnded.
+	// disconnected timeout, PC failure, eviction by a rejoin), close the
+	// session rather than the raw conn: sigSession.Close() lets writePump flush
+	// queued notifications first — most importantly "session_replaced", which
+	// the evicted client needs to see BEFORE the socket dies, or it will
+	// auto-rejoin and evict the replacement right back (endless ping-pong
+	// between two devices of one user). writePump then closes the underlying
+	// conn (bounded by writeWait), which unblocks readPump's ReadMessage;
+	// ServeHTTP exits and the remaining defers fire.
 	//
-	// We close conn directly rather than using SetReadDeadline because
+	// We close the connection rather than using SetReadDeadline because
 	// gorilla/websocket v1.5+ permanently stores the first read error in
 	// c.readErr; a deadline timeout makes every subsequent ReadMessage return
 	// immediately, spinning 1000+ times until gorilla panics.
 	go func() {
 		select {
 		case <-ps.Done():
-			conn.Close() //nolint:errcheck
+			sigSession.Close()
 		case <-ctx.Done():
 		}
 	}()

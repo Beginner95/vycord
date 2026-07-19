@@ -93,10 +93,16 @@ func (h *WebSocketHandler) HandleWebSocket(w http.ResponseWriter, r *http.Reques
 
 func (h *WebSocketHandler) readPump(client *ws.Client) {
 	defer func() {
+		// Snapshot BEFORE unregistering: if a reconnect already replaced this
+		// client, this is a stale connection dying late (pongWait) — marking
+		// the user offline would override the live connection's online status.
+		wasCurrent := h.hub.IsCurrentClient(client)
 		h.hub.UnregisterClient(client)
 		client.Conn.Close()
-		if err := h.userUseCase.UpdateStatus(client.UserID, domain.StatusOffline); err != nil {
-			h.log.Warn("failed to set user offline", "user_id", client.UserID, "error", err)
+		if wasCurrent {
+			if err := h.userUseCase.UpdateStatus(client.UserID, domain.StatusOffline); err != nil {
+				h.log.Warn("failed to set user offline", "user_id", client.UserID, "error", err)
+			}
 		}
 	}()
 
