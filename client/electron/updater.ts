@@ -22,16 +22,19 @@ export function initAutoUpdater(mainWindow: BrowserWindow): void {
 
   autoUpdater.on('update-available', (info: UpdateInfo) => {
     announcedThisSession = true;
+    if (mainWindow.isDestroyed()) return;
     mainWindow.webContents.send('update:available', { version: info.version });
   });
 
   autoUpdater.on('update-downloaded', (info: UpdateInfo) => {
+    if (mainWindow.isDestroyed()) return;
     mainWindow.webContents.send('update:ready', { version: info.version });
   });
 
   autoUpdater.on('error', (err: Error) => {
     log.error('autoUpdater error', err);
     if (announcedThisSession) {
+      if (mainWindow.isDestroyed()) return;
       mainWindow.webContents.send('update:error', { releasesUrl: RELEASES_URL });
     }
   });
