@@ -12,4 +12,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
   platform: process.platform,
   getScreenSources: () => ipcRenderer.invoke('get-screen-sources'),
   audioAssetsUrl,
+  update: {
+    onAvailable: (cb: (version: string) => void) =>
+      ipcRenderer.on('update:available', (_event, data: { version: string }) => cb(data.version)),
+    onReady: (cb: (version: string) => void) =>
+      ipcRenderer.on('update:ready', (_event, data: { version: string }) => cb(data.version)),
+    onError: (cb: () => void) =>
+      ipcRenderer.on('update:error', () => cb()),
+    confirmInstall: () => ipcRenderer.invoke('update:confirmInstall'),
+    openReleasesPage: () => ipcRenderer.invoke('update:openReleasesPage'),
+  },
 });

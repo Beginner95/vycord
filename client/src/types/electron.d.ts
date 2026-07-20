@@ -18,6 +18,13 @@ export interface ElectronAPI {
   platform: string;
   getScreenSources: () => Promise<ScreenSourcesResult>;
   audioAssetsUrl: string;
+  update: {
+    onAvailable: (cb: (version: string) => void) => void;
+    onReady: (cb: (version: string) => void) => void;
+    onError: (cb: () => void) => void;
+    confirmInstall: () => Promise<void>;
+    openReleasesPage: () => Promise<void>;
+  };
 }
 
 declare global {
