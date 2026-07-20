@@ -910,3 +910,37 @@
 .video-tile .focus-btn:hover {
   background: rgba(99, 102, 241, 0.8);
 }
+
+/* ── Per-participant volume control ── */
+.volume-btn {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  background: rgba(15, 17, 23, 0.72);
+  backdrop-filter: blur(4px);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: white;
+  border-radius: var(--radius-sm);
+  width: 28px;
+  height: 28px;
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 3;
+  transition: background var(--transition);
+}
+
+.volume-btn:hover {
+  background: rgba(99, 102, 241, 0.8);
+}
+
+.thumbnail-tile .volume-btn {
+  width: 18px;
+  height: 18px;
+  top: 4px;
+  left: 4px;
+  font-size: 11px;
+}
