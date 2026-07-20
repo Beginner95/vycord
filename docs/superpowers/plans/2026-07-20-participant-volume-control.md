@@ -326,6 +326,7 @@ function RemoteParticipantTile({
           ref={volumeBtnRef}
           className="volume-btn"
           onClick={handleVolumeBtnClick}
+          onMouseDown={(e) => e.stopPropagation()}
           title={`Volume: ${volume}%`}
         >
           ⋮
@@ -354,6 +355,7 @@ function RemoteParticipantTile({
         ref={volumeBtnRef}
         className="volume-btn"
         onClick={handleVolumeBtnClick}
+        onMouseDown={(e) => e.stopPropagation()}
         title={`Volume: ${volume}%`}
       >
         ⋮
@@ -374,6 +376,8 @@ function RemoteParticipantTile({
 ```
 
 `e.stopPropagation()` in `handleVolumeBtnClick` matters for the thumbnail branch — the tile `<div>` itself has `onClick={onFocus}`, and without it, clicking the volume button would also switch focus. `popoverPosition` is computed fresh from `getBoundingClientRect()` on every click (not just the first), so re-opening after a layout change (e.g. switching grid ↔ focused view) still anchors correctly.
+
+`onMouseDown={(e) => e.stopPropagation()}` on the button prevents a subtle open→close→open flicker: `VolumeControlPopover`'s outside-click handler (Task 1) listens for `mousedown` on `document`, and the trigger button itself is outside the popover's DOM subtree. Without this, clicking the *same* button to close an already-open popover would fire in this order: `mousedown` on the button bubbles to `document` → the popover's outside-click handler sees it, treats it as "outside," and closes the popover — then the `click` that follows immediately re-opens it via `handleVolumeBtnClick`'s toggle, since by the time `click` fires, `volumePopoverUserId` has already gone back to `null`. Net effect: the button would appear to do nothing on a close-click. Stopping propagation at `mousedown` keeps that native event from ever reaching the popover's document-level listener, so only the button's own `onClick` toggle decides open/closed state for its own tile. This does not affect switching between two different participants' popovers — that path never relies on the outside-click handler; opening participant B's popover always sets `volumePopoverUserId` directly to B's id (Task 2 Step 9), which alone causes participant A's tile to re-render with `isVolumePopoverOpen=false` and unmount its popover.
 
 - [ ] **Step 4: Add `.volume-btn` styles**
 
@@ -802,5 +806,7 @@ git commit -m "feat(group-call): add per-participant volume control"
 - No test framework, `tsc --noEmit` + manual QA → Task 1 Step 3, Task 2 Steps 10–11
 
 **Placeholder scan:** no TBD/TODO; every step shows exact before/after code.
+
+**Post-Task-1-review addendum (2026-07-20):** Task 1's reviewer flagged a real interaction risk between the popover's outside-click handler and the trigger button's own toggle (mousedown-closes then click-reopens). Fixed in Task 2 Step 3 by adding `onMouseDown={(e) => e.stopPropagation()}` to both volume-btn instances, with the mechanism explained inline in the step. No change to Task 1's already-reviewed/committed `VolumeControlPopover.tsx`.
 
 **Type consistency:** `RemoteParticipantTileProps.volume: number` / `onVolumeChange: (value: number) => void` (Task 2 Step 3) matches the values passed at both call sites in Step 9 (`participantVolumes[p.userId] ?? 100` and `(value) => handleVolumeChange(p.userId, value)`); `VolumeControlPopoverProps.position: { top: number; left: number }` (Task 1) matches `popoverPosition` state's type in `RemoteParticipantTile` (Task 2 Step 3); `attachStreamToElement`'s new `volume: number` parameter (0.0–1.0 scale) is divided from the 0–100 scale at both call sites (Task 2 Step 6), consistent with `handleVolumeChange`'s own `value / 100` conversion (Task 2 Step 8).
