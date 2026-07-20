@@ -1,0 +1,39 @@
+.update-banner {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 10px 16px;
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+  border-bottom: 1px solid var(--border-color);
+  font-size: 14px;
+}
+
+.update-banner button {
+  border: none;
+  border-radius: 6px;
+  padding: 6px 12px;
+  font-size: 13px;
+  cursor: pointer;
+  background: var(--brand-color);
+  color: var(--text-inverse);
+}
+
+.update-banner button:hover {
+  background: var(--brand-hover);
+}
+
+.update-banner__dismiss {
+  background: transparent;
+  color: var(--text-secondary);
+}
+
+.update-banner__dismiss:hover {
+  background: var(--bg-hover);
+}
