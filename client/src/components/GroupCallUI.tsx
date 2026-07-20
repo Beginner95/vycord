@@ -8,6 +8,7 @@ import { wsService } from '@/services/websocket';
 import { apiService } from '@/services/api';
 import type { User, Message } from '@/types';
 import type { DesktopCapturerSource } from '@/types/electron';
+import { VolumeControlPopover } from './VolumeControlPopover';
 import './GroupCallUI.css';
 
 function useMicLevel(stream: MediaStream | null, isMuted: boolean): number {
@@ -60,8 +61,9 @@ interface RemoteParticipant {
 // Fix: play muted first (always allowed), then immediately unmute. Chrome cannot
 // block unmuting a playing element — audio starts as soon as muted becomes false.
 // This is the standard cross-browser workaround used by WebRTC apps.
-function attachStreamToElement(el: HTMLVideoElement, stream: MediaStream, userId: string): void {
+function attachStreamToElement(el: HTMLVideoElement, stream: MediaStream, userId: string, volume: number): void {
   el.srcObject = stream;
+  el.volume = volume;
   const audioTracks = stream.getAudioTracks();
   const videoTracks = stream.getVideoTracks();
   console.log(`[GC] attachStream uid=${userId.slice(0, 8)}`, {
@@ -187,6 +189,11 @@ interface RemoteParticipantTileProps {
   isFocused?: boolean;
   onFocus: () => void;
   videoRefSetter: (el: HTMLVideoElement | null) => void;
+  volume: number;
+  isVolumePopoverOpen: boolean;
+  onToggleVolumePopover: () => void;
+  onCloseVolumePopover: () => void;
+  onVolumeChange: (value: number) => void;
 }
 
 function RemoteParticipantTile({
@@ -198,6 +205,11 @@ function RemoteParticipantTile({
   isFocused,
   onFocus,
   videoRefSetter,
+  volume,
+  isVolumePopoverOpen,
+  onToggleVolumePopover,
+  onCloseVolumePopover,
+  onVolumeChange,
 }: RemoteParticipantTileProps) {
   const level = useMicLevel(participant.stream, muted);
   const speaking = level > 0.05;
@@ -206,6 +218,16 @@ function RemoteParticipantTile({
     : speaking
       ? 'mic-badge--speaking'
       : 'mic-badge--idle';
+
+  const volumeBtnRef = useRef<HTMLButtonElement>(null);
+  const [popoverPosition, setPopoverPosition] = useState<{ top: number; left: number } | null>(null);
+
+  const handleVolumeBtnClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    const rect = volumeBtnRef.current?.getBoundingClientRect();
+    if (rect) setPopoverPosition({ top: rect.bottom + 6, left: rect.left });
+    onToggleVolumePopover();
+  };
 
   if (layout === 'thumbnail') {
     return (
@@ -217,6 +239,23 @@ function RemoteParticipantTile({
         <video ref={videoRefSetter} autoPlay playsInline />
         {!participant.stream && <div className="thumbnail-placeholder">📷</div>}
         {isSharing && <div className="thumbnail-badge">🖥</div>}
+        <button
+          ref={volumeBtnRef}
+          className="volume-btn"
+          onClick={handleVolumeBtnClick}
+          onMouseDown={(e) => e.stopPropagation()}
+          title={`Volume: ${volume}%`}
+        >
+          ⋮
+        </button>
+        {isVolumePopoverOpen && popoverPosition && (
+          <VolumeControlPopover
+            value={volume}
+            position={popoverPosition}
+            onChange={onVolumeChange}
+            onClose={onCloseVolumePopover}
+          />
+        )}
         <div className={`mic-badge ${micBadgeClass}`}>{muted ? '🔇' : '🎤'}</div>
         <div className="thumbnail-label">{displayName}</div>
       </div>
@@ -229,6 +268,23 @@ function RemoteParticipantTile({
       {!participant.stream && <div className="video-off-placeholder">📷</div>}
       {isSharing && <div className="screen-share-badge">🖥 Sharing</div>}
       <button className="focus-btn" onClick={onFocus} title="Focus on this participant">⛶</button>
+      <button
+        ref={volumeBtnRef}
+        className="volume-btn"
+        onClick={handleVolumeBtnClick}
+        onMouseDown={(e) => e.stopPropagation()}
+        title={`Volume: ${volume}%`}
+      >
+        ⋮
+      </button>
+      {isVolumePopoverOpen && popoverPosition && (
+        <VolumeControlPopover
+          value={volume}
+          position={popoverPosition}
+          onChange={onVolumeChange}
+          onClose={onCloseVolumePopover}
+        />
+      )}
       <div className={`mic-badge ${micBadgeClass}`}>{muted ? '🔇' : '🎤'}</div>
       <div className="video-label">{displayName}</div>
     </div>
@@ -280,6 +336,17 @@ export function GroupCallUI() {
     isMutedRef.current = isMuted;
   }, [isMuted]);
 
+  // userId -> 0-100, local-only, never persisted or sent over WS; missing entry means 100 (default)
+  const [participantVolumes, setParticipantVolumes] = useState<Record<string, number>>({});
+  const [volumePopoverUserId, setVolumePopoverUserId] = useState<string | null>(null);
+
+  // Stable ref to participantVolumes for use in the onRemoteStream WS callback (avoids stale closure)
+  const participantVolumesRef = useRef<Record<string, number>>({});
+
+  useEffect(() => {
+    participantVolumesRef.current = participantVolumes;
+  }, [participantVolumes]);
+
   useEffect(() => {
     groupCallService.init({
       onRemoteStream: (userId, stream) => {
@@ -297,7 +364,7 @@ export function GroupCallUI() {
         // The useEffect below is the fallback for when React re-renders first.
         const videoEl = remoteVideoRefs.current.get(userId);
         if (videoEl && videoEl.srcObject !== stream) {
-          attachStreamToElement(videoEl, stream, userId);
+          attachStreamToElement(videoEl, stream, userId, (participantVolumesRef.current[userId] ?? 100) / 100);
         }
       },
       onPeerJoined: (userId) => {
@@ -325,6 +392,8 @@ export function GroupCallUI() {
         setParticipants([]);
         setScreenSharers(new Set());
         setRemoteMicMuted(new Map());
+        setParticipantVolumes({});
+        setVolumePopoverUserId(null);
         setFocusedUserId(null);
       },
       onReconnected: () => {
@@ -343,6 +412,8 @@ export function GroupCallUI() {
         setShowSourcePicker(false);
         setScreenSharers(new Set());
         setRemoteMicMuted(new Map());
+        setParticipantVolumes({});
+        setVolumePopoverUserId(null);
         setFocusedUserId(null);
         if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
       },
@@ -356,6 +427,8 @@ export function GroupCallUI() {
         setIsMicAvailable(true);
         setScreenSharers(new Set());
         setRemoteMicMuted(new Map());
+        setParticipantVolumes({});
+        setVolumePopoverUserId(null);
         setFocusedUserId(null);
         if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
         groupCallService.leaveGroupCall();
@@ -392,7 +465,7 @@ export function GroupCallUI() {
       });
       if (p.stream) {
         if (videoEl && videoEl.srcObject !== p.stream) {
-          attachStreamToElement(videoEl, p.stream, p.userId);
+          attachStreamToElement(videoEl, p.stream, p.userId, (participantVolumes[p.userId] ?? 100) / 100);
         }
       }
     });
@@ -546,6 +619,12 @@ export function GroupCallUI() {
     setFocusedUserId(null);
     if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
   }, [currentServer]);
+
+  const handleVolumeChange = useCallback((userId: string, value: number) => {
+    setParticipantVolumes((prev) => ({ ...prev, [userId]: value }));
+    const videoEl = remoteVideoRefs.current.get(userId);
+    if (videoEl) videoEl.volume = value / 100;
+  }, []);
 
   const micLevel = useMicLevel(
     isInGroupCall ? groupCallService.localStreamState : null,
@@ -806,6 +885,11 @@ export function GroupCallUI() {
                     isFocused={focusedUserId === p.userId}
                     onFocus={() => setFocusedUserId(p.userId)}
                     videoRefSetter={(el) => { if (el) remoteVideoRefs.current.set(p.userId, el); }}
+                    volume={participantVolumes[p.userId] ?? 100}
+                    isVolumePopoverOpen={volumePopoverUserId === p.userId}
+                    onToggleVolumePopover={() => setVolumePopoverUserId((prev) => (prev === p.userId ? null : p.userId))}
+                    onCloseVolumePopover={() => setVolumePopoverUserId(null)}
+                    onVolumeChange={(value) => handleVolumeChange(p.userId, value)}
                   />
                 ))}
               </div>
@@ -843,6 +927,11 @@ export function GroupCallUI() {
                   layout="grid"
                   onFocus={() => setFocusedUserId(p.userId)}
                   videoRefSetter={(el) => { if (el) remoteVideoRefs.current.set(p.userId, el); }}
+                  volume={participantVolumes[p.userId] ?? 100}
+                  isVolumePopoverOpen={volumePopoverUserId === p.userId}
+                  onToggleVolumePopover={() => setVolumePopoverUserId((prev) => (prev === p.userId ? null : p.userId))}
+                  onCloseVolumePopover={() => setVolumePopoverUserId(null)}
+                  onVolumeChange={(value) => handleVolumeChange(p.userId, value)}
                 />
               ))}
             </div>
