@@ -1,0 +1,25 @@
+.volume-popover {
+  position: fixed;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-md);
+  padding: 8px 10px;
+  z-index: 1100;
+  cursor: default;
+}
+
+.volume-popover-slider {
+  width: 110px;
+}
+
+.volume-popover-value {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-primary);
+  min-width: 32px;
+  text-align: right;
+}
