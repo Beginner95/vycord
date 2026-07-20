@@ -21,6 +21,8 @@
     "test:e2e": "bash e2e/run.sh"
   },
   "dependencies": {
+    "electron-log": "^5.4.4",
+    "electron-updater": "^6.8.9",
     "react-router-dom": "^7.14.0",
     "socket.io-client": "^4.8.3",
     "zustand": "^5.0.12"
@@ -44,6 +46,11 @@
     "productName": "Vy Cord",
     "directories": {
       "output": "release"
+    },
+    "publish": {
+      "provider": "github",
+      "owner": "Beginner95",
+      "repo": "vycord"
     },
     "files": [
       "dist/**/*",
