@@ -44,7 +44,7 @@ export function UpdateBanner() {
 
   const handleInstall = () => {
     const api = window.electronAPI?.update;
-    if (!api) return;
+    if (!api || pollRef.current !== null) return;
 
     if (isBusyWithCall()) {
       setWaitingForCallEnd(true);
@@ -73,11 +73,19 @@ export function UpdateBanner() {
     <div className="update-banner" role="status">
       {status === 'available' && (
         <>
-          <span>Доступна версия {version}</span>
-          <button onClick={handleInstall}>Установить</button>
-          <button className="update-banner__dismiss" onClick={() => setDismissed(true)}>
-            Позже
-          </button>
+          <span>
+            {waitingForCallEnd
+              ? `Обновление ${version} установится после звонка`
+              : `Доступна версия ${version}`}
+          </span>
+          {!waitingForCallEnd && (
+            <>
+              <button onClick={handleInstall}>Установить</button>
+              <button className="update-banner__dismiss" onClick={() => setDismissed(true)}>
+                Позже
+              </button>
+            </>
+          )}
         </>
       )}
       {status === 'ready' && (
