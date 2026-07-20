@@ -16,33 +16,11 @@ export function UpdateBanner() {
   const [version, setVersion] = useState('');
   const [dismissed, setDismissed] = useState(false);
   const [waitingForCallEnd, setWaitingForCallEnd] = useState(false);
+  const [installRequested, setInstallRequested] = useState(false);
   const pollRef = useRef<number | null>(null);
+  const installRequestedRef = useRef(false);
 
-  useEffect(() => {
-    const api = window.electronAPI?.update;
-    if (!api) return;
-
-    api.onAvailable((v) => {
-      setVersion(v);
-      setStatus('available');
-      setDismissed(false);
-    });
-    api.onReady((v) => {
-      setVersion(v);
-      setStatus('ready');
-      setDismissed(false);
-    });
-    api.onError(() => {
-      setStatus('error');
-      setDismissed(false);
-    });
-
-    return () => {
-      if (pollRef.current !== null) window.clearInterval(pollRef.current);
-    };
-  }, []);
-
-  const handleInstall = () => {
+  const startInstall = () => {
     const api = window.electronAPI?.update;
     if (!api || pollRef.current !== null) return;
 
@@ -61,6 +39,42 @@ export function UpdateBanner() {
     }
   };
 
+  useEffect(() => {
+    const api = window.electronAPI?.update;
+    if (!api) return;
+
+    api.onAvailable((v) => {
+      setVersion(v);
+      setStatus('available');
+      setDismissed(false);
+    });
+    api.onReady((v) => {
+      setVersion(v);
+      setStatus('ready');
+      setDismissed(false);
+      if (installRequestedRef.current) {
+        installRequestedRef.current = false;
+        setInstallRequested(false);
+        startInstall();
+      }
+    });
+    api.onError(() => {
+      installRequestedRef.current = false;
+      setInstallRequested(false);
+      setStatus('error');
+      setDismissed(false);
+    });
+
+    return () => {
+      if (pollRef.current !== null) window.clearInterval(pollRef.current);
+    };
+  }, []);
+
+  const handleAvailableInstallClick = () => {
+    installRequestedRef.current = true;
+    setInstallRequested(true);
+  };
+
   const handleManualDownload = () => {
     window.electronAPI?.update?.openReleasesPage();
   };
@@ -74,13 +88,13 @@ export function UpdateBanner() {
       {status === 'available' && (
         <>
           <span>
-            {waitingForCallEnd
-              ? `Обновление ${version} установится после звонка`
+            {installRequested
+              ? `Скачивание обновления ${version}... установится автоматически`
               : `Доступна версия ${version}`}
           </span>
-          {!waitingForCallEnd && (
+          {!installRequested && (
             <>
-              <button onClick={handleInstall}>Установить</button>
+              <button onClick={handleAvailableInstallClick}>Установить</button>
               <button className="update-banner__dismiss" onClick={() => setDismissed(true)}>
                 Позже
               </button>
@@ -95,7 +109,7 @@ export function UpdateBanner() {
               ? `Обновление ${version} установится после звонка`
               : `Обновление ${version} готово`}
           </span>
-          {!waitingForCallEnd && <button onClick={handleInstall}>Перезапустить и установить</button>}
+          {!waitingForCallEnd && <button onClick={startInstall}>Перезапустить и установить</button>}
         </>
       )}
       {status === 'error' && (

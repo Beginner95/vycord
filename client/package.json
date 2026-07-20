@@ -50,7 +50,8 @@
     "publish": {
       "provider": "github",
       "owner": "Beginner95",
-      "repo": "vycord"
+      "repo": "vycord",
+      "draft": false
     },
     "files": [
       "dist/**/*",
