@@ -16,10 +16,19 @@ type Message struct {
 	UpdatedAt   time.Time `json:"updated_at"`
 }
 
+// MessageWithAuthor — сообщение с юзернеймом автора: результаты поиска
+// отдаются сразу с именем, чтобы клиент не делал N запросов за авторами.
+type MessageWithAuthor struct {
+	Message
+	Username string `json:"username"`
+}
+
 type MessageRepository interface {
 	Create(msg *Message) error
 	GetByID(id uuid.UUID) (*Message, error)
 	GetByChannelID(channelID uuid.UUID, limit, offset int) ([]*Message, error)
+	Search(channelID uuid.UUID, query string, limit, offset int) ([]*MessageWithAuthor, int, error)
+	GetAround(channelID, messageID uuid.UUID, limit int) ([]*Message, error)
 	Update(id uuid.UUID, updates map[string]interface{}) error
 	Delete(id uuid.UUID) error
 }

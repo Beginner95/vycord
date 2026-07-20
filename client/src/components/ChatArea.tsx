@@ -8,6 +8,7 @@ import { useServerStore } from '@/stores/serverStore';
 import { tokenizeMentions, roleLabel } from '@/utils/mentions';
 import { useMentionAutocomplete } from '@/hooks/useMentionAutocomplete';
 import { useFloatingSelectionToolbar } from '@/hooks/useFloatingSelectionToolbar';
+import { MessageSearch } from '@/components/MessageSearch';
 import type { Channel, User, MemberWithUser } from '@/types';
 import './ChatArea.css';
 
@@ -137,7 +138,7 @@ function FloatingQuoteButton({ x, y, onConfirm }: { x: number; y: number; onConf
 }
 
 export function ChatArea({ channel, user, onMobileBack, onShowMembers }: ChatAreaProps) {
-  const { messages, addMessage, updateMessage, removeMessage } = useMessageStore();
+  const { messages, setMessages, addMessage, updateMessage, removeMessage } = useMessageStore();
   const { members } = useServerStore();
   const [input, setInput] = useState('');
   const [caretInQuoteLine, setCaretInQuoteLine] = useState(false);
@@ -145,6 +146,9 @@ export function ChatArea({ channel, user, onMobileBack, onShowMembers }: ChatAre
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const chatMessagesRef = useRef<HTMLDivElement>(null);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [historyMode, setHistoryMode] = useState(false);
+  const [highlightedId, setHighlightedId] = useState<string | null>(null);
 
   // Cache for user info (id → username)
   const [userCache, setUserCache] = useState<Map<string, string>>(new Map());
@@ -160,15 +164,30 @@ export function ChatArea({ channel, user, onMobileBack, onShowMembers }: ChatAre
   });
 
   useEffect(() => {
+    if (historyMode) return; // в режиме просмотра истории не утаскиваем вниз
     scrollToBottom();
-  }, [messages]);
+  }, [messages, historyMode]);
 
   useEffect(() => {
     inputRef.current?.focus();
     composeMention.reset();
     editMention.reset();
     setCaretInQuoteLine(false);
+    setSearchOpen(false);
+    setHistoryMode(false);
+    setHighlightedId(null);
   }, [channel?.id]);
+
+  useEffect(() => {
+    const handler = (e: globalThis.KeyboardEvent) => {
+      if (e.ctrlKey && e.shiftKey && (e.key === 'F' || e.key === 'f' || e.code === 'KeyF')) {
+        e.preventDefault();
+        setSearchOpen((open) => !open);
+      }
+    };
+    document.addEventListener('keydown', handler);
+    return () => document.removeEventListener('keydown', handler);
+  }, []);
 
   useEffect(() => {
     const el = inputRef.current;
@@ -254,6 +273,38 @@ export function ChatArea({ channel, user, onMobileBack, onShowMembers }: ChatAre
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  };
+
+  const jumpToMessage = async (messageId: string) => {
+    if (!channel) return;
+    try {
+      const context = await apiService.getMessagesAround(channel.id, messageId) as Message[];
+      setHistoryMode(true);
+      setMessages(context);
+      setHighlightedId(messageId);
+      requestAnimationFrame(() => {
+        chatMessagesRef.current
+          ?.querySelector(`[data-message-id="${messageId}"]`)
+          ?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      });
+      window.setTimeout(() => setHighlightedId(null), 2200);
+    } catch (err) {
+      console.error('Failed to jump to message:', err);
+      setSendError(err instanceof Error ? err.message : 'Не удалось перейти к сообщению');
+      setTimeout(() => setSendError(null), 5000);
+    }
+  };
+
+  const backToLatest = async () => {
+    if (!channel) return;
+    try {
+      const latest = await apiService.getMessages(channel.id) as Message[];
+      setHistoryMode(false);
+      setHighlightedId(null);
+      setMessages(latest);
+    } catch (err) {
+      console.error('Failed to load latest messages:', err);
+    }
   };
 
   const handleSubmit = async (e: FormEvent) => {
@@ -508,6 +559,15 @@ export function ChatArea({ channel, user, onMobileBack, onShowMembers }: ChatAre
         )}
         <span className="channel-hash">#</span>
         <h3>{channel.name}</h3>
+        <button
+          type="button"
+          className={`chat-search-btn${searchOpen ? ' active' : ''}`}
+          onClick={() => setSearchOpen((open) => !open)}
+          aria-label="Поиск сообщений"
+          title="Поиск (Ctrl+Shift+F)"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        </button>
         {onShowMembers && (
           <button className="mobile-members-btn" onClick={onShowMembers} aria-label="Members">
             <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
@@ -542,7 +602,8 @@ export function ChatArea({ channel, user, onMobileBack, onShowMembers }: ChatAre
               return (
                 <div
                   key={msg.id}
-                  className={`message ${isCompact ? 'compact' : ''} ${isFromMe ? 'self' : 'other'}`}
+                  data-message-id={msg.id}
+                  className={`message ${isCompact ? 'compact' : ''} ${isFromMe ? 'self' : 'other'}${highlightedId === msg.id ? ' jump-highlight' : ''}`}
                 >
                   {!isCompact && !isFromMe && (
                     <div className="message-avatar">
@@ -705,6 +766,19 @@ export function ChatArea({ channel, user, onMobileBack, onShowMembers }: ChatAre
           y={chatSelectionToolbar.y}
           onConfirm={chatSelectionToolbar.confirm}
         />
+      )}
+      {searchOpen && (
+        <MessageSearch
+          channel={channel}
+          onJumpToMessage={jumpToMessage}
+          onClose={() => setSearchOpen(false)}
+        />
+      )}
+      {historyMode && (
+        <button type="button" className="back-to-latest-btn" onClick={backToLatest}>
+          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><polyline points="19 12 12 19 5 12"/></svg>
+          <span>К последним сообщениям</span>
+        </button>
       )}
     </main>
   );

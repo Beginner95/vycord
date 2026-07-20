@@ -127,6 +127,40 @@ func (uc *messageUseCase) GetMessages(channelID, userID uuid.UUID, limit, offset
 	return messages, nil
 }
 
+func normalizeSearchLimit(limit int) int {
+	if limit <= 0 {
+		return 25
+	}
+	if limit > 50 {
+		return 50
+	}
+	return limit
+}
+
+func (uc *messageUseCase) SearchMessages(channelID, userID uuid.UUID, query string, limit, offset int) ([]*domain.MessageWithAuthor, int, error) {
+	if _, err := uc.requireMembership(channelID, userID); err != nil {
+		return nil, 0, err
+	}
+
+	results, total, err := uc.messageRepo.Search(channelID, query, normalizeSearchLimit(limit), offset)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to search messages: %w", err)
+	}
+	return results, total, nil
+}
+
+func (uc *messageUseCase) GetMessagesAround(channelID, messageID, userID uuid.UUID, limit int) ([]*domain.Message, error) {
+	if _, err := uc.requireMembership(channelID, userID); err != nil {
+		return nil, err
+	}
+
+	messages, err := uc.messageRepo.GetAround(channelID, messageID, normalizeSearchLimit(limit))
+	if err != nil {
+		return nil, fmt.Errorf("failed to get messages around: %w", err)
+	}
+	return messages, nil
+}
+
 func (uc *messageUseCase) UpdateMessage(channelID, messageID, userID uuid.UUID, content string) (*domain.Message, error) {
 	ch, err := uc.requireMembership(channelID, userID)
 	if err != nil {

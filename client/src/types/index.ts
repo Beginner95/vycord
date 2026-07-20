@@ -41,6 +41,15 @@ export interface Message {
   updated_at: string;
 }
 
+export interface MessageWithAuthor extends Message {
+  username: string;
+}
+
+export interface MessageSearchResponse {
+  results: MessageWithAuthor[];
+  total: number;
+}
+
 export interface Member {
   server_id: string;
   user_id: string;
