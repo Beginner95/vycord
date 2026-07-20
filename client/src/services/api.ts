@@ -138,6 +138,16 @@ class ApiService {
     return this.request(`/api/v1/channels/${channelId}/messages?limit=${limit}&offset=${offset}`);
   }
 
+  async searchMessages(channelId: string, query: string, limit = 25, offset = 0) {
+    return this.request(
+      `/api/v1/channels/${channelId}/messages/search?q=${encodeURIComponent(query)}&limit=${limit}&offset=${offset}`
+    );
+  }
+
+  async getMessagesAround(channelId: string, messageId: string) {
+    return this.request(`/api/v1/channels/${channelId}/messages/around/${messageId}`);
+  }
+
   async updateMessage(channelId: string, messageId: string, content: string) {
     return this.request(`/api/v1/channels/${channelId}/messages/${messageId}`, {
       method: 'PATCH',

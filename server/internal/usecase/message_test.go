@@ -33,6 +33,20 @@ func (m *MockMessageRepository) GetByChannelID(channelID uuid.UUID, limit, offse
 	}
 	return args.Get(0).([]*domain.Message), args.Error(1)
 }
+func (m *MockMessageRepository) Search(channelID uuid.UUID, query string, limit, offset int) ([]*domain.MessageWithAuthor, int, error) {
+	args := m.Called(channelID, query, limit, offset)
+	if args.Get(0) == nil {
+		return nil, args.Int(1), args.Error(2)
+	}
+	return args.Get(0).([]*domain.MessageWithAuthor), args.Int(1), args.Error(2)
+}
+func (m *MockMessageRepository) GetAround(channelID, messageID uuid.UUID, limit int) ([]*domain.Message, error) {
+	args := m.Called(channelID, messageID, limit)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]*domain.Message), args.Error(1)
+}
 func (m *MockMessageRepository) Update(id uuid.UUID, updates map[string]interface{}) error {
 	return m.Called(id, updates).Error(0)
 }
@@ -588,6 +602,106 @@ func TestCreateMessage_NoMentions_SkipsRoleLookup(t *testing.T) {
 	assert.NoError(t, err)
 	assert.NotNil(t, msg)
 	srvRepo.AssertNotCalled(t, "GetMemberRole", mock.Anything, mock.Anything)
+}
+
+func TestSearchMessages_Member_ReturnsResults(t *testing.T) {
+	channelID, serverID, userID := uuid.New(), uuid.New(), uuid.New()
+
+	msgRepo := new(MockMessageRepository)
+	chRepo := new(MockChannelRepository)
+	srvRepo := new(MockServerRepository)
+
+	want := []*domain.MessageWithAuthor{
+		{Message: domain.Message{ID: uuid.New(), ChannelID: channelID, Content: "нашёл баг"}, Username: "petya"},
+	}
+	chRepo.On("GetByID", channelID).Return(&domain.Channel{ID: channelID, ServerID: serverID}, nil)
+	srvRepo.On("GetByID", serverID).Return(&domain.Server{ID: serverID, OwnerID: uuid.New()}, nil)
+	srvRepo.On("IsMember", serverID, userID).Return(true, nil)
+	msgRepo.On("Search", channelID, "баг", 25, 0).Return(want, 1, nil)
+
+	uc := usecase.NewMessageUseCase(msgRepo, chRepo, srvRepo)
+	got, total, err := uc.SearchMessages(channelID, userID, "баг", 0, 0) // limit 0 -> нормализуется в 25
+
+	assert.NoError(t, err)
+	assert.Equal(t, want, got)
+	assert.Equal(t, 1, total)
+}
+
+func TestSearchMessages_NotMember_Forbidden(t *testing.T) {
+	channelID, serverID, userID := uuid.New(), uuid.New(), uuid.New()
+
+	msgRepo := new(MockMessageRepository)
+	chRepo := new(MockChannelRepository)
+	srvRepo := new(MockServerRepository)
+
+	chRepo.On("GetByID", channelID).Return(&domain.Channel{ID: channelID, ServerID: serverID}, nil)
+	srvRepo.On("GetByID", serverID).Return(&domain.Server{ID: serverID, OwnerID: uuid.New()}, nil)
+	srvRepo.On("IsMember", serverID, userID).Return(false, nil)
+
+	uc := usecase.NewMessageUseCase(msgRepo, chRepo, srvRepo)
+	got, total, err := uc.SearchMessages(channelID, userID, "баг", 25, 0)
+
+	assert.Nil(t, got)
+	assert.Equal(t, 0, total)
+	assert.ErrorIs(t, err, domain.ErrForbidden)
+	msgRepo.AssertNotCalled(t, "Search", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
+}
+
+func TestSearchMessages_LimitCapped(t *testing.T) {
+	channelID, serverID, ownerID := uuid.New(), uuid.New(), uuid.New()
+
+	msgRepo := new(MockMessageRepository)
+	chRepo := new(MockChannelRepository)
+	srvRepo := new(MockServerRepository)
+
+	chRepo.On("GetByID", channelID).Return(&domain.Channel{ID: channelID, ServerID: serverID}, nil)
+	srvRepo.On("GetByID", serverID).Return(&domain.Server{ID: serverID, OwnerID: ownerID}, nil)
+	msgRepo.On("Search", channelID, "баг", 50, 0).Return([]*domain.MessageWithAuthor{}, 0, nil)
+
+	uc := usecase.NewMessageUseCase(msgRepo, chRepo, srvRepo)
+	_, _, err := uc.SearchMessages(channelID, ownerID, "баг", 500, 0) // 500 -> кэп 50
+
+	assert.NoError(t, err)
+	msgRepo.AssertCalled(t, "Search", channelID, "баг", 50, 0)
+}
+
+func TestGetMessagesAround_Member_ReturnsMessages(t *testing.T) {
+	channelID, serverID, userID, messageID := uuid.New(), uuid.New(), uuid.New(), uuid.New()
+
+	msgRepo := new(MockMessageRepository)
+	chRepo := new(MockChannelRepository)
+	srvRepo := new(MockServerRepository)
+
+	want := []*domain.Message{{ID: messageID, ChannelID: channelID, Content: "старое"}}
+	chRepo.On("GetByID", channelID).Return(&domain.Channel{ID: channelID, ServerID: serverID}, nil)
+	srvRepo.On("GetByID", serverID).Return(&domain.Server{ID: serverID, OwnerID: uuid.New()}, nil)
+	srvRepo.On("IsMember", serverID, userID).Return(true, nil)
+	msgRepo.On("GetAround", channelID, messageID, 25).Return(want, nil)
+
+	uc := usecase.NewMessageUseCase(msgRepo, chRepo, srvRepo)
+	got, err := uc.GetMessagesAround(channelID, messageID, userID, 0) // limit 0 -> 25
+
+	assert.NoError(t, err)
+	assert.Equal(t, want, got)
+}
+
+func TestGetMessagesAround_NotMember_Forbidden(t *testing.T) {
+	channelID, serverID, userID, messageID := uuid.New(), uuid.New(), uuid.New(), uuid.New()
+
+	msgRepo := new(MockMessageRepository)
+	chRepo := new(MockChannelRepository)
+	srvRepo := new(MockServerRepository)
+
+	chRepo.On("GetByID", channelID).Return(&domain.Channel{ID: channelID, ServerID: serverID}, nil)
+	srvRepo.On("GetByID", serverID).Return(&domain.Server{ID: serverID, OwnerID: uuid.New()}, nil)
+	srvRepo.On("IsMember", serverID, userID).Return(false, nil)
+
+	uc := usecase.NewMessageUseCase(msgRepo, chRepo, srvRepo)
+	got, err := uc.GetMessagesAround(channelID, messageID, userID, 25)
+
+	assert.Nil(t, got)
+	assert.ErrorIs(t, err, domain.ErrForbidden)
+	msgRepo.AssertNotCalled(t, "GetAround", mock.Anything, mock.Anything, mock.Anything)
 }
 
 func TestUpdateMessage_MentionNonMember_InvalidMention(t *testing.T) {

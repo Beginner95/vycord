@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -166,6 +167,123 @@ func (r *messageRepository) Update(id uuid.UUID, updates map[string]interface{})
 	}
 
 	return nil
+}
+
+// escapeLike экранирует спецсимволы LIKE-шаблона, чтобы пользовательский
+// запрос искался как буквальная подстрока.
+func escapeLike(s string) string {
+	return strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(s)
+}
+
+func (r *messageRepository) Search(channelID uuid.UUID, query string, limit, offset int) ([]*domain.MessageWithAuthor, int, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	pattern := "%" + escapeLike(query) + "%"
+
+	var total int
+	countQuery := `SELECT COUNT(*) FROM messages WHERE channel_id = $1 AND content ILIKE $2 ESCAPE '\'`
+	if err := r.db.QueryRow(ctx, countQuery, channelID, pattern).Scan(&total); err != nil {
+		return nil, 0, fmt.Errorf("failed to count search results: %w", err)
+	}
+
+	searchQuery := `
+		SELECT m.id, m.channel_id, m.user_id, m.content, m.attachments, m.created_at, m.updated_at, u.username
+		FROM messages m
+		JOIN users u ON u.id = m.user_id
+		WHERE m.channel_id = $1 AND m.content ILIKE $2 ESCAPE '\'
+		ORDER BY m.created_at DESC
+		LIMIT $3 OFFSET $4
+	`
+	rows, err := r.db.Query(ctx, searchQuery, channelID, pattern, limit, offset)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to search messages: %w", err)
+	}
+	defer rows.Close()
+
+	var results []*domain.MessageWithAuthor
+	for rows.Next() {
+		res := &domain.MessageWithAuthor{}
+		if err := rows.Scan(
+			&res.ID,
+			&res.ChannelID,
+			&res.UserID,
+			&res.Content,
+			&res.Attachments,
+			&res.CreatedAt,
+			&res.UpdatedAt,
+			&res.Username,
+		); err != nil {
+			return nil, 0, fmt.Errorf("failed to scan search result: %w", err)
+		}
+		results = append(results, res)
+	}
+
+	return results, total, nil
+}
+
+func (r *messageRepository) GetAround(channelID, messageID uuid.UUID, limit int) ([]*domain.Message, error) {
+	target, err := r.GetByID(messageID)
+	if err != nil {
+		return nil, err
+	}
+	if target.ChannelID != channelID {
+		return nil, fmt.Errorf("message %s: %w", messageID, domain.ErrMessageNotFound)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	// Контекст вокруг цели: limit сообщений до (включая цель) + limit после.
+	// Тай-брейк по id, т.к. created_at не уникален.
+	query := `
+		(
+			SELECT id, channel_id, user_id, content, attachments, created_at, updated_at
+			FROM messages
+			WHERE channel_id = $1 AND (created_at, id) <= ($2, $3)
+			ORDER BY created_at DESC, id DESC
+			LIMIT $4
+		)
+		UNION ALL
+		(
+			SELECT id, channel_id, user_id, content, attachments, created_at, updated_at
+			FROM messages
+			WHERE channel_id = $1 AND (created_at, id) > ($2, $3)
+			ORDER BY created_at ASC, id ASC
+			LIMIT $4
+		)
+	`
+	rows, err := r.db.Query(ctx, query, channelID, target.CreatedAt, target.ID, limit)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get messages around: %w", err)
+	}
+	defer rows.Close()
+
+	var messages []*domain.Message
+	for rows.Next() {
+		msg := &domain.Message{}
+		if err := rows.Scan(
+			&msg.ID,
+			&msg.ChannelID,
+			&msg.UserID,
+			&msg.Content,
+			&msg.Attachments,
+			&msg.CreatedAt,
+			&msg.UpdatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("failed to scan message: %w", err)
+		}
+		messages = append(messages, msg)
+	}
+
+	sort.Slice(messages, func(i, j int) bool {
+		if !messages[i].CreatedAt.Equal(messages[j].CreatedAt) {
+			return messages[i].CreatedAt.Before(messages[j].CreatedAt)
+		}
+		return messages[i].ID.String() < messages[j].ID.String()
+	})
+
+	return messages, nil
 }
 
 func (r *messageRepository) Delete(id uuid.UUID) error {

@@ -6,6 +6,8 @@ import (
 	"log/slog"
 	"net/http"
 	"strconv"
+	"strings"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 	"github.com/vycord/server/internal/delivery/http/middleware"
@@ -91,6 +93,72 @@ func (h *MessageHandler) GetMessages(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if messages == nil {
+		messages = []*domain.Message{}
+	}
+
+	h.sendJSON(w, http.StatusOK, messages)
+}
+
+type SearchMessagesResponse struct {
+	Results []*domain.MessageWithAuthor `json:"results"`
+	Total   int                         `json:"total"`
+}
+
+func (h *MessageHandler) SearchMessages(w http.ResponseWriter, r *http.Request) {
+	userID := r.Context().Value("user_id").(uuid.UUID)
+
+	channelID, err := uuid.Parse(r.PathValue("channel_id"))
+	if err != nil {
+		h.sendError(w, http.StatusBadRequest, "invalid channel id")
+		return
+	}
+
+	query := strings.TrimSpace(r.URL.Query().Get("q"))
+	if n := utf8.RuneCountInString(query); n < 2 || n > 100 {
+		h.sendError(w, http.StatusBadRequest, "search query must be 2-100 characters")
+		return
+	}
+
+	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+	offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
+	if offset < 0 {
+		offset = 0
+	}
+
+	results, total, err := h.messageUseCase.SearchMessages(channelID, userID, query, limit, offset)
+	if err != nil {
+		h.writeUseCaseError(w, r, err)
+		return
+	}
+	if results == nil {
+		results = []*domain.MessageWithAuthor{}
+	}
+
+	h.sendJSON(w, http.StatusOK, SearchMessagesResponse{Results: results, Total: total})
+}
+
+func (h *MessageHandler) GetMessagesAround(w http.ResponseWriter, r *http.Request) {
+	userID := r.Context().Value("user_id").(uuid.UUID)
+
+	channelID, err := uuid.Parse(r.PathValue("channel_id"))
+	if err != nil {
+		h.sendError(w, http.StatusBadRequest, "invalid channel id")
+		return
+	}
+	messageID, err := uuid.Parse(r.PathValue("message_id"))
+	if err != nil {
+		h.sendError(w, http.StatusBadRequest, "invalid message id")
+		return
+	}
+
+	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+
+	messages, err := h.messageUseCase.GetMessagesAround(channelID, messageID, userID, limit)
+	if err != nil {
+		h.writeUseCaseError(w, r, err)
+		return
+	}
 	if messages == nil {
 		messages = []*domain.Message{}
 	}
