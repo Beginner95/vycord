@@ -67,6 +67,13 @@
       ],
       "icon": "public/icon.ico"
     },
+    "mac": {
+      "target": [
+        "dmg",
+        "zip"
+      ],
+      "category": "public.app-category.social-networking"
+    },
     "nsis": {
       "oneClick": false,
       "perMachine": true,
