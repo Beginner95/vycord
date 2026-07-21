@@ -1,7 +1,8 @@
-import { useState, useEffect } from 'react';
-import { noiseCancellationService, NoiseCancellationService } from '@/services/noiseCancellation';
-import { audioService } from '@/services/audio';
-import { useThemeStore } from '@/stores/themeStore';
+import { useState } from 'react';
+import { ProfileSettings } from '@/components/settings/ProfileSettings';
+import { AudioSettings } from '@/components/settings/AudioSettings';
+import { VideoSettings } from '@/components/settings/VideoSettings';
+import { AppearanceSettings } from '@/components/settings/AppearanceSettings';
 import './Settings.css';
 
 interface SettingsProps {
@@ -9,46 +10,17 @@ interface SettingsProps {
   onClose: () => void;
 }
 
+type SettingsTab = 'profile' | 'audio' | 'video' | 'appearance';
+
+const TABS: { id: SettingsTab; label: string }[] = [
+  { id: 'profile', label: 'Профиль' },
+  { id: 'audio', label: 'Аудио' },
+  { id: 'video', label: 'Видео' },
+  { id: 'appearance', label: 'Внешний вид' },
+];
+
 export function Settings({ isOpen, onClose }: SettingsProps) {
-  const { theme, setTheme } = useThemeStore();
-  const [noiseCancellation, setNoiseCancellation] = useState(false);
-  const [ncLoading, setNcLoading] = useState(false);
-  const [isSupported, setIsSupported] = useState(true);
-  const [msgSound, setMsgSound] = useState(true);
-  const [callSound, setCallSound] = useState(true);
-  const [volume, setVolume] = useState(0.5);
-
-  useEffect(() => {
-    setIsSupported(NoiseCancellationService.isSupported());
-    // Подписка не выдаёт текущее состояние при регистрации — без явного чтения
-    // default-on не виден до первого notify() (старта звонка).
-    const initial = noiseCancellationService.getState();
-    setNoiseCancellation(initial.isEnabled);
-    setNcLoading(initial.isLoading);
-    const unsub = noiseCancellationService.onStateChange((state) => {
-      setNoiseCancellation(state.isEnabled);
-      setNcLoading(state.isLoading);
-    });
-    return unsub;
-  }, []);
-
-  useEffect(() => {
-    const settings = audioService.getSettings();
-    setMsgSound(settings.messageSound);
-    setCallSound(settings.callSound);
-    setVolume(settings.volume);
-  }, [isOpen]);
-
-  const handleToggleNoiseCancellation = async () => {
-    if (ncLoading) return;
-    try {
-      // Вне звонка меняет только персистентный флаг (микрофон не захватывается);
-      // в звонке сервис перекоммутирует активную аудиоцепочку.
-      await noiseCancellationService.setEnabled(!noiseCancellation);
-    } catch (err) {
-      console.error('Failed to toggle noise cancellation:', err);
-    }
-  };
+  const [activeTab, setActiveTab] = useState<SettingsTab>('profile');
 
   if (!isOpen) return null;
 
@@ -56,194 +28,29 @@ export function Settings({ isOpen, onClose }: SettingsProps) {
     <div className="settings-overlay" onClick={onClose}>
       <div className="settings-modal" onClick={(e) => e.stopPropagation()}>
         <div className="settings-header">
-          <h2>User Settings</h2>
+          <h2>Настройки</h2>
           <button className="close-btn" onClick={onClose}>✕</button>
         </div>
 
-        <div className="settings-content">
-          <div className="settings-section">
-            <h3>Audio</h3>
-
-            <div className="setting-item">
-              <div className="setting-info">
-                <label>Message Notifications</label>
-                <p className="setting-description">Play a sound when you receive a new message</p>
-              </div>
-              <label className="toggle-switch">
-                <input
-                  type="checkbox"
-                  checked={msgSound}
-                  onChange={(e) => {
-                    setMsgSound(e.target.checked);
-                    audioService.updateSettings({ messageSound: e.target.checked });
-                  }}
-                />
-                <span className="toggle-slider"></span>
-              </label>
-            </div>
-
-            <div className="setting-item">
-              <div className="setting-info">
-                <label>Call Sounds</label>
-                <p className="setting-description">Play ringtone and call status sounds</p>
-              </div>
-              <label className="toggle-switch">
-                <input
-                  type="checkbox"
-                  checked={callSound}
-                  onChange={(e) => {
-                    setCallSound(e.target.checked);
-                    audioService.updateSettings({ callSound: e.target.checked });
-                  }}
-                />
-                <span className="toggle-slider"></span>
-              </label>
-            </div>
-
-            <div className="setting-item">
-              <div className="setting-info">
-                <label>Volume</label>
-                <p className="setting-description">Adjust notification volume</p>
-              </div>
-              <input
-                type="range"
-                min="0"
-                max="1"
-                step="0.05"
-                value={volume}
-                onChange={(e) => {
-                  const v = parseFloat(e.target.value);
-                  setVolume(v);
-                  audioService.setVolume(v);
-                }}
-                style={{ width: 120, accentColor: 'var(--brand-color)' }}
-              />
-            </div>
-
-            <div className="setting-item">
-              <div className="setting-info">
-                <label>Test Sounds</label>
-                <p className="setting-description">Preview notification sounds</p>
-              </div>
-              <div style={{ display: 'flex', gap: 8 }}>
-                <button
-                  onClick={() => audioService.playMessage()}
-                  style={{
-                    padding: '6px 14px',
-                    border: '1.5px solid var(--border-color)',
-                    borderRadius: 'var(--radius-md)',
-                    background: 'var(--bg-primary)',
-                    color: 'var(--text-primary)',
-                    fontSize: 13,
-                    cursor: 'pointer',
-                  }}
-                >
-                  💬 Message
-                </button>
-                <button
-                  onClick={() => {
-                    audioService.startRingtone();
-                    setTimeout(() => audioService.stopRingtone(), 3000);
-                  }}
-                  style={{
-                    padding: '6px 14px',
-                    border: '1.5px solid var(--border-color)',
-                    borderRadius: 'var(--radius-md)',
-                    background: 'var(--bg-primary)',
-                    color: 'var(--text-primary)',
-                    fontSize: 13,
-                    cursor: 'pointer',
-                  }}
-                >
-                  📞 Ring
-                </button>
-              </div>
-            </div>
-
-            <div className="setting-item">
-              <div className="setting-info">
-                <label>Noise Cancellation (DeepFilterNet3)</label>
-                <p className="setting-description">
-                  {ncLoading
-                    ? 'Loading DeepFilterNet3 model...'
-                    : 'AI noise suppression — removes background noise from your mic'}
-                </p>
-              </div>
-              <label className="toggle-switch">
-                <input
-                  type="checkbox"
-                  checked={noiseCancellation}
-                  onChange={handleToggleNoiseCancellation}
-                  disabled={!isSupported || ncLoading}
-                />
-                <span className="toggle-slider"></span>
-              </label>
-            </div>
-
-            {!isSupported && (
-              <p className="setting-warning">
-                Noise cancellation requires AudioWorklet support (Chrome/Edge/Firefox 76+)
-              </p>
-            )}
-
-            <div className="setting-item">
-              <div className="setting-info">
-                <label>Input Device</label>
-                <p className="setting-description">
-                  Select your microphone
-                </p>
-              </div>
-              <select className="setting-select">
-                <option>Default Microphone</option>
-              </select>
-            </div>
-
-            <div className="setting-item">
-              <div className="setting-info">
-                <label>Output Device</label>
-                <p className="setting-description">
-                  Select your speakers
-                </p>
-              </div>
-              <select className="setting-select">
-                <option>Default Speakers</option>
-              </select>
-            </div>
-          </div>
-
-          <div className="settings-section">
-            <h3>Video</h3>
-
-            <div className="setting-item">
-              <div className="setting-info">
-                <label>Camera</label>
-                <p className="setting-description">
-                  Select your camera
-                </p>
-              </div>
-              <select className="setting-select">
-                <option>Default Camera</option>
-              </select>
-            </div>
-          </div>
-
-          <div className="settings-section">
-            <h3>Appearance</h3>
-
-            <div className="setting-item">
-              <div className="setting-info">
-                <label>Theme</label>
-                <p className="setting-description">Choose between light and dark interface</p>
-              </div>
-              <select
-                className="setting-select"
-                value={theme}
-                onChange={(e) => setTheme(e.target.value as 'light' | 'dark')}
+        <div className="settings-body">
+          <nav className="settings-tabs">
+            {TABS.map((tab) => (
+              <button
+                key={tab.id}
+                type="button"
+                className={`settings-tab ${activeTab === tab.id ? 'active' : ''}`}
+                onClick={() => setActiveTab(tab.id)}
               >
-                <option value="dark">Dark</option>
-                <option value="light">Light</option>
-              </select>
-            </div>
+                {tab.label}
+              </button>
+            ))}
+          </nav>
+
+          <div className="settings-content">
+            {activeTab === 'profile' && <ProfileSettings />}
+            {activeTab === 'audio' && <AudioSettings />}
+            {activeTab === 'video' && <VideoSettings />}
+            {activeTab === 'appearance' && <AppearanceSettings />}
           </div>
         </div>
       </div>
