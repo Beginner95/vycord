@@ -1,0 +1,66 @@
+.profile-settings {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.profile-avatar-block {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  padding: 24px 0 32px;
+  border-bottom: 1px solid var(--border-subtle);
+  margin-bottom: 8px;
+}
+
+.profile-avatar-large {
+  width: 96px;
+  height: 96px;
+  min-width: 96px;
+  border-radius: var(--radius-full);
+  background: linear-gradient(135deg, var(--brand-300), var(--brand-500));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 34px;
+  font-weight: 700;
+  color: var(--text-inverse);
+  object-fit: cover;
+}
+
+.profile-avatar-actions {
+  display: flex;
+  gap: 10px;
+}
+
+.profile-avatar-btn {
+  padding: 8px 16px;
+  border: 1.5px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all var(--transition);
+}
+
+.profile-avatar-btn:hover {
+  border-color: var(--brand-color);
+  color: var(--brand-color);
+}
+
+.profile-avatar-btn.secondary {
+  color: var(--text-muted);
+}
+
+.profile-avatar-btn.secondary:hover {
+  border-color: var(--red-color);
+  color: var(--red-color);
+}
+
+.profile-avatar-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
