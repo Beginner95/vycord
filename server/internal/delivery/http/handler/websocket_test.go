@@ -63,6 +63,18 @@ func (m *mockUserUseCase) UpdateLastVisited(id uuid.UUID, serverID, channelID *u
 	return m.Called(id, serverID, channelID).Error(0)
 }
 
+func (m *mockUserUseCase) UpdateAvatar(id uuid.UUID, data []byte) (*domain.User, error) {
+	args := m.Called(id, data)
+	u, _ := args.Get(0).(*domain.User)
+	return u, args.Error(1)
+}
+
+func (m *mockUserUseCase) RemoveAvatar(id uuid.UUID) (*domain.User, error) {
+	args := m.Called(id)
+	u, _ := args.Get(0).(*domain.User)
+	return u, args.Error(1)
+}
+
 type mockCallUseCase struct{ mock.Mock }
 
 func (m *mockCallUseCase) StartCall(callerID, receiverID uuid.UUID) (*domain.Call, error) {
