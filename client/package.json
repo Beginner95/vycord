@@ -51,7 +51,7 @@
       "provider": "github",
       "owner": "Beginner95",
       "repo": "vycord",
-      "draft": false
+      "releaseType": "release"
     },
     "files": [
       "dist/**/*",
