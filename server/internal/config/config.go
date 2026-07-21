@@ -22,6 +22,7 @@ type Config struct {
 	TURNSecret    string
 	TURNURLs      []string
 	TURNTTL       time.Duration
+	UploadDir     string
 }
 
 func New() (*Config, error) {
@@ -45,6 +46,7 @@ func New() (*Config, error) {
 		TURNSecret:    getEnv("TURN_SECRET", ""),
 		TURNURLs:      splitList(getEnv("TURN_URLS", "")),
 		TURNTTL:       parseDuration(getEnv("TURN_CREDENTIAL_TTL", "12h")),
+		UploadDir:     getEnv("UPLOAD_DIR", "./uploads"),
 	}
 
 	return cfg, nil
