@@ -189,6 +189,19 @@ func (h *Hub) BroadcastVoiceParticipants(channelID uuid.UUID, participants []uui
 	})
 }
 
+// BroadcastUserUpdate notifies all connected clients that userID's profile
+// changed (currently only the avatar). avatarURL is nil when the avatar was
+// removed, which marshals to JSON null.
+func (h *Hub) BroadcastUserUpdate(userID uuid.UUID, avatarURL *string) {
+	h.BroadcastMessage(&Message{
+		Type: "user_updated",
+		Payload: mustMarshal(map[string]interface{}{
+			"id":         userID.String(),
+			"avatar_url": avatarURL,
+		}),
+	})
+}
+
 func (h *Hub) notifyAllOnlineUsers(newUserID string) {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
