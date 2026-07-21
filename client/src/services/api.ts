@@ -1,7 +1,7 @@
 import { useAuthStore } from '@/stores/authStore';
 import type { User } from '@/types';
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8080';
+export const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8080';
 
 class ApiService {
   private getToken(): string | null {
@@ -50,6 +50,35 @@ class ApiService {
     return response.json();
   }
 
+  private async requestForm<T>(endpoint: string, options: RequestInit): Promise<T> {
+    const token = this.getToken();
+    const headers: HeadersInit = {};
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
+    }
+
+    const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+      ...options,
+      headers: {
+        ...headers,
+        ...options.headers,
+      },
+    });
+
+    if (response.status === 401) {
+      useAuthStore.getState().logout();
+      window.location.href = '/login';
+      throw new Error('Unauthorized');
+    }
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ error: response.statusText }));
+      throw new Error(error.error || `HTTP ${response.status}`);
+    }
+
+    return response.json();
+  }
+
   // Auth
   async register(username: string, email: string, password: string) {
     return this.request<{ token: string; user: User }>('/api/v1/auth/register', {
@@ -76,6 +105,21 @@ class ApiService {
 
   async getUserById(id: string) {
     return this.request(`/api/v1/users/${id}`);
+  }
+
+  async uploadAvatar(blob: Blob) {
+    const formData = new FormData();
+    formData.append('avatar', blob, 'avatar.jpg');
+    return this.requestForm<User>('/api/v1/users/me/avatar', {
+      method: 'POST',
+      body: formData,
+    });
+  }
+
+  async removeAvatar() {
+    return this.requestForm<User>('/api/v1/users/me/avatar', {
+      method: 'DELETE',
+    });
   }
 
   // Servers

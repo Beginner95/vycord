@@ -37,6 +37,9 @@ docker-compose.override.yml
 certs/*.pem
 certs/*.key
 
+# Uploaded user files (avatars, local disk storage)
+uploads/
+
 # Superpowers brainstorming companion
 .superpowers/
 .worktrees/

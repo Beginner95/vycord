@@ -14,6 +14,8 @@ type UserUseCase interface {
 	UpdateStatus(id uuid.UUID, status UserStatus) error
 	GetOnlineUserIDs() []uuid.UUID
 	UpdateLastVisited(id uuid.UUID, serverID, channelID *uuid.UUID) error
+	UpdateAvatar(id uuid.UUID, data []byte) (*User, error)
+	RemoveAvatar(id uuid.UUID) (*User, error)
 }
 
 type ServerUseCase interface {

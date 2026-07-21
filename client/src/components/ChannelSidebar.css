@@ -145,6 +145,7 @@
   font-weight: 700;
   color: var(--text-inverse);
   position: relative;
+  object-fit: cover;
 }
 
 .user-avatar.small::after {
@@ -311,6 +312,7 @@
   font-size: 10px;
   font-weight: 700;
   color: var(--text-inverse);
+  object-fit: cover;
 }
 
 .voice-participant-name {

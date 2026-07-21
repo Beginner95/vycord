@@ -158,6 +158,60 @@ func TestUnregister_BroadcastsVoiceParticipantsToOtherClients(t *testing.T) {
 	}
 }
 
+func TestBroadcastUserUpdate_SendsToAllClients(t *testing.T) {
+	h := newTestHub()
+	go h.Run()
+
+	userA := uuid.New()
+	userB := uuid.New()
+	clientA := &Client{UserID: userA, Send: make(chan []byte, 8)}
+	clientB := &Client{UserID: userB, Send: make(chan []byte, 8)}
+	h.RegisterClient(clientA)
+	h.RegisterClient(clientB)
+	assert.Eventually(t, func() bool { return h.IsOnline(userA) && h.IsOnline(userB) },
+		time.Second, 10*time.Millisecond)
+
+	url := "/uploads/avatars/x.jpg"
+	h.BroadcastUserUpdate(userA, &url)
+
+	deadline := time.After(time.Second)
+	for {
+		select {
+		case msg := <-clientB.Send:
+			if strings.Contains(string(msg), `"user_updated"`) && strings.Contains(string(msg), url) {
+				return
+			}
+		case <-deadline:
+			t.Fatal("client B did not receive a user_updated broadcast")
+		}
+	}
+}
+
+func TestBroadcastUserUpdate_NilAvatarMarshalsToNull(t *testing.T) {
+	h := newTestHub()
+	go h.Run()
+
+	userA := uuid.New()
+	clientA := &Client{UserID: userA, Send: make(chan []byte, 8)}
+	h.RegisterClient(clientA)
+	assert.Eventually(t, func() bool { return h.IsOnline(userA) }, time.Second, 10*time.Millisecond)
+
+	h.BroadcastUserUpdate(userA, nil)
+
+	deadline := time.After(time.Second)
+	for {
+		select {
+		case msg := <-clientA.Send:
+			if strings.Contains(string(msg), `"user_updated"`) {
+				assert.Contains(t, string(msg), `"avatar_url":null`)
+				return
+			}
+		case <-deadline:
+			t.Fatal("client did not receive a user_updated broadcast")
+		}
+	}
+}
+
 // TestUnregisterStaleClientKeepsNewConnection: when a user reconnects, the new
 // connection replaces the old one in the map. The old connection's readPump
 // exits up to pongWait later and unregisters — that must NOT remove the NEW

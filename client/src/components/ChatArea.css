@@ -204,6 +204,7 @@
   font-weight: 700;
   color: var(--text-inverse);
   box-shadow: 0 2px 6px rgba(99, 102, 241, 0.15);
+  object-fit: cover;
 }
 
 .message-avatar.self {

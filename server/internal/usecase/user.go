@@ -1,18 +1,33 @@
 package usecase
 
 import (
+	"bytes"
+	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
+	"image"
+	_ "image/jpeg"
+	_ "image/png"
+	"net/http"
 
 	"github.com/google/uuid"
 	"github.com/vycord/server/internal/domain"
+	"github.com/vycord/server/pkg/filestorage"
+)
+
+const (
+	minAvatarDimension = 32
+	maxAvatarDimension = 4096
 )
 
 type userUseCase struct {
 	userRepo domain.UserRepository
+	storage  filestorage.Storage
 }
 
-func NewUserUseCase(userRepo domain.UserRepository) domain.UserUseCase {
-	return &userUseCase{userRepo: userRepo}
+func NewUserUseCase(userRepo domain.UserRepository, storage filestorage.Storage) domain.UserUseCase {
+	return &userUseCase{userRepo: userRepo, storage: storage}
 }
 
 func (uc *userUseCase) GetByID(id uuid.UUID) (*domain.User, error) {
@@ -62,4 +77,84 @@ func (uc *userUseCase) UpdateLastVisited(id uuid.UUID, serverID, channelID *uuid
 		return fmt.Errorf("failed to update last visited: %w", err)
 	}
 	return nil
+}
+
+// UpdateAvatar validates data as a PNG or JPEG image of sane dimensions,
+// stores it, points the user's avatar_url at the new file, and deletes the
+// previous avatar file (if any). Deletion failures are not fatal — an
+// orphaned old file is not worse than a hard failure of the whole request.
+func (uc *userUseCase) UpdateAvatar(id uuid.UUID, data []byte) (*domain.User, error) {
+	contentType := http.DetectContentType(data)
+	var ext string
+	switch contentType {
+	case "image/png":
+		ext = "png"
+	case "image/jpeg":
+		ext = "jpg"
+	default:
+		return nil, domain.ErrUnsupportedAvatarFormat
+	}
+
+	cfg, _, err := image.DecodeConfig(bytes.NewReader(data))
+	if err != nil {
+		return nil, fmt.Errorf("%w: %v", domain.ErrInvalidAvatarImage, err)
+	}
+	if cfg.Width < minAvatarDimension || cfg.Height < minAvatarDimension ||
+		cfg.Width > maxAvatarDimension || cfg.Height > maxAvatarDimension {
+		return nil, domain.ErrInvalidAvatarDimensions
+	}
+
+	user, err := uc.userRepo.GetByID(id)
+	if err != nil {
+		return nil, fmt.Errorf("get user: %w", err)
+	}
+	oldAvatarURL := user.AvatarURL
+
+	key := fmt.Sprintf("avatars/%s/%s.%s", id, randomHex(8), ext)
+	url, err := uc.storage.Save(context.Background(), key, bytes.NewReader(data), contentType)
+	if err != nil {
+		return nil, fmt.Errorf("save avatar: %w", err)
+	}
+
+	if err := uc.userRepo.Update(id, map[string]interface{}{"avatar_url": url}); err != nil {
+		return nil, fmt.Errorf("update avatar url: %w", err)
+	}
+
+	if oldAvatarURL != nil {
+		_ = uc.storage.Delete(context.Background(), *oldAvatarURL)
+	}
+
+	user.AvatarURL = &url
+	user.Password = ""
+	return user, nil
+}
+
+// RemoveAvatar clears the user's avatar_url and deletes the stored file. A
+// no-op (not an error) if the user has no avatar set.
+func (uc *userUseCase) RemoveAvatar(id uuid.UUID) (*domain.User, error) {
+	user, err := uc.userRepo.GetByID(id)
+	if err != nil {
+		return nil, fmt.Errorf("get user: %w", err)
+	}
+
+	if user.AvatarURL == nil {
+		user.Password = ""
+		return user, nil
+	}
+
+	oldAvatarURL := *user.AvatarURL
+	if err := uc.userRepo.Update(id, map[string]interface{}{"avatar_url": nil}); err != nil {
+		return nil, fmt.Errorf("clear avatar url: %w", err)
+	}
+	_ = uc.storage.Delete(context.Background(), oldAvatarURL)
+
+	user.AvatarURL = nil
+	user.Password = ""
+	return user, nil
+}
+
+func randomHex(n int) string {
+	b := make([]byte, n)
+	_, _ = rand.Read(b)
+	return hex.EncodeToString(b)
 }

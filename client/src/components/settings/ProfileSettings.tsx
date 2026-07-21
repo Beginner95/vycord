@@ -1,0 +1,112 @@
+import { useRef, useState } from 'react';
+import { useAuthStore } from '@/stores/authStore';
+import { apiService } from '@/services/api';
+import { Avatar } from '@/components/Avatar';
+import { AvatarCropModal } from '@/components/AvatarCropModal';
+import './ProfileSettings.css';
+
+const ALLOWED_TYPES = ['image/png', 'image/jpeg'];
+const MAX_FILE_BYTES = 2 * 1024 * 1024;
+
+export function ProfileSettings() {
+  const { user, updateUser } = useAuthStore();
+  const [cropFile, setCropFile] = useState<File | null>(null);
+  const [pickError, setPickError] = useState<string | null>(null);
+  const [removing, setRemoving] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+
+    if (!ALLOWED_TYPES.includes(file.type)) {
+      setPickError('Неподдерживаемый формат. Разрешены PNG, JPG, JPEG');
+      return;
+    }
+    if (file.size > MAX_FILE_BYTES) {
+      setPickError('Файл слишком большой. Максимум 2 МБ');
+      return;
+    }
+
+    setPickError(null);
+    setCropFile(file);
+  };
+
+  const handleUpload = async (blob: Blob): Promise<void> => {
+    const updated = await apiService.uploadAvatar(blob);
+    updateUser({ avatar_url: updated.avatar_url });
+    setCropFile(null);
+  };
+
+  const handleRemove = async () => {
+    setRemoving(true);
+    try {
+      const updated = await apiService.removeAvatar();
+      updateUser({ avatar_url: updated.avatar_url });
+    } catch (err) {
+      setPickError(err instanceof Error ? err.message : 'Не удалось удалить аватар');
+    } finally {
+      setRemoving(false);
+    }
+  };
+
+  return (
+    <div className="profile-settings">
+      <div className="profile-avatar-block">
+        <Avatar url={user?.avatar_url} username={user?.username ?? ''} className="profile-avatar-large" />
+        <div className="profile-avatar-actions">
+          <button
+            type="button"
+            className="profile-avatar-btn"
+            onClick={() => fileInputRef.current?.click()}
+          >
+            Изменить аватар
+          </button>
+          {user?.avatar_url && (
+            <button
+              type="button"
+              className="profile-avatar-btn secondary"
+              onClick={handleRemove}
+              disabled={removing}
+            >
+              {removing ? 'Удаление...' : 'Удалить аватар'}
+            </button>
+          )}
+        </div>
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/png,image/jpeg"
+          onChange={handleFileChange}
+          style={{ display: 'none' }}
+        />
+        {pickError && <p className="setting-warning">{pickError}</p>}
+      </div>
+
+      <div className="settings-section">
+        <h3>Учётная запись</h3>
+        <div className="setting-item">
+          <div className="setting-info">
+            <label>Имя пользователя</label>
+            <p className="setting-description">{user?.username}</p>
+          </div>
+        </div>
+        <div className="setting-item">
+          <div className="setting-info">
+            <label>Email</label>
+            <p className="setting-description">{user?.email}</p>
+          </div>
+        </div>
+      </div>
+
+      {cropFile && (
+        <AvatarCropModal
+          file={cropFile}
+          onCancel={() => setCropFile(null)}
+          onUpload={handleUpload}
+        />
+      )}
+    </div>
+  );
+}

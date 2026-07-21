@@ -30,4 +30,13 @@ export const useAuthStore = create<AuthState>((set) => ({
     localStorage.removeItem(USER_KEY);
     set({ token: null, user: null, isAuthenticated: false });
   },
+
+  updateUser: (patch: Partial<User>) => {
+    set((state) => {
+      if (!state.user) return state;
+      const user = { ...state.user, ...patch };
+      localStorage.setItem(USER_KEY, JSON.stringify(user));
+      return { user };
+    });
+  },
 }));

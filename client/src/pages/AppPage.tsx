@@ -178,6 +178,17 @@ export function AppPage() {
     return () => { unsubState(); unsubParticipants(); };
   }, []);
 
+  useEffect(() => {
+    const unsubscribe = wsService.on('user_updated', (payload) => {
+      const p = payload as { id: string; avatar_url: string | null };
+      if (p.id === useAuthStore.getState().user?.id) {
+        useAuthStore.getState().updateUser({ avatar_url: p.avatar_url ?? undefined });
+      }
+      useServerStore.getState().patchMemberAvatar(p.id, p.avatar_url);
+    });
+    return () => unsubscribe();
+  }, []);
+
   const loadServerMembers = (serverId: string) => {
     apiService.getServerMembers(serverId)
       .then((members) => setMembers(members as MemberWithUser[]))

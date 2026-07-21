@@ -12,6 +12,7 @@ interface ServerState {
   setChannels: (channels: Channel[]) => void;
   setCurrentChannel: (channel: Channel | null) => void;
   setMembers: (members: MemberWithUser[]) => void;
+  patchMemberAvatar: (userId: string, avatarUrl: string | null) => void;
 }
 
 export const useServerStore = create<ServerState>((set) => ({
@@ -26,4 +27,10 @@ export const useServerStore = create<ServerState>((set) => ({
   setChannels: (channels) => set({ channels }),
   setCurrentChannel: (channel) => set({ currentChannel: channel }),
   setMembers: (members) => set({ members }),
+  patchMemberAvatar: (userId, avatarUrl) =>
+    set((state) => ({
+      members: state.members.map((m) =>
+        m.user_id === userId ? { ...m, avatar_url: avatarUrl ?? undefined } : m
+      ),
+    })),
 }));

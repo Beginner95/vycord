@@ -3,6 +3,7 @@ import { useAuthStore } from '@/stores/authStore';
 import { apiService } from '@/services/api';
 import { wsService } from '@/services/websocket';
 import { callService } from '@/services/call';
+import { Avatar } from '@/components/Avatar';
 import type { User } from '@/types';
 import './UserList.css';
 
@@ -30,6 +31,10 @@ export function UserList({ onMobileBack }: UserListProps) {
     });
 
     wsService.on('user_left', () => {
+      loadOnlineUsers();
+    });
+
+    wsService.on('user_updated', () => {
       loadOnlineUsers();
     });
   }, []);
@@ -63,9 +68,7 @@ export function UserList({ onMobileBack }: UserListProps) {
 
       {onlineUsers.map((u) => (
         <div key={u.id} className="user-item">
-          <div className="user-avatar list online">
-            {u.username.charAt(0).toUpperCase()}
-          </div>
+          <Avatar url={u.avatar_url} username={u.username} className="user-avatar list online" />
           <span className="username">{u.username}</span>
           {currentUser && u.id !== currentUser.id && (
             <button

@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -17,6 +18,7 @@ import (
 	"github.com/vycord/server/internal/delivery/ws"
 	"github.com/vycord/server/internal/repository/postgres"
 	"github.com/vycord/server/internal/usecase"
+	"github.com/vycord/server/pkg/filestorage"
 	"github.com/vycord/server/pkg/logger"
 )
 
@@ -73,9 +75,16 @@ func main() {
 	messageRepo := postgres.NewMessageRepository(db)
 	callRepo := postgres.NewCallRepository(db)
 
+	// Initialize file storage
+	storage, err := filestorage.NewLocal(cfg.UploadDir, "/uploads")
+	if err != nil {
+		log.Error("failed to initialize file storage", "error", err)
+		os.Exit(1)
+	}
+
 	// Initialize usecases
 	authUseCase := usecase.NewAuthUseCase(userRepo, cfg.JWTSecret, cfg.JWTExpiration)
-	userUseCase := usecase.NewUserUseCase(userRepo)
+	userUseCase := usecase.NewUserUseCase(userRepo, storage)
 	serverUseCase := usecase.NewServerUseCase(serverRepo, channelRepo, userRepo)
 	messageUseCase := usecase.NewMessageUseCase(messageRepo, channelRepo, serverRepo)
 	callUseCase := usecase.NewCallUseCase(callRepo)
@@ -87,7 +96,7 @@ func main() {
 
 	// Initialize handlers
 	authHandler := handler.NewAuthHandler(authUseCase, log)
-	userHandler := handler.NewUserHandler(userUseCase, log)
+	userHandler := handler.NewUserHandler(userUseCase, hub, log)
 	serverHandler := handler.NewServerHandler(serverUseCase, log)
 	messageHandler := handler.NewMessageHandler(messageUseCase, hub, log)
 	onlineUsersHandler := handler.NewOnlineUsersHandler(hub, userRepo, log)
@@ -110,6 +119,8 @@ func main() {
 	router.HandleFunc("PUT /api/v1/users/me/last-visited", authMid.RequireAuth(userHandler.UpdateLastVisited))
 	router.HandleFunc("GET /api/v1/users", authMid.RequireAuth(userHandler.SearchUsers))
 	router.HandleFunc("GET /api/v1/users/{id}", authMid.RequireAuth(userHandler.GetUserByID))
+	router.HandleFunc("POST /api/v1/users/me/avatar", authMid.RequireAuth(userHandler.UploadAvatar))
+	router.HandleFunc("DELETE /api/v1/users/me/avatar", authMid.RequireAuth(userHandler.RemoveAvatar))
 
 	// Server routes
 	router.HandleFunc("POST /api/v1/servers", authMid.RequireAuth(serverHandler.CreateServer))
@@ -136,6 +147,16 @@ func main() {
 
 	// TURN credentials for WebRTC (ephemeral, per-user)
 	router.HandleFunc("GET /api/v1/turn/credentials", authMid.RequireAuth(turnHandler.GetCredentials))
+
+	// Static file serving for uploaded avatars (local disk storage)
+	uploadsFileServer := http.FileServer(http.Dir(cfg.UploadDir))
+	router.Handle("GET /uploads/", http.StripPrefix("/uploads/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "" || strings.HasSuffix(r.URL.Path, "/") {
+			http.NotFound(w, r)
+			return
+		}
+		uploadsFileServer.ServeHTTP(w, r)
+	})))
 
 	// WebSocket route
 	router.HandleFunc("GET /ws", wsHandler.HandleWebSocket)
