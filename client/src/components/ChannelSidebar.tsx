@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import type { Server, Channel, User, MemberWithUser } from '@/types';
 import { Settings } from '@/components/Settings';
+import { Avatar } from '@/components/Avatar';
 import { noiseCancellationService } from '@/services/noiseCancellation';
 import './ChannelSidebar.css';
 
@@ -30,13 +31,14 @@ export function ChannelSidebar({
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [ncEnabled, setNcEnabled] = useState(false);
 
-  const usernameById = useMemo(() => {
-    const map = new Map<string, string>();
-    for (const m of members) map.set(m.user_id, m.username);
+  const memberById = useMemo(() => {
+    const map = new Map<string, MemberWithUser>();
+    for (const m of members) map.set(m.user_id, m);
     return map;
   }, [members]);
 
-  const resolveUsername = (userId: string): string => usernameById.get(userId) ?? userId.slice(0, 8);
+  const resolveUsername = (userId: string): string => memberById.get(userId)?.username ?? userId.slice(0, 8);
+  const resolveAvatarUrl = (userId: string): string | undefined => memberById.get(userId)?.avatar_url;
 
   useEffect(() => {
     // Подписка не выдаёт текущее состояние при регистрации — без явного чтения
@@ -124,9 +126,11 @@ export function ChannelSidebar({
                           className={`voice-participant ${userId === user?.id ? 'is-self' : ''}`}
                           onClick={() => onSelectChannel(channel)}
                         >
-                          <div className="voice-participant-avatar">
-                            {resolveUsername(userId).charAt(0).toUpperCase()}
-                          </div>
+                          <Avatar
+                            url={resolveAvatarUrl(userId)}
+                            username={resolveUsername(userId)}
+                            className="voice-participant-avatar"
+                          />
                           <span className="voice-participant-name">{resolveUsername(userId)}</span>
                         </div>
                       ))}
@@ -141,9 +145,7 @@ export function ChannelSidebar({
 
       <div className="user-panel">
         <div className="user-info">
-          <div className="user-avatar small">
-            {user?.username?.charAt(0).toUpperCase()}
-          </div>
+          <Avatar url={user?.avatar_url} username={user?.username ?? ''} className="user-avatar small" />
           <div className="user-details">
             <span className="user-tag">{user?.username}</span>
             <span className="user-status-text">
