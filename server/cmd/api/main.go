@@ -75,7 +75,7 @@ func main() {
 	callRepo := postgres.NewCallRepository(db)
 
 	// Initialize file storage
-	storage, err := filestorage.NewLocal("./uploads", "/uploads")
+	storage, err := filestorage.NewLocal(cfg.UploadDir, "/uploads")
 	if err != nil {
 		log.Error("failed to initialize file storage", "error", err)
 		os.Exit(1)
@@ -95,7 +95,7 @@ func main() {
 
 	// Initialize handlers
 	authHandler := handler.NewAuthHandler(authUseCase, log)
-	userHandler := handler.NewUserHandler(userUseCase, log)
+	userHandler := handler.NewUserHandler(userUseCase, hub, log)
 	serverHandler := handler.NewServerHandler(serverUseCase, log)
 	messageHandler := handler.NewMessageHandler(messageUseCase, hub, log)
 	onlineUsersHandler := handler.NewOnlineUsersHandler(hub, userRepo, log)
@@ -118,6 +118,8 @@ func main() {
 	router.HandleFunc("PUT /api/v1/users/me/last-visited", authMid.RequireAuth(userHandler.UpdateLastVisited))
 	router.HandleFunc("GET /api/v1/users", authMid.RequireAuth(userHandler.SearchUsers))
 	router.HandleFunc("GET /api/v1/users/{id}", authMid.RequireAuth(userHandler.GetUserByID))
+	router.HandleFunc("POST /api/v1/users/me/avatar", authMid.RequireAuth(userHandler.UploadAvatar))
+	router.HandleFunc("DELETE /api/v1/users/me/avatar", authMid.RequireAuth(userHandler.RemoveAvatar))
 
 	// Server routes
 	router.HandleFunc("POST /api/v1/servers", authMid.RequireAuth(serverHandler.CreateServer))
@@ -144,6 +146,9 @@ func main() {
 
 	// TURN credentials for WebRTC (ephemeral, per-user)
 	router.HandleFunc("GET /api/v1/turn/credentials", authMid.RequireAuth(turnHandler.GetCredentials))
+
+	// Static file serving for uploaded avatars (local disk storage)
+	router.Handle("GET /uploads/", http.StripPrefix("/uploads/", http.FileServer(http.Dir(cfg.UploadDir))))
 
 	// WebSocket route
 	router.HandleFunc("GET /ws", wsHandler.HandleWebSocket)
