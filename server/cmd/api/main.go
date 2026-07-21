@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -148,7 +149,14 @@ func main() {
 	router.HandleFunc("GET /api/v1/turn/credentials", authMid.RequireAuth(turnHandler.GetCredentials))
 
 	// Static file serving for uploaded avatars (local disk storage)
-	router.Handle("GET /uploads/", http.StripPrefix("/uploads/", http.FileServer(http.Dir(cfg.UploadDir))))
+	uploadsFileServer := http.FileServer(http.Dir(cfg.UploadDir))
+	router.Handle("GET /uploads/", http.StripPrefix("/uploads/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "" || strings.HasSuffix(r.URL.Path, "/") {
+			http.NotFound(w, r)
+			return
+		}
+		uploadsFileServer.ServeHTTP(w, r)
+	})))
 
 	// WebSocket route
 	router.HandleFunc("GET /ws", wsHandler.HandleWebSocket)
