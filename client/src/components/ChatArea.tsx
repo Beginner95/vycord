@@ -9,6 +9,7 @@ import { tokenizeMentions, roleLabel } from '@/utils/mentions';
 import { useMentionAutocomplete } from '@/hooks/useMentionAutocomplete';
 import { useFloatingSelectionToolbar } from '@/hooks/useFloatingSelectionToolbar';
 import { MessageSearch } from '@/components/MessageSearch';
+import { Avatar } from '@/components/Avatar';
 import type { Channel, User, MemberWithUser } from '@/types';
 import './ChatArea.css';
 
@@ -151,7 +152,7 @@ export function ChatArea({ channel, user, onMobileBack, onShowMembers }: ChatAre
   const [highlightedId, setHighlightedId] = useState<string | null>(null);
 
   // Cache for user info (id → username)
-  const [userCache, setUserCache] = useState<Map<string, string>>(new Map());
+  const [userCache, setUserCache] = useState<Map<string, { username: string; avatar_url?: string }>>(new Map());
 
   const currentUserRole = members.find((m) => m.user_id === user?.id)?.role;
 
@@ -210,13 +211,13 @@ export function ChatArea({ channel, user, onMobileBack, onShowMembers }: ChatAre
           const fetchedUser = await apiService.getUserById(uid) as User;
           setUserCache((prev) => {
             const next = new Map(prev);
-            next.set(fetchedUser.id, fetchedUser.username);
+            next.set(fetchedUser.id, { username: fetchedUser.username, avatar_url: fetchedUser.avatar_url });
             return next;
           });
         } catch {
           setUserCache((prev) => {
             const next = new Map(prev);
-            next.set(uid, uid.slice(0, 8));
+            next.set(uid, { username: uid.slice(0, 8) });
             return next;
           });
         }
@@ -239,13 +240,13 @@ export function ChatArea({ channel, user, onMobileBack, onShowMembers }: ChatAre
             const fetchedUser = await apiService.getUserById(msg.user_id as string) as User;
             setUserCache((prev) => {
               const next = new Map(prev);
-              next.set(fetchedUser.id, fetchedUser.username);
+              next.set(fetchedUser.id, { username: fetchedUser.username, avatar_url: fetchedUser.avatar_url });
               return next;
             });
           } catch {
             setUserCache((prev) => {
               const next = new Map(prev);
-              next.set(msg.user_id as string, 'Unknown');
+              next.set(msg.user_id as string, { username: 'Unknown' });
               return next;
             });
           }
@@ -591,10 +592,15 @@ export function ChatArea({ channel, user, onMobileBack, onShowMembers }: ChatAre
                 prevMsg.user_id === msg.user_id &&
                 new Date(msg.created_at).getTime() - new Date(prevMsg.created_at).getTime() < 420000;
 
-              // Get username: from cache or current user
+              // Username/avatar: server member list first (kept live via
+              // user_updated WS events, see AppPage), then the per-message
+              // fetch cache as fallback for authors who left the server.
+              const member = !isFromMe ? members.find((m) => m.user_id === msg.user_id) : undefined;
+              const cached = !isFromMe ? userCache.get(msg.user_id) : undefined;
               const displayName = isFromMe
                 ? user!.username
-                : (userCache.get(msg.user_id) || msg.user_id.slice(0, 8));
+                : (member?.username ?? cached?.username ?? msg.user_id.slice(0, 8));
+              const avatarUrl = isFromMe ? user?.avatar_url : (member?.avatar_url ?? cached?.avatar_url);
 
               const isEdited = msg.updated_at !== msg.created_at;
               const isEditing = editingId === msg.id;
@@ -606,9 +612,7 @@ export function ChatArea({ channel, user, onMobileBack, onShowMembers }: ChatAre
                   className={`message ${isCompact ? 'compact' : ''} ${isFromMe ? 'self' : 'other'}${highlightedId === msg.id ? ' jump-highlight' : ''}`}
                 >
                   {!isCompact && !isFromMe && (
-                    <div className="message-avatar">
-                      {displayName.charAt(0).toUpperCase()}
-                    </div>
+                    <Avatar url={avatarUrl} username={displayName} className="message-avatar" />
                   )}
                   <div className="message-content">
                     {!isCompact && !isFromMe && (
@@ -664,9 +668,7 @@ export function ChatArea({ channel, user, onMobileBack, onShowMembers }: ChatAre
                     )}
                   </div>
                   {!isCompact && isFromMe && (
-                    <div className="message-avatar self">
-                      {displayName.charAt(0).toUpperCase()}
-                    </div>
+                    <Avatar url={avatarUrl} username={displayName} className="message-avatar self" />
                   )}
                   {isFromMe && !isEditing && (
                     <div className="message-actions">
