@@ -17,6 +17,7 @@ import (
 	"github.com/vycord/server/internal/delivery/ws"
 	"github.com/vycord/server/internal/repository/postgres"
 	"github.com/vycord/server/internal/usecase"
+	"github.com/vycord/server/pkg/filestorage"
 	"github.com/vycord/server/pkg/logger"
 )
 
@@ -73,9 +74,16 @@ func main() {
 	messageRepo := postgres.NewMessageRepository(db)
 	callRepo := postgres.NewCallRepository(db)
 
+	// Initialize file storage
+	storage, err := filestorage.NewLocal("./uploads", "/uploads")
+	if err != nil {
+		log.Error("failed to initialize file storage", "error", err)
+		os.Exit(1)
+	}
+
 	// Initialize usecases
 	authUseCase := usecase.NewAuthUseCase(userRepo, cfg.JWTSecret, cfg.JWTExpiration)
-	userUseCase := usecase.NewUserUseCase(userRepo)
+	userUseCase := usecase.NewUserUseCase(userRepo, storage)
 	serverUseCase := usecase.NewServerUseCase(serverRepo, channelRepo, userRepo)
 	messageUseCase := usecase.NewMessageUseCase(messageRepo, channelRepo, serverRepo)
 	callUseCase := usecase.NewCallUseCase(callRepo)
