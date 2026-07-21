@@ -1,20 +1,20 @@
 {
   "name": "vycord",
   "private": true,
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "Discord-like application with noise cancellation",
   "author": "Vy Cord Team",
   "license": "MIT",
   "type": "module",
   "scripts": {
     "dev:vite": "vite",
-    "dev:electron:build": "tsc -p electron/tsconfig.json --outDir electron-dist --declaration false --declarationMap false --sourceMap false && mv electron-dist/main.js electron-dist/main.cjs && mv electron-dist/preload.js electron-dist/preload.cjs",
-    "dev:electron:start": "cross-env NODE_ENV=development electron electron-dist/main.cjs",
+    "dev:electron:build": "tsc -p electron/tsconfig.json --outDir electron-dist --declaration false --declarationMap false --sourceMap false && node -e \"require('fs').writeFileSync('electron-dist/package.json', JSON.stringify({type:'commonjs'}))\"",
+    "dev:electron:start": "cross-env NODE_ENV=development electron electron-dist/main.js",
     "dev:electron": "npm run dev:electron:build && npm run dev:electron:start",
     "dev": "concurrently -k \"npm run dev:vite\" \"wait-on http://localhost:3000 && npm run dev:electron\"",
     "copy-audio-assets": "node -e \"const {cpSync}=require('fs');const src='node_modules/@cc-livekit/audio-pipeline-plugin/dist/';const dst='public/audio/';require('fs').mkdirSync(dst,{recursive:true});['AudioPipelineWorklet.js','AudioPipelineWorker.js','deepfilter.wasm','rnnoise.wasm','soundtouch.wasm'].forEach(f=>cpSync(src+f,dst+f));\"",
     "build:vite": "npm run copy-audio-assets && tsc && vite build",
-    "build:electron-main": "tsc -p electron/tsconfig.json --outDir electron-dist --declaration false --declarationMap false --sourceMap false && mv electron-dist/main.js electron-dist/main.cjs && mv electron-dist/preload.js electron-dist/preload.cjs",
+    "build:electron-main": "tsc -p electron/tsconfig.json --outDir electron-dist --declaration false --declarationMap false --sourceMap false && node -e \"require('fs').writeFileSync('electron-dist/package.json', JSON.stringify({type:'commonjs'}))\"",
     "build": "npm run build:vite && npm run build:electron-main",
     "dist": "npm run build && electron-builder",
     "preview": "vite preview",
@@ -40,7 +40,7 @@
     "vite": "^8.0.4",
     "wait-on": "^9.0.5"
   },
-  "main": "electron-dist/main.cjs",
+  "main": "electron-dist/main.js",
   "build": {
     "appId": "com.vycord.app",
     "productName": "Vy Cord",

@@ -21,7 +21,7 @@ function createWindow(): BrowserWindow {
     frame: false,
     backgroundColor: '#313338',
     webPreferences: {
-      preload: path.resolve(electronDistDir, 'preload.cjs'),
+      preload: path.resolve(electronDistDir, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
