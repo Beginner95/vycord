@@ -45,6 +45,7 @@
   font-weight: 700;
   color: var(--text-inverse);
   position: relative;
+  object-fit: cover;
 }
 
 .user-avatar.list.online::after {
