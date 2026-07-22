@@ -25,6 +25,8 @@
     "check:i18n": "node scripts/check-i18n.mjs"
   },
   "dependencies": {
+    "@sentry/electron": "^7.15.0",
+    "@sentry/react": "^10.67.0",
     "electron-log": "^5.4.4",
     "electron-updater": "^6.8.9",
     "react-router-dom": "^7.14.0",
