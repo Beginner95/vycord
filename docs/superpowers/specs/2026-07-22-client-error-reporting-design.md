@@ -30,21 +30,37 @@ hosted-вариант (легко мигрировать при необходи
 
 ## 1. Инфраструктура
 
-Три новых сервиса в `docker-compose.prod.yml`, по образцу существующего
-паттерна `migrate` → `api`:
+**Проверено напрямую по образу** (`docker pull glitchtip/glitchtip:latest`,
+`docker inspect`, `docker run --entrypoint cat .../bin/start.sh` и соседние
+скрипты — версия `GLITCHTIP_VERSION=6.2.2`): начиная с этой версии GlitchTip
+**больше не использует Celery** (пакет не установлен в образе) — фоновые
+задачи и периодический шедулинг реализованы через собственный пакет
+`django-vtasks` («valkey/postgres django tasks backend», подтверждено
+`pip show`), поэтому `REDIS_URL` по-прежнему нужен (Valkey-протокол
+Redis-совместим), а вот команд `./manage.py migrate` как отдельного шага и
+скрипта `./bin/run-celery-with-beat.sh` в образе не существует — есть только
+`bin/start.sh`, диспетчеризующий по переменной `SERVER_ROLE`
+(`web` / `worker` / `worker_with_beat` / `all_in_one`) на
+`bin/run-web.sh` / `bin/run-worker.sh` / `bin/run-all-in-one.sh`.
 
-- `glitchtip-migrate` — one-shot `django migrate`, зависит от `postgres`
-  (healthy).
-- `glitchtip-web` — Django/uvicorn, слушает порт (например
-  `127.0.0.1:8000:8000`, как `api`/`client` — bind только на localhost,
-  наружу через nginx).
-- `glitchtip-worker` — celery worker **с встроенным beat**-планировщиком
-  (образ GlitchTip несёт для этого готовый скрипт
-  `./bin/run-celery-with-beat.sh` — так рекомендует сам проект для
-  однонодных установок вместо отдельного beat-контейнера); обрабатывает
-  события из очереди (обязателен — без него ingestion API складывает
-  события в очередь, но они не сохраняются) и выполняет периодические
-  задачи (в т.ч. retention-очистку старых событий).
+`bin/run-all-in-one.sh` — режим, который сам образ считает рекомендованным
+для однонодных инсталляций: на старте (идемпотентно, если `SKIP_INIT` не
+выставлен) прогоняет `manage.py migrate --no-input --skip-checks`,
+`manage.py maintain_partitions` и создание cache-таблицы, включает embedded
+worker (`GLITCHTIP_EMBED_WORKER=true`) и поднимает web через `granian` на
+порту `${PORT:-8000}` (порт `8000` — реальный дефолт образа, подтверждён
+`docker inspect .Config.ExposedPorts`).
+
+Поэтому вместо изначально задуманных трёх сервисов (`migrate`/`web`/`worker`)
+в `docker-compose.prod.yml` — **два** сервиса:
+
+- `glitchtip-db-init` — one-shot, создаёт БД `glitchtip` в существующем
+  Postgres (см. ниже) — сам образ GlitchTip создать базу не может, только
+  мигрировать в уже существующую.
+- `glitchtip` — единственный контейнер приложения, `SERVER_ROLE=all_in_one`,
+  слушает `127.0.0.1:8000:8000` (bind только на localhost, наружу через
+  nginx, как `api`/`client`). Зависит от `postgres`/`redis` (healthy) и
+  `glitchtip-db-init` (completed).
 
 Переиспользуются существующие `postgres` и `redis` контейнеры:
 - Отдельная база `glitchtip` в том же Postgres-инстансе (создаётся
