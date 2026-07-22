@@ -123,6 +123,65 @@ services:
       - /var/lib/vycord/coturn-certs:/certs:ro
     restart: unless-stopped
 
+  glitchtip-migrate:
+    # Pin to a specific tag before going to production (check
+    # https://hub.docker.com/r/glitchtip/glitchtip/tags) — `latest` is used
+    # here only because the exact current stable tag wasn't verifiable from
+    # this environment; every other image in this file is pinned.
+    image: glitchtip/glitchtip:latest
+    container_name: vycord-glitchtip-migrate
+    command: ["./manage.py", "migrate"]
+    environment:
+      DATABASE_URL: ${GLITCHTIP_DATABASE_URL}
+      REDIS_URL: ${GLITCHTIP_REDIS_URL}
+      SECRET_KEY: ${GLITCHTIP_SECRET_KEY}
+      GLITCHTIP_DOMAIN: ${GLITCHTIP_DOMAIN}
+      EMAIL_URL: ${EMAIL_URL}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  glitchtip-web:
+    image: glitchtip/glitchtip:latest
+    container_name: vycord-glitchtip-web
+    environment:
+      DATABASE_URL: ${GLITCHTIP_DATABASE_URL}
+      REDIS_URL: ${GLITCHTIP_REDIS_URL}
+      SECRET_KEY: ${GLITCHTIP_SECRET_KEY}
+      GLITCHTIP_DOMAIN: ${GLITCHTIP_DOMAIN}
+      EMAIL_URL: ${EMAIL_URL}
+      ENABLE_ORGANIZATION_CREATION: "true"
+    ports:
+      - "127.0.0.1:8000:8000"
+    depends_on:
+      glitchtip-migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  glitchtip-worker:
+    image: glitchtip/glitchtip:latest
+    container_name: vycord-glitchtip-worker
+    # run-celery-with-beat.sh is GlitchTip's own bundled script for
+    # single-node installs: it runs the celery worker with an embedded beat
+    # scheduler (periodic tasks, incl. retention cleanup of old events) in
+    # one process, so a fourth "beat" container isn't needed here.
+    command: ["./bin/run-celery-with-beat.sh"]
+    environment:
+      DATABASE_URL: ${GLITCHTIP_DATABASE_URL}
+      REDIS_URL: ${GLITCHTIP_REDIS_URL}
+      SECRET_KEY: ${GLITCHTIP_SECRET_KEY}
+      GLITCHTIP_DOMAIN: ${GLITCHTIP_DOMAIN}
+      EMAIL_URL: ${EMAIL_URL}
+    depends_on:
+      glitchtip-migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
   client:
     build:
       context: ./client
@@ -131,6 +190,7 @@ services:
         VITE_API_URL: ${VITE_API_URL}
         VITE_WS_URL: ${VITE_WS_URL}
         VITE_SFU_URL: ${VITE_SFU_URL}
+        VITE_SENTRY_DSN: ${VITE_SENTRY_DSN}
     container_name: vycord-client
     ports:
       - "127.0.0.1:3000:80"
