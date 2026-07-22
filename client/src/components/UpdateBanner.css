@@ -1,6 +1,14 @@
 .update-banner {
   position: fixed;
-  top: 0;
+  /* Sits below the custom titlebar (ChatArea.css .title-bar, height 40px,
+     -webkit-app-region: drag), not on top of it. At top:0 the banner visually
+     covered the window's minimize/maximize/close buttons, and on Wayland
+     -webkit-app-region: no-drag did not reliably punch a hole through the
+     drag region for the banner's own buttons either (clicks were silently
+     swallowed as a window-drag gesture, no console error). Moving the banner
+     out of the drag region entirely avoids depending on that behavior.
+     no-drag is kept as defense in depth. */
+  top: 40px;
   left: 0;
   right: 0;
   z-index: 9999;
@@ -13,9 +21,6 @@
   color: var(--text-primary);
   border-bottom: 1px solid var(--border-color);
   font-size: 14px;
-  /* Overlaps the custom titlebar's drag region (ChatArea.css .title-bar,
-     top 40px, -webkit-app-region: drag) — without this, clicks here are
-     consumed as window-drag gestures instead of reaching React's onClick. */
   -webkit-app-region: no-drag;
 }
 
