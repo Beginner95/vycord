@@ -123,6 +123,29 @@ services:
       - /var/lib/vycord/coturn-certs:/certs:ro
     restart: unless-stopped
 
+  glitchtip-db-init:
+    # GlitchTip needs its own `glitchtip` database on the same Postgres
+    # instance as the main app (see GLITCHTIP_DATABASE_URL above). The
+    # postgres image's entrypoint only auto-creates the single database named
+    # by POSTGRES_DB (the app's `vycord` db) on a brand-new data directory, so
+    # on an already-initialized prod instance the `glitchtip` database would
+    # never get created. This one-shot service creates it idempotently
+    # (safe to run on every `docker compose up -d`, including in dev where
+    # postgres is a fresh volume).
+    image: postgres:16-alpine
+    container_name: vycord-glitchtip-db-init
+    environment:
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_USER: ${POSTGRES_USER}
+    entrypoint: ["sh", "-c"]
+    command:
+      - |
+        psql -h postgres -U "$$POSTGRES_USER" -d postgres -tc "SELECT 1 FROM pg_database WHERE datname = 'glitchtip'" | grep -q 1 || psql -h postgres -U "$$POSTGRES_USER" -d postgres -c "CREATE DATABASE glitchtip"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
   glitchtip-migrate:
     # Pin to a specific tag before going to production (check
     # https://hub.docker.com/r/glitchtip/glitchtip/tags) — `latest` is used
@@ -140,6 +163,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      glitchtip-db-init:
+        condition: service_completed_successfully
     restart: "no"
 
   glitchtip-web:
