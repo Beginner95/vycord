@@ -247,8 +247,8 @@ coturn использует Let's Encrypt-сертификат api-домена:
 
 Клиентские ошибки (веб + Electron) репортятся в self-hosted
 [GlitchTip](https://glitchtip.com/) — Sentry-протокол-совместимый трекер,
-поднимается в `docker-compose.prod.yml` (`glitchtip-migrate`,
-`glitchtip-web`, `glitchtip-worker`), переиспользует существующие
+поднимается в `docker-compose.prod.yml` (`glitchtip-db-init`,
+`glitchtip`), переиспользует существующие
 Postgres/Redis.
 
 ### Первичная настройка (один раз)

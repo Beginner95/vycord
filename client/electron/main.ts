@@ -17,12 +17,13 @@ const isDev = process.env.NODE_ENV === 'development';
 
 // As early as possible, same PROD-only gating as the renderer
 // (services/errorReporting.ts) — no reporting from local dev runs.
-if (!isDev) {
+if (!isDev && SENTRY_DSN !== 'REPLACE_WITH_GLITCHTIP_DSN') {
   Sentry.init({
     dsn: SENTRY_DSN,
     environment: 'production',
     release: app.getVersion(),
   });
+  Sentry.setTag('platform', 'electron-main');
 }
 
 function createWindow(): BrowserWindow {
