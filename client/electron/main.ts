@@ -1,5 +1,6 @@
 import { app, BrowserWindow, ipcMain, Tray, Menu, session, desktopCapturer, systemPreferences } from 'electron';
 import * as path from 'path';
+import { initAutoUpdater } from './updater';
 
 // __dirname is available via CommonJS module output
 const electronDistDir = __dirname;
@@ -20,7 +21,7 @@ function createWindow(): BrowserWindow {
     frame: false,
     backgroundColor: '#313338',
     webPreferences: {
-      preload: path.resolve(electronDistDir, 'preload.cjs'),
+      preload: path.resolve(electronDistDir, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
@@ -38,7 +39,6 @@ function createWindow(): BrowserWindow {
     mainWindow.loadURL('http://localhost:3000');
     mainWindow.webContents.openDevTools();
   } else {
-    mainWindow.webContents.openDevTools();
     mainWindow.loadFile(path.resolve(projectRoot, 'dist/index.html'));
   }
 
@@ -163,8 +163,9 @@ app.whenReady().then(() => {
       }
     });
 
-    createWindow();
+    const win = createWindow();
     createTray();
+    initAutoUpdater(win);
   } catch (err) {
     console.error('Failed to initialize app:', err);
   }
