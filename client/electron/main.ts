@@ -2,6 +2,8 @@ import { app, BrowserWindow, ipcMain, Tray, Menu, session, desktopCapturer, syst
 import * as path from 'path';
 import { initAutoUpdater } from './updater';
 import { TRAY_LABELS, isTrayLocale, type TrayLocale } from './tray-labels';
+import * as Sentry from '@sentry/electron/main';
+import { SENTRY_DSN } from './sentry-config';
 
 // __dirname is available via CommonJS module output
 const electronDistDir = __dirname;
@@ -12,6 +14,16 @@ let tray: Tray | null = null;
 let currentTrayLocale: TrayLocale = 'ru';
 
 const isDev = process.env.NODE_ENV === 'development';
+
+// As early as possible, same PROD-only gating as the renderer
+// (services/errorReporting.ts) — no reporting from local dev runs.
+if (!isDev) {
+  Sentry.init({
+    dsn: SENTRY_DSN,
+    environment: 'production',
+    release: app.getVersion(),
+  });
+}
 
 function createWindow(): BrowserWindow {
   mainWindow = new BrowserWindow({
