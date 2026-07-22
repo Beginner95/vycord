@@ -39,7 +39,6 @@ function createWindow(): BrowserWindow {
     mainWindow.loadURL('http://localhost:3000');
     mainWindow.webContents.openDevTools();
   } else {
-    mainWindow.webContents.openDevTools();
     mainWindow.loadFile(path.resolve(projectRoot, 'dist/index.html'));
   }
 
