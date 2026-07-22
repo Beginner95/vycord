@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { noiseCancellationService, NoiseCancellationService } from '@/services/noiseCancellation';
 import { audioService } from '@/services/audio';
 import { useT } from '@/i18n';
+import { logger } from '@/utils/logger';
 
 export function AudioSettings() {
   const t = useT();
@@ -42,7 +43,7 @@ export function AudioSettings() {
       // в звонке сервис перекоммутирует активную аудиоцепочку.
       await noiseCancellationService.setEnabled(!noiseCancellation);
     } catch (err) {
-      console.error('Failed to toggle noise cancellation:', err);
+      logger.error('Failed to toggle noise cancellation:', err, { module: 'settings' });
     }
   };
 
