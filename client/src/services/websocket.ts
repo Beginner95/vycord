@@ -1,4 +1,5 @@
 import type { WSMessage } from '@/types';
+import { logger } from '@/utils/logger';
 
 const WS_URL = import.meta.env.VITE_WS_URL || 'ws://localhost:8080';
 
@@ -104,7 +105,7 @@ class WebSocketService {
         new CustomEvent(`discrod:${message.type}`, { detail: message.payload })
       );
     } catch (error) {
-      console.error('Failed to parse WebSocket message:', error);
+      logger.error('Failed to parse WebSocket message:', error, { module: 'ws' });
     }
   };
 
@@ -113,13 +114,13 @@ class WebSocketService {
     // Attempt to reconnect after 3 seconds
     this.reconnectTimer = window.setTimeout(() => {
       if (this.token) {
-        this.connect(this.token).catch(console.error);
+        this.connect(this.token).catch((err) => logger.error('WebSocket reconnect failed:', err, { module: 'ws' }));
       }
     }, 3000);
   };
 
   private handleError = (error: Event): void => {
-    console.error('WebSocket error:', error);
+    logger.error('WebSocket error:', error, { module: 'ws' });
   };
 
   on(eventType: string, listener: (payload: unknown) => void): () => void {

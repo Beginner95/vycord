@@ -3,6 +3,7 @@ import { echoCancellationService } from './echoCancellation';
 import { getIceServers, STUN_SERVERS } from './iceConfig';
 import { computeQualityLevel, type ConnectionQualityMetrics } from '@/utils/callQuality';
 import { apiService, apiErrorText } from './api';
+import { logger } from '@/utils/logger';
 // Нехуковый t: groupCall — обычный класс, useT() здесь вызвать нельзя.
 import { t } from '@/i18n';
 
@@ -1605,7 +1606,7 @@ class GroupCallService {
       await this.pc.setRemoteDescription({ type: payload.type, sdp: payload.sdp });
     } catch (err) {
       gcLog(this.currentUserId, 'setRemoteDescription ERROR', { error: String(err) });
-      console.error('[GroupCall] setRemoteDescription failed:', err);
+      logger.error('[GroupCall] setRemoteDescription failed:', err, { module: 'groupCall' });
       // PC stays in stable — server will timeout and rollback on its side.
       return;
     }
@@ -1662,7 +1663,7 @@ class GroupCallService {
       await this.pc.setLocalDescription(answer);
     } catch (err) {
       gcLog(this.currentUserId, 'createAnswer ERROR', { error: String(err) });
-      console.error('[GroupCall] createAnswer/setLocalDescription failed:', err);
+      logger.error('[GroupCall] createAnswer/setLocalDescription failed:', err, { module: 'groupCall' });
       // PC is in have-remote-offer — rollback so future offers can be processed.
       await this.pc.setLocalDescription({ type: 'rollback' }).catch(() => {});
       return;

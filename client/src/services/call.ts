@@ -1,6 +1,7 @@
 import { wsService } from './websocket';
 import { noiseCancellationService } from './noiseCancellation';
 import { getIceServers } from './iceConfig';
+import { logger } from '@/utils/logger';
 // Сервис — не компонент, подписаться на стор нечем: берём нереактивный t.
 // Строка читается один раз в момент ошибки и сразу уходит в тост, поэтому
 // смена языка после её показа значения не имеет.
@@ -273,7 +274,7 @@ class CallService {
       if (this.peerConnection.signalingState !== 'stable') {
         return;
       }
-      this.sendAnswer(data.sdp).catch(console.error);
+      this.sendAnswer(data.sdp).catch((err) => logger.error('Failed to send WebRTC answer:', err, { module: 'call' }));
     } else {
       // acceptCall hasn't finished setting up yet; offer will be processed there
       this.pendingOffer = data.sdp;
@@ -283,14 +284,14 @@ class CallService {
   private handleWebRTCAnswer = (payload: unknown): void => {
     const data = payload as { from_user_id: string; sdp: RTCSessionDescriptionInit };
     if (this.peerConnection && this.peerConnection.signalingState === 'have-local-offer') {
-      this.peerConnection.setRemoteDescription(data.sdp).catch(console.error);
+      this.peerConnection.setRemoteDescription(data.sdp).catch((err) => logger.error('setRemoteDescription failed:', err, { module: 'call' }));
     }
   };
 
   private handleWebRTCICECandidate = (payload: unknown): void => {
     const data = payload as { from_user_id: string; candidate: RTCIceCandidateInit };
     if (this.peerConnection && this.peerConnection.remoteDescription) {
-      this.peerConnection.addIceCandidate(data.candidate).catch(console.error);
+      this.peerConnection.addIceCandidate(data.candidate).catch((err) => logger.error('addIceCandidate failed:', err, { module: 'call' }));
     }
   };
 
