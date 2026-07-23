@@ -15,6 +15,18 @@ import (
 // we rollback the PC to stable state so future renegotiations can proceed.
 const negotiationAnswerTimeout = 15 * time.Second
 
+// defaultRetryBackoff is the delay schedule for re-triggering a renegotiation
+// after a failed one. Grows so we react quickly to a transient failure but don't
+// hammer a client that is genuinely unable to answer. Total budget ~15s across
+// 5 attempts, after which we give up until the next external trigger.
+var defaultRetryBackoff = []time.Duration{
+	500 * time.Millisecond,
+	1 * time.Second,
+	2 * time.Second,
+	4 * time.Second,
+	8 * time.Second,
+}
+
 // negotiator serialises offer/answer exchanges for a single PeerConnection.
 //
 // Why: pion fires OnNegotiationNeeded for every AddTrack / AddTransceiver call.
@@ -36,15 +48,37 @@ type negotiator struct {
 	// onAnswerApplied is called after each successful SetRemoteDescription(answer).
 	// Used to flush ICE candidates that were buffered before the answer arrived.
 	onAnswerApplied func()
+
+	// answerTimeout is how long negotiate() waits for the client's answer before
+	// rolling back. Defaults to negotiationAnswerTimeout; overridable in tests.
+	answerTimeout time.Duration
+
+	// retryBackoff is the delay schedule for re-triggering a renegotiation after
+	// a failed one. A failed negotiation (client never answered → timeout+rollback,
+	// or SetRemoteDescription rejected the answer) leaves any tracks added before
+	// the offer un-negotiated. OnNegotiationNeeded does NOT fire again on its own
+	// for an already-added track, so without a self-retry the subscriber never
+	// receives that track until an unrelated room event triggers a fresh
+	// negotiation (e.g. the publisher leaving and rejoining) — the root cause of
+	// the "A can't hear G until G rejoins" bug. The budget is bounded so a
+	// permanently failing client doesn't cause an infinite offer loop; it resets
+	// after any successful negotiation. Overridable in tests.
+	retryBackoff []time.Duration
+
+	// retryCount tracks how many consecutive retries have been scheduled since the
+	// last success. Accessed only from the Run goroutine — no locking needed.
+	retryCount int
 }
 
 func newNegotiator(pc *webrtc.PeerConnection, session SignalingSession, log *slog.Logger) *negotiator {
 	n := &negotiator{
-		pc:       pc,
-		session:  session,
-		log:      log,
-		trigCh:   make(chan struct{}, 1),
-		answerCh: make(chan webrtc.SessionDescription, 1),
+		pc:            pc,
+		session:       session,
+		log:           log,
+		trigCh:        make(chan struct{}, 1),
+		answerCh:      make(chan webrtc.SessionDescription, 1),
+		answerTimeout: negotiationAnswerTimeout,
+		retryBackoff:  defaultRetryBackoff,
 	}
 	pc.OnNegotiationNeeded(n.trigger)
 	return n
@@ -77,12 +111,48 @@ func (n *negotiator) Run(ctx context.Context) {
 			return
 		case <-n.trigCh:
 			if err := n.negotiate(ctx); err != nil {
-				if !errors.Is(err, context.Canceled) {
-					n.log.Warn("negotiation failed", "error", err)
+				if errors.Is(err, context.Canceled) {
+					continue
 				}
+				n.log.Warn("negotiation failed", "error", err)
+				// The offer that would have advertised freshly-added tracks did
+				// not complete, and OnNegotiationNeeded won't fire again for those
+				// tracks. Re-trigger ourselves (bounded) so the subscriber isn't
+				// left permanently missing a publisher's track.
+				n.scheduleRetry(ctx)
+			} else {
+				// A successful negotiation flushed all pending tracks; reset the
+				// budget so a later, unrelated failure gets its full retry allowance.
+				n.retryCount = 0
 			}
 		}
 	}
+}
+
+// scheduleRetry re-triggers a renegotiation after a backoff delay, up to
+// len(retryBackoff) times per failure sequence. Called only from the Run
+// goroutine. The delayed trigger is a non-blocking buffered-channel send, so if
+// the session is torn down before it fires the send is a harmless no-op.
+func (n *negotiator) scheduleRetry(ctx context.Context) {
+	if n.retryCount >= len(n.retryBackoff) {
+		n.log.Warn("negotiation retry budget exhausted; waiting for next external trigger",
+			"attempts", n.retryCount,
+		)
+		return
+	}
+	delay := n.retryBackoff[n.retryCount]
+	n.retryCount++
+	n.log.Info("scheduling negotiation retry",
+		"attempt", n.retryCount,
+		"delay", delay,
+	)
+	time.AfterFunc(delay, func() {
+		select {
+		case <-ctx.Done():
+		default:
+			n.trigger()
+		}
+	})
 }
 
 func (n *negotiator) negotiate(ctx context.Context) error {
@@ -95,14 +165,31 @@ func (n *negotiator) negotiate(ctx context.Context) error {
 	default:
 	}
 
-	offer, err := n.pc.CreateOffer(nil)
-	if err != nil {
-		return fmt.Errorf("create offer: %w", err)
-	}
-
-	// SetLocalDescription starts ICE gathering (trickle ICE sends candidates async).
-	if err := n.pc.SetLocalDescription(offer); err != nil {
-		return fmt.Errorf("set local description: %w", err)
+	// If a previous offer is still pending, re-send it instead of creating a new
+	// one. pion cannot roll back a local offer (only setRemote answer/pranswer is
+	// a valid transition out of have-local-offer), so once a client fails to
+	// answer, CreateOffer+SetLocalDescription would fail forever and the PC — with
+	// its freshly-added forwarded tracks — would stay wedged, leaving this
+	// subscriber permanently unable to hear the publisher. Re-sending the same
+	// pending offer gives the client another chance to answer it (the answer was
+	// lost, or its setRemoteDescription transiently failed) and unwedges the PC.
+	if n.pc.SignalingState() == webrtc.SignalingStateHaveLocalOffer {
+		ld := n.pc.LocalDescription()
+		if ld == nil {
+			return fmt.Errorf("stuck in have-local-offer with no local description")
+		}
+		n.log.Warn("resending pending offer to recover a stalled negotiation",
+			"signaling_state", n.pc.SignalingState().String(),
+		)
+	} else {
+		offer, err := n.pc.CreateOffer(nil)
+		if err != nil {
+			return fmt.Errorf("create offer: %w", err)
+		}
+		// SetLocalDescription starts ICE gathering (trickle ICE sends candidates async).
+		if err := n.pc.SetLocalDescription(offer); err != nil {
+			return fmt.Errorf("set local description: %w", err)
+		}
 	}
 
 	// Count m-lines by direction to see what's being offered.
@@ -136,9 +223,11 @@ func (n *negotiator) negotiate(ctx context.Context) error {
 	}
 
 	// Wait for the client's answer with a timeout.
-	// Without a timeout, a client that never answers (network partition, browser bug)
-	// leaves the PC stuck in have-local-offer and blocks all future renegotiations.
-	timer := time.NewTimer(negotiationAnswerTimeout)
+	// On timeout we deliberately leave the PC in have-local-offer: pion cannot roll
+	// a local offer back to stable, so the offer stays pending and scheduleRetry
+	// re-sends it (see the resend branch above) until the client answers or the
+	// retry budget is exhausted.
+	timer := time.NewTimer(n.answerTimeout)
 	defer timer.Stop()
 
 	select {
@@ -146,9 +235,7 @@ func (n *negotiator) negotiate(ctx context.Context) error {
 		return ctx.Err()
 
 	case <-timer.C:
-		// Rollback returns the PC to stable so the next trigger can create a fresh offer.
-		_ = n.pc.SetLocalDescription(webrtc.SessionDescription{Type: webrtc.SDPTypeRollback})
-		return fmt.Errorf("negotiation timeout: no answer received after %s", negotiationAnswerTimeout)
+		return fmt.Errorf("negotiation timeout: no answer received after %s", n.answerTimeout)
 
 	case answer := <-n.answerCh:
 		n.log.Info("answer received, applying",
