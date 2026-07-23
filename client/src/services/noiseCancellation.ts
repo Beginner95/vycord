@@ -58,6 +58,11 @@ interface AudioChain {
   context: AudioContext;
   source: MediaStreamAudioSourceNode;
   destination: MediaStreamAudioDestinationNode;
+  /** Постоянный узел между веткой микрофона (worklet/bypass) и destination.
+   *  Мьют микрофона (setMicMuted) управляет только этим gain — звук шаринга
+   *  экрана, подмешанный через attachExtraAudio напрямую в destination, не
+   *  завязан на него и не глушится мьютом. */
+  micGain: GainNode;
   /** Исходный getUserMedia-стрим: его аудиотреки стопаются в releaseChain,
    *  иначе микрофон остаётся захваченным после звонка. */
   rawStream: MediaStream;
@@ -65,7 +70,7 @@ interface AudioChain {
   /** addModule уже выполнен для этого AudioContext. */
   workletLoaded: boolean;
   stage: WorkletStage | null;
-  /** true: source → worklet → destination; false: source → destination (bypass). */
+  /** true: source → worklet → micGain → destination; false: source → micGain → destination (bypass). */
   active: boolean;
 }
 
@@ -180,6 +185,8 @@ class NoiseCancellationService {
 
     const source = context.createMediaStreamSource(rawStream);
     const destination = context.createMediaStreamDestination();
+    const micGain = context.createGain();
+    micGain.connect(destination);
 
     // macOS/Android Chrome suspend-ят AudioContext без аудиовывода даже при
     // активном захвате: RTP шлётся, но Opus-фреймы зазероены. Поллинг + resume
@@ -194,6 +201,7 @@ class NoiseCancellationService {
       context,
       source,
       destination,
+      micGain,
       rawStream,
       keepAlive,
       workletLoaded: false,
@@ -253,6 +261,36 @@ class NoiseCancellationService {
   }
 
   /**
+   * Мьютит/анмьютит ветку микрофона независимо от любого звука, подмешанного
+   * через attachExtraAudio (тот подключён напрямую к destination, в обход
+   * micGain). Возвращает false, если цепочки для streamId нет (например, Web
+   * Audio не поддерживается) — тогда вызывающий код должен сам замьютить
+   * трек через track.enabled, как это делалось до появления этого метода.
+   */
+  setMicMuted(streamId: string, muted: boolean): boolean {
+    const chain = this.chains.get(streamId);
+    if (!chain) return false;
+    chain.micGain.gain.value = muted ? 0 : 1;
+    return true;
+  }
+
+  /**
+   * Подмешивает произвольный MediaStream (например, звук шаринга экрана)
+   * напрямую в исходящий трек звонка, в обход micGain и NC-worklet'а — этот
+   * звук не должен ни глушиться мьютом микрофона, ни обрабатываться
+   * шумоподавлением, рассчитанным на голос. Возвращает функцию отключения
+   * узла, либо null, если цепочки для streamId нет (например, звонок начат
+   * без микрофона) — тогда вызывающий код должен продолжить без подмешивания.
+   */
+  attachExtraAudio(streamId: string, stream: MediaStream): (() => void) | null {
+    const chain = this.chains.get(streamId);
+    if (!chain) return null;
+    const source = chain.context.createMediaStreamSource(stream);
+    source.connect(chain.destination);
+    return () => { source.disconnect(); };
+  }
+
+  /**
    * Полный демонтаж цепочки в конце звонка. streamId — id стрима, который
    * вернул createChain; неизвестный id — no-op.
    */
@@ -306,7 +344,7 @@ class NoiseCancellationService {
       }
       chain.source.disconnect();
       chain.source.connect(chain.stage.node);
-      chain.stage.node.connect(chain.destination);
+      chain.stage.node.connect(chain.micGain);
       chain.active = true;
     } catch (err) {
       const message = err instanceof Error ? err.message : 'noise suppression init failed';
@@ -327,7 +365,7 @@ class NoiseCancellationService {
     if (chain.stage) {
       chain.stage.node.disconnect();
     }
-    chain.source.connect(chain.destination);
+    chain.source.connect(chain.micGain);
     chain.active = false;
   }
 

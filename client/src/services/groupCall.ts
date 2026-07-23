@@ -126,10 +126,17 @@ class GroupCallService {
 
   private screenStream: MediaStream | null = null;
   private screenSender: RTCRtpSender | null = null;
+  // Detaches the desktop-audio source node mixed into the outgoing audio
+  // track via noiseCancellationService.attachExtraAudio — see startScreenShare.
+  private screenAudioDetach: (() => void) | null = null;
   // Placeholder video track sent when no camera is available — see createDummyVideoTrack.
   private dummyVideoTrack: MediaStreamTrack | null = null;
   private _isScreenSharing = false;
   private _microphoneAvailable = false;
+  // Tracked explicitly because toggleMuteAudio no longer reads mute state off
+  // track.enabled — the track must stay enabled so mixed-in screen-share
+  // audio (same physical track) is never silenced by mic mute.
+  private micMuted = false;
 
   // Keyed by the remote user's ID (= pion stream ID on track events).
   private remoteStreams: RemoteStreams = new Map();
@@ -258,7 +265,9 @@ class GroupCallService {
 
     // A live local screen track survives a network change — remember it to
     // re-attach to the new PC. Mic/camera mute needs no snapshot: localStream
-    // tracks are reused as-is, their .enabled flags persist.
+    // tracks are reused as-is, and mute state persists either way — via
+    // micGain.gain when an NC chain exists, or via .enabled as a fallback
+    // when it doesn't (see toggleMuteAudio).
     const screenTrack = this._isScreenSharing
       ? this.screenStream?.getVideoTracks()[0] ?? null
       : null;
@@ -374,9 +383,16 @@ class GroupCallService {
 
   toggleMuteAudio(): boolean {
     const t = this.localStream?.getAudioTracks()[0];
-    if (!t) return false;
-    t.enabled = !t.enabled;
-    return !t.enabled; // true = muted
+    if (!t || !this.localStream) return false;
+    this.micMuted = !this.micMuted;
+    const handledByChain = noiseCancellationService.setMicMuted(this.localStream.id, this.micMuted);
+    if (!handledByChain) {
+      // No NC chain for this stream (e.g. Web Audio unsupported) — fall back
+      // to muting the track itself, the same mechanism used before this
+      // feature existed.
+      t.enabled = !this.micMuted;
+    }
+    return this.micMuted;
   }
 
   toggleMuteVideo(): boolean {
@@ -403,27 +419,51 @@ class GroupCallService {
       // Electron: getUserMedia with chromeMediaSource mandatory constraints.
       // max* caps the resolution; min* sets a floor so the call doesn't fail if the source
       // is smaller than requested (e.g. a small window at 2K preset).
-      stream = await navigator.mediaDevices.getUserMedia({
-        audio: false,
-        video: {
-          mandatory: {
-            chromeMediaSource: 'desktop',
-            chromeMediaSourceId: sourceId,
-            maxWidth: preset.width,
-            maxHeight: preset.height,
-            maxFrameRate: preset.frameRate,
-            minWidth: 640,
-            minHeight: 360,
-          },
+      const videoConstraints = {
+        mandatory: {
+          chromeMediaSource: 'desktop',
+          chromeMediaSourceId: sourceId,
+          maxWidth: preset.width,
+          maxHeight: preset.height,
+          maxFrameRate: preset.frameRate,
+          minWidth: 640,
+          minHeight: 360,
         },
-      } as unknown as MediaStreamConstraints);
+      };
+      try {
+        // Also request desktop audio loopback (default output device). Only
+        // reliably available on Windows/macOS 13+, and typically only when
+        // sharing a whole screen rather than a single window. The mandatory
+        // constraint throws for the WHOLE getUserMedia call — including the
+        // video half — on unsupported combinations, so a failure here must
+        // fall back to video-only rather than aborting the share entirely.
+        stream = await navigator.mediaDevices.getUserMedia({
+          audio: {
+            mandatory: {
+              chromeMediaSource: 'desktop',
+              chromeMediaSourceId: sourceId,
+            },
+          },
+          video: videoConstraints,
+        } as unknown as MediaStreamConstraints);
+      } catch (err) {
+        gcLog(this.currentUserId, 'screen capture with audio failed, retrying video-only', { error: String(err) });
+        stream = await navigator.mediaDevices.getUserMedia({
+          audio: false,
+          video: videoConstraints,
+        } as unknown as MediaStreamConstraints);
+      }
     } else {
       // Browser fallback: native OS picker with ideal constraints.
       // ideal lets the browser pick the closest resolution; max prevents upscaling.
+      // audio: true surfaces the OS picker's "share audio" checkbox where the
+      // browser supports it (e.g. Windows/ChromeOS Chrome); on platforms
+      // without support the returned stream just has no audio track — no
+      // exception is thrown per spec, so no fallback is needed here.
       stream = await (navigator.mediaDevices as MediaDevices & {
         getDisplayMedia(c: Record<string, unknown>): Promise<MediaStream>;
       }).getDisplayMedia({
-        audio: false,
+        audio: true,
         video: {
           width:     { ideal: preset.width,     max: preset.width },
           height:    { ideal: preset.height,    max: preset.height },
@@ -484,6 +524,21 @@ class GroupCallService {
     this.screenStream = stream;
     this.screenSender = videoTransceiver.sender;
     this._isScreenSharing = true;
+
+    // Mix captured system/desktop audio (if any) into the existing outgoing
+    // audio track via Web Audio — no SFU/protocol changes needed. Silently
+    // skipped if the platform gave no audio track, or if there's no NC chain
+    // to mix into (e.g. this participant joined without a microphone).
+    const systemAudioTrack = stream.getAudioTracks()[0];
+    if (systemAudioTrack && this.localStream) {
+      this.screenAudioDetach = noiseCancellationService.attachExtraAudio(
+        this.localStream.id,
+        new MediaStream([systemAudioTrack]),
+      );
+      gcLog(this.currentUserId, 'screen share audio', { captured: true, mixed: this.screenAudioDetach !== null });
+    } else {
+      gcLog(this.currentUserId, 'screen share audio', { captured: false });
+    }
 
     // replaceTrack doesn't renegotiate, so the SFU has no other signal that the
     // video content just changed. Explicitly ask it to force a keyframe — without
@@ -565,6 +620,9 @@ class GroupCallService {
       // sender — the camera (or dummy) track should run on browser defaults.
       await this.applyScreenShareEncoding(this.screenSender, null);
     }
+
+    this.screenAudioDetach?.();
+    this.screenAudioDetach = null;
 
     this.screenStream?.getTracks().forEach((t) => t.stop());
     this.screenStream = null;
@@ -1343,6 +1401,9 @@ class GroupCallService {
     this.pc?.close();
     this.pc = null;
 
+    this.screenAudioDetach?.();
+    this.screenAudioDetach = null;
+
     this.screenStream?.getTracks().forEach((t) => t.stop());
     this.screenStream = null;
     this.screenSender = null;
@@ -1369,6 +1430,7 @@ class GroupCallService {
     // the voice_joined WS send.
     this.currentRoomId = '';
     this._microphoneAvailable = false;
+    this.micMuted = false;
     this.joinedAt = 0;
     this.pcCreatedAt = 0;
     this.pcConnectedAt = 0;
