@@ -1,7 +1,10 @@
 /* ── Group Call Overlay ── */
 .group-call-overlay {
   position: fixed;
-  inset: 0;
+  top: 40px;
+  right: 0;
+  bottom: 0;
+  left: 0;
   z-index: 1000;
   background: var(--bg-base);
   display: flex;
