@@ -265,7 +265,9 @@ class GroupCallService {
 
     // A live local screen track survives a network change — remember it to
     // re-attach to the new PC. Mic/camera mute needs no snapshot: localStream
-    // tracks are reused as-is, their .enabled flags persist.
+    // tracks are reused as-is, and mute state persists either way — via
+    // micGain.gain when an NC chain exists, or via .enabled as a fallback
+    // when it doesn't (see toggleMuteAudio).
     const screenTrack = this._isScreenSharing
       ? this.screenStream?.getVideoTracks()[0] ?? null
       : null;
