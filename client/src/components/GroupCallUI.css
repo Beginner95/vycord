@@ -308,6 +308,10 @@
 }
 
 .conn-indicator {
+  position: absolute;
+  bottom: 10px;
+  right: 44px; /* слева от круглого mic-badge (26px @ right:10px) */
+  z-index: 2;
   display: inline-flex;
   align-items: flex-end;
   gap: 2px;
@@ -316,6 +320,17 @@
   border-radius: 4px;
   background: rgba(0, 0, 0, 0.45);
 }
+.thumbnail-tile .conn-indicator {
+  bottom: 4px;
+  right: 24px; /* слева от уменьшенного mic-badge (16px @ right:4px) */
+  height: 10px;
+  padding: 1px 3px;
+  gap: 1px;
+}
+.thumbnail-tile .conn-bar { width: 2px; }
+.thumbnail-tile .conn-bar--1 { height: 3px; }
+.thumbnail-tile .conn-bar--2 { height: 6px; }
+.thumbnail-tile .conn-bar--3 { height: 9px; }
 .conn-indicator .conn-bar {
   width: 3px;
   border-radius: 1px;
