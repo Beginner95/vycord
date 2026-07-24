@@ -193,6 +193,8 @@ func (h *WebSocketHandler) handleMessage(client *ws.Client, msg *ws.Message) {
 		h.handleMicMuted(client)
 	case "mic_unmuted":
 		h.handleMicUnmuted(client)
+	case "connection_quality":
+		h.handleConnectionQuality(client, msg)
 	case "voice_joined":
 		h.handleVoiceJoined(client, msg)
 	case "voice_left":
@@ -603,6 +605,33 @@ func (h *WebSocketHandler) handleMicUnmuted(client *ws.Client) {
 	h.hub.BroadcastMessage(&ws.Message{
 		Type:    "mic_unmuted",
 		Payload: mustMarshal(map[string]interface{}{"user_id": client.UserID.String()}),
+	})
+}
+
+func (h *WebSocketHandler) handleConnectionQuality(client *ws.Client, msg *ws.Message) {
+	var payload struct {
+		Level      string  `json:"level"`
+		PacketLoss float64 `json:"packet_loss"`
+		RTT        float64 `json:"rtt"`
+		Bitrate    float64 `json:"bitrate"`
+	}
+	if err := json.Unmarshal(msg.Payload, &payload); err != nil {
+		return
+	}
+	switch payload.Level {
+	case "good", "medium", "poor", "unknown":
+	default:
+		return
+	}
+	h.hub.BroadcastMessage(&ws.Message{
+		Type: "connection_quality",
+		Payload: mustMarshal(map[string]interface{}{
+			"user_id":     client.UserID.String(),
+			"level":       payload.Level,
+			"packet_loss": payload.PacketLoss,
+			"rtt":         payload.RTT,
+			"bitrate":     payload.Bitrate,
+		}),
 	})
 }
 

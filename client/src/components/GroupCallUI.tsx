@@ -8,6 +8,7 @@ import { wsService } from '@/services/websocket';
 import { apiService } from '@/services/api';
 import type { User, Message } from '@/types';
 import type { DesktopCapturerSource } from '@/types/electron';
+import type { ConnectionQualityMetrics, QualityLevel } from '@/utils/callQuality';
 import { VolumeControlPopover } from './VolumeControlPopover';
 import './GroupCallUI.css';
 
@@ -184,6 +185,32 @@ function ScreenQualityPicker({ onSelect, onCancel }: ScreenQualityPickerProps) {
   );
 }
 
+// ─── Connection Indicator ────────────────────────────────────────────────────
+// Presentational signal-bars icon showing outbound (uplink) connection quality.
+
+const QUALITY_TITLE: Record<QualityLevel, string> = {
+  good: 'Хороший сигнал',
+  medium: 'Средний сигнал',
+  poor: 'Плохой сигнал',
+  unknown: 'Нет данных о сигнале',
+};
+
+export function ConnectionIndicator({ metrics }: { metrics?: ConnectionQualityMetrics }) {
+  if (!metrics) return null;
+  const { level, packetLoss, rtt, bitrate } = metrics;
+  const title =
+    level === 'unknown'
+      ? QUALITY_TITLE.unknown
+      : `${QUALITY_TITLE[level]} · Потери: ${packetLoss}% · Пинг: ${rtt} мс · Битрейт: ${bitrate} кбит/с`;
+  return (
+    <div className={`conn-indicator conn-indicator--${level}`} title={title} aria-label={title}>
+      <span className="conn-bar conn-bar--1" />
+      <span className="conn-bar conn-bar--2" />
+      <span className="conn-bar conn-bar--3" />
+    </div>
+  );
+}
+
 // ─── Remote Participant Tile ─────────────────────────────────────────────────
 // Wraps useMicLevel per participant — hooks can't run inside .map(), so each
 // remote tile (grid or thumbnail) needs its own component instance.
@@ -202,6 +229,7 @@ interface RemoteParticipantTileProps {
   onToggleVolumePopover: () => void;
   onCloseVolumePopover: () => void;
   onVolumeChange: (value: number) => void;
+  quality?: ConnectionQualityMetrics;
 }
 
 function RemoteParticipantTile({
@@ -218,6 +246,7 @@ function RemoteParticipantTile({
   onToggleVolumePopover,
   onCloseVolumePopover,
   onVolumeChange,
+  quality,
 }: RemoteParticipantTileProps) {
   const level = useMicLevel(participant.stream, muted);
   const speaking = level > 0.05;
@@ -265,6 +294,7 @@ function RemoteParticipantTile({
           />
         )}
         <div className={`mic-badge ${micBadgeClass}`}>{muted ? '🔇' : '🎤'}</div>
+        <ConnectionIndicator metrics={quality} />
         <div className="thumbnail-label">{displayName}</div>
       </div>
     );
@@ -294,6 +324,7 @@ function RemoteParticipantTile({
         />
       )}
       <div className={`mic-badge ${micBadgeClass}`}>{muted ? '🔇' : '🎤'}</div>
+      <ConnectionIndicator metrics={quality} />
       <div className="video-label">{displayName}</div>
     </div>
   );
@@ -355,6 +386,18 @@ export function GroupCallUI() {
     participantVolumesRef.current = participantVolumes;
   }, [participantVolumes]);
 
+  // userId -> latest connection-quality metrics received via WS broadcasts.
+  const [qualityByUser, setQualityByUser] = useState<Record<string, ConnectionQualityMetrics>>({});
+  // Local outbound (uplink) quality, sampled by groupCallService and reported via onLocalQuality.
+  const [localQuality, setLocalQuality] = useState<ConnectionQualityMetrics | undefined>(undefined);
+
+  // Throttling state for outgoing connection_quality sends: resend on level
+  // change, or as a heartbeat at least every 9s.
+  const qualitySendRef = useRef<{ lastLevel: QualityLevel | null; lastSentAt: number }>({
+    lastLevel: null,
+    lastSentAt: 0,
+  });
+
   useEffect(() => {
     groupCallService.init({
       onRemoteStream: (userId, stream) => {
@@ -392,6 +435,11 @@ export function GroupCallUI() {
           next.delete(userId);
           return next;
         });
+        setQualityByUser((prev) => {
+          const next = { ...prev };
+          delete next[userId];
+          return next;
+        });
       },
       onReconnecting: () => {
         setIsReconnecting(true);
@@ -403,6 +451,8 @@ export function GroupCallUI() {
         setParticipantVolumes({});
         setVolumePopoverUserId(null);
         setFocusedUserId(null);
+        setQualityByUser({});
+        setLocalQuality(undefined);
       },
       onReconnected: () => {
         setIsReconnecting(false);
@@ -413,6 +463,7 @@ export function GroupCallUI() {
         setIsReconnecting(false);
         setIsInGroupCall(false);
         setParticipants([]);
+        setLocalQuality(undefined);
         setIsMuted(false);
         setIsMicAvailable(true);
         setIsVideoOff(false);
@@ -444,6 +495,23 @@ export function GroupCallUI() {
       onScreenShareEnded: () => {
         setIsScreenSharing(false);
         wsService.send('screen_share_stopped', {});
+      },
+      onLocalQuality: (metrics) => {
+        setLocalQuality(metrics);
+        const now = Date.now();
+        const st = qualitySendRef.current;
+        const changed = metrics.level !== st.lastLevel;
+        const heartbeat = now - st.lastSentAt >= 9000;
+        if (changed || heartbeat) {
+          st.lastLevel = metrics.level;
+          st.lastSentAt = now;
+          wsService.send('connection_quality', {
+            level: metrics.level,
+            packet_loss: metrics.packetLoss,
+            rtt: metrics.rtt,
+            bitrate: metrics.bitrate,
+          });
+        }
       },
     });
   }, []);
@@ -529,7 +597,17 @@ export function GroupCallUI() {
       setRemoteMicMuted((prev) => new Map(prev).set(p.user_id, false));
     });
 
-    return () => { unsubStart(); unsubStop(); unsubMicMuted(); unsubMicUnmuted(); };
+    const unsubQuality = wsService.on('connection_quality', (payload) => {
+      const p = payload as { user_id: string; level: QualityLevel; packet_loss: number; rtt: number; bitrate: number };
+      if (p.user_id === user?.id) return; // своё качество берём из локального сэмплера
+      if (!participantsRef.current.some((pt) => pt.userId === p.user_id)) return;
+      setQualityByUser((prev) => ({
+        ...prev,
+        [p.user_id]: { level: p.level, packetLoss: p.packet_loss, rtt: p.rtt, bitrate: p.bitrate },
+      }));
+    });
+
+    return () => { unsubStart(); unsubStop(); unsubMicMuted(); unsubMicUnmuted(); unsubQuality(); };
   }, [isInGroupCall, user?.id]);
 
   // Attach stream to the focused main video whenever focus or stream changes
@@ -876,6 +954,7 @@ export function GroupCallUI() {
                   <div className={`mic-badge ${isMuted ? 'mic-badge--muted' : micLevel > 0.05 ? 'mic-badge--speaking' : 'mic-badge--idle'}`}>
                     {isMuted ? '🔇' : '🎤'}
                   </div>
+                  <ConnectionIndicator metrics={localQuality} />
                   <div className="thumbnail-label">
                     {user?.username} (You)
                   </div>
@@ -898,6 +977,7 @@ export function GroupCallUI() {
                     onToggleVolumePopover={() => setVolumePopoverUserId((prev) => (prev === p.userId ? null : p.userId))}
                     onCloseVolumePopover={() => setVolumePopoverUserId(null)}
                     onVolumeChange={(value) => handleVolumeChange(p.userId, value)}
+                    quality={qualityByUser[p.userId]}
                   />
                 ))}
               </div>
@@ -919,6 +999,7 @@ export function GroupCallUI() {
                 <div className={`mic-badge ${isMuted ? 'mic-badge--muted' : micLevel > 0.05 ? 'mic-badge--speaking' : 'mic-badge--idle'}`}>
                   {isMuted ? '🔇' : '🎤'}
                 </div>
+                <ConnectionIndicator metrics={localQuality} />
                 <div className="video-label">
                   {user?.username} (You)
                 </div>
@@ -940,6 +1021,7 @@ export function GroupCallUI() {
                   onToggleVolumePopover={() => setVolumePopoverUserId((prev) => (prev === p.userId ? null : p.userId))}
                   onCloseVolumePopover={() => setVolumePopoverUserId(null)}
                   onVolumeChange={(value) => handleVolumeChange(p.userId, value)}
+                  quality={qualityByUser[p.userId]}
                 />
               ))}
             </div>

@@ -307,6 +307,33 @@
   50% { transform: scale(1.15); }
 }
 
+.conn-indicator {
+  display: inline-flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 14px;
+  padding: 2px 4px;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.45);
+}
+.conn-indicator .conn-bar {
+  width: 3px;
+  border-radius: 1px;
+  background: currentColor;
+  opacity: 0.3;
+}
+.conn-bar--1 { height: 5px; }
+.conn-bar--2 { height: 9px; }
+.conn-bar--3 { height: 13px; }
+.conn-indicator--good { color: #43b581; }
+.conn-indicator--good .conn-bar { opacity: 1; }
+.conn-indicator--medium { color: #faa61a; }
+.conn-indicator--medium .conn-bar--1,
+.conn-indicator--medium .conn-bar--2 { opacity: 1; }
+.conn-indicator--poor { color: #f04747; }
+.conn-indicator--poor .conn-bar--1 { opacity: 1; }
+.conn-indicator--unknown { color: #99aab5; }
+
 /* ── Controls ── */
 /* position + z-index needed: <video> GPU layers block pointer events on
    sibling elements without their own compositing layer in Electron */
