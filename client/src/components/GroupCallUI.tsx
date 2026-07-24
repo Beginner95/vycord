@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback, type FormEvent } from 'react';
+import { createPortal } from 'react-dom';
 import { useAuthStore } from '@/stores/authStore';
 import { useServerStore } from '@/stores/serverStore';
 import { useMessageStore } from '@/stores/messageStore';
@@ -196,17 +197,69 @@ const QUALITY_TITLE: Record<QualityLevel, string> = {
 };
 
 export function ConnectionIndicator({ metrics }: { metrics?: ConnectionQualityMetrics }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [tip, setTip] = useState<{ top: number; left: number } | null>(null);
+
+  const showTip = useCallback(() => {
+    const el = ref.current;
+    if (!el) return;
+    const r = el.getBoundingClientRect();
+    // Центрируем над индикатором; фиксированное позиционирование не режется
+    // overflow:hidden плитки. Стрелка тултипа смотрит вниз, на индикатор.
+    setTip({ top: r.top - 8, left: r.left + r.width / 2 });
+  }, []);
+  const hideTip = useCallback(() => setTip(null), []);
+
   if (!metrics) return null;
   const { level, packetLoss, rtt, bitrate } = metrics;
-  const title =
+  const label = QUALITY_TITLE[level];
+  const ariaLabel =
     level === 'unknown'
-      ? QUALITY_TITLE.unknown
-      : `${QUALITY_TITLE[level]} · Потери: ${packetLoss}% · Пинг: ${rtt} мс · Битрейт: ${bitrate} кбит/с`;
+      ? label
+      : `${label} · Потери: ${packetLoss}% · Пинг: ${rtt} мс · Битрейт: ${bitrate} кбит/с`;
+
   return (
-    <div className={`conn-indicator conn-indicator--${level}`} title={title} aria-label={title}>
+    <div
+      ref={ref}
+      className={`conn-indicator conn-indicator--${level}`}
+      aria-label={ariaLabel}
+      onMouseEnter={showTip}
+      onMouseLeave={hideTip}
+    >
       <span className="conn-bar conn-bar--1" />
       <span className="conn-bar conn-bar--2" />
       <span className="conn-bar conn-bar--3" />
+      {tip &&
+        createPortal(
+          <div
+            className={`conn-tooltip conn-tooltip--${level}`}
+            style={{ top: tip.top, left: tip.left }}
+            role="tooltip"
+          >
+            <div className="conn-tooltip__head">
+              <span className="conn-tooltip__dot" />
+              <span className="conn-tooltip__title">{label}</span>
+            </div>
+            {level !== 'unknown' && (
+              <div className="conn-tooltip__rows">
+                <div className="conn-tooltip__row">
+                  <span className="conn-tooltip__key">Потери</span>
+                  <span className="conn-tooltip__val">{packetLoss}%</span>
+                </div>
+                <div className="conn-tooltip__row">
+                  <span className="conn-tooltip__key">Пинг</span>
+                  <span className="conn-tooltip__val">{rtt} мс</span>
+                </div>
+                <div className="conn-tooltip__row">
+                  <span className="conn-tooltip__key">Битрейт</span>
+                  <span className="conn-tooltip__val">{bitrate} кбит/с</span>
+                </div>
+              </div>
+            )}
+            <span className="conn-tooltip__arrow" />
+          </div>,
+          document.body,
+        )}
     </div>
   );
 }
