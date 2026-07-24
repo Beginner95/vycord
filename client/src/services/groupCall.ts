@@ -1,5 +1,6 @@
 import { noiseCancellationService } from './noiseCancellation';
 import { getIceServers, STUN_SERVERS } from './iceConfig';
+import { computeQualityLevel, type ConnectionQualityMetrics } from '@/utils/callQuality';
 
 const SFU_URL = import.meta.env.VITE_SFU_URL || 'ws://localhost:8081';
 
@@ -110,6 +111,8 @@ export interface GroupCallCallbacks {
   onReconnecting?: () => void;
   // Fired when auto-reconnect restored the call.
   onReconnected?: () => void;
+  // Fired periodically with the local user's uplink connection-quality sample.
+  onLocalQuality?: (metrics: ConnectionQualityMetrics) => void;
 }
 
 // ─── Internal state ──────────────────────────────────────────────────────────
@@ -165,6 +168,10 @@ class GroupCallService {
   private disconnectedTimer: ReturnType<typeof setTimeout> | null = null;
   // Screen track waiting to be re-attached to the new PC after reconnect.
   private pendingScreenRestore: MediaStreamTrack | null = null;
+  // Periodic uplink connection-quality sampler (separate from the debug stats logger below).
+  private qualityIntervalId: ReturnType<typeof setInterval> | null = null;
+  private lastBytesSent = 0;
+  private lastBytesSentAt = 0;
 
   // Timestamps for mobile diagnostic metrics (milliseconds since epoch).
   private joinedAt = 0;
@@ -324,6 +331,7 @@ class GroupCallService {
       clearTimeout(this.disconnectedTimer);
       this.disconnectedTimer = null;
     }
+    this.stopQualitySampler();
     this.pc?.close();
     this.pc = null;
     // The new PC creates its own dummy track in createPeerConnection.
@@ -333,6 +341,74 @@ class GroupCallService {
     this.remoteStreams.clear();
     this.pendingCandidates = [];
     this.inCall = false;
+  }
+
+  private startQualitySampler(): void {
+    this.stopQualitySampler();
+    this.lastBytesSent = 0;
+    this.lastBytesSentAt = 0;
+    this.qualityIntervalId = setInterval(() => {
+      void this.sampleQuality();
+    }, 3000);
+  }
+
+  private stopQualitySampler(): void {
+    if (this.qualityIntervalId !== null) {
+      clearInterval(this.qualityIntervalId);
+      this.qualityIntervalId = null;
+    }
+  }
+
+  private async sampleQuality(): Promise<void> {
+    if (!this.pc || this.pc.connectionState !== 'connected') {
+      this.stopQualitySampler();
+      return;
+    }
+    try {
+      const stats = await this.pc.getStats();
+      let lossPct = 0;
+      let rttMs = 0;
+      let hasData = false;
+      let bytesSent = 0;
+      let candidateRttMs = 0;
+
+      stats.forEach((report) => {
+        if (report.type === 'remote-inbound-rtp' && report.kind === 'audio') {
+          hasData = true;
+          const fl = report.fractionLost as number | undefined;
+          if (typeof fl === 'number') lossPct = Math.max(0, fl * 100);
+          const rtt = report.roundTripTime as number | undefined;
+          if (typeof rtt === 'number') rttMs = rtt * 1000;
+        } else if (report.type === 'outbound-rtp' && !report.isRemote) {
+          bytesSent += (report.bytesSent as number | undefined) ?? 0;
+        } else if (report.type === 'candidate-pair' && report.state === 'succeeded') {
+          const crtt = report.currentRoundTripTime as number | undefined;
+          if (typeof crtt === 'number') candidateRttMs = crtt * 1000;
+        }
+      });
+
+      if (rttMs === 0 && candidateRttMs > 0) rttMs = candidateRttMs;
+
+      const now = Date.now();
+      let bitrateKbps = 0;
+      if (this.lastBytesSentAt > 0 && now > this.lastBytesSentAt) {
+        const deltaBits = (bytesSent - this.lastBytesSent) * 8;
+        const deltaSec = (now - this.lastBytesSentAt) / 1000;
+        if (deltaSec > 0 && deltaBits >= 0) bitrateKbps = deltaBits / 1000 / deltaSec;
+      }
+      this.lastBytesSent = bytesSent;
+      this.lastBytesSentAt = now;
+
+      const metrics: ConnectionQualityMetrics = {
+        level: computeQualityLevel(lossPct, rttMs, hasData),
+        packetLoss: Math.round(lossPct * 10) / 10,
+        rtt: Math.round(rttMs),
+        bitrate: Math.round(bitrateKbps),
+      };
+      this.callbacks?.onLocalQuality?.(metrics);
+    } catch {
+      // getStats может кинуть на закрывающемся pc — игнорируем.
+    }
   }
 
   private restoreScreenShare(screenTrack: MediaStreamTrack | null): void {
@@ -1171,6 +1247,8 @@ class GroupCallService {
             gcLog(this.currentUserId, 'getStats ERROR', { error: String(err) });
           }
         }, 3000);
+
+        this.startQualitySampler();
       }
     };
 
@@ -1398,6 +1476,7 @@ class GroupCallService {
       remoteStreams: this.remoteStreams.size,
       pcState: this.pc?.connectionState ?? 'null',
     });
+    this.stopQualitySampler();
     this.pc?.close();
     this.pc = null;
 

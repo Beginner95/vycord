@@ -325,3 +325,32 @@ func TestVoiceLeftBroadcastsParticipants(t *testing.T) {
 	assert.Contains(t, string(msg), channelID.String())
 	assert.NotContains(t, string(msg), userA.String())
 }
+
+func TestConnectionQualityBroadcast(t *testing.T) {
+	userA := uuid.New()
+	userB := uuid.New()
+
+	h, _ := newMultiUserTestHandler(t, map[string]*domain.User{
+		"token-a": {ID: userA, Username: "alice", Email: "a@e.st", Status: domain.StatusOffline},
+		"token-b": {ID: userB, Username: "bob", Email: "b@e.st", Status: domain.StatusOffline},
+	})
+
+	srv := httptest.NewServer(http.HandlerFunc(h.HandleWebSocket))
+	defer srv.Close()
+
+	connA := dialWSWithToken(t, srv, "token-a")
+	defer connA.Close()
+	connB := dialWSWithToken(t, srv, "token-b")
+	defer connB.Close()
+
+	sendJSON(t, connA, "connection_quality", map[string]interface{}{
+		"level":       "poor",
+		"packet_loss": 7.5,
+		"rtt":         320,
+		"bitrate":     40,
+	})
+
+	msg := readUntilType(t, connB, "connection_quality", 2*time.Second)
+	assert.Contains(t, string(msg), userA.String())
+	assert.Contains(t, string(msg), "poor")
+}
