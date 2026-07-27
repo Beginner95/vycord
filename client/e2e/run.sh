@@ -123,6 +123,7 @@ run_scenario() {
   fi
 }
 
+run_scenario "voice-sound-tones" "http://localhost:$VITE_PORT/e2e/voice-sound-tones.html"
 run_scenario "no-camera-screenshare" "$PAGE_URL"
 run_scenario "nc-toggle" "http://localhost:$VITE_PORT/e2e/nc-toggle.html"
 

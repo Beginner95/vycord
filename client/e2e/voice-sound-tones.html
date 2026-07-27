@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>E2E: voice join/leave chimes</title>
+</head>
+<body>
+  <pre id="status">starting…</pre>
+
+  <script type="module">
+    // E2E scenario for VYC-49: the join/leave chimes of audioService.
+    //
+    // No SFU and no WebRTC here — this checks the sound layer in isolation:
+    // every tone the service plays creates exactly one OscillatorNode, so a spy on
+    // AudioContext.prototype.createOscillator records the melody that was played.
+    // That makes "join and leave sound different", "a burst collapses into one
+    // chime" and "the settings toggle silences only these chimes" all observable
+    // without listening to anything.
+    //
+    // Result protocol: a single console.log line "E2E_RESULT {json}" parsed by run.sh.
+
+    const statusEl = document.getElementById('status');
+
+    function log(...args) {
+      console.log('[E2E]', ...args);
+      statusEl.textContent += '\n' + args.map(String).join(' ');
+    }
+
+    let finished = false;
+    function finish(pass, reason, extra = {}) {
+      if (finished) return;
+      finished = true;
+      console.log('E2E_RESULT ' + JSON.stringify({ pass, reason, ...extra }));
+    }
+
+    // Page-level watchdog: whatever hangs, always emit a result line.
+    setTimeout(() => finish(false, 'global watchdog (30s) fired'), 30_000);
+
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+    // Spy installed on the prototype BEFORE audio.ts is imported. playTone() creates
+    // one oscillator per tone and sets its frequency via setValueAtTime, so both the
+    // timbre and the pitch sequence are recoverable.
+    const recorded = [];
+    const origCreateOscillator = AudioContext.prototype.createOscillator;
+    AudioContext.prototype.createOscillator = function patchedCreateOscillator() {
+      const osc = origCreateOscillator.call(this);
+      const rec = { osc, freq: null };
+      recorded.push(rec);
+      const origSetValueAtTime = osc.frequency.setValueAtTime.bind(osc.frequency);
+      osc.frequency.setValueAtTime = (value, when) => {
+        rec.freq = value;
+        return origSetValueAtTime(value, when);
+      };
+      return osc;
+    };
+
+    // Returns the tones played since the previous drain(), then clears the buffer.
+    function drain() {
+      const played = recorded.map((r) => ({ type: r.osc.type, freq: r.freq }));
+      recorded.length = 0;
+      return played;
+    }
+
+    const failures = [];
+    function expect(cond, what, detail) {
+      if (cond) {
+        log('OK   —', what);
+        return;
+      }
+      log('FAIL —', what, JSON.stringify(detail));
+      failures.push(what);
+    }
+
+    const freqs = (tones) => tones.map((t) => t.freq).join(',');
+
+    try {
+      const { audioService } = await import('/src/services/audio.ts');
+
+      audioService.updateSettings({ voiceSound: true, messageSound: true, volume: 0.5 });
+      drain();
+
+      // 1. Join chime: two ascending triangle tones.
+      audioService.playUserJoined();
+      const join = drain();
+      expect(join.length === 2, 'join chime plays two tones', join);
+      expect(join.every((t) => t.type === 'triangle'), 'join chime uses the triangle timbre', join);
+      expect(join[0]?.freq === 659.25 && join[1]?.freq === 880, 'join chime ascends E5 → A5', join);
+
+      // 2. Leave chime: the mirrored sequence, i.e. audibly different from the join chime.
+      audioService.playUserLeft();
+      const left = drain();
+      expect(left.length === 2, 'leave chime plays two tones', left);
+      expect(left.every((t) => t.type === 'triangle'), 'leave chime uses the triangle timbre', left);
+      expect(left[0]?.freq === 880 && left[1]?.freq === 659.25, 'leave chime descends A5 → E5', left);
+      expect(freqs(join) !== freqs(left), 'join and leave chimes are different sounds', { join, left });
+
+      // 3. Throttle: three participants joining at once must sound once...
+      await sleep(300);
+      audioService.playUserJoined();
+      audioService.playUserJoined();
+      audioService.playUserJoined();
+      const burst = drain();
+      expect(burst.length === 2, 'three simultaneous joins play a single chime', burst);
+
+      // ...while an event past the throttle window sounds again.
+      await sleep(300);
+      audioService.playUserJoined();
+      const later = drain();
+      expect(later.length === 2, 'a join after the throttle window plays again', later);
+
+      // 4. Settings gate: only the voice chimes go silent.
+      audioService.updateSettings({ voiceSound: false });
+      await sleep(300);
+      audioService.playUserJoined();
+      audioService.playUserLeft();
+      const muted = drain();
+      expect(muted.length === 0, 'voiceSound=false silences both chimes', muted);
+
+      audioService.playMessage();
+      const message = drain();
+      expect(message.length === 2, 'message sound still plays with voiceSound=false', message);
+      expect(message.every((t) => t.type === 'sine'), 'message sound keeps the default sine timbre', message);
+
+      // Leave the persisted settings in the default state for the next scenario.
+      audioService.updateSettings({ voiceSound: true });
+
+      finish(
+        failures.length === 0,
+        failures.length === 0
+          ? 'voice chimes: tones, throttle and settings gate all behave'
+          : `${failures.length} assertion(s) failed`,
+        { failures },
+      );
+    } catch (err) {
+      finish(false, String((err && err.message) || err), { failures });
+    }
+  </script>
+</body>
+</html>
