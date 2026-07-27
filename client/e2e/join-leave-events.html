@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>E2E: participant join/leave event semantics</title>
+</head>
+<body>
+  <pre id="status">starting…</pre>
+
+  <script type="module">
+    // E2E scenario for VYC-49: onPeerJoined must say WHERE the event came from.
+    //
+    // Three real groupCallService instances (a, b, c) talk to a real SFU through the
+    // production signaling code. onPeerJoined carries source='snapshot' for peers that
+    // were already in the room when we connected (this also happens on every
+    // auto-reconnect) and source='live' for a real-time arrival. GroupCallUI plays the
+    // join chime only on 'live', so a wrong source means users hear phantom chimes
+    // after every network blip — that is the regression this scenario guards.
+    //
+    // Result protocol: a single console.log line "E2E_RESULT {json}" parsed by run.sh.
+
+    const statusEl = document.getElementById('status');
+    const startedAt = Date.now();
+    const timings = {};
+
+    function log(...args) {
+      console.log('[E2E]', ...args);
+      statusEl.textContent += '\n' + args.map(String).join(' ');
+    }
+
+    let finished = false;
+    function finish(pass, reason, extra = {}) {
+      if (finished) return;
+      finished = true;
+      console.log('E2E_RESULT ' + JSON.stringify({ pass, reason, timings, ...extra }));
+    }
+
+    function waitFor(predicate, timeoutMs, what) {
+      return new Promise((resolve, reject) => {
+        const t0 = Date.now();
+        const id = setInterval(() => {
+          let ok = false;
+          try { ok = predicate(); } catch { /* keep polling */ }
+          if (ok) {
+            clearInterval(id);
+            timings[what] = Date.now() - startedAt;
+            resolve();
+          } else if (Date.now() - t0 > timeoutMs) {
+            clearInterval(id);
+            reject(new Error(`timeout waiting for: ${what}`));
+          }
+        }, 200);
+      });
+    }
+
+    // ── Media device fakes (must be installed before the service is imported) ──
+
+    function makeSilentMicTrack() {
+      const ctx = new AudioContext();
+      const dst = ctx.createMediaStreamDestination();
+      const osc = ctx.createOscillator();
+      osc.frequency.value = 440;
+      osc.connect(dst);
+      osc.start();
+      return dst.stream.getAudioTracks()[0];
+    }
+
+    // Mic only, no camera: acquireMedia() falls back to its audio-only branch,
+    // which is enough for participant bookkeeping and keeps the test light.
+    navigator.mediaDevices.getUserMedia = async (constraints) => {
+      if (constraints?.video) {
+        throw new DOMException('Requested device not found', 'NotFoundError');
+      }
+      if (constraints?.audio) {
+        return new MediaStream([makeSilentMicTrack()]);
+      }
+      throw new DOMException('Requested device not found', 'NotFoundError');
+    };
+
+    // ── Test body ────────────────────────────────────────────────────────────
+
+    setTimeout(() => finish(false, 'global watchdog (120s) fired', { events: dumpEvents() }), 120_000);
+
+    const room = `e2e-${Date.now()}`;
+    // Must be plain UUIDs: the SFU takes the identity from the token's user_id claim.
+    const ids = { a: crypto.randomUUID(), b: crypto.randomUUID(), c: crypto.randomUUID() };
+    const short = (uid) => Object.keys(ids).find((k) => ids[k] === uid) ?? uid.slice(0, 8);
+
+    // Mirrors run.sh's JWT_SECRET for the test SFU.
+    const E2E_JWT_SECRET = 'e2e-test-secret';
+
+    async function makeToken(secret, userId) {
+      const enc = new TextEncoder();
+      const b64url = (bytes) => btoa(String.fromCharCode(...new Uint8Array(bytes)))
+        .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+      const header = b64url(enc.encode(JSON.stringify({ alg: 'HS256', typ: 'JWT' })));
+      const payload = b64url(enc.encode(JSON.stringify({
+        user_id: userId,
+        exp: Math.floor(Date.now() / 1000) + 3600,
+      })));
+      const key = await crypto.subtle.importKey(
+        'raw', enc.encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign'],
+      );
+      const sig = await crypto.subtle.sign('HMAC', key, enc.encode(`${header}.${payload}`));
+      return `${header}.${payload}.${b64url(sig)}`;
+    }
+
+    const events = { a: [], b: [], c: [] };
+    const dumpEvents = () => ({
+      a: events.a.map((e) => `${e.kind}:${short(e.uid)}:${e.source ?? '-'}`),
+      b: events.b.map((e) => `${e.kind}:${short(e.uid)}:${e.source ?? '-'}`),
+      c: events.c.map((e) => `${e.kind}:${short(e.uid)}:${e.source ?? '-'}`),
+    });
+
+    function callbacksFor(who) {
+      return {
+        onRemoteStream: () => {},
+        onPeerJoined: (uid, source) => {
+          events[who].push({ kind: 'joined', uid, source });
+          log(who, 'onPeerJoined', short(uid), String(source));
+        },
+        onPeerLeft: (uid) => {
+          events[who].push({ kind: 'left', uid });
+          log(who, 'onPeerLeft', short(uid));
+        },
+        onCallEnded: () => log(who, 'onCallEnded'),
+        onError: (e) => log(who, 'onError:', e),
+      };
+    }
+
+    const joined = (who, source, uid) => events[who].filter(
+      (e) => e.kind === 'joined' && e.source === source && (uid === undefined || e.uid === uid),
+    );
+    const leftOf = (who, uid) => events[who].filter(
+      (e) => e.kind === 'left' && (uid === undefined || e.uid === uid),
+    );
+    function clearEvents() {
+      events.a.length = 0;
+      events.b.length = 0;
+      events.c.length = 0;
+    }
+
+    const failures = [];
+    function expect(cond, what, detail) {
+      if (cond) {
+        log('OK   —', what);
+        return;
+      }
+      log('FAIL —', what, JSON.stringify(detail));
+      failures.push(what);
+    }
+
+    let svc = {};
+
+    try {
+      // Three independent service instances from the same production module.
+      // The distinct query strings make vite evaluate the module three times.
+      const [modA, modB, modC] = await Promise.all([
+        import('/src/services/groupCall.ts?inst=a'),
+        import('/src/services/groupCall.ts?inst=b'),
+        import('/src/services/groupCall.ts?inst=c'),
+      ]);
+      svc = { a: modA.groupCallService, b: modB.groupCallService, c: modC.groupCallService };
+      if (svc.a === svc.b || svc.b === svc.c || svc.a === svc.c) {
+        finish(false, 'test harness broken: services are not distinct instances');
+        throw new Error('shared instance');
+      }
+
+      for (const who of ['a', 'b', 'c']) svc[who].init(callbacksFor(who));
+
+      const tokens = {
+        a: await makeToken(E2E_JWT_SECRET, ids.a),
+        b: await makeToken(E2E_JWT_SECRET, ids.b),
+        c: await makeToken(E2E_JWT_SECRET, ids.c),
+      };
+
+      // groupCallService reads the token from localStorage at connect time and all
+      // instances share this page's localStorage — set the right token immediately
+      // before each (awaited) join, and again before forcing a reconnect below.
+      async function join(who) {
+        localStorage.setItem('vycord_token', tokens[who]);
+        await svc[who].joinGroupCall(room, ids[who]);
+        await waitFor(() => svc[who].isInGroupCallState, 15_000, `${who}-joined`);
+        log(who, 'joined');
+      }
+
+      // 1. A joins an empty room — nothing to announce.
+      await join('a');
+      expect(events.a.length === 0, 'first participant sees no join events', dumpEvents());
+
+      // 2. B joins: A sees a live arrival, B sees A as a snapshot peer.
+      clearEvents();
+      await join('b');
+      await waitFor(() => joined('a', 'live', ids.b).length > 0, 15_000, 'a-saw-b-live');
+      expect(joined('a', 'live', ids.b).length === 1, 'A sees B as exactly one live join', dumpEvents());
+      expect(joined('a', 'snapshot').length === 0, 'A gets no snapshot events while staying in the room', dumpEvents());
+      expect(joined('b', 'snapshot', ids.a).length === 1, 'B sees A as a snapshot peer', dumpEvents());
+      expect(joined('b', 'live').length === 0, 'B gets no live events for peers that were already there', dumpEvents());
+
+      // 3. C joins: both A and B see one live arrival, C sees two snapshot peers.
+      clearEvents();
+      await join('c');
+      await waitFor(
+        () => joined('a', 'live', ids.c).length > 0 && joined('b', 'live', ids.c).length > 0,
+        15_000,
+        'a-and-b-saw-c-live',
+      );
+      expect(joined('a', 'live', ids.c).length === 1, 'A sees C as exactly one live join', dumpEvents());
+      expect(joined('b', 'live', ids.c).length === 1, 'B sees C as exactly one live join', dumpEvents());
+      expect(joined('c', 'snapshot').length === 2, 'C sees both existing peers as snapshot', dumpEvents());
+      expect(joined('c', 'live').length === 0, 'C gets no live events on its own join', dumpEvents());
+
+      // 4. C leaves: everyone still in the room sees exactly one leave event.
+      clearEvents();
+      svc.c.leaveGroupCall();
+      await waitFor(
+        () => leftOf('a', ids.c).length > 0 && leftOf('b', ids.c).length > 0,
+        15_000,
+        'c-left-observed',
+      );
+      expect(leftOf('a', ids.c).length === 1, 'A sees C leave exactly once', dumpEvents());
+      expect(leftOf('b', ids.c).length === 1, 'B sees C leave exactly once', dumpEvents());
+
+      // 5. The regression that matters: A's socket dies, auto-reconnect rejoins, and
+      // every peer A re-discovers must arrive as 'snapshot' — never as a live join.
+      // (B legitimately sees A leave and come back: at SFU level A's session really
+      // did end. Suppressing that would need a server-side grace period — out of
+      // scope, see the spec.)
+      clearEvents();
+      localStorage.setItem('vycord_token', tokens.a);
+      log('closing A\'s signaling socket to force a reconnect');
+      svc.a.ws.close();
+      await waitFor(() => joined('a', 'snapshot', ids.b).length > 0, 30_000, 'a-reconnected');
+      expect(joined('a', 'snapshot', ids.b).length === 1, 'after reconnect A re-discovers B as snapshot', dumpEvents());
+      expect(joined('a', 'live').length === 0, 'after reconnect A gets ZERO live joins', dumpEvents());
+
+      finish(
+        failures.length === 0,
+        failures.length === 0
+          ? 'onPeerJoined reports snapshot vs live correctly, including across a reconnect'
+          : `${failures.length} assertion(s) failed`,
+        { failures, events: dumpEvents() },
+      );
+    } catch (err) {
+      finish(false, String((err && err.message) || err), { failures, events: dumpEvents() });
+    } finally {
+      for (const who of ['a', 'b', 'c']) {
+        try { svc[who]?.leaveGroupCall(); } catch { /* already gone */ }
+      }
+    }
+  </script>
+</body>
+</html>
