@@ -1,5 +1,6 @@
 import { noiseCancellationService } from './noiseCancellation';
 import { getIceServers, STUN_SERVERS } from './iceConfig';
+import { computeQualityLevel, type ConnectionQualityMetrics } from '@/utils/callQuality';
 
 const SFU_URL = import.meta.env.VITE_SFU_URL || 'ws://localhost:8081';
 
@@ -100,7 +101,10 @@ interface ErrorPayload {
 
 export interface GroupCallCallbacks {
   onRemoteStream: (userId: string, stream: MediaStream) => void;
-  onPeerJoined: (userId: string) => void;
+  // source='snapshot' — peer was already in the room when we connected (also fires on
+  // every successful auto-reconnect); source='live' — peer arrived just now.
+  // Consumers that notify the user must react only to 'live'.
+  onPeerJoined: (userId: string, source: 'snapshot' | 'live') => void;
   onPeerLeft: (userId: string) => void;
   onCallEnded: () => void;
   onError: (error: string) => void;
@@ -110,6 +114,8 @@ export interface GroupCallCallbacks {
   onReconnecting?: () => void;
   // Fired when auto-reconnect restored the call.
   onReconnected?: () => void;
+  // Fired periodically with the local user's uplink connection-quality sample.
+  onLocalQuality?: (metrics: ConnectionQualityMetrics) => void;
 }
 
 // ─── Internal state ──────────────────────────────────────────────────────────
@@ -126,10 +132,17 @@ class GroupCallService {
 
   private screenStream: MediaStream | null = null;
   private screenSender: RTCRtpSender | null = null;
+  // Detaches the desktop-audio source node mixed into the outgoing audio
+  // track via noiseCancellationService.attachExtraAudio — see startScreenShare.
+  private screenAudioDetach: (() => void) | null = null;
   // Placeholder video track sent when no camera is available — see createDummyVideoTrack.
   private dummyVideoTrack: MediaStreamTrack | null = null;
   private _isScreenSharing = false;
   private _microphoneAvailable = false;
+  // Tracked explicitly because toggleMuteAudio no longer reads mute state off
+  // track.enabled — the track must stay enabled so mixed-in screen-share
+  // audio (same physical track) is never silenced by mic mute.
+  private micMuted = false;
 
   // Keyed by the remote user's ID (= pion stream ID on track events).
   private remoteStreams: RemoteStreams = new Map();
@@ -158,6 +171,10 @@ class GroupCallService {
   private disconnectedTimer: ReturnType<typeof setTimeout> | null = null;
   // Screen track waiting to be re-attached to the new PC after reconnect.
   private pendingScreenRestore: MediaStreamTrack | null = null;
+  // Periodic uplink connection-quality sampler (separate from the debug stats logger below).
+  private qualityIntervalId: ReturnType<typeof setInterval> | null = null;
+  private lastBytesSent = 0;
+  private lastBytesSentAt = 0;
 
   // Timestamps for mobile diagnostic metrics (milliseconds since epoch).
   private joinedAt = 0;
@@ -258,7 +275,9 @@ class GroupCallService {
 
     // A live local screen track survives a network change — remember it to
     // re-attach to the new PC. Mic/camera mute needs no snapshot: localStream
-    // tracks are reused as-is, their .enabled flags persist.
+    // tracks are reused as-is, and mute state persists either way — via
+    // micGain.gain when an NC chain exists, or via .enabled as a fallback
+    // when it doesn't (see toggleMuteAudio).
     const screenTrack = this._isScreenSharing
       ? this.screenStream?.getVideoTracks()[0] ?? null
       : null;
@@ -315,6 +334,7 @@ class GroupCallService {
       clearTimeout(this.disconnectedTimer);
       this.disconnectedTimer = null;
     }
+    this.stopQualitySampler();
     this.pc?.close();
     this.pc = null;
     // The new PC creates its own dummy track in createPeerConnection.
@@ -324,6 +344,74 @@ class GroupCallService {
     this.remoteStreams.clear();
     this.pendingCandidates = [];
     this.inCall = false;
+  }
+
+  private startQualitySampler(): void {
+    this.stopQualitySampler();
+    this.lastBytesSent = 0;
+    this.lastBytesSentAt = 0;
+    this.qualityIntervalId = setInterval(() => {
+      void this.sampleQuality();
+    }, 3000);
+  }
+
+  private stopQualitySampler(): void {
+    if (this.qualityIntervalId !== null) {
+      clearInterval(this.qualityIntervalId);
+      this.qualityIntervalId = null;
+    }
+  }
+
+  private async sampleQuality(): Promise<void> {
+    if (!this.pc || this.pc.connectionState !== 'connected') {
+      this.stopQualitySampler();
+      return;
+    }
+    try {
+      const stats = await this.pc.getStats();
+      let lossPct = 0;
+      let rttMs = 0;
+      let hasData = false;
+      let bytesSent = 0;
+      let candidateRttMs = 0;
+
+      stats.forEach((report) => {
+        if (report.type === 'remote-inbound-rtp' && report.kind === 'audio') {
+          hasData = true;
+          const fl = report.fractionLost as number | undefined;
+          if (typeof fl === 'number') lossPct = Math.max(0, fl * 100);
+          const rtt = report.roundTripTime as number | undefined;
+          if (typeof rtt === 'number') rttMs = rtt * 1000;
+        } else if (report.type === 'outbound-rtp' && !report.isRemote) {
+          bytesSent += (report.bytesSent as number | undefined) ?? 0;
+        } else if (report.type === 'candidate-pair' && report.state === 'succeeded') {
+          const crtt = report.currentRoundTripTime as number | undefined;
+          if (typeof crtt === 'number') candidateRttMs = crtt * 1000;
+        }
+      });
+
+      if (rttMs === 0 && candidateRttMs > 0) rttMs = candidateRttMs;
+
+      const now = Date.now();
+      let bitrateKbps = 0;
+      if (this.lastBytesSentAt > 0 && now > this.lastBytesSentAt) {
+        const deltaBits = (bytesSent - this.lastBytesSent) * 8;
+        const deltaSec = (now - this.lastBytesSentAt) / 1000;
+        if (deltaSec > 0 && deltaBits >= 0) bitrateKbps = deltaBits / 1000 / deltaSec;
+      }
+      this.lastBytesSent = bytesSent;
+      this.lastBytesSentAt = now;
+
+      const metrics: ConnectionQualityMetrics = {
+        level: computeQualityLevel(lossPct, rttMs, hasData),
+        packetLoss: Math.round(lossPct * 10) / 10,
+        rtt: Math.round(rttMs),
+        bitrate: Math.round(bitrateKbps),
+      };
+      this.callbacks?.onLocalQuality?.(metrics);
+    } catch {
+      // getStats может кинуть на закрывающемся pc — игнорируем.
+    }
   }
 
   private restoreScreenShare(screenTrack: MediaStreamTrack | null): void {
@@ -374,9 +462,16 @@ class GroupCallService {
 
   toggleMuteAudio(): boolean {
     const t = this.localStream?.getAudioTracks()[0];
-    if (!t) return false;
-    t.enabled = !t.enabled;
-    return !t.enabled; // true = muted
+    if (!t || !this.localStream) return false;
+    this.micMuted = !this.micMuted;
+    const handledByChain = noiseCancellationService.setMicMuted(this.localStream.id, this.micMuted);
+    if (!handledByChain) {
+      // No NC chain for this stream (e.g. Web Audio unsupported) — fall back
+      // to muting the track itself, the same mechanism used before this
+      // feature existed.
+      t.enabled = !this.micMuted;
+    }
+    return this.micMuted;
   }
 
   toggleMuteVideo(): boolean {
@@ -403,27 +498,51 @@ class GroupCallService {
       // Electron: getUserMedia with chromeMediaSource mandatory constraints.
       // max* caps the resolution; min* sets a floor so the call doesn't fail if the source
       // is smaller than requested (e.g. a small window at 2K preset).
-      stream = await navigator.mediaDevices.getUserMedia({
-        audio: false,
-        video: {
-          mandatory: {
-            chromeMediaSource: 'desktop',
-            chromeMediaSourceId: sourceId,
-            maxWidth: preset.width,
-            maxHeight: preset.height,
-            maxFrameRate: preset.frameRate,
-            minWidth: 640,
-            minHeight: 360,
-          },
+      const videoConstraints = {
+        mandatory: {
+          chromeMediaSource: 'desktop',
+          chromeMediaSourceId: sourceId,
+          maxWidth: preset.width,
+          maxHeight: preset.height,
+          maxFrameRate: preset.frameRate,
+          minWidth: 640,
+          minHeight: 360,
         },
-      } as unknown as MediaStreamConstraints);
+      };
+      try {
+        // Also request desktop audio loopback (default output device). Only
+        // reliably available on Windows/macOS 13+, and typically only when
+        // sharing a whole screen rather than a single window. The mandatory
+        // constraint throws for the WHOLE getUserMedia call — including the
+        // video half — on unsupported combinations, so a failure here must
+        // fall back to video-only rather than aborting the share entirely.
+        stream = await navigator.mediaDevices.getUserMedia({
+          audio: {
+            mandatory: {
+              chromeMediaSource: 'desktop',
+              chromeMediaSourceId: sourceId,
+            },
+          },
+          video: videoConstraints,
+        } as unknown as MediaStreamConstraints);
+      } catch (err) {
+        gcLog(this.currentUserId, 'screen capture with audio failed, retrying video-only', { error: String(err) });
+        stream = await navigator.mediaDevices.getUserMedia({
+          audio: false,
+          video: videoConstraints,
+        } as unknown as MediaStreamConstraints);
+      }
     } else {
       // Browser fallback: native OS picker with ideal constraints.
       // ideal lets the browser pick the closest resolution; max prevents upscaling.
+      // audio: true surfaces the OS picker's "share audio" checkbox where the
+      // browser supports it (e.g. Windows/ChromeOS Chrome); on platforms
+      // without support the returned stream just has no audio track — no
+      // exception is thrown per spec, so no fallback is needed here.
       stream = await (navigator.mediaDevices as MediaDevices & {
         getDisplayMedia(c: Record<string, unknown>): Promise<MediaStream>;
       }).getDisplayMedia({
-        audio: false,
+        audio: true,
         video: {
           width:     { ideal: preset.width,     max: preset.width },
           height:    { ideal: preset.height,    max: preset.height },
@@ -484,6 +603,21 @@ class GroupCallService {
     this.screenStream = stream;
     this.screenSender = videoTransceiver.sender;
     this._isScreenSharing = true;
+
+    // Mix captured system/desktop audio (if any) into the existing outgoing
+    // audio track via Web Audio — no SFU/protocol changes needed. Silently
+    // skipped if the platform gave no audio track, or if there's no NC chain
+    // to mix into (e.g. this participant joined without a microphone).
+    const systemAudioTrack = stream.getAudioTracks()[0];
+    if (systemAudioTrack && this.localStream) {
+      this.screenAudioDetach = noiseCancellationService.attachExtraAudio(
+        this.localStream.id,
+        new MediaStream([systemAudioTrack]),
+      );
+      gcLog(this.currentUserId, 'screen share audio', { captured: true, mixed: this.screenAudioDetach !== null });
+    } else {
+      gcLog(this.currentUserId, 'screen share audio', { captured: false });
+    }
 
     // replaceTrack doesn't renegotiate, so the SFU has no other signal that the
     // video content just changed. Explicitly ask it to force a keyframe — without
@@ -565,6 +699,9 @@ class GroupCallService {
       // sender — the camera (or dummy) track should run on browser defaults.
       await this.applyScreenShareEncoding(this.screenSender, null);
     }
+
+    this.screenAudioDetach?.();
+    this.screenAudioDetach = null;
 
     this.screenStream?.getTracks().forEach((t) => t.stop());
     this.screenStream = null;
@@ -717,7 +854,7 @@ class GroupCallService {
           // existing peers before evicting our old session, so it can still include us —
           // rendering that would create a ghost self-tile.
           const peers = (joined.existing_peers ?? []).filter((uid) => uid !== userId);
-          peers.forEach((uid) => this.callbacks?.onPeerJoined(uid));
+          peers.forEach((uid) => this.callbacks?.onPeerJoined(uid, 'snapshot'));
           socket.onmessage = (ev) => {
             if (this.ws !== socket) return;
             const m = JSON.parse(ev.data as string) as SignalingMessage;
@@ -1113,6 +1250,8 @@ class GroupCallService {
             gcLog(this.currentUserId, 'getStats ERROR', { error: String(err) });
           }
         }, 3000);
+
+        this.startQualitySampler();
       }
     };
 
@@ -1147,11 +1286,18 @@ class GroupCallService {
         break;
 
       case 'participant_joined':
-        this.callbacks?.onPeerJoined((msg.payload as ParticipantEventPayload).user_id);
+        this.callbacks?.onPeerJoined((msg.payload as ParticipantEventPayload).user_id, 'live');
         break;
 
       case 'participant_left': {
         const { user_id } = msg.payload as ParticipantEventPayload;
+        // Evicting our own stale session broadcasts participant_left with OUR user_id
+        // to the freshly registered session (RoomSession.Join registers the new session
+        // before finishLeave(stale), and broadcastEvent excludes by participantID) — and
+        // it arrives before 'joined'. That is not a departure: without this guard the UI
+        // chimes "someone left" on every reconnect inside disconnectedTimeout and on a
+        // second-device login.
+        if (user_id === this.currentUserId) break;
         this.remoteStreams.delete(user_id);
         this.callbacks?.onPeerLeft(user_id);
         break;
@@ -1340,8 +1486,12 @@ class GroupCallService {
       remoteStreams: this.remoteStreams.size,
       pcState: this.pc?.connectionState ?? 'null',
     });
+    this.stopQualitySampler();
     this.pc?.close();
     this.pc = null;
+
+    this.screenAudioDetach?.();
+    this.screenAudioDetach = null;
 
     this.screenStream?.getTracks().forEach((t) => t.stop());
     this.screenStream = null;
@@ -1369,6 +1519,7 @@ class GroupCallService {
     // the voice_joined WS send.
     this.currentRoomId = '';
     this._microphoneAvailable = false;
+    this.micMuted = false;
     this.joinedAt = 0;
     this.pcCreatedAt = 0;
     this.pcConnectedAt = 0;

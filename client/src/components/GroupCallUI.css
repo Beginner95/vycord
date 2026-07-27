@@ -310,6 +310,128 @@
   50% { transform: scale(1.15); }
 }
 
+.conn-indicator {
+  position: absolute;
+  bottom: 10px;
+  right: 44px; /* слева от круглого mic-badge (26px @ right:10px) */
+  z-index: 2;
+  display: inline-flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 14px;
+  padding: 2px 4px;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.45);
+}
+.thumbnail-tile .conn-indicator {
+  bottom: 4px;
+  right: 24px; /* слева от уменьшенного mic-badge (16px @ right:4px) */
+  height: 10px;
+  padding: 1px 3px;
+  gap: 1px;
+}
+.thumbnail-tile .conn-bar { width: 2px; }
+.thumbnail-tile .conn-bar--1 { height: 3px; }
+.thumbnail-tile .conn-bar--2 { height: 6px; }
+.thumbnail-tile .conn-bar--3 { height: 9px; }
+.conn-indicator .conn-bar {
+  width: 3px;
+  border-radius: 1px;
+  background: currentColor;
+  opacity: 0.3;
+}
+.conn-bar--1 { height: 5px; }
+.conn-bar--2 { height: 9px; }
+.conn-bar--3 { height: 13px; }
+.conn-indicator--good { color: #43b581; }
+.conn-indicator--good .conn-bar { opacity: 1; }
+.conn-indicator--medium { color: #faa61a; }
+.conn-indicator--medium .conn-bar--1,
+.conn-indicator--medium .conn-bar--2 { opacity: 1; }
+.conn-indicator--poor { color: #f04747; }
+.conn-indicator--poor .conn-bar--1 { opacity: 1; }
+.conn-indicator--unknown { color: #99aab5; }
+.conn-indicator { cursor: help; }
+
+/* ── Custom connection-quality tooltip (portal to body, fixed → не режется overflow плитки) ── */
+.conn-tooltip {
+  position: fixed;
+  transform: translate(-50%, -100%);
+  z-index: 1200;
+  min-width: 168px;
+  padding: 10px 12px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lg);
+  color: var(--text-primary);
+  pointer-events: none;
+  animation: conn-tooltip-in 0.12s ease-out;
+}
+@keyframes conn-tooltip-in {
+  from { opacity: 0; transform: translate(-50%, calc(-100% + 4px)); }
+  to   { opacity: 1; transform: translate(-50%, -100%); }
+}
+.conn-tooltip__head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+.conn-tooltip__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: currentColor;
+  box-shadow: 0 0 6px currentColor;
+}
+.conn-tooltip__title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+}
+.conn-tooltip__rows {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border-subtle);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.conn-tooltip__row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+}
+.conn-tooltip__key {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+.conn-tooltip__val {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+.conn-tooltip__arrow {
+  position: absolute;
+  bottom: -5px;
+  left: 50%;
+  transform: translateX(-50%) rotate(45deg);
+  width: 10px;
+  height: 10px;
+  background: var(--bg-elevated);
+  border-right: 1px solid var(--border-subtle);
+  border-bottom: 1px solid var(--border-subtle);
+}
+/* Цвет точки/акцента по уровню сигнала */
+.conn-tooltip--good { color: #43b581; }
+.conn-tooltip--medium { color: #faa61a; }
+.conn-tooltip--poor { color: #f04747; }
+.conn-tooltip--unknown { color: #99aab5; }
+
 /* ── Controls ── */
 /* position + z-index needed: <video> GPU layers block pointer events on
    sibling elements without their own compositing layer in Electron */

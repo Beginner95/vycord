@@ -3,27 +3,44 @@
  * Uses Web Audio API to generate notification sounds — no external files needed.
  */
 
-type NotificationType = 'message' | 'call_incoming' | 'call_accepted' | 'call_ended' | 'call_busy';
+type NotificationType =
+  | 'message'
+  | 'call_incoming'
+  | 'call_accepted'
+  | 'call_ended'
+  | 'call_busy'
+  | 'user_joined'
+  | 'user_left';
 
 interface AudioSettings {
   messageSound: boolean;
   callSound: boolean;
+  voiceSound: boolean;
   volume: number; // 0–1
 }
 
 const DEFAULT_SETTINGS: AudioSettings = {
   messageSound: true,
   callSound: true,
+  voiceSound: true,
   volume: 0.5,
 };
 
 const SETTINGS_KEY = 'vycord_audio_settings';
+
+// Minimum gap between two chimes of the same kind. A burst of participants
+// joining or leaving at once must not stack into noise.
+const VOICE_SOUND_MIN_GAP_MS = 250;
 
 class AudioService {
   private ctx: AudioContext | null = null;
   private settings: AudioSettings;
   private ringtoneGain: GainNode | null = null;
   private isRinging = false;
+  // Timestamps (performance.now()) of the last chime of each kind — see allowVoiceSound.
+  // -Infinity, not 0: performance.now() starts near zero, so a 0 baseline would throttle
+  // the very first chime of each kind within 250 ms of page load.
+  private lastVoiceSoundAt: { joined: number; left: number } = { joined: -Infinity, left: -Infinity };
 
   constructor() {
     const stored = localStorage.getItem(SETTINGS_KEY);
@@ -145,6 +162,44 @@ class AudioService {
   }
 
   /**
+   * Play an ascending chime when a participant joins the group call.
+   * The triangle timbre keeps it distinct from the sine message/call sounds.
+   */
+  playUserJoined(): void {
+    if (!this.settings.voiceSound) return;
+    if (!this.allowVoiceSound('joined')) return;
+    const ctx = this.getAudioContext();
+    const vol = this.settings.volume * 0.25;
+
+    this.playTone(ctx, 659.25, 0, 0.08, vol, 'triangle');   // E5
+    this.playTone(ctx, 880, 0.08, 0.16, vol, 'triangle');   // A5
+  }
+
+  /**
+   * Play the mirrored descending chime when a participant leaves the group call.
+   */
+  playUserLeft(): void {
+    if (!this.settings.voiceSound) return;
+    if (!this.allowVoiceSound('left')) return;
+    const ctx = this.getAudioContext();
+    const vol = this.settings.volume * 0.25;
+
+    this.playTone(ctx, 880, 0, 0.08, vol, 'triangle');      // A5
+    this.playTone(ctx, 659.25, 0.08, 0.2, vol, 'triangle'); // E5
+  }
+
+  /**
+   * Rate-limit chimes per event kind: extra events inside the window are dropped,
+   * never queued — several participants joining at once should sound once.
+   */
+  private allowVoiceSound(kind: 'joined' | 'left'): boolean {
+    const now = performance.now();
+    if (now - this.lastVoiceSoundAt[kind] < VOICE_SOUND_MIN_GAP_MS) return false;
+    this.lastVoiceSoundAt[kind] = now;
+    return true;
+  }
+
+  /**
    * Helper: play a single tone.
    */
   private playTone(
@@ -153,11 +208,12 @@ class AudioService {
     startTime: number,
     duration: number,
     volume: number,
+    type: OscillatorType = 'sine',
   ): void {
     const osc = ctx.createOscillator();
     const gain = ctx.createGain();
 
-    osc.type = 'sine';
+    osc.type = type;
     osc.frequency.setValueAtTime(frequency, ctx.currentTime + startTime);
 
     gain.gain.setValueAtTime(0, ctx.currentTime + startTime);

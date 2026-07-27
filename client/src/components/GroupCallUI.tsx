@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback, type FormEvent } from 'react';
+import { createPortal } from 'react-dom';
 import { useAuthStore } from '@/stores/authStore';
 import { useServerStore } from '@/stores/serverStore';
 import { useMessageStore } from '@/stores/messageStore';
@@ -6,8 +7,10 @@ import { groupCallService, SCREEN_QUALITY_PRESETS } from '@/services/groupCall';
 import type { ScreenQuality, ScreenQualityPreset } from '@/services/groupCall';
 import { wsService } from '@/services/websocket';
 import { apiService } from '@/services/api';
+import { audioService } from '@/services/audio';
 import type { User, Message } from '@/types';
 import type { DesktopCapturerSource } from '@/types/electron';
+import type { ConnectionQualityMetrics, QualityLevel } from '@/utils/callQuality';
 import { VolumeControlPopover } from './VolumeControlPopover';
 import './GroupCallUI.css';
 
@@ -184,6 +187,84 @@ function ScreenQualityPicker({ onSelect, onCancel }: ScreenQualityPickerProps) {
   );
 }
 
+// ─── Connection Indicator ────────────────────────────────────────────────────
+// Presentational signal-bars icon showing outbound (uplink) connection quality.
+
+const QUALITY_TITLE: Record<QualityLevel, string> = {
+  good: 'Хороший сигнал',
+  medium: 'Средний сигнал',
+  poor: 'Плохой сигнал',
+  unknown: 'Нет данных о сигнале',
+};
+
+export function ConnectionIndicator({ metrics }: { metrics?: ConnectionQualityMetrics }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [tip, setTip] = useState<{ top: number; left: number } | null>(null);
+
+  const showTip = useCallback(() => {
+    const el = ref.current;
+    if (!el) return;
+    const r = el.getBoundingClientRect();
+    // Центрируем над индикатором; фиксированное позиционирование не режется
+    // overflow:hidden плитки. Стрелка тултипа смотрит вниз, на индикатор.
+    setTip({ top: r.top - 8, left: r.left + r.width / 2 });
+  }, []);
+  const hideTip = useCallback(() => setTip(null), []);
+
+  if (!metrics) return null;
+  const { level, packetLoss, rtt, bitrate } = metrics;
+  const label = QUALITY_TITLE[level];
+  const ariaLabel =
+    level === 'unknown'
+      ? label
+      : `${label} · Потери: ${packetLoss}% · Пинг: ${rtt} мс · Битрейт: ${bitrate} кбит/с`;
+
+  return (
+    <div
+      ref={ref}
+      className={`conn-indicator conn-indicator--${level}`}
+      aria-label={ariaLabel}
+      onMouseEnter={showTip}
+      onMouseLeave={hideTip}
+    >
+      <span className="conn-bar conn-bar--1" />
+      <span className="conn-bar conn-bar--2" />
+      <span className="conn-bar conn-bar--3" />
+      {tip &&
+        createPortal(
+          <div
+            className={`conn-tooltip conn-tooltip--${level}`}
+            style={{ top: tip.top, left: tip.left }}
+            role="tooltip"
+          >
+            <div className="conn-tooltip__head">
+              <span className="conn-tooltip__dot" />
+              <span className="conn-tooltip__title">{label}</span>
+            </div>
+            {level !== 'unknown' && (
+              <div className="conn-tooltip__rows">
+                <div className="conn-tooltip__row">
+                  <span className="conn-tooltip__key">Потери</span>
+                  <span className="conn-tooltip__val">{packetLoss}%</span>
+                </div>
+                <div className="conn-tooltip__row">
+                  <span className="conn-tooltip__key">Пинг</span>
+                  <span className="conn-tooltip__val">{rtt} мс</span>
+                </div>
+                <div className="conn-tooltip__row">
+                  <span className="conn-tooltip__key">Битрейт</span>
+                  <span className="conn-tooltip__val">{bitrate} кбит/с</span>
+                </div>
+              </div>
+            )}
+            <span className="conn-tooltip__arrow" />
+          </div>,
+          document.body,
+        )}
+    </div>
+  );
+}
+
 // ─── Remote Participant Tile ─────────────────────────────────────────────────
 // Wraps useMicLevel per participant — hooks can't run inside .map(), so each
 // remote tile (grid or thumbnail) needs its own component instance.
@@ -202,6 +283,7 @@ interface RemoteParticipantTileProps {
   onToggleVolumePopover: () => void;
   onCloseVolumePopover: () => void;
   onVolumeChange: (value: number) => void;
+  quality?: ConnectionQualityMetrics;
 }
 
 function RemoteParticipantTile({
@@ -218,6 +300,7 @@ function RemoteParticipantTile({
   onToggleVolumePopover,
   onCloseVolumePopover,
   onVolumeChange,
+  quality,
 }: RemoteParticipantTileProps) {
   const level = useMicLevel(participant.stream, muted);
   const speaking = level > 0.05;
@@ -265,6 +348,7 @@ function RemoteParticipantTile({
           />
         )}
         <div className={`mic-badge ${micBadgeClass}`}>{muted ? '🔇' : '🎤'}</div>
+        <ConnectionIndicator metrics={quality} />
         <div className="thumbnail-label">{displayName}</div>
       </div>
     );
@@ -294,6 +378,7 @@ function RemoteParticipantTile({
         />
       )}
       <div className={`mic-badge ${micBadgeClass}`}>{muted ? '🔇' : '🎤'}</div>
+      <ConnectionIndicator metrics={quality} />
       <div className="video-label">{displayName}</div>
     </div>
   );
@@ -355,6 +440,18 @@ export function GroupCallUI() {
     participantVolumesRef.current = participantVolumes;
   }, [participantVolumes]);
 
+  // userId -> latest connection-quality metrics received via WS broadcasts.
+  const [qualityByUser, setQualityByUser] = useState<Record<string, ConnectionQualityMetrics>>({});
+  // Local outbound (uplink) quality, sampled by groupCallService and reported via onLocalQuality.
+  const [localQuality, setLocalQuality] = useState<ConnectionQualityMetrics | undefined>(undefined);
+
+  // Throttling state for outgoing connection_quality sends: resend on level
+  // change, or as a heartbeat at least every 9s.
+  const qualitySendRef = useRef<{ lastLevel: QualityLevel | null; lastSentAt: number }>({
+    lastLevel: null,
+    lastSentAt: 0,
+  });
+
   useEffect(() => {
     groupCallService.init({
       onRemoteStream: (userId, stream) => {
@@ -375,21 +472,36 @@ export function GroupCallUI() {
           attachStreamToElement(videoEl, stream, userId, (participantVolumesRef.current[userId] ?? 100) / 100);
         }
       },
-      onPeerJoined: (userId) => {
+      onPeerJoined: (userId, source) => {
         setParticipants((prev) => {
           if (prev.find((p) => p.userId === userId)) return prev;
           return [...prev, { userId, stream: null }];
         });
+        // Only a live arrival is an actual join: 'snapshot' peers were already in the
+        // room when we connected, which also happens on every auto-reconnect and must
+        // stay silent.
+        if (source === 'live') audioService.playUserJoined();
         // Fires both when I discover an already-present peer and when someone
         // joins after me — re-announcing my mic state either way is harmless
         // and closes the window where a newly-joined peer doesn't know it yet.
         wsService.send(isMutedRef.current ? 'mic_muted' : 'mic_unmuted', {});
       },
       onPeerLeft: (userId) => {
+        // A genuinely live participant_left for someone else's userId always means a real
+        // departure. It can also fire with OUR OWN userId when the server evicts a stale
+        // session of ours (second-device login, or a reconnect landing inside
+        // disconnectedTimeout) — groupCall.ts's handleMessage filters that case out before
+        // calling onPeerLeft, so by the time we get here it is always a real departure.
+        audioService.playUserLeft();
         setParticipants((prev) => prev.filter((p) => p.userId !== userId));
         setRemoteMicMuted((prev) => {
           const next = new Map(prev);
           next.delete(userId);
+          return next;
+        });
+        setQualityByUser((prev) => {
+          const next = { ...prev };
+          delete next[userId];
           return next;
         });
       },
@@ -403,6 +515,8 @@ export function GroupCallUI() {
         setParticipantVolumes({});
         setVolumePopoverUserId(null);
         setFocusedUserId(null);
+        setQualityByUser({});
+        setLocalQuality(undefined);
       },
       onReconnected: () => {
         setIsReconnecting(false);
@@ -413,6 +527,7 @@ export function GroupCallUI() {
         setIsReconnecting(false);
         setIsInGroupCall(false);
         setParticipants([]);
+        setLocalQuality(undefined);
         setIsMuted(false);
         setIsMicAvailable(true);
         setIsVideoOff(false);
@@ -444,6 +559,23 @@ export function GroupCallUI() {
       onScreenShareEnded: () => {
         setIsScreenSharing(false);
         wsService.send('screen_share_stopped', {});
+      },
+      onLocalQuality: (metrics) => {
+        setLocalQuality(metrics);
+        const now = Date.now();
+        const st = qualitySendRef.current;
+        const changed = metrics.level !== st.lastLevel;
+        const heartbeat = now - st.lastSentAt >= 9000;
+        if (changed || heartbeat) {
+          st.lastLevel = metrics.level;
+          st.lastSentAt = now;
+          wsService.send('connection_quality', {
+            level: metrics.level,
+            packet_loss: metrics.packetLoss,
+            rtt: metrics.rtt,
+            bitrate: metrics.bitrate,
+          });
+        }
       },
     });
   }, []);
@@ -529,7 +661,17 @@ export function GroupCallUI() {
       setRemoteMicMuted((prev) => new Map(prev).set(p.user_id, false));
     });
 
-    return () => { unsubStart(); unsubStop(); unsubMicMuted(); unsubMicUnmuted(); };
+    const unsubQuality = wsService.on('connection_quality', (payload) => {
+      const p = payload as { user_id: string; level: QualityLevel; packet_loss: number; rtt: number; bitrate: number };
+      if (p.user_id === user?.id) return; // своё качество берём из локального сэмплера
+      if (!participantsRef.current.some((pt) => pt.userId === p.user_id)) return;
+      setQualityByUser((prev) => ({
+        ...prev,
+        [p.user_id]: { level: p.level, packetLoss: p.packet_loss, rtt: p.rtt, bitrate: p.bitrate },
+      }));
+    });
+
+    return () => { unsubStart(); unsubStop(); unsubMicMuted(); unsubMicUnmuted(); unsubQuality(); };
   }, [isInGroupCall, user?.id]);
 
   // Attach stream to the focused main video whenever focus or stream changes
@@ -596,6 +738,9 @@ export function GroupCallUI() {
     const isFirst = await groupCallService.joinGroupCall(roomId, user.id);
     if (!alreadyInThisRoom && groupCallService.currentRoomIdState === roomId) {
       wsService.send('voice_joined', { channel_id: roomId });
+      // Same predicate as voice_joined: it filters out a repeated click on the active
+      // voice channel and the mid-reconnect window where inCall is briefly false.
+      audioService.playUserJoined();
     }
     setIsInGroupCall(true);
     const micAvailable = groupCallService.isMicrophoneAvailable;
@@ -616,6 +761,10 @@ export function GroupCallUI() {
         server_id: currentServer?.id,
       });
       wsService.send('voice_left', { channel_id: channelId });
+      // Only the deliberate exit chimes. A dropped connection, session_replaced or an
+      // exhausted reconnect all land in onCallEnded/onError instead and stay silent —
+      // those are connection failures, not someone leaving the call.
+      audioService.playUserLeft();
     }
     groupCallService.leaveGroupCall();
     setIsInGroupCall(false);
@@ -876,6 +1025,7 @@ export function GroupCallUI() {
                   <div className={`mic-badge ${isMuted ? 'mic-badge--muted' : micLevel > 0.05 ? 'mic-badge--speaking' : 'mic-badge--idle'}`}>
                     {isMuted ? '🔇' : '🎤'}
                   </div>
+                  <ConnectionIndicator metrics={localQuality} />
                   <div className="thumbnail-label">
                     {user?.username} (You)
                   </div>
@@ -898,6 +1048,7 @@ export function GroupCallUI() {
                     onToggleVolumePopover={() => setVolumePopoverUserId((prev) => (prev === p.userId ? null : p.userId))}
                     onCloseVolumePopover={() => setVolumePopoverUserId(null)}
                     onVolumeChange={(value) => handleVolumeChange(p.userId, value)}
+                    quality={qualityByUser[p.userId]}
                   />
                 ))}
               </div>
@@ -919,6 +1070,7 @@ export function GroupCallUI() {
                 <div className={`mic-badge ${isMuted ? 'mic-badge--muted' : micLevel > 0.05 ? 'mic-badge--speaking' : 'mic-badge--idle'}`}>
                   {isMuted ? '🔇' : '🎤'}
                 </div>
+                <ConnectionIndicator metrics={localQuality} />
                 <div className="video-label">
                   {user?.username} (You)
                 </div>
@@ -940,6 +1092,7 @@ export function GroupCallUI() {
                   onToggleVolumePopover={() => setVolumePopoverUserId((prev) => (prev === p.userId ? null : p.userId))}
                   onCloseVolumePopover={() => setVolumePopoverUserId(null)}
                   onVolumeChange={(value) => handleVolumeChange(p.userId, value)}
+                  quality={qualityByUser[p.userId]}
                 />
               ))}
             </div>
