@@ -101,7 +101,10 @@ interface ErrorPayload {
 
 export interface GroupCallCallbacks {
   onRemoteStream: (userId: string, stream: MediaStream) => void;
-  onPeerJoined: (userId: string) => void;
+  // source='snapshot' — peer was already in the room when we connected (also fires on
+  // every successful auto-reconnect); source='live' — peer arrived just now.
+  // Consumers that notify the user must react only to 'live'.
+  onPeerJoined: (userId: string, source: 'snapshot' | 'live') => void;
   onPeerLeft: (userId: string) => void;
   onCallEnded: () => void;
   onError: (error: string) => void;
@@ -851,7 +854,7 @@ class GroupCallService {
           // existing peers before evicting our old session, so it can still include us —
           // rendering that would create a ghost self-tile.
           const peers = (joined.existing_peers ?? []).filter((uid) => uid !== userId);
-          peers.forEach((uid) => this.callbacks?.onPeerJoined(uid));
+          peers.forEach((uid) => this.callbacks?.onPeerJoined(uid, 'snapshot'));
           socket.onmessage = (ev) => {
             if (this.ws !== socket) return;
             const m = JSON.parse(ev.data as string) as SignalingMessage;
@@ -1283,11 +1286,18 @@ class GroupCallService {
         break;
 
       case 'participant_joined':
-        this.callbacks?.onPeerJoined((msg.payload as ParticipantEventPayload).user_id);
+        this.callbacks?.onPeerJoined((msg.payload as ParticipantEventPayload).user_id, 'live');
         break;
 
       case 'participant_left': {
         const { user_id } = msg.payload as ParticipantEventPayload;
+        // Evicting our own stale session broadcasts participant_left with OUR user_id
+        // to the freshly registered session (RoomSession.Join registers the new session
+        // before finishLeave(stale), and broadcastEvent excludes by participantID) — and
+        // it arrives before 'joined'. That is not a departure: without this guard the UI
+        // chimes "someone left" on every reconnect inside disconnectedTimeout and on a
+        // second-device login.
+        if (user_id === this.currentUserId) break;
         this.remoteStreams.delete(user_id);
         this.callbacks?.onPeerLeft(user_id);
         break;

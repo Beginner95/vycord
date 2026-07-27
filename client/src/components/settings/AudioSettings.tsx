@@ -8,6 +8,7 @@ export function AudioSettings() {
   const [isSupported, setIsSupported] = useState(true);
   const [msgSound, setMsgSound] = useState(true);
   const [callSound, setCallSound] = useState(true);
+  const [voiceSound, setVoiceSound] = useState(true);
   const [volume, setVolume] = useState(0.5);
 
   useEffect(() => {
@@ -28,6 +29,7 @@ export function AudioSettings() {
     const settings = audioService.getSettings();
     setMsgSound(settings.messageSound);
     setCallSound(settings.callSound);
+    setVoiceSound(settings.voiceSound);
     setVolume(settings.volume);
   }, []);
 
@@ -76,6 +78,24 @@ export function AudioSettings() {
             onChange={(e) => {
               setCallSound(e.target.checked);
               audioService.updateSettings({ callSound: e.target.checked });
+            }}
+          />
+          <span className="toggle-slider"></span>
+        </label>
+      </div>
+
+      <div className="setting-item">
+        <div className="setting-info">
+          <label>Voice Join/Leave Sounds</label>
+          <p className="setting-description">Play a sound when someone joins or leaves a voice call</p>
+        </div>
+        <label className="toggle-switch">
+          <input
+            type="checkbox"
+            checked={voiceSound}
+            onChange={(e) => {
+              setVoiceSound(e.target.checked);
+              audioService.updateSettings({ voiceSound: e.target.checked });
             }}
           />
           <span className="toggle-slider"></span>
@@ -138,6 +158,34 @@ export function AudioSettings() {
             }}
           >
             📞 Ring
+          </button>
+          <button
+            onClick={() => audioService.playUserJoined()}
+            style={{
+              padding: '6px 14px',
+              border: '1.5px solid var(--border-color)',
+              borderRadius: 'var(--radius-md)',
+              background: 'var(--bg-primary)',
+              color: 'var(--text-primary)',
+              fontSize: 13,
+              cursor: 'pointer',
+            }}
+          >
+            ➡️ Join
+          </button>
+          <button
+            onClick={() => audioService.playUserLeft()}
+            style={{
+              padding: '6px 14px',
+              border: '1.5px solid var(--border-color)',
+              borderRadius: 'var(--radius-md)',
+              background: 'var(--bg-primary)',
+              color: 'var(--text-primary)',
+              fontSize: 13,
+              cursor: 'pointer',
+            }}
+          >
+            ⬅️ Leave
           </button>
         </div>
       </div>

@@ -7,6 +7,7 @@ import { groupCallService, SCREEN_QUALITY_PRESETS } from '@/services/groupCall';
 import type { ScreenQuality, ScreenQualityPreset } from '@/services/groupCall';
 import { wsService } from '@/services/websocket';
 import { apiService } from '@/services/api';
+import { audioService } from '@/services/audio';
 import type { User, Message } from '@/types';
 import type { DesktopCapturerSource } from '@/types/electron';
 import type { ConnectionQualityMetrics, QualityLevel } from '@/utils/callQuality';
@@ -471,17 +472,27 @@ export function GroupCallUI() {
           attachStreamToElement(videoEl, stream, userId, (participantVolumesRef.current[userId] ?? 100) / 100);
         }
       },
-      onPeerJoined: (userId) => {
+      onPeerJoined: (userId, source) => {
         setParticipants((prev) => {
           if (prev.find((p) => p.userId === userId)) return prev;
           return [...prev, { userId, stream: null }];
         });
+        // Only a live arrival is an actual join: 'snapshot' peers were already in the
+        // room when we connected, which also happens on every auto-reconnect and must
+        // stay silent.
+        if (source === 'live') audioService.playUserJoined();
         // Fires both when I discover an already-present peer and when someone
         // joins after me — re-announcing my mic state either way is harmless
         // and closes the window where a newly-joined peer doesn't know it yet.
         wsService.send(isMutedRef.current ? 'mic_muted' : 'mic_unmuted', {});
       },
       onPeerLeft: (userId) => {
+        // A genuinely live participant_left for someone else's userId always means a real
+        // departure. It can also fire with OUR OWN userId when the server evicts a stale
+        // session of ours (second-device login, or a reconnect landing inside
+        // disconnectedTimeout) — groupCall.ts's handleMessage filters that case out before
+        // calling onPeerLeft, so by the time we get here it is always a real departure.
+        audioService.playUserLeft();
         setParticipants((prev) => prev.filter((p) => p.userId !== userId));
         setRemoteMicMuted((prev) => {
           const next = new Map(prev);
@@ -727,6 +738,9 @@ export function GroupCallUI() {
     const isFirst = await groupCallService.joinGroupCall(roomId, user.id);
     if (!alreadyInThisRoom && groupCallService.currentRoomIdState === roomId) {
       wsService.send('voice_joined', { channel_id: roomId });
+      // Same predicate as voice_joined: it filters out a repeated click on the active
+      // voice channel and the mid-reconnect window where inCall is briefly false.
+      audioService.playUserJoined();
     }
     setIsInGroupCall(true);
     const micAvailable = groupCallService.isMicrophoneAvailable;
@@ -747,6 +761,10 @@ export function GroupCallUI() {
         server_id: currentServer?.id,
       });
       wsService.send('voice_left', { channel_id: channelId });
+      // Only the deliberate exit chimes. A dropped connection, session_replaced or an
+      // exhausted reconnect all land in onCallEnded/onError instead and stay silent —
+      // those are connection failures, not someone leaving the call.
+      audioService.playUserLeft();
     }
     groupCallService.leaveGroupCall();
     setIsInGroupCall(false);
