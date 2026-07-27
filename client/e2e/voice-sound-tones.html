@@ -122,7 +122,11 @@
       expect(message.length === 2, 'message sound still plays with voiceSound=false', message);
       expect(message.every((t) => t.type === 'sine'), 'message sound keeps the default sine timbre', message);
 
-      // Leave the persisted settings in the default state for the next scenario.
+      // Not needed for isolation from other scenarios — run.sh gives each scenario its
+      // own --user-data-dir, so there is no shared localStorage between them. Restored
+      // purely so this page's own in-memory settings object ends in the same state it
+      // started in, in case anything below is ever added that re-reads audioService's
+      // settings.
       audioService.updateSettings({ voiceSound: true });
 
       finish(

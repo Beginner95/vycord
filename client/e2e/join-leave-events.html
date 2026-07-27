@@ -8,14 +8,24 @@
   <pre id="status">starting…</pre>
 
   <script type="module">
-    // E2E scenario for VYC-49: onPeerJoined must say WHERE the event came from.
+    // E2E scenario for VYC-49: onPeerJoined must say WHERE the event came from, and
+    // onPeerLeft must never fire for our own userId.
     //
-    // Three real groupCallService instances (a, b, c) talk to a real SFU through the
+    // Four real groupCallService instances (a, b, c, d) talk to a real SFU through the
     // production signaling code. onPeerJoined carries source='snapshot' for peers that
     // were already in the room when we connected (this also happens on every
     // auto-reconnect) and source='live' for a real-time arrival. GroupCallUI plays the
     // join chime only on 'live', so a wrong source means users hear phantom chimes
-    // after every network blip — that is the regression this scenario guards.
+    // after every network blip — that is the first regression this scenario guards.
+    //
+    // The second regression: RoomSession.Join (server) evicts a stale session of the
+    // SAME userId (second-device login, or a reconnect landing inside
+    // disconnectedTimeout) by registering the new session first and only then
+    // broadcasting participant_left for the evicted userId with no exclude — so the
+    // newly-registered session receives participant_left carrying ITS OWN userId,
+    // arriving before its own 'joined'. Instance d (phase 6 below) reproduces exactly
+    // that path deterministically by joining with A's token/userId while A is still
+    // live, instead of relying on network flakiness.
     //
     // Result protocol: a single console.log line "E2E_RESULT {json}" parsed by run.sh.
 
@@ -79,7 +89,10 @@
 
     // ── Test body ────────────────────────────────────────────────────────────
 
-    setTimeout(() => finish(false, 'global watchdog (120s) fired', { events: dumpEvents() }), 120_000);
+    // Kept comfortably under run.sh's per-scenario budget (110s = 220 × 0.5s poll loop,
+    // see run.sh) so a genuine hang here always surfaces this page's dumpEvents() output
+    // instead of run.sh's less useful "no E2E_RESULT in chrome output".
+    setTimeout(() => finish(false, 'global watchdog (90s) fired', { events: dumpEvents() }), 90_000);
 
     const room = `e2e-${Date.now()}`;
     // Must be plain UUIDs: the SFU takes the identity from the token's user_id claim.
@@ -105,12 +118,16 @@
       return `${header}.${payload}.${b64url(sig)}`;
     }
 
+    // 'd' is added dynamically in phase 6 below (its own IIFE-free assignment before use).
+    // dumpEvents/clearEvents iterate whatever keys currently exist so both work
+    // before and after d shows up without a second copy-pasted branch.
     const events = { a: [], b: [], c: [] };
-    const dumpEvents = () => ({
-      a: events.a.map((e) => `${e.kind}:${short(e.uid)}:${e.source ?? '-'}`),
-      b: events.b.map((e) => `${e.kind}:${short(e.uid)}:${e.source ?? '-'}`),
-      c: events.c.map((e) => `${e.kind}:${short(e.uid)}:${e.source ?? '-'}`),
-    });
+    const dumpEvents = () => Object.fromEntries(
+      Object.entries(events).map(([who, list]) => [
+        who,
+        list.map((e) => `${e.kind}:${short(e.uid)}:${e.source ?? '-'}`),
+      ]),
+    );
 
     function callbacksFor(who) {
       return {
@@ -135,9 +152,7 @@
       (e) => e.kind === 'left' && (uid === undefined || e.uid === uid),
     );
     function clearEvents() {
-      events.a.length = 0;
-      events.b.length = 0;
-      events.c.length = 0;
+      for (const who of Object.keys(events)) events[who].length = 0;
     }
 
     const failures = [];
@@ -177,10 +192,15 @@
       // groupCallService reads the token from localStorage at connect time and all
       // instances share this page's localStorage — set the right token immediately
       // before each (awaited) join, and again before forcing a reconnect below.
+      // 8s per step: comfortable headroom over what this scenario actually takes
+      // end-to-end on this SFU (~4s total measured), while keeping the worst-case
+      // sum of every waitFor budget well under the 90s page watchdog above.
+      const FAST_TIMEOUT_MS = 8_000;
+
       async function join(who) {
         localStorage.setItem('vycord_token', tokens[who]);
         await svc[who].joinGroupCall(room, ids[who]);
-        await waitFor(() => svc[who].isInGroupCallState, 15_000, `${who}-joined`);
+        await waitFor(() => svc[who].isInGroupCallState, FAST_TIMEOUT_MS, `${who}-joined`);
         log(who, 'joined');
       }
 
@@ -191,7 +211,7 @@
       // 2. B joins: A sees a live arrival, B sees A as a snapshot peer.
       clearEvents();
       await join('b');
-      await waitFor(() => joined('a', 'live', ids.b).length > 0, 15_000, 'a-saw-b-live');
+      await waitFor(() => joined('a', 'live', ids.b).length > 0, FAST_TIMEOUT_MS, 'a-saw-b-live');
       expect(joined('a', 'live', ids.b).length === 1, 'A sees B as exactly one live join', dumpEvents());
       expect(joined('a', 'snapshot').length === 0, 'A gets no snapshot events while staying in the room', dumpEvents());
       expect(joined('b', 'snapshot', ids.a).length === 1, 'B sees A as a snapshot peer', dumpEvents());
@@ -202,7 +222,7 @@
       await join('c');
       await waitFor(
         () => joined('a', 'live', ids.c).length > 0 && joined('b', 'live', ids.c).length > 0,
-        15_000,
+        FAST_TIMEOUT_MS,
         'a-and-b-saw-c-live',
       );
       expect(joined('a', 'live', ids.c).length === 1, 'A sees C as exactly one live join', dumpEvents());
@@ -215,7 +235,7 @@
       svc.c.leaveGroupCall();
       await waitFor(
         () => leftOf('a', ids.c).length > 0 && leftOf('b', ids.c).length > 0,
-        15_000,
+        FAST_TIMEOUT_MS,
         'c-left-observed',
       );
       expect(leftOf('a', ids.c).length === 1, 'A sees C leave exactly once', dumpEvents());
@@ -230,21 +250,54 @@
       localStorage.setItem('vycord_token', tokens.a);
       log('closing A\'s signaling socket to force a reconnect');
       svc.a.ws.close();
-      await waitFor(() => joined('a', 'snapshot', ids.b).length > 0, 30_000, 'a-reconnected');
+      // Reconnect goes through groupCallService's real delay loop (first attempt at
+      // 500ms), so it gets more headroom than the fast steps above — 10s is still
+      // ~2.5x the ~4s this whole scenario took end-to-end when last measured.
+      await waitFor(() => joined('a', 'snapshot', ids.b).length > 0, 10_000, 'a-reconnected');
       expect(joined('a', 'snapshot', ids.b).length === 1, 'after reconnect A re-discovers B as snapshot', dumpEvents());
       expect(joined('a', 'live').length === 0, 'after reconnect A gets ZERO live joins', dumpEvents());
+
+      // 6. The regression that matters most: our OWN stale session gets evicted by a
+      // NEW join reusing our OWN userId. RoomSession.Join (server) registers the new
+      // session before broadcasting participant_left for the evicted userId with no
+      // exclude — so the new session receives participant_left carrying its OWN
+      // userId, arriving before its own 'joined'. A naive client would forward that
+      // straight to onPeerLeft and chime "someone left" about itself.
+      //
+      // Reproduced deterministically (no socket manipulation): d joins the SAME room
+      // using A's token/userId while A (post-reconnect, from phase 5) is still live.
+      // The server evicts A's live session exactly like it would a stale one after a
+      // network blip or a second-device login — same code path, no timing luck needed.
+      clearEvents();
+      localStorage.setItem('vycord_token', tokens.a);
+      log('d joining with A\'s token/userId — evicts A\'s live session server-side');
+      const modD = await import('/src/services/groupCall.ts?inst=d');
+      svc.d = modD.groupCallService;
+      if (svc.d === svc.a || svc.d === svc.b || svc.d === svc.c) {
+        finish(false, 'test harness broken: d shares an instance with a/b/c');
+        throw new Error('shared instance');
+      }
+      events.d = [];
+      svc.d.init(callbacksFor('d'));
+      await svc.d.joinGroupCall(room, ids.a);
+      await waitFor(() => svc.d.isInGroupCallState, FAST_TIMEOUT_MS, 'd-joined');
+      log('d', 'joined');
+
+      expect(leftOf('d', ids.a).length === 0, 'D gets zero onPeerLeft for its own evicted userId', dumpEvents());
+      expect(leftOf('d').length === 0, 'D gets zero onPeerLeft events at all', dumpEvents());
+      expect(joined('d', 'snapshot', ids.b).length === 1, 'D sees B as a snapshot peer', dumpEvents());
 
       finish(
         failures.length === 0,
         failures.length === 0
-          ? 'onPeerJoined reports snapshot vs live correctly, including across a reconnect'
+          ? 'onPeerJoined/onPeerLeft semantics hold across a reconnect and a stale-session eviction'
           : `${failures.length} assertion(s) failed`,
         { failures, events: dumpEvents() },
       );
     } catch (err) {
       finish(false, String((err && err.message) || err), { failures, events: dumpEvents() });
     } finally {
-      for (const who of ['a', 'b', 'c']) {
+      for (const who of ['a', 'b', 'c', 'd']) {
         try { svc[who]?.leaveGroupCall(); } catch { /* already gone */ }
       }
     }

@@ -487,9 +487,11 @@ export function GroupCallUI() {
         wsService.send(isMutedRef.current ? 'mic_muted' : 'mic_unmuted', {});
       },
       onPeerLeft: (userId) => {
-        // participant_left only arrives over a live socket: during a reconnect there is
-        // no socket, and peers who left meanwhile are simply absent from the snapshot —
-        // so this callback always means a real departure.
+        // A genuinely live participant_left for someone else's userId always means a real
+        // departure. It can also fire with OUR OWN userId when the server evicts a stale
+        // session of ours (second-device login, or a reconnect landing inside
+        // disconnectedTimeout) — groupCall.ts's handleMessage filters that case out before
+        // calling onPeerLeft, so by the time we get here it is always a real departure.
         audioService.playUserLeft();
         setParticipants((prev) => prev.filter((p) => p.userId !== userId));
         setRemoteMicMuted((prev) => {

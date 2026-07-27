@@ -1291,6 +1291,13 @@ class GroupCallService {
 
       case 'participant_left': {
         const { user_id } = msg.payload as ParticipantEventPayload;
+        // Evicting our own stale session broadcasts participant_left with OUR user_id
+        // to the freshly registered session (RoomSession.Join registers the new session
+        // before finishLeave(stale), and broadcastEvent excludes by participantID) — and
+        // it arrives before 'joined'. That is not a departure: without this guard the UI
+        // chimes "someone left" on every reconnect inside disconnectedTimeout and on a
+        // second-device login.
+        if (user_id === this.currentUserId) break;
         this.remoteStreams.delete(user_id);
         this.callbacks?.onPeerLeft(user_id);
         break;
