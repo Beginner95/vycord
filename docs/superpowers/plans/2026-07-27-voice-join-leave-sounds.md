@@ -243,7 +243,9 @@ const VOICE_SOUND_MIN_GAP_MS = 250;
 
 ```ts
   // Timestamps (performance.now()) of the last chime of each kind — see allowVoiceSound.
-  private lastVoiceSoundAt: { joined: number; left: number } = { joined: 0, left: 0 };
+  // -Infinity, not 0: performance.now() starts near zero, so a 0 baseline would throttle
+  // the very first chime of each kind within 250 ms of page load.
+  private lastVoiceSoundAt: { joined: number; left: number } = { joined: -Infinity, left: -Infinity };
 ```
 
 - [ ] **Step 6: Добавить два метода сигналов и хелпер троттла**
