@@ -2,6 +2,10 @@ import { useState, useEffect, useMemo } from 'react';
 import type { Server, Channel, User, MemberWithUser } from '@/types';
 import { Settings } from '@/components/Settings';
 import { Avatar } from '@/components/Avatar';
+import { ContextMenu } from '@/components/ContextMenu';
+import { EditChannelModal } from '@/components/EditChannelModal';
+import { apiService } from '@/services/api';
+import { useServerStore } from '@/stores/serverStore';
 import { noiseCancellationService } from '@/services/noiseCancellation';
 import './ChannelSidebar.css';
 
@@ -15,6 +19,7 @@ interface ChannelSidebarProps {
   onMobileBack?: () => void;
   voiceParticipants?: Map<string, string[]>;
   members: MemberWithUser[];
+  onChannelDeleted: (channelId: string) => void;
 }
 
 export function ChannelSidebar({
@@ -27,9 +32,26 @@ export function ChannelSidebar({
   onMobileBack,
   voiceParticipants,
   members,
+  onChannelDeleted,
 }: ChannelSidebarProps) {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [ncEnabled, setNcEnabled] = useState(false);
+  const [channelMenu, setChannelMenu] = useState<{ x: number; y: number; channel: Channel } | null>(null);
+  const [editingChannel, setEditingChannel] = useState<Channel | null>(null);
+
+  const handleDeleteChannel = async (channel: Channel) => {
+    if (!server) return;
+    if (channels.length <= 1) return;
+    if (!window.confirm(`Удалить канал «${channel.name}»?`)) return;
+    try {
+      await apiService.deleteChannel(server.id, channel.id);
+      useServerStore.getState().removeChannel(channel.id);
+      onChannelDeleted(channel.id);
+    } catch (err) {
+      console.error('Failed to delete channel:', err);
+      alert(err instanceof Error ? err.message : 'Не удалось удалить канал');
+    }
+  };
 
   const memberById = useMemo(() => {
     const map = new Map<string, MemberWithUser>();
@@ -93,6 +115,11 @@ export function ChannelSidebar({
                 key={channel.id}
                 className={`channel ${currentChannel?.id === channel.id ? 'active' : ''}`}
                 onClick={() => onSelectChannel(channel)}
+                onContextMenu={(e) => {
+                  e.preventDefault();
+                  if (server?.owner_id !== user?.id) return;
+                  setChannelMenu({ x: e.clientX, y: e.clientY, channel });
+                }}
               >
                 {channel.name}
               </div>
@@ -112,6 +139,11 @@ export function ChannelSidebar({
                   <div
                     className={`channel voice ${currentChannel?.id === channel.id ? 'active' : ''}`}
                     onClick={() => onSelectChannel(channel)}
+                    onContextMenu={(e) => {
+                      e.preventDefault();
+                      if (server?.owner_id !== user?.id) return;
+                      setChannelMenu({ x: e.clientX, y: e.clientY, channel });
+                    }}
                   >
                     {channel.name}
                     {participantIds.length > 0 && (
@@ -169,6 +201,32 @@ export function ChannelSidebar({
       </div>
 
       <Settings isOpen={settingsOpen} onClose={() => setSettingsOpen(false)} />
+
+      {channelMenu && (
+        <ContextMenu
+          x={channelMenu.x}
+          y={channelMenu.y}
+          onClose={() => setChannelMenu(null)}
+          items={[
+            { label: 'Редактировать', onClick: () => setEditingChannel(channelMenu.channel) },
+            {
+              label: 'Удалить канал',
+              danger: true,
+              disabled: channels.length <= 1,
+              disabledReason: 'Нельзя удалить последний канал сервера',
+              onClick: () => handleDeleteChannel(channelMenu.channel),
+            },
+          ]}
+        />
+      )}
+
+      {editingChannel && server && (
+        <EditChannelModal
+          serverId={server.id}
+          channel={editingChannel}
+          onClose={() => setEditingChannel(null)}
+        />
+      )}
     </nav>
   );
 }
