@@ -32,6 +32,8 @@ type ServerUseCase interface {
 	DeleteServer(serverID, userID uuid.UUID) error
 	UpdateChannel(serverID, channelID, userID uuid.UUID, name string) (*Channel, error)
 	DeleteChannel(serverID, channelID, userID uuid.UUID) error
+	UpdateServerIcon(serverID, userID uuid.UUID, data []byte) (*Server, error)
+	RemoveServerIcon(serverID, userID uuid.UUID) (*Server, error)
 }
 
 type MessageUseCase interface {

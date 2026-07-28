@@ -1,6 +1,8 @@
 package usecase
 
 import (
+	"bytes"
+	"context"
 	"fmt"
 	"time"
 
@@ -317,4 +319,60 @@ func (uc *serverUseCase) DeleteChannel(serverID, channelID, userID uuid.UUID) er
 		return fmt.Errorf("failed to delete channel: %w", err)
 	}
 	return nil
+}
+
+// UpdateServerIcon валидирует data как PNG/JPEG, сохраняет файл, обновляет
+// icon_url сервера и удаляет старый файл иконки (best-effort — как у
+// UpdateAvatar, орфан-файл не хуже жёсткого фейла запроса).
+func (uc *serverUseCase) UpdateServerIcon(serverID, userID uuid.UUID, data []byte) (*domain.Server, error) {
+	server, err := uc.requireOwner(serverID, userID)
+	if err != nil {
+		return nil, err
+	}
+
+	ext, contentType, err := validateImage(data)
+	if err != nil {
+		return nil, err
+	}
+
+	oldIconURL := server.IconURL
+
+	key := fmt.Sprintf("server-icons/%s/%s.%s", serverID, randomHex(8), ext)
+	url, err := uc.storage.Save(context.Background(), key, bytes.NewReader(data), contentType)
+	if err != nil {
+		return nil, fmt.Errorf("save server icon: %w", err)
+	}
+
+	if err := uc.serverRepo.Update(serverID, map[string]interface{}{"icon_url": url}); err != nil {
+		return nil, fmt.Errorf("update server icon url: %w", err)
+	}
+
+	if oldIconURL != nil {
+		_ = uc.storage.Delete(context.Background(), *oldIconURL)
+	}
+
+	server.IconURL = &url
+	return server, nil
+}
+
+// RemoveServerIcon очищает icon_url сервера и удаляет файл. No-op, если
+// иконка уже не установлена.
+func (uc *serverUseCase) RemoveServerIcon(serverID, userID uuid.UUID) (*domain.Server, error) {
+	server, err := uc.requireOwner(serverID, userID)
+	if err != nil {
+		return nil, err
+	}
+
+	if server.IconURL == nil {
+		return server, nil
+	}
+
+	oldIconURL := *server.IconURL
+	if err := uc.serverRepo.Update(serverID, map[string]interface{}{"icon_url": nil}); err != nil {
+		return nil, fmt.Errorf("clear server icon url: %w", err)
+	}
+	_ = uc.storage.Delete(context.Background(), oldIconURL)
+
+	server.IconURL = nil
+	return server, nil
 }

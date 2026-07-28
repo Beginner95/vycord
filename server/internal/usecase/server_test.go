@@ -2,11 +2,13 @@ package usecase_test
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
 
 	"github.com/vycord/server/internal/domain"
 	"github.com/vycord/server/internal/usecase"
@@ -273,4 +275,118 @@ func TestDeleteChannel_NotOwner_Forbidden(t *testing.T) {
 
 	assert.ErrorIs(t, err, domain.ErrForbidden)
 	chRepo.AssertNotCalled(t, "GetByID", mock.Anything)
+}
+
+func TestUpdateServerIcon_Owner_SavesAndUpdatesURL(t *testing.T) {
+	serverID, ownerID := uuid.New(), uuid.New()
+
+	srvRepo := new(MockServerRepository)
+	chRepo := new(MockChannelRepository)
+	usrRepo := new(MockUserRepository)
+	storage := new(MockStorage)
+
+	srvRepo.On("GetByID", serverID).Return(&domain.Server{ID: serverID, OwnerID: ownerID}, nil)
+	storage.On("Save", mock.Anything, mock.MatchedBy(func(key string) bool {
+		return strings.HasPrefix(key, "server-icons/"+serverID.String()+"/") && strings.HasSuffix(key, ".png")
+	}), mock.Anything, "image/png").Return("/uploads/server-icons/x/y.png", nil)
+	srvRepo.On("Update", serverID, map[string]interface{}{"icon_url": "/uploads/server-icons/x/y.png"}).Return(nil)
+
+	uc := usecase.NewServerUseCase(srvRepo, chRepo, usrRepo, storage)
+	got, err := uc.UpdateServerIcon(serverID, ownerID, fakePNGBytes(64, 64))
+
+	require.NoError(t, err)
+	require.NotNil(t, got.IconURL)
+	assert.Equal(t, "/uploads/server-icons/x/y.png", *got.IconURL)
+}
+
+func TestUpdateServerIcon_NotOwner_Forbidden(t *testing.T) {
+	serverID, ownerID, userID := uuid.New(), uuid.New(), uuid.New()
+
+	srvRepo := new(MockServerRepository)
+	chRepo := new(MockChannelRepository)
+	usrRepo := new(MockUserRepository)
+	storage := new(MockStorage)
+
+	srvRepo.On("GetByID", serverID).Return(&domain.Server{ID: serverID, OwnerID: ownerID}, nil)
+
+	uc := usecase.NewServerUseCase(srvRepo, chRepo, usrRepo, storage)
+	got, err := uc.UpdateServerIcon(serverID, userID, fakePNGBytes(64, 64))
+
+	assert.Nil(t, got)
+	assert.ErrorIs(t, err, domain.ErrForbidden)
+	storage.AssertNotCalled(t, "Save", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
+}
+
+func TestUpdateServerIcon_RejectsUnsupportedFormat(t *testing.T) {
+	serverID, ownerID := uuid.New(), uuid.New()
+
+	srvRepo := new(MockServerRepository)
+	chRepo := new(MockChannelRepository)
+	usrRepo := new(MockUserRepository)
+	storage := new(MockStorage)
+
+	srvRepo.On("GetByID", serverID).Return(&domain.Server{ID: serverID, OwnerID: ownerID}, nil)
+
+	uc := usecase.NewServerUseCase(srvRepo, chRepo, usrRepo, storage)
+	got, err := uc.UpdateServerIcon(serverID, ownerID, []byte("not an image, just plain text bytes"))
+
+	assert.Nil(t, got)
+	assert.ErrorIs(t, err, domain.ErrUnsupportedAvatarFormat)
+}
+
+func TestRemoveServerIcon_Owner_ClearsURLAndDeletesFile(t *testing.T) {
+	serverID, ownerID := uuid.New(), uuid.New()
+	oldURL := "/uploads/server-icons/old.png"
+
+	srvRepo := new(MockServerRepository)
+	chRepo := new(MockChannelRepository)
+	usrRepo := new(MockUserRepository)
+	storage := new(MockStorage)
+
+	srvRepo.On("GetByID", serverID).Return(&domain.Server{ID: serverID, OwnerID: ownerID, IconURL: &oldURL}, nil)
+	srvRepo.On("Update", serverID, map[string]interface{}{"icon_url": nil}).Return(nil)
+	storage.On("Delete", mock.Anything, oldURL).Return(nil)
+
+	uc := usecase.NewServerUseCase(srvRepo, chRepo, usrRepo, storage)
+	got, err := uc.RemoveServerIcon(serverID, ownerID)
+
+	require.NoError(t, err)
+	assert.Nil(t, got.IconURL)
+	storage.AssertExpectations(t)
+}
+
+func TestRemoveServerIcon_NoOpWhenNoIconSet(t *testing.T) {
+	serverID, ownerID := uuid.New(), uuid.New()
+
+	srvRepo := new(MockServerRepository)
+	chRepo := new(MockChannelRepository)
+	usrRepo := new(MockUserRepository)
+	storage := new(MockStorage)
+
+	srvRepo.On("GetByID", serverID).Return(&domain.Server{ID: serverID, OwnerID: ownerID}, nil)
+
+	uc := usecase.NewServerUseCase(srvRepo, chRepo, usrRepo, storage)
+	got, err := uc.RemoveServerIcon(serverID, ownerID)
+
+	require.NoError(t, err)
+	assert.Nil(t, got.IconURL)
+	srvRepo.AssertNotCalled(t, "Update", mock.Anything, mock.Anything)
+	storage.AssertNotCalled(t, "Delete", mock.Anything, mock.Anything)
+}
+
+func TestRemoveServerIcon_NotOwner_Forbidden(t *testing.T) {
+	serverID, ownerID, userID := uuid.New(), uuid.New(), uuid.New()
+
+	srvRepo := new(MockServerRepository)
+	chRepo := new(MockChannelRepository)
+	usrRepo := new(MockUserRepository)
+	storage := new(MockStorage)
+
+	srvRepo.On("GetByID", serverID).Return(&domain.Server{ID: serverID, OwnerID: ownerID}, nil)
+
+	uc := usecase.NewServerUseCase(srvRepo, chRepo, usrRepo, storage)
+	got, err := uc.RemoveServerIcon(serverID, userID)
+
+	assert.Nil(t, got)
+	assert.ErrorIs(t, err, domain.ErrForbidden)
 }
