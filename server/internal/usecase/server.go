@@ -6,23 +6,27 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/vycord/server/internal/domain"
+	"github.com/vycord/server/pkg/filestorage"
 )
 
 type serverUseCase struct {
 	serverRepo  domain.ServerRepository
 	channelRepo domain.ChannelRepository
 	userRepo    domain.UserRepository
+	storage     filestorage.Storage
 }
 
 func NewServerUseCase(
 	serverRepo domain.ServerRepository,
 	channelRepo domain.ChannelRepository,
 	userRepo domain.UserRepository,
+	storage filestorage.Storage,
 ) domain.ServerUseCase {
 	return &serverUseCase{
 		serverRepo:  serverRepo,
 		channelRepo: channelRepo,
 		userRepo:    userRepo,
+		storage:     storage,
 	}
 }
 
@@ -225,4 +229,43 @@ func (uc *serverUseCase) GetMembers(serverID, userID uuid.UUID) ([]*domain.Membe
 		return nil, fmt.Errorf("failed to get members: %w", err)
 	}
 	return members, nil
+}
+
+// requireOwner проверяет, что сервер существует и userID — его владелец.
+// Возвращает domain.ErrServerNotFound или domain.ErrForbidden.
+func (uc *serverUseCase) requireOwner(serverID, userID uuid.UUID) (*domain.Server, error) {
+	server, err := uc.serverRepo.GetByID(serverID)
+	if err != nil {
+		return nil, fmt.Errorf("server %s: %w", serverID, domain.ErrServerNotFound)
+	}
+	if server.OwnerID != userID {
+		return nil, domain.ErrForbidden
+	}
+	return server, nil
+}
+
+func (uc *serverUseCase) UpdateServer(serverID, userID uuid.UUID, name string) (*domain.Server, error) {
+	server, err := uc.requireOwner(serverID, userID)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := uc.serverRepo.Update(serverID, map[string]interface{}{"name": name}); err != nil {
+		return nil, fmt.Errorf("failed to update server: %w", err)
+	}
+
+	server.Name = name
+	server.UpdatedAt = time.Now()
+	return server, nil
+}
+
+func (uc *serverUseCase) DeleteServer(serverID, userID uuid.UUID) error {
+	if _, err := uc.requireOwner(serverID, userID); err != nil {
+		return err
+	}
+
+	if err := uc.serverRepo.Delete(serverID); err != nil {
+		return fmt.Errorf("failed to delete server: %w", err)
+	}
+	return nil
 }

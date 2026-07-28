@@ -28,6 +28,8 @@ type ServerUseCase interface {
 	CreateChannel(serverID uuid.UUID, name string, channelType ChannelType) (*Channel, error)
 	GetChannels(serverID uuid.UUID) ([]*Channel, error)
 	GetMembers(serverID, userID uuid.UUID) ([]*MemberWithUser, error)
+	UpdateServer(serverID, userID uuid.UUID, name string) (*Server, error)
+	DeleteServer(serverID, userID uuid.UUID) error
 }
 
 type MessageUseCase interface {
