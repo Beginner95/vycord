@@ -242,6 +242,76 @@ func (h *ServerHandler) GetChannels(w http.ResponseWriter, r *http.Request) {
 	h.sendJSON(w, http.StatusOK, channels)
 }
 
+type UpdateChannelRequest struct {
+	Name string `json:"name"`
+}
+
+func (h *ServerHandler) UpdateChannel(w http.ResponseWriter, r *http.Request) {
+	userID := r.Context().Value("user_id").(uuid.UUID)
+
+	serverID, err := uuid.Parse(r.PathValue("server_id"))
+	if err != nil {
+		h.sendError(w, http.StatusBadRequest, "invalid server id")
+		return
+	}
+	channelID, err := uuid.Parse(r.PathValue("channel_id"))
+	if err != nil {
+		h.sendError(w, http.StatusBadRequest, "invalid channel id")
+		return
+	}
+
+	var req UpdateChannelRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		h.sendError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if req.Name == "" {
+		h.sendError(w, http.StatusBadRequest, "channel name is required")
+		return
+	}
+
+	channel, err := h.serverUseCase.UpdateChannel(serverID, channelID, userID, req.Name)
+	if err != nil {
+		h.writeUseCaseError(w, r, err)
+		return
+	}
+
+	payload, _ := json.Marshal(channel)
+	h.hub.BroadcastMessage(&ws.Message{Type: "channel_update", Payload: payload})
+
+	h.sendJSON(w, http.StatusOK, channel)
+}
+
+type deleteChannelPayload struct {
+	ID       uuid.UUID `json:"id"`
+	ServerID uuid.UUID `json:"server_id"`
+}
+
+func (h *ServerHandler) DeleteChannel(w http.ResponseWriter, r *http.Request) {
+	userID := r.Context().Value("user_id").(uuid.UUID)
+
+	serverID, err := uuid.Parse(r.PathValue("server_id"))
+	if err != nil {
+		h.sendError(w, http.StatusBadRequest, "invalid server id")
+		return
+	}
+	channelID, err := uuid.Parse(r.PathValue("channel_id"))
+	if err != nil {
+		h.sendError(w, http.StatusBadRequest, "invalid channel id")
+		return
+	}
+
+	if err := h.serverUseCase.DeleteChannel(serverID, channelID, userID); err != nil {
+		h.writeUseCaseError(w, r, err)
+		return
+	}
+
+	payload, _ := json.Marshal(deleteChannelPayload{ID: channelID, ServerID: serverID})
+	h.hub.BroadcastMessage(&ws.Message{Type: "channel_delete", Payload: payload})
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func (h *ServerHandler) GetMembers(w http.ResponseWriter, r *http.Request) {
 	userID := r.Context().Value("user_id").(uuid.UUID)
 
