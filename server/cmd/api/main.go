@@ -97,7 +97,7 @@ func main() {
 	// Initialize handlers
 	authHandler := handler.NewAuthHandler(authUseCase, log)
 	userHandler := handler.NewUserHandler(userUseCase, hub, log)
-	serverHandler := handler.NewServerHandler(serverUseCase, log)
+	serverHandler := handler.NewServerHandler(serverUseCase, hub, log)
 	messageHandler := handler.NewMessageHandler(messageUseCase, hub, log)
 	onlineUsersHandler := handler.NewOnlineUsersHandler(hub, userRepo, log)
 	wsHandler := handler.NewWebSocketHandler(hub, authUseCase, callUseCase, userUseCase, log)
@@ -129,6 +129,8 @@ func main() {
 	router.HandleFunc("GET /api/v1/servers", authMid.RequireAuth(serverHandler.GetUserServers))
 	router.HandleFunc("POST /api/v1/servers/{id}/join", authMid.RequireAuth(serverHandler.JoinServer))
 	router.HandleFunc("POST /api/v1/servers/{id}/leave", authMid.RequireAuth(serverHandler.LeaveServer))
+	router.HandleFunc("PATCH /api/v1/servers/{id}", authMid.RequireAuth(serverHandler.UpdateServer))
+	router.HandleFunc("DELETE /api/v1/servers/{id}", authMid.RequireAuth(serverHandler.DeleteServer))
 
 	// Channel routes
 	router.HandleFunc("POST /api/v1/servers/{server_id}/channels", authMid.RequireAuth(serverHandler.CreateChannel))

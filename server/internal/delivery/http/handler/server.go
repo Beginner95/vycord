@@ -8,17 +8,21 @@ import (
 	"net/http"
 
 	"github.com/google/uuid"
+	"github.com/vycord/server/internal/delivery/http/middleware"
+	"github.com/vycord/server/internal/delivery/ws"
 	"github.com/vycord/server/internal/domain"
 )
 
 type ServerHandler struct {
 	serverUseCase domain.ServerUseCase
+	hub           *ws.Hub
 	log           *slog.Logger
 }
 
-func NewServerHandler(serverUseCase domain.ServerUseCase, log *slog.Logger) *ServerHandler {
+func NewServerHandler(serverUseCase domain.ServerUseCase, hub *ws.Hub, log *slog.Logger) *ServerHandler {
 	return &ServerHandler{
 		serverUseCase: serverUseCase,
+		hub:           hub,
 		log:           log,
 	}
 }
@@ -115,6 +119,67 @@ func (h *ServerHandler) LeaveServer(w http.ResponseWriter, r *http.Request) {
 		h.sendError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+type UpdateServerRequest struct {
+	Name string `json:"name"`
+}
+
+func (h *ServerHandler) UpdateServer(w http.ResponseWriter, r *http.Request) {
+	userID := r.Context().Value("user_id").(uuid.UUID)
+
+	idStr := r.PathValue("id")
+	serverID, err := uuid.Parse(idStr)
+	if err != nil {
+		h.sendError(w, http.StatusBadRequest, "invalid server id")
+		return
+	}
+
+	var req UpdateServerRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		h.sendError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if req.Name == "" {
+		h.sendError(w, http.StatusBadRequest, "server name is required")
+		return
+	}
+
+	server, err := h.serverUseCase.UpdateServer(serverID, userID, req.Name)
+	if err != nil {
+		h.writeUseCaseError(w, r, err)
+		return
+	}
+
+	payload, _ := json.Marshal(server)
+	h.hub.BroadcastMessage(&ws.Message{Type: "server_update", Payload: payload})
+
+	h.sendJSON(w, http.StatusOK, server)
+}
+
+type deleteServerPayload struct {
+	ID uuid.UUID `json:"id"`
+}
+
+func (h *ServerHandler) DeleteServer(w http.ResponseWriter, r *http.Request) {
+	userID := r.Context().Value("user_id").(uuid.UUID)
+
+	idStr := r.PathValue("id")
+	serverID, err := uuid.Parse(idStr)
+	if err != nil {
+		h.sendError(w, http.StatusBadRequest, "invalid server id")
+		return
+	}
+
+	if err := h.serverUseCase.DeleteServer(serverID, userID); err != nil {
+		h.writeUseCaseError(w, r, err)
+		return
+	}
+
+	payload, _ := json.Marshal(deleteServerPayload{ID: serverID})
+	h.hub.BroadcastMessage(&ws.Message{Type: "server_delete", Payload: payload})
 
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -229,6 +294,30 @@ func (h *ServerHandler) SearchServers(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.sendJSON(w, http.StatusOK, servers)
+}
+
+// writeUseCaseError транслирует доменные ошибки usecase-слоя серверов/каналов
+// в HTTP-статусы, не раскрывая внутренние детали (err.Error()) наружу.
+func (h *ServerHandler) writeUseCaseError(w http.ResponseWriter, r *http.Request, err error) {
+	switch {
+	case errors.Is(err, domain.ErrServerNotFound):
+		h.sendError(w, http.StatusNotFound, "server not found")
+	case errors.Is(err, domain.ErrChannelNotFound):
+		h.sendError(w, http.StatusNotFound, "channel not found")
+	case errors.Is(err, domain.ErrLastChannel):
+		h.sendError(w, http.StatusBadRequest, "cannot delete the last channel of a server")
+	case errors.Is(err, domain.ErrForbidden):
+		h.sendError(w, http.StatusForbidden, "access denied")
+	case errors.Is(err, domain.ErrUnsupportedAvatarFormat):
+		h.sendError(w, http.StatusBadRequest, "unsupported format: only PNG and JPEG are allowed")
+	case errors.Is(err, domain.ErrInvalidAvatarImage):
+		h.sendError(w, http.StatusBadRequest, "invalid image file")
+	case errors.Is(err, domain.ErrInvalidAvatarDimensions):
+		h.sendError(w, http.StatusBadRequest, "image dimensions are out of allowed range")
+	default:
+		h.log.Error("server request failed", "request_id", middleware.RequestIDFromContext(r.Context()), "error", err)
+		h.sendError(w, http.StatusInternalServerError, "internal server error")
+	}
 }
 
 func (h *ServerHandler) sendJSON(w http.ResponseWriter, status int, data interface{}) {
