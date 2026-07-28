@@ -1,21 +1,36 @@
 import { useState } from 'react';
-import type { Server } from '@/types';
+import type { Server, User } from '@/types';
 import { apiService } from '@/services/api';
+import { useServerStore } from '@/stores/serverStore';
+import { ContextMenu } from '@/components/ContextMenu';
+import { EditServerModal } from '@/components/EditServerModal';
 import './ServerList.css';
 
 interface ServerListProps {
   servers: Server[];
   currentServer: Server | null;
+  user: User | null;
   onSelectServer: (server: Server) => void;
   onCreateServer: () => void;
   onJoinServer: (server: Server) => void;
+  onServerDeleted: (serverId: string) => void;
 }
 
-export function ServerList({ servers, currentServer, onSelectServer, onCreateServer, onJoinServer }: ServerListProps) {
+export function ServerList({
+  servers,
+  currentServer,
+  user,
+  onSelectServer,
+  onCreateServer,
+  onJoinServer,
+  onServerDeleted,
+}: ServerListProps) {
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<Server[]>([]);
   const [searchLoading, setSearchLoading] = useState(false);
+  const [menu, setMenu] = useState<{ x: number; y: number; server: Server } | null>(null);
+  const [editingServer, setEditingServer] = useState<Server | null>(null);
 
   const handleSearch = async () => {
     if (!searchQuery.trim()) return;
@@ -27,6 +42,18 @@ export function ServerList({ servers, currentServer, onSelectServer, onCreateSer
       setSearchResults([]);
     } finally {
       setSearchLoading(false);
+    }
+  };
+
+  const handleDeleteServer = async (server: Server) => {
+    if (!window.confirm(`Удалить сервер «${server.name}»? Это действие необратимо.`)) return;
+    try {
+      await apiService.deleteServer(server.id);
+      useServerStore.getState().removeServer(server.id);
+      onServerDeleted(server.id);
+    } catch (err) {
+      console.error('Failed to delete server:', err);
+      alert(err instanceof Error ? err.message : 'Не удалось удалить сервер');
     }
   };
 
@@ -49,6 +76,11 @@ export function ServerList({ servers, currentServer, onSelectServer, onCreateSer
             key={server.id}
             className={`server-icon ${currentServer?.id === server.id ? 'active' : ''}`}
             onClick={() => onSelectServer(server)}
+            onContextMenu={(e) => {
+              e.preventDefault();
+              if (server.owner_id !== user?.id) return;
+              setMenu({ x: e.clientX, y: e.clientY, server });
+            }}
             title={server.name}
           >
             {server.icon_url ? (
@@ -105,6 +137,22 @@ export function ServerList({ servers, currentServer, onSelectServer, onCreateSer
             )}
           </div>
         </div>
+      )}
+
+      {menu && (
+        <ContextMenu
+          x={menu.x}
+          y={menu.y}
+          onClose={() => setMenu(null)}
+          items={[
+            { label: 'Редактировать', onClick: () => setEditingServer(menu.server) },
+            { label: 'Удалить сервер', danger: true, onClick: () => handleDeleteServer(menu.server) },
+          ]}
+        />
+      )}
+
+      {editingServer && (
+        <EditServerModal server={editingServer} onClose={() => setEditingServer(null)} />
       )}
     </>
   );

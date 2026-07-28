@@ -1,0 +1,57 @@
+.edit-server-icon-block {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 20px;
+}
+
+.edit-server-icon-preview {
+  width: 72px;
+  height: 72px;
+  min-width: 72px;
+  border-radius: var(--radius-full);
+  object-fit: cover;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 24px;
+  font-weight: 700;
+  background: linear-gradient(135deg, var(--brand-300), var(--brand-500));
+  color: var(--text-inverse);
+}
+
+.edit-server-icon-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.edit-server-icon-btn {
+  padding: 7px 14px;
+  border: 1.5px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--transition);
+}
+
+.edit-server-icon-btn:hover:not(:disabled) {
+  background: var(--bg-hover);
+}
+
+.edit-server-icon-btn.danger {
+  color: var(--red-500);
+  border-color: var(--red-500);
+}
+
+.edit-server-icon-btn.danger:hover:not(:disabled) {
+  background: var(--red-50);
+}
+
+.edit-server-icon-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}

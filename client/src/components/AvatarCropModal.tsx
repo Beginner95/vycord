@@ -15,6 +15,7 @@ interface Offset {
 
 interface AvatarCropModalProps {
   file: File;
+  title?: string;
   onCancel: () => void;
   onUpload: (blob: Blob) => Promise<void>;
 }
@@ -56,7 +57,7 @@ function exportCroppedBlob(img: HTMLImageElement, baseScale: number, zoom: numbe
   });
 }
 
-export function AvatarCropModal({ file, onCancel, onUpload }: AvatarCropModalProps) {
+export function AvatarCropModal({ file, title, onCancel, onUpload }: AvatarCropModalProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const draggingRef = useRef(false);
   const lastPointRef = useRef<Offset>({ x: 0, y: 0 });
@@ -163,7 +164,7 @@ export function AvatarCropModal({ file, onCancel, onUpload }: AvatarCropModalPro
   return (
     <div className="avatar-crop-overlay" onClick={saving ? undefined : onCancel}>
       <div className="avatar-crop-modal" onClick={(e) => e.stopPropagation()}>
-        <h3>Обрезка аватара</h3>
+        <h3>{title ?? 'Обрезка аватара'}</h3>
 
         <canvas
           ref={canvasRef}
