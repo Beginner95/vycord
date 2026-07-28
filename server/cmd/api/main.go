@@ -131,6 +131,8 @@ func main() {
 	router.HandleFunc("POST /api/v1/servers/{id}/leave", authMid.RequireAuth(serverHandler.LeaveServer))
 	router.HandleFunc("PATCH /api/v1/servers/{id}", authMid.RequireAuth(serverHandler.UpdateServer))
 	router.HandleFunc("DELETE /api/v1/servers/{id}", authMid.RequireAuth(serverHandler.DeleteServer))
+	router.HandleFunc("POST /api/v1/servers/{id}/icon", authMid.RequireAuth(serverHandler.UploadServerIcon))
+	router.HandleFunc("DELETE /api/v1/servers/{id}/icon", authMid.RequireAuth(serverHandler.RemoveServerIcon))
 
 	// Channel routes
 	router.HandleFunc("POST /api/v1/servers/{server_id}/channels", authMid.RequireAuth(serverHandler.CreateChannel))

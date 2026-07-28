@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 
@@ -364,6 +365,85 @@ func (h *ServerHandler) SearchServers(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.sendJSON(w, http.StatusOK, servers)
+}
+
+const (
+	// maxServerIconRequestBytes ограничивает multipart-запрос целиком — чуть
+	// больше maxServerIconFileBytes, чтобы оставить место под границы/заголовки.
+	maxServerIconRequestBytes = 3 << 20
+	// maxServerIconFileBytes — лимит на сам файл иконки.
+	maxServerIconFileBytes = 2 << 20
+)
+
+// UploadServerIcon принимает multipart/form-data с полем "icon" (PNG/JPEG,
+// ≤2MB), сохраняет его, обновляет icon_url сервера и рассылает server_update.
+func (h *ServerHandler) UploadServerIcon(w http.ResponseWriter, r *http.Request) {
+	userID := r.Context().Value("user_id").(uuid.UUID)
+
+	idStr := r.PathValue("id")
+	serverID, err := uuid.Parse(idStr)
+	if err != nil {
+		h.sendError(w, http.StatusBadRequest, "invalid server id")
+		return
+	}
+
+	r.Body = http.MaxBytesReader(w, r.Body, maxServerIconRequestBytes)
+	if err := r.ParseMultipartForm(maxServerIconRequestBytes); err != nil {
+		h.sendError(w, http.StatusRequestEntityTooLarge, "icon file is too large")
+		return
+	}
+	defer r.MultipartForm.RemoveAll()
+
+	file, _, err := r.FormFile("icon")
+	if err != nil {
+		h.sendError(w, http.StatusBadRequest, "icon file is required")
+		return
+	}
+	defer file.Close()
+
+	data, err := io.ReadAll(io.LimitReader(file, maxServerIconFileBytes+1))
+	if err != nil {
+		h.sendError(w, http.StatusBadRequest, "failed to read icon file")
+		return
+	}
+	if len(data) > maxServerIconFileBytes {
+		h.sendError(w, http.StatusRequestEntityTooLarge, "icon file is too large")
+		return
+	}
+
+	server, err := h.serverUseCase.UpdateServerIcon(serverID, userID, data)
+	if err != nil {
+		h.writeUseCaseError(w, r, err)
+		return
+	}
+
+	payload, _ := json.Marshal(server)
+	h.hub.BroadcastMessage(&ws.Message{Type: "server_update", Payload: payload})
+
+	h.sendJSON(w, http.StatusOK, server)
+}
+
+// RemoveServerIcon очищает иконку сервера и рассылает server_update.
+func (h *ServerHandler) RemoveServerIcon(w http.ResponseWriter, r *http.Request) {
+	userID := r.Context().Value("user_id").(uuid.UUID)
+
+	idStr := r.PathValue("id")
+	serverID, err := uuid.Parse(idStr)
+	if err != nil {
+		h.sendError(w, http.StatusBadRequest, "invalid server id")
+		return
+	}
+
+	server, err := h.serverUseCase.RemoveServerIcon(serverID, userID)
+	if err != nil {
+		h.writeUseCaseError(w, r, err)
+		return
+	}
+
+	payload, _ := json.Marshal(server)
+	h.hub.BroadcastMessage(&ws.Message{Type: "server_update", Payload: payload})
+
+	h.sendJSON(w, http.StatusOK, server)
 }
 
 // writeUseCaseError транслирует доменные ошибки usecase-слоя серверов/каналов
