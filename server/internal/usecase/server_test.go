@@ -159,3 +159,118 @@ func TestDeleteServer_NotOwner_Forbidden(t *testing.T) {
 	assert.ErrorIs(t, err, domain.ErrForbidden)
 	srvRepo.AssertNotCalled(t, "Delete", mock.Anything)
 }
+
+func TestUpdateChannel_Owner_Success(t *testing.T) {
+	serverID, ownerID, channelID := uuid.New(), uuid.New(), uuid.New()
+
+	srvRepo := new(MockServerRepository)
+	chRepo := new(MockChannelRepository)
+	usrRepo := new(MockUserRepository)
+	storage := new(MockStorage)
+
+	srvRepo.On("GetByID", serverID).Return(&domain.Server{ID: serverID, OwnerID: ownerID}, nil)
+	chRepo.On("GetByID", channelID).Return(&domain.Channel{ID: channelID, ServerID: serverID, Name: "old"}, nil)
+	chRepo.On("Update", channelID, map[string]interface{}{"name": "new"}).Return(nil)
+
+	uc := usecase.NewServerUseCase(srvRepo, chRepo, usrRepo, storage)
+	got, err := uc.UpdateChannel(serverID, channelID, ownerID, "new")
+
+	assert.NoError(t, err)
+	assert.Equal(t, "new", got.Name)
+}
+
+func TestUpdateChannel_NotOwner_Forbidden(t *testing.T) {
+	serverID, ownerID, userID, channelID := uuid.New(), uuid.New(), uuid.New(), uuid.New()
+
+	srvRepo := new(MockServerRepository)
+	chRepo := new(MockChannelRepository)
+	usrRepo := new(MockUserRepository)
+	storage := new(MockStorage)
+
+	srvRepo.On("GetByID", serverID).Return(&domain.Server{ID: serverID, OwnerID: ownerID}, nil)
+
+	uc := usecase.NewServerUseCase(srvRepo, chRepo, usrRepo, storage)
+	got, err := uc.UpdateChannel(serverID, channelID, userID, "new")
+
+	assert.Nil(t, got)
+	assert.ErrorIs(t, err, domain.ErrForbidden)
+	chRepo.AssertNotCalled(t, "GetByID", mock.Anything)
+}
+
+func TestUpdateChannel_WrongServer_NotFound(t *testing.T) {
+	serverID, otherServerID, ownerID, channelID := uuid.New(), uuid.New(), uuid.New(), uuid.New()
+
+	srvRepo := new(MockServerRepository)
+	chRepo := new(MockChannelRepository)
+	usrRepo := new(MockUserRepository)
+	storage := new(MockStorage)
+
+	srvRepo.On("GetByID", serverID).Return(&domain.Server{ID: serverID, OwnerID: ownerID}, nil)
+	chRepo.On("GetByID", channelID).Return(&domain.Channel{ID: channelID, ServerID: otherServerID}, nil)
+
+	uc := usecase.NewServerUseCase(srvRepo, chRepo, usrRepo, storage)
+	got, err := uc.UpdateChannel(serverID, channelID, ownerID, "new")
+
+	assert.Nil(t, got)
+	assert.ErrorIs(t, err, domain.ErrChannelNotFound)
+	chRepo.AssertNotCalled(t, "Update", mock.Anything, mock.Anything)
+}
+
+func TestDeleteChannel_Owner_MultipleChannels_Success(t *testing.T) {
+	serverID, ownerID, channelID, otherChannelID := uuid.New(), uuid.New(), uuid.New(), uuid.New()
+
+	srvRepo := new(MockServerRepository)
+	chRepo := new(MockChannelRepository)
+	usrRepo := new(MockUserRepository)
+	storage := new(MockStorage)
+
+	srvRepo.On("GetByID", serverID).Return(&domain.Server{ID: serverID, OwnerID: ownerID}, nil)
+	chRepo.On("GetByID", channelID).Return(&domain.Channel{ID: channelID, ServerID: serverID}, nil)
+	chRepo.On("GetByServerID", serverID).Return([]*domain.Channel{
+		{ID: channelID, ServerID: serverID},
+		{ID: otherChannelID, ServerID: serverID},
+	}, nil)
+	chRepo.On("Delete", channelID).Return(nil)
+
+	uc := usecase.NewServerUseCase(srvRepo, chRepo, usrRepo, storage)
+	err := uc.DeleteChannel(serverID, channelID, ownerID)
+
+	assert.NoError(t, err)
+	chRepo.AssertCalled(t, "Delete", channelID)
+}
+
+func TestDeleteChannel_LastChannel_Rejected(t *testing.T) {
+	serverID, ownerID, channelID := uuid.New(), uuid.New(), uuid.New()
+
+	srvRepo := new(MockServerRepository)
+	chRepo := new(MockChannelRepository)
+	usrRepo := new(MockUserRepository)
+	storage := new(MockStorage)
+
+	srvRepo.On("GetByID", serverID).Return(&domain.Server{ID: serverID, OwnerID: ownerID}, nil)
+	chRepo.On("GetByID", channelID).Return(&domain.Channel{ID: channelID, ServerID: serverID}, nil)
+	chRepo.On("GetByServerID", serverID).Return([]*domain.Channel{{ID: channelID, ServerID: serverID}}, nil)
+
+	uc := usecase.NewServerUseCase(srvRepo, chRepo, usrRepo, storage)
+	err := uc.DeleteChannel(serverID, channelID, ownerID)
+
+	assert.ErrorIs(t, err, domain.ErrLastChannel)
+	chRepo.AssertNotCalled(t, "Delete", mock.Anything)
+}
+
+func TestDeleteChannel_NotOwner_Forbidden(t *testing.T) {
+	serverID, ownerID, userID, channelID := uuid.New(), uuid.New(), uuid.New(), uuid.New()
+
+	srvRepo := new(MockServerRepository)
+	chRepo := new(MockChannelRepository)
+	usrRepo := new(MockUserRepository)
+	storage := new(MockStorage)
+
+	srvRepo.On("GetByID", serverID).Return(&domain.Server{ID: serverID, OwnerID: ownerID}, nil)
+
+	uc := usecase.NewServerUseCase(srvRepo, chRepo, usrRepo, storage)
+	err := uc.DeleteChannel(serverID, channelID, userID)
+
+	assert.ErrorIs(t, err, domain.ErrForbidden)
+	chRepo.AssertNotCalled(t, "GetByID", mock.Anything)
+}

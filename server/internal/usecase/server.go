@@ -269,3 +269,52 @@ func (uc *serverUseCase) DeleteServer(serverID, userID uuid.UUID) error {
 	}
 	return nil
 }
+
+func (uc *serverUseCase) UpdateChannel(serverID, channelID, userID uuid.UUID, name string) (*domain.Channel, error) {
+	if _, err := uc.requireOwner(serverID, userID); err != nil {
+		return nil, err
+	}
+
+	channel, err := uc.channelRepo.GetByID(channelID)
+	if err != nil {
+		return nil, fmt.Errorf("get channel: %w", err)
+	}
+	if channel.ServerID != serverID {
+		return nil, fmt.Errorf("channel %s: %w", channelID, domain.ErrChannelNotFound)
+	}
+
+	if err := uc.channelRepo.Update(channelID, map[string]interface{}{"name": name}); err != nil {
+		return nil, fmt.Errorf("failed to update channel: %w", err)
+	}
+
+	channel.Name = name
+	channel.UpdatedAt = time.Now()
+	return channel, nil
+}
+
+func (uc *serverUseCase) DeleteChannel(serverID, channelID, userID uuid.UUID) error {
+	if _, err := uc.requireOwner(serverID, userID); err != nil {
+		return err
+	}
+
+	channel, err := uc.channelRepo.GetByID(channelID)
+	if err != nil {
+		return fmt.Errorf("get channel: %w", err)
+	}
+	if channel.ServerID != serverID {
+		return fmt.Errorf("channel %s: %w", channelID, domain.ErrChannelNotFound)
+	}
+
+	channels, err := uc.channelRepo.GetByServerID(serverID)
+	if err != nil {
+		return fmt.Errorf("list channels: %w", err)
+	}
+	if len(channels) <= 1 {
+		return domain.ErrLastChannel
+	}
+
+	if err := uc.channelRepo.Delete(channelID); err != nil {
+		return fmt.Errorf("failed to delete channel: %w", err)
+	}
+	return nil
+}

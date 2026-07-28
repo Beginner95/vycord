@@ -30,6 +30,8 @@ type ServerUseCase interface {
 	GetMembers(serverID, userID uuid.UUID) ([]*MemberWithUser, error)
 	UpdateServer(serverID, userID uuid.UUID, name string) (*Server, error)
 	DeleteServer(serverID, userID uuid.UUID) error
+	UpdateChannel(serverID, channelID, userID uuid.UUID, name string) (*Channel, error)
+	DeleteChannel(serverID, channelID, userID uuid.UUID) error
 }
 
 type MessageUseCase interface {
