@@ -6,20 +6,12 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
-	"image"
-	_ "image/jpeg"
-	_ "image/png"
-	"net/http"
 
 	"github.com/google/uuid"
 	"github.com/vycord/server/internal/domain"
 	"github.com/vycord/server/pkg/filestorage"
 )
 
-const (
-	minAvatarDimension = 32
-	maxAvatarDimension = 4096
-)
 
 type userUseCase struct {
 	userRepo domain.UserRepository
@@ -79,29 +71,10 @@ func (uc *userUseCase) UpdateLastVisited(id uuid.UUID, serverID, channelID *uuid
 	return nil
 }
 
-// UpdateAvatar validates data as a PNG or JPEG image of sane dimensions,
-// stores it, points the user's avatar_url at the new file, and deletes the
-// previous avatar file (if any). Deletion failures are not fatal — an
-// orphaned old file is not worse than a hard failure of the whole request.
 func (uc *userUseCase) UpdateAvatar(id uuid.UUID, data []byte) (*domain.User, error) {
-	contentType := http.DetectContentType(data)
-	var ext string
-	switch contentType {
-	case "image/png":
-		ext = "png"
-	case "image/jpeg":
-		ext = "jpg"
-	default:
-		return nil, domain.ErrUnsupportedAvatarFormat
-	}
-
-	cfg, _, err := image.DecodeConfig(bytes.NewReader(data))
+	ext, contentType, err := validateImage(data)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %v", domain.ErrInvalidAvatarImage, err)
-	}
-	if cfg.Width < minAvatarDimension || cfg.Height < minAvatarDimension ||
-		cfg.Width > maxAvatarDimension || cfg.Height > maxAvatarDimension {
-		return nil, domain.ErrInvalidAvatarDimensions
+		return nil, err
 	}
 
 	user, err := uc.userRepo.GetByID(id)

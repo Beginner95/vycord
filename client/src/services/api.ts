@@ -1,5 +1,5 @@
 import { useAuthStore } from '@/stores/authStore';
-import type { User } from '@/types';
+import type { Server, User } from '@/types';
 
 export const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8080';
 
@@ -153,6 +153,34 @@ class ApiService {
     });
   }
 
+  async updateServer(id: string, name: string) {
+    return this.request(`/api/v1/servers/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ name }),
+    });
+  }
+
+  async deleteServer(id: string) {
+    return this.request(`/api/v1/servers/${id}`, {
+      method: 'DELETE',
+    });
+  }
+
+  async uploadServerIcon(id: string, blob: Blob) {
+    const formData = new FormData();
+    formData.append('icon', blob, 'icon.jpg');
+    return this.requestForm<Server>(`/api/v1/servers/${id}/icon`, {
+      method: 'POST',
+      body: formData,
+    });
+  }
+
+  async removeServerIcon(id: string) {
+    return this.requestForm<Server>(`/api/v1/servers/${id}/icon`, {
+      method: 'DELETE',
+    });
+  }
+
   // Channels
   async createChannel(serverId: string, name: string, type: 'text' | 'voice' = 'text') {
     return this.request(`/api/v1/servers/${serverId}/channels`, {
@@ -167,6 +195,19 @@ class ApiService {
 
   async getServerMembers(serverId: string) {
     return this.request(`/api/v1/servers/${serverId}/members`);
+  }
+
+  async updateChannel(serverId: string, channelId: string, name: string) {
+    return this.request(`/api/v1/servers/${serverId}/channels/${channelId}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ name }),
+    });
+  }
+
+  async deleteChannel(serverId: string, channelId: string) {
+    return this.request(`/api/v1/servers/${serverId}/channels/${channelId}`, {
+      method: 'DELETE',
+    });
   }
 
   // Messages

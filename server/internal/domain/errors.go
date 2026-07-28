@@ -4,7 +4,7 @@ import "errors"
 
 // Доменные сентинел-ошибки. Хендлеры транслируют их в HTTP-статусы через errors.Is.
 var (
-	// ErrForbidden — пользователь не участник сервера, доступ запрещён.
+	// ErrForbidden — пользователь не участник сервера (или не владелец, где это требуется), доступ запрещён.
 	ErrForbidden = errors.New("access denied")
 	// ErrChannelNotFound — канал с указанным ID не существует.
 	ErrChannelNotFound = errors.New("channel not found")
@@ -20,4 +20,8 @@ var (
 	ErrInvalidAvatarImage = errors.New("invalid avatar image")
 	// ErrInvalidAvatarDimensions — разрешение изображения вне допустимых границ.
 	ErrInvalidAvatarDimensions = errors.New("invalid avatar dimensions")
+	// ErrServerNotFound — сервер с указанным ID не существует.
+	ErrServerNotFound = errors.New("server not found")
+	// ErrLastChannel — попытка удалить единственный оставшийся канал сервера.
+	ErrLastChannel = errors.New("cannot delete the last channel of a server")
 )

@@ -1,28 +1,34 @@
 package usecase
 
 import (
+	"bytes"
+	"context"
 	"fmt"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/vycord/server/internal/domain"
+	"github.com/vycord/server/pkg/filestorage"
 )
 
 type serverUseCase struct {
 	serverRepo  domain.ServerRepository
 	channelRepo domain.ChannelRepository
 	userRepo    domain.UserRepository
+	storage     filestorage.Storage
 }
 
 func NewServerUseCase(
 	serverRepo domain.ServerRepository,
 	channelRepo domain.ChannelRepository,
 	userRepo domain.UserRepository,
+	storage filestorage.Storage,
 ) domain.ServerUseCase {
 	return &serverUseCase{
 		serverRepo:  serverRepo,
 		channelRepo: channelRepo,
 		userRepo:    userRepo,
+		storage:     storage,
 	}
 }
 
@@ -225,4 +231,144 @@ func (uc *serverUseCase) GetMembers(serverID, userID uuid.UUID) ([]*domain.Membe
 		return nil, fmt.Errorf("failed to get members: %w", err)
 	}
 	return members, nil
+}
+
+// requireOwner проверяет, что сервер существует и userID — его владелец.
+// Возвращает domain.ErrServerNotFound или domain.ErrForbidden.
+func (uc *serverUseCase) requireOwner(serverID, userID uuid.UUID) (*domain.Server, error) {
+	server, err := uc.serverRepo.GetByID(serverID)
+	if err != nil {
+		return nil, fmt.Errorf("server %s: %w", serverID, domain.ErrServerNotFound)
+	}
+	if server.OwnerID != userID {
+		return nil, domain.ErrForbidden
+	}
+	return server, nil
+}
+
+func (uc *serverUseCase) UpdateServer(serverID, userID uuid.UUID, name string) (*domain.Server, error) {
+	server, err := uc.requireOwner(serverID, userID)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := uc.serverRepo.Update(serverID, map[string]interface{}{"name": name}); err != nil {
+		return nil, fmt.Errorf("failed to update server: %w", err)
+	}
+
+	server.Name = name
+	server.UpdatedAt = time.Now()
+	return server, nil
+}
+
+func (uc *serverUseCase) DeleteServer(serverID, userID uuid.UUID) error {
+	if _, err := uc.requireOwner(serverID, userID); err != nil {
+		return err
+	}
+
+	if err := uc.serverRepo.Delete(serverID); err != nil {
+		return fmt.Errorf("failed to delete server: %w", err)
+	}
+	return nil
+}
+
+func (uc *serverUseCase) UpdateChannel(serverID, channelID, userID uuid.UUID, name string) (*domain.Channel, error) {
+	if _, err := uc.requireOwner(serverID, userID); err != nil {
+		return nil, err
+	}
+
+	channel, err := uc.channelRepo.GetByID(channelID)
+	if err != nil {
+		return nil, fmt.Errorf("get channel: %w", err)
+	}
+	if channel.ServerID != serverID {
+		return nil, fmt.Errorf("channel %s: %w", channelID, domain.ErrChannelNotFound)
+	}
+
+	if err := uc.channelRepo.Update(channelID, map[string]interface{}{"name": name}); err != nil {
+		return nil, fmt.Errorf("failed to update channel: %w", err)
+	}
+
+	channel.Name = name
+	channel.UpdatedAt = time.Now()
+	return channel, nil
+}
+
+func (uc *serverUseCase) DeleteChannel(serverID, channelID, userID uuid.UUID) error {
+	if _, err := uc.requireOwner(serverID, userID); err != nil {
+		return err
+	}
+
+	channel, err := uc.channelRepo.GetByID(channelID)
+	if err != nil {
+		return fmt.Errorf("get channel: %w", err)
+	}
+	if channel.ServerID != serverID {
+		return fmt.Errorf("channel %s: %w", channelID, domain.ErrChannelNotFound)
+	}
+
+	deleted, err := uc.channelRepo.DeleteIfNotLast(channelID, serverID)
+	if err != nil {
+		return fmt.Errorf("failed to delete channel: %w", err)
+	}
+	if !deleted {
+		return domain.ErrLastChannel
+	}
+	return nil
+}
+
+// UpdateServerIcon валидирует data как PNG/JPEG, сохраняет файл, обновляет
+// icon_url сервера и удаляет старый файл иконки (best-effort — как у
+// UpdateAvatar, орфан-файл не хуже жёсткого фейла запроса).
+func (uc *serverUseCase) UpdateServerIcon(serverID, userID uuid.UUID, data []byte) (*domain.Server, error) {
+	server, err := uc.requireOwner(serverID, userID)
+	if err != nil {
+		return nil, err
+	}
+
+	ext, contentType, err := validateImage(data)
+	if err != nil {
+		return nil, err
+	}
+
+	oldIconURL := server.IconURL
+
+	key := fmt.Sprintf("server-icons/%s/%s.%s", serverID, randomHex(8), ext)
+	url, err := uc.storage.Save(context.Background(), key, bytes.NewReader(data), contentType)
+	if err != nil {
+		return nil, fmt.Errorf("save server icon: %w", err)
+	}
+
+	if err := uc.serverRepo.Update(serverID, map[string]interface{}{"icon_url": url}); err != nil {
+		return nil, fmt.Errorf("update server icon url: %w", err)
+	}
+
+	if oldIconURL != nil {
+		_ = uc.storage.Delete(context.Background(), *oldIconURL)
+	}
+
+	server.IconURL = &url
+	return server, nil
+}
+
+// RemoveServerIcon очищает icon_url сервера и удаляет файл. No-op, если
+// иконка уже не установлена.
+func (uc *serverUseCase) RemoveServerIcon(serverID, userID uuid.UUID) (*domain.Server, error) {
+	server, err := uc.requireOwner(serverID, userID)
+	if err != nil {
+		return nil, err
+	}
+
+	if server.IconURL == nil {
+		return server, nil
+	}
+
+	oldIconURL := *server.IconURL
+	if err := uc.serverRepo.Update(serverID, map[string]interface{}{"icon_url": nil}); err != nil {
+		return nil, fmt.Errorf("clear server icon url: %w", err)
+	}
+	_ = uc.storage.Delete(context.Background(), oldIconURL)
+
+	server.IconURL = nil
+	return server, nil
 }

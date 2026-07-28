@@ -167,3 +167,22 @@ func (r *channelRepository) Delete(id uuid.UUID) error {
 
 	return nil
 }
+
+// DeleteIfNotLast deletes the channel in a single atomic statement, only if
+// the server has more than one channel — closes the race window between a
+// separate count-check and delete.
+func (r *channelRepository) DeleteIfNotLast(id, serverID uuid.UUID) (bool, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	query := `
+		DELETE FROM channels
+		WHERE id = $1
+		AND (SELECT COUNT(*) FROM channels WHERE server_id = $2) > 1
+	`
+	tag, err := r.db.Exec(ctx, query, id, serverID)
+	if err != nil {
+		return false, fmt.Errorf("failed to delete channel: %w", err)
+	}
+	return tag.RowsAffected() > 0, nil
+}

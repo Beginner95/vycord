@@ -80,6 +80,7 @@ export function AppPage() {
   const [voiceParticipants, setVoiceParticipants] = useState<Map<string, string[]>>(new Map());
   const stopRingtoneRef = useRef<(() => void) | null>(null);
   const callNotifRef = useRef<CallNotif | null>(null);
+  const handledRemovalsRef = useRef<Set<string>>(new Set());
   useEffect(() => { callNotifRef.current = callNotif; }, [callNotif]);
 
   useEffect(() => {
@@ -189,10 +190,87 @@ export function AppPage() {
     return () => unsubscribe();
   }, []);
 
+  useEffect(() => {
+    const unsubServerUpdate = wsService.on('server_update', (payload) => {
+      const p = payload as Server;
+      useServerStore.getState().patchServer(p.id, { name: p.name, icon_url: p.icon_url });
+    });
+    const unsubChannelUpdate = wsService.on('channel_update', (payload) => {
+      const p = payload as Channel;
+      useServerStore.getState().patchChannel(p.id, { name: p.name });
+    });
+    const unsubServerDelete = wsService.on('server_delete', (payload) => {
+      const { id } = payload as { id: string };
+      useServerStore.getState().removeServer(id);
+      handleServerRemoved(id);
+    });
+    const unsubChannelDelete = wsService.on('channel_delete', (payload) => {
+      const { id } = payload as { id: string; server_id: string };
+      useServerStore.getState().removeChannel(id);
+      handleChannelRemoved(id);
+    });
+    return () => {
+      unsubServerUpdate();
+      unsubChannelUpdate();
+      unsubServerDelete();
+      unsubChannelDelete();
+    };
+  }, [currentServer, currentChannel, channels]);
+
   const loadServerMembers = (serverId: string) => {
     apiService.getServerMembers(serverId)
       .then((members) => setMembers(members as MemberWithUser[]))
       .catch((err) => console.error('Failed to load server members:', err));
+  };
+
+  const callLeaveGroupCall = () => {
+    const w = window as unknown as Record<string, unknown>;
+    (w.leaveGroupCall as (() => void) | undefined)?.();
+  };
+
+  const handleServerRemoved = (removedServerId: string) => {
+    if (handledRemovalsRef.current.has(removedServerId)) return;
+    handledRemovalsRef.current.add(removedServerId);
+
+    if (currentServer?.id !== removedServerId) return;
+
+    if (
+      groupCallService.isInGroupCallState &&
+      channels.some((c) => c.id === groupCallService.currentRoomIdState)
+    ) {
+      callLeaveGroupCall();
+    }
+
+    const remaining = useServerStore.getState().servers;
+    if (remaining.length > 0) {
+      handleSelectServer(remaining[0]);
+    } else {
+      setCurrentServer(null);
+      setChannels([]);
+      setCurrentChannel(null);
+      setMembers([]);
+      setMessages([]);
+    }
+  };
+
+  const handleChannelRemoved = (removedChannelId: string) => {
+    if (handledRemovalsRef.current.has(removedChannelId)) return;
+    handledRemovalsRef.current.add(removedChannelId);
+
+    if (groupCallService.isInGroupCallState && groupCallService.currentRoomIdState === removedChannelId) {
+      callLeaveGroupCall();
+    }
+
+    if (currentChannel?.id !== removedChannelId) return;
+
+    const remaining = useServerStore.getState().channels;
+    const textChannel = remaining.find((c) => c.type === 'text');
+    if (textChannel) {
+      handleSelectChannel(textChannel);
+    } else {
+      setCurrentChannel(null);
+      setMessages([]);
+    }
   };
 
   const loadServers = async () => {
@@ -232,6 +310,9 @@ export function AppPage() {
           const textChannel = channelsData.find((c) => c.type === 'text');
           if (textChannel) {
             handleSelectChannel(textChannel);
+          } else {
+            setCurrentChannel(null);
+            setMessages([]);
           }
           return;
         }
@@ -274,6 +355,9 @@ export function AppPage() {
       const textChannel = data.find((c) => c.type === 'text');
       if (textChannel) {
         handleSelectChannel(textChannel);
+      } else {
+        setCurrentChannel(null);
+        setMessages([]);
       }
     } catch (err) {
       console.error('Failed to load channels:', err);
@@ -339,9 +423,11 @@ export function AppPage() {
         <ServerList
           servers={servers}
           currentServer={currentServer}
+          user={user}
           onSelectServer={handleSelectServer}
           onCreateServer={() => setShowCreateServer(true)}
           onJoinServer={handleJoinServer}
+          onServerDeleted={handleServerRemoved}
         />
 
         <ChannelSidebar
@@ -354,6 +440,7 @@ export function AppPage() {
           onMobileBack={() => setMobilePanel('servers')}
           voiceParticipants={voiceParticipants}
           members={members}
+          onChannelDeleted={handleChannelRemoved}
         />
 
         <ChatArea

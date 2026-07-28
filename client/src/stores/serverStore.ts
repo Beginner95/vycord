@@ -13,6 +13,10 @@ interface ServerState {
   setCurrentChannel: (channel: Channel | null) => void;
   setMembers: (members: MemberWithUser[]) => void;
   patchMemberAvatar: (userId: string, avatarUrl: string | null) => void;
+  patchServer: (id: string, patch: Partial<Server>) => void;
+  removeServer: (id: string) => void;
+  patchChannel: (id: string, patch: Partial<Channel>) => void;
+  removeChannel: (id: string) => void;
 }
 
 export const useServerStore = create<ServerState>((set) => ({
@@ -32,5 +36,25 @@ export const useServerStore = create<ServerState>((set) => ({
       members: state.members.map((m) =>
         m.user_id === userId ? { ...m, avatar_url: avatarUrl ?? undefined } : m
       ),
+    })),
+  patchServer: (id, patch) =>
+    set((state) => ({
+      servers: state.servers.map((s) => (s.id === id ? { ...s, ...patch } : s)),
+      currentServer:
+        state.currentServer?.id === id ? { ...state.currentServer, ...patch } : state.currentServer,
+    })),
+  removeServer: (id) =>
+    set((state) => ({
+      servers: state.servers.filter((s) => s.id !== id),
+    })),
+  patchChannel: (id, patch) =>
+    set((state) => ({
+      channels: state.channels.map((c) => (c.id === id ? { ...c, ...patch } : c)),
+      currentChannel:
+        state.currentChannel?.id === id ? { ...state.currentChannel, ...patch } : state.currentChannel,
+    })),
+  removeChannel: (id) =>
+    set((state) => ({
+      channels: state.channels.filter((c) => c.id !== id),
     })),
 }));

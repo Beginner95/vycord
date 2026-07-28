@@ -124,6 +124,13 @@
   box-shadow: 0 2px 8px rgba(99, 102, 241, 0.25);
 }
 
+.modal-error {
+  color: var(--red-500);
+  font-size: 13px;
+  margin-top: -8px;
+  margin-bottom: 12px;
+}
+
 /* ── Call notification banner ── */
 .call-notif-banner {
   position: fixed;
