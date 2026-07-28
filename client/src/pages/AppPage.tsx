@@ -80,6 +80,7 @@ export function AppPage() {
   const [voiceParticipants, setVoiceParticipants] = useState<Map<string, string[]>>(new Map());
   const stopRingtoneRef = useRef<(() => void) | null>(null);
   const callNotifRef = useRef<CallNotif | null>(null);
+  const handledRemovalsRef = useRef<Set<string>>(new Set());
   useEffect(() => { callNotifRef.current = callNotif; }, [callNotif]);
 
   useEffect(() => {
@@ -228,6 +229,9 @@ export function AppPage() {
   };
 
   const handleServerRemoved = (removedServerId: string) => {
+    if (handledRemovalsRef.current.has(removedServerId)) return;
+    handledRemovalsRef.current.add(removedServerId);
+
     if (currentServer?.id !== removedServerId) return;
 
     if (
@@ -250,6 +254,9 @@ export function AppPage() {
   };
 
   const handleChannelRemoved = (removedChannelId: string) => {
+    if (handledRemovalsRef.current.has(removedChannelId)) return;
+    handledRemovalsRef.current.add(removedChannelId);
+
     if (groupCallService.isInGroupCallState && groupCallService.currentRoomIdState === removedChannelId) {
       callLeaveGroupCall();
     }
