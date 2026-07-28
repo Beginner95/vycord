@@ -30,7 +30,8 @@ export function ServerList({
   const [searchResults, setSearchResults] = useState<Server[]>([]);
   const [searchLoading, setSearchLoading] = useState(false);
   const [menu, setMenu] = useState<{ x: number; y: number; server: Server } | null>(null);
-  const [editingServer, setEditingServer] = useState<Server | null>(null);
+  const [editingServerId, setEditingServerId] = useState<string | null>(null);
+  const editingServer = servers.find((s) => s.id === editingServerId) ?? null;
 
   const handleSearch = async () => {
     if (!searchQuery.trim()) return;
@@ -77,8 +78,8 @@ export function ServerList({
             className={`server-icon ${currentServer?.id === server.id ? 'active' : ''}`}
             onClick={() => onSelectServer(server)}
             onContextMenu={(e) => {
-              e.preventDefault();
               if (server.owner_id !== user?.id) return;
+              e.preventDefault();
               setMenu({ x: e.clientX, y: e.clientY, server });
             }}
             title={server.name}
@@ -145,14 +146,14 @@ export function ServerList({
           y={menu.y}
           onClose={() => setMenu(null)}
           items={[
-            { label: 'Редактировать', onClick: () => setEditingServer(menu.server) },
+            { label: 'Редактировать', onClick: () => setEditingServerId(menu.server.id) },
             { label: 'Удалить сервер', danger: true, onClick: () => handleDeleteServer(menu.server) },
           ]}
         />
       )}
 
       {editingServer && (
-        <EditServerModal server={editingServer} onClose={() => setEditingServer(null)} />
+        <EditServerModal server={editingServer} onClose={() => setEditingServerId(null)} />
       )}
     </>
   );

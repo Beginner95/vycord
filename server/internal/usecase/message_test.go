@@ -79,6 +79,10 @@ func (m *MockChannelRepository) Update(id uuid.UUID, updates map[string]interfac
 func (m *MockChannelRepository) Delete(id uuid.UUID) error {
 	return m.Called(id).Error(0)
 }
+func (m *MockChannelRepository) DeleteIfNotLast(id, serverID uuid.UUID) (bool, error) {
+	args := m.Called(id, serverID)
+	return args.Bool(0), args.Error(1)
+}
 
 type MockServerRepository struct{ mock.Mock }
 

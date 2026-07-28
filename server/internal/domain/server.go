@@ -82,4 +82,8 @@ type ChannelRepository interface {
 	GetByServerID(serverID uuid.UUID) ([]*Channel, error)
 	Update(id uuid.UUID, updates map[string]interface{}) error
 	Delete(id uuid.UUID) error
+	// DeleteIfNotLast deletes the channel only if it is not the last remaining
+	// channel of its server, atomically. Returns false (no error) if it was
+	// the last channel and nothing was deleted.
+	DeleteIfNotLast(id, serverID uuid.UUID) (bool, error)
 }

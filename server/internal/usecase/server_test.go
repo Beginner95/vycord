@@ -219,7 +219,7 @@ func TestUpdateChannel_WrongServer_NotFound(t *testing.T) {
 }
 
 func TestDeleteChannel_Owner_MultipleChannels_Success(t *testing.T) {
-	serverID, ownerID, channelID, otherChannelID := uuid.New(), uuid.New(), uuid.New(), uuid.New()
+	serverID, ownerID, channelID := uuid.New(), uuid.New(), uuid.New()
 
 	srvRepo := new(MockServerRepository)
 	chRepo := new(MockChannelRepository)
@@ -228,17 +228,13 @@ func TestDeleteChannel_Owner_MultipleChannels_Success(t *testing.T) {
 
 	srvRepo.On("GetByID", serverID).Return(&domain.Server{ID: serverID, OwnerID: ownerID}, nil)
 	chRepo.On("GetByID", channelID).Return(&domain.Channel{ID: channelID, ServerID: serverID}, nil)
-	chRepo.On("GetByServerID", serverID).Return([]*domain.Channel{
-		{ID: channelID, ServerID: serverID},
-		{ID: otherChannelID, ServerID: serverID},
-	}, nil)
-	chRepo.On("Delete", channelID).Return(nil)
+	chRepo.On("DeleteIfNotLast", channelID, serverID).Return(true, nil)
 
 	uc := usecase.NewServerUseCase(srvRepo, chRepo, usrRepo, storage)
 	err := uc.DeleteChannel(serverID, channelID, ownerID)
 
 	assert.NoError(t, err)
-	chRepo.AssertCalled(t, "Delete", channelID)
+	chRepo.AssertCalled(t, "DeleteIfNotLast", channelID, serverID)
 }
 
 func TestDeleteChannel_LastChannel_Rejected(t *testing.T) {
@@ -251,7 +247,7 @@ func TestDeleteChannel_LastChannel_Rejected(t *testing.T) {
 
 	srvRepo.On("GetByID", serverID).Return(&domain.Server{ID: serverID, OwnerID: ownerID}, nil)
 	chRepo.On("GetByID", channelID).Return(&domain.Channel{ID: channelID, ServerID: serverID}, nil)
-	chRepo.On("GetByServerID", serverID).Return([]*domain.Channel{{ID: channelID, ServerID: serverID}}, nil)
+	chRepo.On("DeleteIfNotLast", channelID, serverID).Return(false, nil)
 
 	uc := usecase.NewServerUseCase(srvRepo, chRepo, usrRepo, storage)
 	err := uc.DeleteChannel(serverID, channelID, ownerID)

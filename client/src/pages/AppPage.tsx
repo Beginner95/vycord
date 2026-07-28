@@ -310,6 +310,9 @@ export function AppPage() {
           const textChannel = channelsData.find((c) => c.type === 'text');
           if (textChannel) {
             handleSelectChannel(textChannel);
+          } else {
+            setCurrentChannel(null);
+            setMessages([]);
           }
           return;
         }
@@ -352,6 +355,9 @@ export function AppPage() {
       const textChannel = data.find((c) => c.type === 'text');
       if (textChannel) {
         handleSelectChannel(textChannel);
+      } else {
+        setCurrentChannel(null);
+        setMessages([]);
       }
     } catch (err) {
       console.error('Failed to load channels:', err);

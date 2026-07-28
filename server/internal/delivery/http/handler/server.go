@@ -7,6 +7,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"strings"
 
 	"github.com/google/uuid"
 	"github.com/vycord/server/internal/delivery/http/middleware"
@@ -143,8 +144,13 @@ func (h *ServerHandler) UpdateServer(w http.ResponseWriter, r *http.Request) {
 		h.sendError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
+	req.Name = strings.TrimSpace(req.Name)
 	if req.Name == "" {
 		h.sendError(w, http.StatusBadRequest, "server name is required")
+		return
+	}
+	if len(req.Name) > 100 {
+		h.sendError(w, http.StatusBadRequest, "server name must be 100 characters or fewer")
 		return
 	}
 
@@ -266,8 +272,13 @@ func (h *ServerHandler) UpdateChannel(w http.ResponseWriter, r *http.Request) {
 		h.sendError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
+	req.Name = strings.TrimSpace(req.Name)
 	if req.Name == "" {
 		h.sendError(w, http.StatusBadRequest, "channel name is required")
+		return
+	}
+	if len(req.Name) > 100 {
+		h.sendError(w, http.StatusBadRequest, "channel name must be 100 characters or fewer")
 		return
 	}
 

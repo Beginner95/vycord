@@ -307,16 +307,12 @@ func (uc *serverUseCase) DeleteChannel(serverID, channelID, userID uuid.UUID) er
 		return fmt.Errorf("channel %s: %w", channelID, domain.ErrChannelNotFound)
 	}
 
-	channels, err := uc.channelRepo.GetByServerID(serverID)
+	deleted, err := uc.channelRepo.DeleteIfNotLast(channelID, serverID)
 	if err != nil {
-		return fmt.Errorf("list channels: %w", err)
-	}
-	if len(channels) <= 1 {
-		return domain.ErrLastChannel
-	}
-
-	if err := uc.channelRepo.Delete(channelID); err != nil {
 		return fmt.Errorf("failed to delete channel: %w", err)
+	}
+	if !deleted {
+		return domain.ErrLastChannel
 	}
 	return nil
 }

@@ -74,67 +74,69 @@ export function EditServerModal({ server, onClose }: EditServerModalProps) {
   };
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
-      <div className="modal" onClick={(e) => e.stopPropagation()}>
-        <h2>Редактировать сервер</h2>
+    <>
+      <div className="modal-overlay" onClick={onClose}>
+        <div className="modal" onClick={(e) => e.stopPropagation()}>
+          <h2>Редактировать сервер</h2>
 
-        <div className="edit-server-icon-block">
-          {server.icon_url ? (
-            <img src={server.icon_url} alt={server.name} className="edit-server-icon-preview" />
-          ) : (
-            <div className="edit-server-icon-preview">{server.name.charAt(0).toUpperCase()}</div>
-          )}
-          <div className="edit-server-icon-actions">
-            <button
-              type="button"
-              className="edit-server-icon-btn"
-              onClick={() => fileInputRef.current?.click()}
-            >
-              Изменить иконку
-            </button>
-            {server.icon_url && (
+          <div className="edit-server-icon-block">
+            {server.icon_url ? (
+              <img src={server.icon_url} alt={server.name} className="edit-server-icon-preview" />
+            ) : (
+              <div className="edit-server-icon-preview">{server.name.charAt(0).toUpperCase()}</div>
+            )}
+            <div className="edit-server-icon-actions">
               <button
                 type="button"
-                className="edit-server-icon-btn danger"
-                onClick={handleRemoveIcon}
-                disabled={removingIcon}
+                className="edit-server-icon-btn"
+                onClick={() => fileInputRef.current?.click()}
               >
-                {removingIcon ? 'Удаление...' : 'Удалить иконку'}
+                Изменить иконку
               </button>
-            )}
-          </div>
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept="image/png,image/jpeg"
-            onChange={handleFileChange}
-            style={{ display: 'none' }}
-          />
-        </div>
-
-        <form onSubmit={handleSubmit}>
-          <div className="form-group">
-            <label htmlFor="edit-server-name">Название сервера</label>
+              {server.icon_url && (
+                <button
+                  type="button"
+                  className="edit-server-icon-btn danger"
+                  onClick={handleRemoveIcon}
+                  disabled={removingIcon}
+                >
+                  {removingIcon ? 'Удаление...' : 'Удалить иконку'}
+                </button>
+              )}
+            </div>
             <input
-              id="edit-server-name"
-              type="text"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              maxLength={100}
-              autoFocus
-              required
+              ref={fileInputRef}
+              type="file"
+              accept="image/png,image/jpeg"
+              onChange={handleFileChange}
+              style={{ display: 'none' }}
             />
           </div>
-          {error && <p className="modal-error">{error}</p>}
-          <div className="modal-actions">
-            <button type="button" onClick={onClose}>
-              Отмена
-            </button>
-            <button type="submit" className="primary" disabled={saving}>
-              {saving ? 'Сохранение...' : 'Сохранить'}
-            </button>
-          </div>
-        </form>
+
+          <form onSubmit={handleSubmit}>
+            <div className="form-group">
+              <label htmlFor="edit-server-name">Название сервера</label>
+              <input
+                id="edit-server-name"
+                type="text"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                maxLength={100}
+                autoFocus
+                required
+              />
+            </div>
+            {error && <p className="modal-error">{error}</p>}
+            <div className="modal-actions">
+              <button type="button" onClick={onClose}>
+                Отмена
+              </button>
+              <button type="submit" className="primary" disabled={saving}>
+                {saving ? 'Сохранение...' : 'Сохранить'}
+              </button>
+            </div>
+          </form>
+        </div>
       </div>
 
       {cropFile && (
@@ -145,6 +147,6 @@ export function EditServerModal({ server, onClose }: EditServerModalProps) {
           onUpload={handleUploadIcon}
         />
       )}
-    </div>
+    </>
   );
 }

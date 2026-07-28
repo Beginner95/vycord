@@ -116,8 +116,8 @@ export function ChannelSidebar({
                 className={`channel ${currentChannel?.id === channel.id ? 'active' : ''}`}
                 onClick={() => onSelectChannel(channel)}
                 onContextMenu={(e) => {
-                  e.preventDefault();
                   if (server?.owner_id !== user?.id) return;
+                  e.preventDefault();
                   setChannelMenu({ x: e.clientX, y: e.clientY, channel });
                 }}
               >
@@ -140,8 +140,8 @@ export function ChannelSidebar({
                     className={`channel voice ${currentChannel?.id === channel.id ? 'active' : ''}`}
                     onClick={() => onSelectChannel(channel)}
                     onContextMenu={(e) => {
-                      e.preventDefault();
                       if (server?.owner_id !== user?.id) return;
+                      e.preventDefault();
                       setChannelMenu({ x: e.clientX, y: e.clientY, channel });
                     }}
                   >
