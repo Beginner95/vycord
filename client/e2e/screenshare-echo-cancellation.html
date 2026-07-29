@@ -287,13 +287,18 @@
       );
       log('sharer baseline audio reached viewer');
 
-      // Give the sharer time to actually receive+render the talker's track
-      // (populates its remoteStreams, which startScreenShare seeds the
-      // reference bus from).
+      // Give the sharer time to actually receive+render the talker's AUDIO
+      // track specifically (populates its remoteStreams, which
+      // startScreenShare seeds the reference bus from, and which the
+      // getDisplayMedia mock below reads via sharerStreams). peerCount alone
+      // would be an imprecise proxy here: it counts distinct remote stream
+      // IDs, so it could reach 2 on the talker's VIDEO ontrack firing before
+      // their AUDIO ontrack (both share one streamId but arrive as separate
+      // events that can interleave) — wait for the actual audio track.
       await waitFor(
-        () => (sharer.peerCount ?? 0) >= 2,
+        () => (sharerStreams.get(talkerId)?.getAudioTracks().length ?? 0) > 0,
         15_000,
-        'sharer-sees-talker',
+        'sharer-sees-talker-audio',
       );
 
       log('starting screen share with (fake) system audio');
@@ -330,14 +335,29 @@
       log(`talker (440Hz, should be suppressed) avg magnitude: ${talkerMag.toFixed(1)} dBFS`);
       log(`system (770Hz, should survive) avg magnitude: ${systemMag.toFixed(1)} dBFS`);
 
+      talker.leaveGroupCall();
+      sharer.leaveGroupCall();
+      viewer.leaveGroupCall();
+
+      // measureMagnitudeAt can legitimately return -Infinity if every single
+      // reading in its sample window was non-finite (a measurement-side
+      // hiccup, not a suppression result). Left unguarded, a lone -Infinity
+      // on talkerMag alone would make gapDb = systemMag - (-Infinity) =
+      // +Infinity, which trivially clears the >10dB bar — a false "strongly
+      // suppressed" PASS driven by broken measurement, not real AEC
+      // suppression. (A total pipeline failure self-corrects: both
+      // magnitudes go to -Infinity, gapDb becomes NaN, and NaN > 10 is
+      // false — but a one-sided failure would not self-correct, hence this
+      // explicit guard.)
+      if (!Number.isFinite(talkerMag) || !Number.isFinite(systemMag)) {
+        finish(false, `measurement failed to produce finite magnitudes (talkerMag=${talkerMag}, systemMag=${systemMag})`, { talkerMag, systemMag });
+        throw new Error('non-finite magnitude measurement');
+      }
+
       // System tone must be clearly louder than the echoed talker tone —
       // proves selective suppression, not a blanket audio cut.
       const gapDb = systemMag - talkerMag;
       log(`gap: ${gapDb.toFixed(1)} dB`);
-
-      talker.leaveGroupCall();
-      sharer.leaveGroupCall();
-      viewer.leaveGroupCall();
 
       if (gapDb > 10) {
         finish(true, `call-audio echo suppressed relative to unrelated system audio (gap ${gapDb.toFixed(1)}dB)`, { talkerMag, systemMag, gapDb });
