@@ -21,13 +21,17 @@ async function handleInit(msg, replyPort) {
 
 function handleFrame(msg, replyPort) {
   if (!aec) return;
-  const renderFrame = [msg.ref];
-  const captureFrame = [msg.cap];
-  aec.analyze(renderFrame);
-  const outSize = aec.processSize(captureFrame);
-  const outBuf = [new Float32Array(outSize)];
-  aec.process(outBuf, captureFrame);
-  replyPort.postMessage({ type: 'FRAME_RESULT', out: outBuf[0] }, [outBuf[0].buffer]);
+  try {
+    const renderFrame = [msg.ref];
+    const captureFrame = [msg.cap];
+    aec.analyze(renderFrame);
+    const outSize = aec.processSize(captureFrame);
+    const outBuf = [new Float32Array(outSize)];
+    aec.process(outBuf, captureFrame);
+    replyPort.postMessage({ type: 'FRAME_RESULT', out: outBuf[0] }, [outBuf[0].buffer]);
+  } catch (err) {
+    replyPort.postMessage({ type: 'ERROR', error: String((err && err.message) || err) });
+  }
 }
 
 self.onmessage = (event) => {
