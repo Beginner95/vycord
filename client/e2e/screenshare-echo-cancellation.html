@@ -1,0 +1,352 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>E2E: screen-share audio excludes call echo</title>
+</head>
+<body>
+  <pre id="status">starting…</pre>
+
+  <script type="module">
+    // E2E scenario: screen-share system audio must not echo back other call
+    // participants' voices, while still carrying unrelated system sound.
+    //
+    // Three real groupCallService instances: P (talker, synthetic 440Hz "voice"
+    // instead of a mic), A (sharer, whose fake getDisplayMedia audio track
+    // mixes a REAL copy of P's inbound track — the same one A's reference bus
+    // consumes — with an independent 770Hz oscillator, simulating an OS
+    // loopback capture that picked up P's voice AND an unrelated system
+    // sound), B (viewer, measures A's outgoing mixed audio track via FFT).
+    // PASS requires 440Hz (the echoed voice) to be suppressed relative to
+    // 770Hz (the unrelated system sound) once P is actually in the call
+    // feeding A's reference bus.
+    //
+    // The "echo" must be a genuine correlated copy of P's track, not just an
+    // independent oscillator at the same nominal frequency — AEC3 (like any
+    // adaptive echo canceller) learns the transfer function between a known
+    // reference and its echo in the captured signal, i.e. it assumes the
+    // echo is a delayed/attenuated copy of the reference waveform. Two
+    // unrelated oscillators that merely share a frequency have no
+    // exploitable correlation and will not be suppressed (confirmed
+    // empirically while building this test: an independent-oscillator
+    // version measured ~0dB gap, no suppression at all, despite the AEC
+    // pipeline running and reporting success).
+    //
+    // Result protocol: a single console.log line "E2E_RESULT {json}" parsed by run.sh.
+
+    const statusEl = document.getElementById('status');
+    const startedAt = Date.now();
+    const timings = {};
+
+    function log(...args) {
+      console.log('[E2E]', ...args);
+      statusEl.textContent += '\n' + args.map(String).join(' ');
+    }
+
+    let finished = false;
+    function finish(pass, reason, extra = {}) {
+      if (finished) return;
+      finished = true;
+      console.log('E2E_RESULT ' + JSON.stringify({ pass, reason, timings, ...extra }));
+    }
+
+    setTimeout(() => finish(false, 'global watchdog (90s) fired'), 90_000);
+
+    function waitFor(predicate, timeoutMs, what) {
+      return new Promise((resolve, reject) => {
+        const t0 = Date.now();
+        const id = setInterval(() => {
+          let ok = false;
+          try { ok = predicate(); } catch { /* keep polling */ }
+          if (ok) {
+            clearInterval(id);
+            timings[what] = Date.now() - startedAt;
+            resolve();
+          } else if (Date.now() - t0 > timeoutMs) {
+            clearInterval(id);
+            reject(new Error(`timeout waiting for: ${what}`));
+          }
+        }, 200);
+      });
+    }
+
+    // ── Synthetic audio helpers ─────────────────────────────────────────────
+
+    function makeToneTrack(freq) {
+      const ctx = new AudioContext();
+      const dst = ctx.createMediaStreamDestination();
+      const osc = ctx.createOscillator();
+      osc.frequency.value = freq;
+      osc.connect(dst);
+      osc.start();
+      return dst.stream.getAudioTracks()[0];
+    }
+
+    // startScreenShare() requires a video track on the getDisplayMedia() result
+    // (throws "Screen stream has no video track" otherwise) — the scenario only
+    // cares about the audio path, so this is a minimal deterministic filler,
+    // same technique as no-camera-screenshare.html's makeFakeScreenTrack.
+    function makeFakeScreenVideoTrack() {
+      const canvas = document.createElement('canvas');
+      canvas.width = 640; canvas.height = 360;
+      const ctx = canvas.getContext('2d');
+      ctx.fillStyle = '#123456';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      setInterval(() => {
+        ctx.fillStyle = `hsl(${(Date.now() / 20) % 360}, 80%, 50%)`;
+        ctx.fillRect(Math.random() * 600, Math.random() * 320, 40, 40);
+      }, 66);
+      return canvas.captureStream(15).getVideoTracks()[0];
+    }
+
+    // P "talks" at 440Hz instead of using a real mic.
+    const TALKER_FREQ = 440;
+    // A's fake screen-audio loopback = talker's voice (440Hz) + unrelated system
+    // sound (770Hz) — what a real OS loopback would have captured.
+    const SYSTEM_FREQ = 770;
+
+    // Measures magnitude at freq (Hz) on a MediaStreamTrack via FFT, averaged
+    // over `samples` reads spaced `intervalMs` apart.
+    async function measureMagnitudeAt(track, freq, samples, intervalMs) {
+      const ctx = new AudioContext();
+      if (ctx.state !== 'running') await ctx.resume();
+      const source = ctx.createMediaStreamSource(new MediaStream([track]));
+      const analyser = ctx.createAnalyser();
+      analyser.fftSize = 4096;
+      analyser.smoothingTimeConstant = 0;
+      source.connect(analyser);
+      // Chrome only pulls (renders) audio-graph branches that reach a live
+      // sink. In this sandboxed/headless environment ctx.destination (real
+      // hardware output) never actually renders — there's no ALSA/PulseAudio
+      // device — so a graph that only reaches ctx.destination is never
+      // pulled and getFloatFrequencyData() reads all -Infinity forever.
+      // A MediaStreamAudioDestinationNode is a virtual sink that always
+      // pulls its input regardless of real audio hardware (this is exactly
+      // why makeToneTrack above works at all) — route the analyser there
+      // instead, and just never read its output stream.
+      const sinkTap = ctx.createMediaStreamDestination();
+      analyser.connect(sinkTap);
+      const data = new Float32Array(analyser.frequencyBinCount);
+      const binHz = ctx.sampleRate / analyser.fftSize;
+      const bin = Math.round(freq / binHz);
+
+      // Warm-up: the analyser's internal buffer is empty immediately after
+      // connecting the graph, so a read taken right away returns -Infinity
+      // for every bin (no energy accumulated yet) — and because
+      // -Infinity + <anything finite> is still -Infinity, a single such
+      // reading poisons the running sum for the rest of the loop forever.
+      // Give the graph time to actually render real frames before the first
+      // read (empirically confirmed: a 1000ms wait is enough for a remote
+      // WebRTC track to start producing real samples here).
+      await new Promise((r) => setTimeout(r, 1000));
+
+      let total = 0;
+      let counted = 0;
+      for (let i = 0; i < samples; i++) {
+        analyser.getFloatFrequencyData(data);
+        const v = data[bin];
+        // Belt-and-suspenders: skip any still-non-finite reading rather than
+        // letting it poison the average, instead of relying solely on the
+        // warm-up above.
+        if (Number.isFinite(v)) {
+          total += v;
+          counted++;
+        }
+        await new Promise((r) => setTimeout(r, intervalMs));
+      }
+      await ctx.close();
+      return counted > 0 ? total / counted : -Infinity; // average dBFS at that bin
+    }
+
+    // ── Media device fakes (per-instance — see below, each import gets its own module state) ──
+
+    const room = `e2e-${Date.now()}`;
+    const talkerId = crypto.randomUUID();
+    const sharerId = crypto.randomUUID();
+    const viewerId = crypto.randomUUID();
+    const E2E_JWT_SECRET = 'e2e-test-secret';
+
+    async function makeToken(secret, userId) {
+      const enc = new TextEncoder();
+      const b64url = (bytes) => btoa(String.fromCharCode(...new Uint8Array(bytes)))
+        .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+      const header = b64url(enc.encode(JSON.stringify({ alg: 'HS256', typ: 'JWT' })));
+      const payload = b64url(enc.encode(JSON.stringify({
+        user_id: userId,
+        exp: Math.floor(Date.now() / 1000) + 3600,
+      })));
+      const key = await crypto.subtle.importKey(
+        'raw', enc.encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign'],
+      );
+      const sig = await crypto.subtle.sign('HMAC', key, enc.encode(`${header}.${payload}`));
+      return `${header}.${payload}.${b64url(sig)}`;
+    }
+
+    /** @type {Map<string, MediaStream>} */
+    const viewerStreams = new Map();
+    // Populated via sharer's own onRemoteStream — this is how the fake
+    // getDisplayMedia() mock below gets a REAL, correlated copy of the
+    // talker's audio to build the "echo" from (see the comment on
+    // getDisplayMedia below for why an independent same-frequency oscillator
+    // does not work as a stand-in for an actual echo).
+    /** @type {Map<string, MediaStream>} */
+    const sharerStreams = new Map();
+
+    try {
+      // getUserMedia/getDisplayMedia are patched on the single shared
+      // `navigator.mediaDevices` — fine here because each participant's calls
+      // to acquireMedia() happen sequentially (awaited joins below), not
+      // concurrently, so there's no cross-talk between the fakes.
+      let currentRole = 'talker';
+      navigator.mediaDevices.getUserMedia = async () => {
+        if (currentRole === 'talker') return new MediaStream([makeToneTrack(TALKER_FREQ)]);
+        // Sharer and viewer just need *a* mic track to keep groupCallService's
+        // NC chain alive; frequency is irrelevant to the assertions below.
+        return new MediaStream([makeToneTrack(110)]);
+      };
+      // The "echo" component here MUST be a real, correlated copy of the
+      // talker's actual rendered audio, not an independently-generated tone
+      // at the same nominal frequency: AEC3 (like all adaptive echo
+      // cancellers) works by learning the transfer function between a known
+      // reference signal and its ECHO in the captured signal — i.e. it
+      // assumes the echo is literally a delayed/attenuated copy of the
+      // reference waveform. Two unrelated oscillators that merely share a
+      // frequency have essentially no exploitable phase/waveform
+      // correlation and are not a valid stand-in for a real OS loopback
+      // capturing what was actually rendered. So: pull the SAME MediaStream
+      // object the reference bus itself consumes (sharer.remoteStreams,
+      // exposed here via sharer's own onRemoteStream into sharerStreams) and
+      // mix a fresh Web Audio copy of its audio track with an independent
+      // 770Hz oscillator for the unrelated "system sound" component — this
+      // mirrors what real OS-level loopback actually captures (literally the
+      // same rendered PCM), while the 770Hz component stays a plain
+      // independent tone since nothing in the call renders it.
+      navigator.mediaDevices.getDisplayMedia = async () => {
+        const talkerStreamOnSharer = sharerStreams.get(talkerId);
+        const talkerTrackOnSharer = talkerStreamOnSharer?.getAudioTracks()[0];
+        if (!talkerTrackOnSharer) {
+          throw new Error('getDisplayMedia mock: sharer has no view of the talker\'s audio track yet');
+        }
+        const ctx = new AudioContext();
+        const dst = ctx.createMediaStreamDestination();
+        const echoSource = ctx.createMediaStreamSource(new MediaStream([talkerTrackOnSharer]));
+        echoSource.connect(dst);
+        const systemOsc = ctx.createOscillator();
+        systemOsc.frequency.value = SYSTEM_FREQ;
+        systemOsc.connect(dst);
+        systemOsc.start();
+        return new MediaStream([makeFakeScreenVideoTrack(), dst.stream.getAudioTracks()[0]]);
+      };
+
+      const [modTalker, modSharer, modViewer] = await Promise.all([
+        import('/src/services/groupCall.ts?inst=talker'),
+        import('/src/services/groupCall.ts?inst=sharer'),
+        import('/src/services/groupCall.ts?inst=viewer'),
+      ]);
+      const talker = modTalker.groupCallService;
+      const sharer = modSharer.groupCallService;
+      const viewer = modViewer.groupCallService;
+
+      const noop = () => {};
+      talker.init({ onRemoteStream: noop, onPeerJoined: noop, onPeerLeft: noop, onCallEnded: noop, onError: (e) => log('talker onError:', e) });
+      sharer.init({
+        onRemoteStream: (uid, stream) => sharerStreams.set(uid, stream),
+        onPeerJoined: noop, onPeerLeft: noop, onCallEnded: noop,
+        onError: (e) => log('sharer onError:', e),
+      });
+      viewer.init({
+        onRemoteStream: (uid, stream) => viewerStreams.set(uid, stream),
+        onPeerJoined: noop, onPeerLeft: noop, onCallEnded: noop,
+        onError: (e) => log('viewer onError:', e),
+      });
+
+      log('joining room', room);
+      currentRole = 'talker';
+      localStorage.setItem('vycord_token', await makeToken(E2E_JWT_SECRET, talkerId));
+      await talker.joinGroupCall(room, talkerId);
+
+      currentRole = 'sharer';
+      localStorage.setItem('vycord_token', await makeToken(E2E_JWT_SECRET, sharerId));
+      await sharer.joinGroupCall(room, sharerId);
+
+      currentRole = 'viewer';
+      localStorage.setItem('vycord_token', await makeToken(E2E_JWT_SECRET, viewerId));
+      await viewer.joinGroupCall(room, viewerId);
+
+      await waitFor(
+        () => talker.isInGroupCallState && sharer.isInGroupCallState && viewer.isInGroupCallState,
+        15_000,
+        'all-joined',
+      );
+      log('all three peers joined');
+
+      await waitFor(
+        () => (viewerStreams.get(sharerId)?.getAudioTracks().length ?? 0) > 0,
+        20_000,
+        'sharer-audio-forwarded',
+      );
+      log('sharer baseline audio reached viewer');
+
+      // Give the sharer time to actually receive+render the talker's track
+      // (populates its remoteStreams, which startScreenShare seeds the
+      // reference bus from).
+      await waitFor(
+        () => (sharer.peerCount ?? 0) >= 2,
+        15_000,
+        'sharer-sees-talker',
+      );
+
+      log('starting screen share with (fake) system audio');
+      await sharer.startScreenShare(undefined, '720p');
+
+      // Let AEC3 converge — Task 1's smoke test showed convergence within
+      // ~400ms of audio for a clean synthetic tone; give it a generous margin
+      // for the extra worklet/worker round-trip latency.
+      await new Promise((r) => setTimeout(r, 5000));
+
+      const sharerOutgoingTrack = viewerStreams.get(sharerId)?.getAudioTracks()[0];
+      if (!sharerOutgoingTrack) {
+        finish(false, 'viewer has no audio track from sharer after screen share started');
+        throw new Error('no audio track');
+      }
+
+      // Chrome only decodes/delivers RTP for a REMOTE MediaStreamTrack into a
+      // readable buffer once something actively consumes it — an AudioContext
+      // graph downstream of createMediaStreamSource() is not enough on its
+      // own for a track that arrived over an RTCPeerConnection (unlike the
+      // purely-local synthetic tracks from makeToneTrack, which have no RTP
+      // decode step at all). Attaching to a playing (muted)
+      // <audio> element forces the decode, the same trick attachStreamToElement
+      // in GroupCallUI.tsx uses for autoplay-policy compliance. Verified
+      // empirically: without this, measureMagnitudeAt below reads all
+      // -Infinity/NaN forever even though the track and its RTP are healthy.
+      const sinkEl = document.createElement('audio');
+      sinkEl.muted = true;
+      sinkEl.srcObject = new MediaStream([sharerOutgoingTrack]);
+      await sinkEl.play().catch((e) => log('sink element play() failed (non-fatal):', e));
+
+      const talkerMag = await measureMagnitudeAt(sharerOutgoingTrack, TALKER_FREQ, 10, 100);
+      const systemMag = await measureMagnitudeAt(sharerOutgoingTrack, SYSTEM_FREQ, 10, 100);
+      log(`talker (440Hz, should be suppressed) avg magnitude: ${talkerMag.toFixed(1)} dBFS`);
+      log(`system (770Hz, should survive) avg magnitude: ${systemMag.toFixed(1)} dBFS`);
+
+      // System tone must be clearly louder than the echoed talker tone —
+      // proves selective suppression, not a blanket audio cut.
+      const gapDb = systemMag - talkerMag;
+      log(`gap: ${gapDb.toFixed(1)} dB`);
+
+      talker.leaveGroupCall();
+      sharer.leaveGroupCall();
+      viewer.leaveGroupCall();
+
+      if (gapDb > 10) {
+        finish(true, `call-audio echo suppressed relative to unrelated system audio (gap ${gapDb.toFixed(1)}dB)`, { talkerMag, systemMag, gapDb });
+      } else {
+        finish(false, `talker tone not sufficiently suppressed relative to system tone (gap ${gapDb.toFixed(1)}dB, expected >10dB)`, { talkerMag, systemMag, gapDb });
+      }
+    } catch (err) {
+      finish(false, String((err && err.message) || err));
+    }
+  </script>
+</body>
+</html>
