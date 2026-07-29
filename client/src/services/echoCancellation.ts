@@ -34,6 +34,14 @@ class EchoCancellationService {
 
   ensureReferenceBus(): void {
     if (this.refContext && this.refContext.state !== 'closed') return;
+    // A previous context could in principle reach 'closed' by some path
+    // other than teardownReferenceBus() (which already nulls this field) —
+    // guard against leaking a keep-alive interval that would otherwise poll
+    // a dead context's resume() forever.
+    if (this.refKeepAlive !== null) {
+      clearInterval(this.refKeepAlive);
+      this.refKeepAlive = null;
+    }
     const context = new AudioContext({ sampleRate: SAMPLE_RATE });
     // Chrome creates a suspended context outside a user-gesture window; a
     // suspended context never renders, so nothing downstream (including the
