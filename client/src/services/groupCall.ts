@@ -627,18 +627,37 @@ class GroupCallService {
         if (remoteAudioTrack) echoCancellationService.addReferenceTrack(streamId, remoteAudioTrack);
       }
       const aecHandle = await echoCancellationService.attachEchoCancellation(systemAudioTrack);
-      this.screenAecDetach = aecHandle?.detach ?? null;
-      const audioForMix = aecHandle?.track ?? systemAudioTrack;
 
-      this.screenAudioDetach = noiseCancellationService.attachExtraAudio(
-        this.localStream.id,
-        new MediaStream([audioForMix]),
-      );
-      gcLog(this.currentUserId, 'screen share audio', {
-        captured: true,
-        mixed: this.screenAudioDetach !== null,
-        echoCancelled: aecHandle !== null,
-      });
+      // stopScreenShare()/teardown() may have run to completion while the AEC
+      // init above was in flight (e.g. the OS "Stop sharing" bar firing
+      // screenTrack.onended → stopScreenShare, or a rapid second start/stop
+      // from the UI). If so, this invocation is stale: wiring its AEC handle
+      // in and mixing audio now would resurrect system audio into the call
+      // after the user already stopped sharing (screenAudioDetach/screenAecDetach
+      // were already reset to null and the reference bus already torn down by
+      // the stop/teardown that raced ahead of us). Discard it instead.
+      if (!this._isScreenSharing || this.screenStream !== stream) {
+        aecHandle?.detach();
+        gcLog(this.currentUserId, 'screen share audio', {
+          captured: true,
+          mixed: false,
+          echoCancelled: false,
+          discardedStale: true,
+        });
+      } else {
+        this.screenAecDetach = aecHandle?.detach ?? null;
+        const audioForMix = aecHandle?.track ?? systemAudioTrack;
+
+        this.screenAudioDetach = noiseCancellationService.attachExtraAudio(
+          this.localStream.id,
+          new MediaStream([audioForMix]),
+        );
+        gcLog(this.currentUserId, 'screen share audio', {
+          captured: true,
+          mixed: this.screenAudioDetach !== null,
+          echoCancelled: aecHandle !== null,
+        });
+      }
     } else {
       gcLog(this.currentUserId, 'screen share audio', { captured: false });
     }
