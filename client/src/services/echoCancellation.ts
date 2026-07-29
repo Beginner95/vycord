@@ -66,10 +66,11 @@ class EchoCancellationService {
     if (!this.refContext || !this.refDestination) return null;
     const context = this.refContext;
 
+    let worker: Worker | null = null;
     try {
       await context.audioWorklet.addModule(`${ASSETS_BASE}EchoCancellationWorklet.js`);
 
-      const worker = new Worker(`${ASSETS_BASE}EchoCancellationWorker.js`);
+      worker = new Worker(`${ASSETS_BASE}EchoCancellationWorker.js`);
       const channel = new MessageChannel();
       worker.postMessage({ type: 'CONNECT_PORT', port: channel.port1 }, [channel.port1]);
 
@@ -109,12 +110,13 @@ class EchoCancellationService {
         refInputSource.disconnect();
         capSource.disconnect();
         node.disconnect();
-        worker.postMessage({ type: 'FREE' });
-        worker.terminate();
+        worker!.postMessage({ type: 'FREE' });
+        worker!.terminate();
       };
 
       return { track: cleanedTrack, detach };
     } catch (err) {
+      worker?.terminate();
       console.error('[EchoCancellation] init failed, falling back to raw system audio:', err);
       return null;
     }
