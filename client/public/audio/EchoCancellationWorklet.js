@@ -25,13 +25,21 @@ class EchoCancellationProcessor extends AudioWorkletProcessor {
     this.outQueue = new Float32Array(0);
 
     this.port.onmessage = (event) => {
-      if (event.data && event.data.type === 'INIT_PORT') {
+      if (!event.data) return;
+      if (event.data.type === 'INIT_PORT') {
         this.dataPort = event.data.dataPort;
         this.dataPort.onmessage = (e) => {
           if (e.data && e.data.type === 'FRAME_RESULT') {
             this.outQueue = concatF32(this.outQueue, e.data.out);
           }
         };
+      } else if (event.data.type === 'FREE') {
+        // The worker's data-plane listener lives on dataPort (transferred
+        // to us at INIT_PORT), not on the worker's own top-level
+        // self.onmessage — relay so echoCancellation.ts's detach() can
+        // signal a graceful AEC3 free() without needing direct access to a
+        // port it already transferred away.
+        this.dataPort?.postMessage({ type: 'FREE' });
       }
     };
   }
