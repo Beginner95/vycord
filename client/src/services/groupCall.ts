@@ -1,4 +1,5 @@
 import { noiseCancellationService } from './noiseCancellation';
+import { echoCancellationService } from './echoCancellation';
 import { getIceServers, STUN_SERVERS } from './iceConfig';
 import { computeQualityLevel, type ConnectionQualityMetrics } from '@/utils/callQuality';
 
@@ -135,6 +136,10 @@ class GroupCallService {
   // Detaches the desktop-audio source node mixed into the outgoing audio
   // track via noiseCancellationService.attachExtraAudio — see startScreenShare.
   private screenAudioDetach: (() => void) | null = null;
+  // Detaches the AEC3 AudioWorkletNode/worker used to strip call-audio echo
+  // out of the captured system audio before it reaches screenAudioDetach's
+  // attachExtraAudio mix — see startScreenShare/stopScreenShare.
+  private screenAecDetach: (() => void) | null = null;
   // Placeholder video track sent when no camera is available — see createDummyVideoTrack.
   private dummyVideoTrack: MediaStreamTrack | null = null;
   private _isScreenSharing = false;
@@ -608,13 +613,51 @@ class GroupCallService {
     // audio track via Web Audio — no SFU/protocol changes needed. Silently
     // skipped if the platform gave no audio track, or if there's no NC chain
     // to mix into (e.g. this participant joined without a microphone).
+    //
+    // Before mixing, run it through AEC3 (referenceBus = current remote
+    // participants' audio) so a loopback capture of the call itself doesn't
+    // get echoed back to everyone as duplicated voices. attachEchoCancellation
+    // returns null on any init failure — falls back to the raw track exactly
+    // like before this was added.
     const systemAudioTrack = stream.getAudioTracks()[0];
     if (systemAudioTrack && this.localStream) {
-      this.screenAudioDetach = noiseCancellationService.attachExtraAudio(
-        this.localStream.id,
-        new MediaStream([systemAudioTrack]),
-      );
-      gcLog(this.currentUserId, 'screen share audio', { captured: true, mixed: this.screenAudioDetach !== null });
+      echoCancellationService.ensureReferenceBus();
+      for (const [streamId, remoteStream] of this.remoteStreams) {
+        const remoteAudioTrack = remoteStream.getAudioTracks()[0];
+        if (remoteAudioTrack) echoCancellationService.addReferenceTrack(streamId, remoteAudioTrack);
+      }
+      const aecHandle = await echoCancellationService.attachEchoCancellation(systemAudioTrack);
+
+      // stopScreenShare()/teardown() may have run to completion while the AEC
+      // init above was in flight (e.g. the OS "Stop sharing" bar firing
+      // screenTrack.onended → stopScreenShare, or a rapid second start/stop
+      // from the UI). If so, this invocation is stale: wiring its AEC handle
+      // in and mixing audio now would resurrect system audio into the call
+      // after the user already stopped sharing (screenAudioDetach/screenAecDetach
+      // were already reset to null and the reference bus already torn down by
+      // the stop/teardown that raced ahead of us). Discard it instead.
+      if (!this._isScreenSharing || this.screenStream !== stream) {
+        aecHandle?.detach();
+        gcLog(this.currentUserId, 'screen share audio', {
+          captured: true,
+          mixed: false,
+          echoCancelled: false,
+          discardedStale: true,
+        });
+      } else {
+        this.screenAecDetach = aecHandle?.detach ?? null;
+        const audioForMix = aecHandle?.track ?? systemAudioTrack;
+
+        this.screenAudioDetach = noiseCancellationService.attachExtraAudio(
+          this.localStream.id,
+          new MediaStream([audioForMix]),
+        );
+        gcLog(this.currentUserId, 'screen share audio', {
+          captured: true,
+          mixed: this.screenAudioDetach !== null,
+          echoCancelled: aecHandle !== null,
+        });
+      }
     } else {
       gcLog(this.currentUserId, 'screen share audio', { captured: false });
     }
@@ -702,6 +745,10 @@ class GroupCallService {
 
     this.screenAudioDetach?.();
     this.screenAudioDetach = null;
+
+    this.screenAecDetach?.();
+    this.screenAecDetach = null;
+    echoCancellationService.teardownReferenceBus();
 
     this.screenStream?.getTracks().forEach((t) => t.stop());
     this.screenStream = null;
@@ -1066,6 +1113,9 @@ class GroupCallService {
       if (!stream.getTrackById(event.track.id)) {
         stream.addTrack(event.track);
       }
+      if (this._isScreenSharing && event.track.kind === 'audio') {
+        echoCancellationService.addReferenceTrack(streamId, event.track);
+      }
       gcLog(this.currentUserId, 'ontrack → onRemoteStream', {
         streamId: streamId.slice(0, 8),
         tracksInStream: stream.getTracks().map((t) => `${t.kind}:${t.id.slice(0, 8)}`),
@@ -1299,6 +1349,7 @@ class GroupCallService {
         // second-device login.
         if (user_id === this.currentUserId) break;
         this.remoteStreams.delete(user_id);
+        if (this._isScreenSharing) echoCancellationService.removeReferenceTrack(user_id);
         this.callbacks?.onPeerLeft(user_id);
         break;
       }
@@ -1492,6 +1543,10 @@ class GroupCallService {
 
     this.screenAudioDetach?.();
     this.screenAudioDetach = null;
+
+    this.screenAecDetach?.();
+    this.screenAecDetach = null;
+    echoCancellationService.teardownReferenceBus();
 
     this.screenStream?.getTracks().forEach((t) => t.stop());
     this.screenStream = null;
