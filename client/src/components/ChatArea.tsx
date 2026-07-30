@@ -5,8 +5,9 @@ import { apiService } from '@/services/api';
 import { wsService } from '@/services/websocket';
 import { audioService } from '@/services/audio';
 import { useServerStore } from '@/stores/serverStore';
-import { tokenizeMentions, roleLabel, type LegacyMentionRole } from '@/utils/mentions';
+import { tokenizeMentions, roleLabel } from '@/utils/mentions';
 import { useMentionAutocomplete } from '@/hooks/useMentionAutocomplete';
+import { can, PERMISSIONS } from '@/utils/permissions';
 import { useFloatingSelectionToolbar } from '@/hooks/useFloatingSelectionToolbar';
 import { MessageSearch } from '@/components/MessageSearch';
 import { Avatar } from '@/components/Avatar';
@@ -140,7 +141,7 @@ function FloatingQuoteButton({ x, y, onConfirm }: { x: number; y: number; onConf
 
 export function ChatArea({ channel, user, onMobileBack, onShowMembers }: ChatAreaProps) {
   const { messages, setMessages, addMessage, updateMessage, removeMessage } = useMessageStore();
-  const { members } = useServerStore();
+  const { members, currentServer } = useServerStore();
   const [input, setInput] = useState('');
   const [caretInQuoteLine, setCaretInQuoteLine] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
@@ -154,16 +155,15 @@ export function ChatArea({ channel, user, onMobileBack, onShowMembers }: ChatAre
   // Cache for user info (id → username)
   const [userCache, setUserCache] = useState<Map<string, { username: string; avatar_url?: string }>>(new Map());
 
-  // Старой строкой role бэкенд больше не отдаёт (заменена на roles: string[]).
-  // Гейт @everyone по новым правам переведёт следующая задача (VYC-55-m Task 13).
-  const currentUserRole: LegacyMentionRole | undefined = undefined;
+  const permissions = useServerStore((s) => (currentServer ? s.permissions.get(currentServer.id) : undefined));
+  const canMentionEveryone = can(permissions, PERMISSIONS.MENTION_EVERYONE);
 
   const composeMention = useMentionAutocomplete({
     value: input,
     setValue: setInput,
     inputRef,
     members,
-    currentUserRole,
+    canMentionEveryone,
   });
 
   useEffect(() => {
@@ -433,7 +433,7 @@ export function ChatArea({ channel, user, onMobileBack, onShowMembers }: ChatAre
     setValue: setEditValue,
     inputRef: editInputRef,
     members,
-    currentUserRole,
+    canMentionEveryone,
   });
 
   useEffect(() => {

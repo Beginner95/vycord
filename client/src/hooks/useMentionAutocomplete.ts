@@ -12,7 +12,7 @@ interface UseMentionAutocompleteArgs {
   setValue: (value: string) => void;
   inputRef: RefObject<HTMLTextAreaElement | null>;
   members: MemberWithUser[];
-  currentUserRole: LegacyMentionRole | undefined;
+  canMentionEveryone: boolean;
 }
 
 export function useMentionAutocomplete({
@@ -20,7 +20,7 @@ export function useMentionAutocomplete({
   setValue,
   inputRef,
   members,
-  currentUserRole,
+  canMentionEveryone,
 }: UseMentionAutocompleteArgs) {
   const [mentionQuery, setMentionQuery] = useState<string | null>(null);
   const [mentionIndex, setMentionIndex] = useState(0);
@@ -47,12 +47,12 @@ export function useMentionAutocomplete({
       }
     }
 
-    if ((currentUserRole === 'owner' || currentUserRole === 'admin') && 'everyone'.includes(q)) {
+    if (canMentionEveryone && 'everyone'.includes(q)) {
       entries.push({ kind: 'everyone', label: 'everyone' });
     }
 
     return entries;
-  }, [mentionQuery, members, currentUserRole]);
+  }, [mentionQuery, members, canMentionEveryone]);
 
   const reset = () => {
     setMentionQuery(null);
