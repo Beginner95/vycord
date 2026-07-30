@@ -7,6 +7,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
 
 	"github.com/vycord/server/internal/domain"
 	"github.com/vycord/server/internal/usecase"
@@ -140,26 +141,21 @@ func (m *MockServerRepository) GetMembersWithUsers(serverID uuid.UUID) ([]*domai
 	}
 	return args.Get(0).([]*domain.MemberWithUser), args.Error(1)
 }
-func (m *MockServerRepository) GetMemberRole(serverID, userID uuid.UUID) (string, error) {
-	args := m.Called(serverID, userID)
-	return args.String(0), args.Error(1)
-}
 
 // --- Тесты ---
 
-func TestCreateMessage_Member_Success(t *testing.T) {
+func TestCreateMessage_WithSendPermission_Success(t *testing.T) {
 	channelID, serverID, userID := uuid.New(), uuid.New(), uuid.New()
 
 	msgRepo := new(MockMessageRepository)
 	chRepo := new(MockChannelRepository)
 	srvRepo := new(MockServerRepository)
+	perms := permsWith(serverID, userID, domain.PermSendMessages)
 
 	chRepo.On("GetByID", channelID).Return(&domain.Channel{ID: channelID, ServerID: serverID}, nil)
-	srvRepo.On("GetByID", serverID).Return(&domain.Server{ID: serverID, OwnerID: uuid.New()}, nil)
-	srvRepo.On("IsMember", serverID, userID).Return(true, nil)
 	msgRepo.On("Create", mock.AnythingOfType("*domain.Message")).Return(nil)
 
-	uc := usecase.NewMessageUseCase(msgRepo, chRepo, srvRepo)
+	uc := usecase.NewMessageUseCase(msgRepo, chRepo, srvRepo, perms)
 	msg, err := uc.CreateMessage(channelID, userID, "hello")
 
 	assert.NoError(t, err)
@@ -169,21 +165,20 @@ func TestCreateMessage_Member_Success(t *testing.T) {
 	msgRepo.AssertCalled(t, "Create", mock.AnythingOfType("*domain.Message"))
 }
 
-func TestCreateMessage_NotMember_Forbidden(t *testing.T) {
+func TestCreateMessage_WithoutSendPermission_Forbidden(t *testing.T) {
 	channelID, serverID, userID := uuid.New(), uuid.New(), uuid.New()
 
 	msgRepo := new(MockMessageRepository)
 	chRepo := new(MockChannelRepository)
 	srvRepo := new(MockServerRepository)
+	perms := permsWith(serverID, userID, domain.PermViewChannels)
 
 	chRepo.On("GetByID", channelID).Return(&domain.Channel{ID: channelID, ServerID: serverID}, nil)
-	srvRepo.On("GetByID", serverID).Return(&domain.Server{ID: serverID, OwnerID: uuid.New()}, nil)
-	srvRepo.On("IsMember", serverID, userID).Return(false, nil)
 
-	uc := usecase.NewMessageUseCase(msgRepo, chRepo, srvRepo)
-	msg, err := uc.CreateMessage(channelID, userID, "hello")
+	uc := usecase.NewMessageUseCase(msgRepo, chRepo, srvRepo, perms)
+	got, err := uc.CreateMessage(channelID, userID, "привет")
 
-	assert.Nil(t, msg)
+	assert.Nil(t, got)
 	assert.ErrorIs(t, err, domain.ErrForbidden)
 	msgRepo.AssertNotCalled(t, "Create", mock.Anything)
 }
@@ -194,16 +189,16 @@ func TestCreateMessage_ChannelNotFound(t *testing.T) {
 	msgRepo := new(MockMessageRepository)
 	chRepo := new(MockChannelRepository)
 	srvRepo := new(MockServerRepository)
+	perms := new(MockPermissionUseCase)
 
 	chRepo.On("GetByID", channelID).Return(nil, fmt.Errorf("channel %s: %w", channelID, domain.ErrChannelNotFound))
 
-	uc := usecase.NewMessageUseCase(msgRepo, chRepo, srvRepo)
+	uc := usecase.NewMessageUseCase(msgRepo, chRepo, srvRepo, perms)
 	msg, err := uc.CreateMessage(channelID, userID, "hello")
 
 	assert.Nil(t, msg)
 	assert.ErrorIs(t, err, domain.ErrChannelNotFound)
-	srvRepo.AssertNotCalled(t, "GetByID", mock.Anything)
-	srvRepo.AssertNotCalled(t, "IsMember", mock.Anything, mock.Anything)
+	perms.AssertNotCalled(t, "Resolve", mock.Anything, mock.Anything)
 	msgRepo.AssertNotCalled(t, "Create", mock.Anything)
 }
 
@@ -213,52 +208,49 @@ func TestCreateMessage_Owner_Success(t *testing.T) {
 	msgRepo := new(MockMessageRepository)
 	chRepo := new(MockChannelRepository)
 	srvRepo := new(MockServerRepository)
+	perms := permsOwner(serverID, ownerID)
 
 	chRepo.On("GetByID", channelID).Return(&domain.Channel{ID: channelID, ServerID: serverID}, nil)
-	srvRepo.On("GetByID", serverID).Return(&domain.Server{ID: serverID, OwnerID: ownerID}, nil)
 	msgRepo.On("Create", mock.AnythingOfType("*domain.Message")).Return(nil)
 
-	uc := usecase.NewMessageUseCase(msgRepo, chRepo, srvRepo)
+	uc := usecase.NewMessageUseCase(msgRepo, chRepo, srvRepo, perms)
 	msg, err := uc.CreateMessage(channelID, ownerID, "hello")
 
 	assert.NoError(t, err)
 	assert.NotNil(t, msg)
-	srvRepo.AssertNotCalled(t, "IsMember", mock.Anything, mock.Anything)
 	msgRepo.AssertCalled(t, "Create", mock.AnythingOfType("*domain.Message"))
 }
 
-func TestGetMessages_Member_ReturnsMessages(t *testing.T) {
+func TestGetMessages_WithViewPermission_ReturnsMessages(t *testing.T) {
 	channelID, serverID, userID := uuid.New(), uuid.New(), uuid.New()
 
 	msgRepo := new(MockMessageRepository)
 	chRepo := new(MockChannelRepository)
 	srvRepo := new(MockServerRepository)
+	perms := permsWith(serverID, userID, domain.PermViewChannels)
 
 	want := []*domain.Message{{ID: uuid.New(), ChannelID: channelID, Content: "hi"}}
 	chRepo.On("GetByID", channelID).Return(&domain.Channel{ID: channelID, ServerID: serverID}, nil)
-	srvRepo.On("GetByID", serverID).Return(&domain.Server{ID: serverID, OwnerID: uuid.New()}, nil)
-	srvRepo.On("IsMember", serverID, userID).Return(true, nil)
 	msgRepo.On("GetByChannelID", channelID, 50, 0).Return(want, nil)
 
-	uc := usecase.NewMessageUseCase(msgRepo, chRepo, srvRepo)
+	uc := usecase.NewMessageUseCase(msgRepo, chRepo, srvRepo, perms)
 	got, err := uc.GetMessages(channelID, userID, 0, 0) // limit 0 -> нормализуется в 50
 
 	assert.NoError(t, err)
 	assert.Equal(t, want, got)
 }
 
-func TestGetMessages_NotMember_Forbidden(t *testing.T) {
+func TestGetMessages_WithoutViewPermission_Forbidden(t *testing.T) {
 	channelID, serverID, userID := uuid.New(), uuid.New(), uuid.New()
 
 	msgRepo := new(MockMessageRepository)
 	chRepo := new(MockChannelRepository)
 	srvRepo := new(MockServerRepository)
+	perms := permsWith(serverID, userID, 0)
 
 	chRepo.On("GetByID", channelID).Return(&domain.Channel{ID: channelID, ServerID: serverID}, nil)
-	srvRepo.On("GetByID", serverID).Return(&domain.Server{ID: serverID, OwnerID: uuid.New()}, nil)
-	srvRepo.On("IsMember", serverID, userID).Return(false, nil)
 
-	uc := usecase.NewMessageUseCase(msgRepo, chRepo, srvRepo)
+	uc := usecase.NewMessageUseCase(msgRepo, chRepo, srvRepo, perms)
 	got, err := uc.GetMessages(channelID, userID, 50, 0)
 
 	assert.Nil(t, got)
@@ -272,18 +264,17 @@ func TestGetMessages_Owner_ReturnsMessages(t *testing.T) {
 	msgRepo := new(MockMessageRepository)
 	chRepo := new(MockChannelRepository)
 	srvRepo := new(MockServerRepository)
+	perms := permsOwner(serverID, ownerID)
 
 	want := []*domain.Message{{ID: uuid.New(), ChannelID: channelID, Content: "hi"}}
 	chRepo.On("GetByID", channelID).Return(&domain.Channel{ID: channelID, ServerID: serverID}, nil)
-	srvRepo.On("GetByID", serverID).Return(&domain.Server{ID: serverID, OwnerID: ownerID}, nil)
 	msgRepo.On("GetByChannelID", channelID, 50, 0).Return(want, nil)
 
-	uc := usecase.NewMessageUseCase(msgRepo, chRepo, srvRepo)
+	uc := usecase.NewMessageUseCase(msgRepo, chRepo, srvRepo, perms)
 	got, err := uc.GetMessages(channelID, ownerID, 50, 0)
 
 	assert.NoError(t, err)
 	assert.Equal(t, want, got)
-	srvRepo.AssertNotCalled(t, "IsMember", mock.Anything, mock.Anything)
 }
 
 func TestUpdateMessage_Author_ContentChanged_Success(t *testing.T) {
@@ -292,15 +283,14 @@ func TestUpdateMessage_Author_ContentChanged_Success(t *testing.T) {
 	msgRepo := new(MockMessageRepository)
 	chRepo := new(MockChannelRepository)
 	srvRepo := new(MockServerRepository)
+	perms := permsWith(serverID, userID, domain.PermSendMessages)
 
 	chRepo.On("GetByID", channelID).Return(&domain.Channel{ID: channelID, ServerID: serverID}, nil)
-	srvRepo.On("GetByID", serverID).Return(&domain.Server{ID: serverID, OwnerID: uuid.New()}, nil)
-	srvRepo.On("IsMember", serverID, userID).Return(true, nil)
 	existing := &domain.Message{ID: messageID, ChannelID: channelID, UserID: userID, Content: "old"}
 	msgRepo.On("GetByID", messageID).Return(existing, nil)
 	msgRepo.On("Update", messageID, map[string]interface{}{"content": "new"}).Return(nil)
 
-	uc := usecase.NewMessageUseCase(msgRepo, chRepo, srvRepo)
+	uc := usecase.NewMessageUseCase(msgRepo, chRepo, srvRepo, perms)
 	msg, err := uc.UpdateMessage(channelID, messageID, userID, "new")
 
 	assert.NoError(t, err)
@@ -314,14 +304,13 @@ func TestUpdateMessage_ContentUnchanged_NoOp(t *testing.T) {
 	msgRepo := new(MockMessageRepository)
 	chRepo := new(MockChannelRepository)
 	srvRepo := new(MockServerRepository)
+	perms := permsWith(serverID, userID, domain.PermSendMessages)
 
 	chRepo.On("GetByID", channelID).Return(&domain.Channel{ID: channelID, ServerID: serverID}, nil)
-	srvRepo.On("GetByID", serverID).Return(&domain.Server{ID: serverID, OwnerID: uuid.New()}, nil)
-	srvRepo.On("IsMember", serverID, userID).Return(true, nil)
 	existing := &domain.Message{ID: messageID, ChannelID: channelID, UserID: userID, Content: "same"}
 	msgRepo.On("GetByID", messageID).Return(existing, nil)
 
-	uc := usecase.NewMessageUseCase(msgRepo, chRepo, srvRepo)
+	uc := usecase.NewMessageUseCase(msgRepo, chRepo, srvRepo, perms)
 	msg, err := uc.UpdateMessage(channelID, messageID, userID, "same")
 
 	assert.NoError(t, err)
@@ -335,14 +324,13 @@ func TestUpdateMessage_NotAuthor_Forbidden(t *testing.T) {
 	msgRepo := new(MockMessageRepository)
 	chRepo := new(MockChannelRepository)
 	srvRepo := new(MockServerRepository)
+	perms := permsWith(serverID, userID, domain.PermSendMessages)
 
 	chRepo.On("GetByID", channelID).Return(&domain.Channel{ID: channelID, ServerID: serverID}, nil)
-	srvRepo.On("GetByID", serverID).Return(&domain.Server{ID: serverID, OwnerID: uuid.New()}, nil)
-	srvRepo.On("IsMember", serverID, userID).Return(true, nil)
 	existing := &domain.Message{ID: messageID, ChannelID: channelID, UserID: authorID, Content: "old"}
 	msgRepo.On("GetByID", messageID).Return(existing, nil)
 
-	uc := usecase.NewMessageUseCase(msgRepo, chRepo, srvRepo)
+	uc := usecase.NewMessageUseCase(msgRepo, chRepo, srvRepo, perms)
 	msg, err := uc.UpdateMessage(channelID, messageID, userID, "new")
 
 	assert.Nil(t, msg)
@@ -356,13 +344,12 @@ func TestUpdateMessage_MessageNotFound(t *testing.T) {
 	msgRepo := new(MockMessageRepository)
 	chRepo := new(MockChannelRepository)
 	srvRepo := new(MockServerRepository)
+	perms := permsWith(serverID, userID, domain.PermSendMessages)
 
 	chRepo.On("GetByID", channelID).Return(&domain.Channel{ID: channelID, ServerID: serverID}, nil)
-	srvRepo.On("GetByID", serverID).Return(&domain.Server{ID: serverID, OwnerID: uuid.New()}, nil)
-	srvRepo.On("IsMember", serverID, userID).Return(true, nil)
 	msgRepo.On("GetByID", messageID).Return(nil, fmt.Errorf("message %s: %w", messageID, domain.ErrMessageNotFound))
 
-	uc := usecase.NewMessageUseCase(msgRepo, chRepo, srvRepo)
+	uc := usecase.NewMessageUseCase(msgRepo, chRepo, srvRepo, perms)
 	msg, err := uc.UpdateMessage(channelID, messageID, userID, "new")
 
 	assert.Nil(t, msg)
@@ -375,14 +362,13 @@ func TestUpdateMessage_WrongChannel_NotFound(t *testing.T) {
 	msgRepo := new(MockMessageRepository)
 	chRepo := new(MockChannelRepository)
 	srvRepo := new(MockServerRepository)
+	perms := permsWith(serverID, userID, domain.PermSendMessages)
 
 	chRepo.On("GetByID", channelID).Return(&domain.Channel{ID: channelID, ServerID: serverID}, nil)
-	srvRepo.On("GetByID", serverID).Return(&domain.Server{ID: serverID, OwnerID: uuid.New()}, nil)
-	srvRepo.On("IsMember", serverID, userID).Return(true, nil)
 	existing := &domain.Message{ID: messageID, ChannelID: otherChannelID, UserID: userID, Content: "old"}
 	msgRepo.On("GetByID", messageID).Return(existing, nil)
 
-	uc := usecase.NewMessageUseCase(msgRepo, chRepo, srvRepo)
+	uc := usecase.NewMessageUseCase(msgRepo, chRepo, srvRepo, perms)
 	msg, err := uc.UpdateMessage(channelID, messageID, userID, "new")
 
 	assert.Nil(t, msg)
@@ -390,18 +376,17 @@ func TestUpdateMessage_WrongChannel_NotFound(t *testing.T) {
 	msgRepo.AssertNotCalled(t, "Update", mock.Anything, mock.Anything)
 }
 
-func TestUpdateMessage_NotMember_Forbidden(t *testing.T) {
+func TestUpdateMessage_WithoutSendPermission_Forbidden(t *testing.T) {
 	channelID, serverID, userID, messageID := uuid.New(), uuid.New(), uuid.New(), uuid.New()
 
 	msgRepo := new(MockMessageRepository)
 	chRepo := new(MockChannelRepository)
 	srvRepo := new(MockServerRepository)
+	perms := permsWith(serverID, userID, 0)
 
 	chRepo.On("GetByID", channelID).Return(&domain.Channel{ID: channelID, ServerID: serverID}, nil)
-	srvRepo.On("GetByID", serverID).Return(&domain.Server{ID: serverID, OwnerID: uuid.New()}, nil)
-	srvRepo.On("IsMember", serverID, userID).Return(false, nil)
 
-	uc := usecase.NewMessageUseCase(msgRepo, chRepo, srvRepo)
+	uc := usecase.NewMessageUseCase(msgRepo, chRepo, srvRepo, perms)
 	msg, err := uc.UpdateMessage(channelID, messageID, userID, "new")
 
 	assert.Nil(t, msg)
@@ -415,15 +400,14 @@ func TestDeleteMessage_Author_Success(t *testing.T) {
 	msgRepo := new(MockMessageRepository)
 	chRepo := new(MockChannelRepository)
 	srvRepo := new(MockServerRepository)
+	perms := permsWith(serverID, userID, domain.PermSendMessages)
 
 	chRepo.On("GetByID", channelID).Return(&domain.Channel{ID: channelID, ServerID: serverID}, nil)
-	srvRepo.On("GetByID", serverID).Return(&domain.Server{ID: serverID, OwnerID: uuid.New()}, nil)
-	srvRepo.On("IsMember", serverID, userID).Return(true, nil)
 	existing := &domain.Message{ID: messageID, ChannelID: channelID, UserID: userID, Content: "bye"}
 	msgRepo.On("GetByID", messageID).Return(existing, nil)
 	msgRepo.On("Delete", messageID).Return(nil)
 
-	uc := usecase.NewMessageUseCase(msgRepo, chRepo, srvRepo)
+	uc := usecase.NewMessageUseCase(msgRepo, chRepo, srvRepo, perms)
 	err := uc.DeleteMessage(channelID, messageID, userID)
 
 	assert.NoError(t, err)
@@ -436,14 +420,13 @@ func TestDeleteMessage_NotAuthor_Forbidden(t *testing.T) {
 	msgRepo := new(MockMessageRepository)
 	chRepo := new(MockChannelRepository)
 	srvRepo := new(MockServerRepository)
+	perms := permsWith(serverID, userID, domain.PermSendMessages)
 
 	chRepo.On("GetByID", channelID).Return(&domain.Channel{ID: channelID, ServerID: serverID}, nil)
-	srvRepo.On("GetByID", serverID).Return(&domain.Server{ID: serverID, OwnerID: uuid.New()}, nil)
-	srvRepo.On("IsMember", serverID, userID).Return(true, nil)
 	existing := &domain.Message{ID: messageID, ChannelID: channelID, UserID: authorID, Content: "bye"}
 	msgRepo.On("GetByID", messageID).Return(existing, nil)
 
-	uc := usecase.NewMessageUseCase(msgRepo, chRepo, srvRepo)
+	uc := usecase.NewMessageUseCase(msgRepo, chRepo, srvRepo, perms)
 	err := uc.DeleteMessage(channelID, messageID, userID)
 
 	assert.ErrorIs(t, err, domain.ErrForbidden)
@@ -456,13 +439,12 @@ func TestDeleteMessage_MessageNotFound(t *testing.T) {
 	msgRepo := new(MockMessageRepository)
 	chRepo := new(MockChannelRepository)
 	srvRepo := new(MockServerRepository)
+	perms := permsWith(serverID, userID, domain.PermSendMessages)
 
 	chRepo.On("GetByID", channelID).Return(&domain.Channel{ID: channelID, ServerID: serverID}, nil)
-	srvRepo.On("GetByID", serverID).Return(&domain.Server{ID: serverID, OwnerID: uuid.New()}, nil)
-	srvRepo.On("IsMember", serverID, userID).Return(true, nil)
 	msgRepo.On("GetByID", messageID).Return(nil, fmt.Errorf("message %s: %w", messageID, domain.ErrMessageNotFound))
 
-	uc := usecase.NewMessageUseCase(msgRepo, chRepo, srvRepo)
+	uc := usecase.NewMessageUseCase(msgRepo, chRepo, srvRepo, perms)
 	err := uc.DeleteMessage(channelID, messageID, userID)
 
 	assert.ErrorIs(t, err, domain.ErrMessageNotFound)
@@ -474,32 +456,30 @@ func TestDeleteMessage_WrongChannel_NotFound(t *testing.T) {
 	msgRepo := new(MockMessageRepository)
 	chRepo := new(MockChannelRepository)
 	srvRepo := new(MockServerRepository)
+	perms := permsWith(serverID, userID, domain.PermSendMessages)
 
 	chRepo.On("GetByID", channelID).Return(&domain.Channel{ID: channelID, ServerID: serverID}, nil)
-	srvRepo.On("GetByID", serverID).Return(&domain.Server{ID: serverID, OwnerID: uuid.New()}, nil)
-	srvRepo.On("IsMember", serverID, userID).Return(true, nil)
 	existing := &domain.Message{ID: messageID, ChannelID: otherChannelID, UserID: userID, Content: "bye"}
 	msgRepo.On("GetByID", messageID).Return(existing, nil)
 
-	uc := usecase.NewMessageUseCase(msgRepo, chRepo, srvRepo)
+	uc := usecase.NewMessageUseCase(msgRepo, chRepo, srvRepo, perms)
 	err := uc.DeleteMessage(channelID, messageID, userID)
 
 	assert.ErrorIs(t, err, domain.ErrMessageNotFound)
 	msgRepo.AssertNotCalled(t, "Delete", mock.Anything)
 }
 
-func TestDeleteMessage_NotMember_Forbidden(t *testing.T) {
+func TestDeleteMessage_WithoutSendPermission_Forbidden(t *testing.T) {
 	channelID, serverID, userID, messageID := uuid.New(), uuid.New(), uuid.New(), uuid.New()
 
 	msgRepo := new(MockMessageRepository)
 	chRepo := new(MockChannelRepository)
 	srvRepo := new(MockServerRepository)
+	perms := permsWith(serverID, userID, 0)
 
 	chRepo.On("GetByID", channelID).Return(&domain.Channel{ID: channelID, ServerID: serverID}, nil)
-	srvRepo.On("GetByID", serverID).Return(&domain.Server{ID: serverID, OwnerID: uuid.New()}, nil)
-	srvRepo.On("IsMember", serverID, userID).Return(false, nil)
 
-	uc := usecase.NewMessageUseCase(msgRepo, chRepo, srvRepo)
+	uc := usecase.NewMessageUseCase(msgRepo, chRepo, srvRepo, perms)
 	err := uc.DeleteMessage(channelID, messageID, userID)
 
 	assert.ErrorIs(t, err, domain.ErrForbidden)
@@ -512,15 +492,14 @@ func TestCreateMessage_ValidUserMention_Success(t *testing.T) {
 	msgRepo := new(MockMessageRepository)
 	chRepo := new(MockChannelRepository)
 	srvRepo := new(MockServerRepository)
+	perms := permsWith(serverID, userID, domain.PermSendMessages)
 
 	chRepo.On("GetByID", channelID).Return(&domain.Channel{ID: channelID, ServerID: serverID}, nil)
-	srvRepo.On("GetByID", serverID).Return(&domain.Server{ID: serverID, OwnerID: uuid.New()}, nil)
-	srvRepo.On("IsMember", serverID, userID).Return(true, nil)
-	srvRepo.On("GetMemberRole", serverID, mentionedID).Return("member", nil)
+	srvRepo.On("IsMember", serverID, mentionedID).Return(true, nil)
 	msgRepo.On("Create", mock.AnythingOfType("*domain.Message")).Return(nil)
 
 	content := "hi <@" + mentionedID.String() + ">"
-	uc := usecase.NewMessageUseCase(msgRepo, chRepo, srvRepo)
+	uc := usecase.NewMessageUseCase(msgRepo, chRepo, srvRepo, perms)
 	msg, err := uc.CreateMessage(channelID, userID, content)
 
 	assert.NoError(t, err)
@@ -533,14 +512,13 @@ func TestCreateMessage_MentionNonMember_InvalidMention(t *testing.T) {
 	msgRepo := new(MockMessageRepository)
 	chRepo := new(MockChannelRepository)
 	srvRepo := new(MockServerRepository)
+	perms := permsWith(serverID, userID, domain.PermSendMessages)
 
 	chRepo.On("GetByID", channelID).Return(&domain.Channel{ID: channelID, ServerID: serverID}, nil)
-	srvRepo.On("GetByID", serverID).Return(&domain.Server{ID: serverID, OwnerID: uuid.New()}, nil)
-	srvRepo.On("IsMember", serverID, userID).Return(true, nil)
-	srvRepo.On("GetMemberRole", serverID, mentionedID).Return("", nil)
+	srvRepo.On("IsMember", serverID, mentionedID).Return(false, nil)
 
 	content := "hi <@" + mentionedID.String() + ">"
-	uc := usecase.NewMessageUseCase(msgRepo, chRepo, srvRepo)
+	uc := usecase.NewMessageUseCase(msgRepo, chRepo, srvRepo, perms)
 	msg, err := uc.CreateMessage(channelID, userID, content)
 
 	assert.Nil(t, msg)
@@ -548,82 +526,75 @@ func TestCreateMessage_MentionNonMember_InvalidMention(t *testing.T) {
 	msgRepo.AssertNotCalled(t, "Create", mock.Anything)
 }
 
-func TestCreateMessage_EveryoneFromAdmin_Success(t *testing.T) {
+func TestCreateMessage_EveryoneWithPermission_Success(t *testing.T) {
 	channelID, serverID, userID := uuid.New(), uuid.New(), uuid.New()
 
 	msgRepo := new(MockMessageRepository)
 	chRepo := new(MockChannelRepository)
 	srvRepo := new(MockServerRepository)
+	perms := permsWith(serverID, userID, domain.PermViewChannels|domain.PermSendMessages|domain.PermMentionEveryone)
 
 	chRepo.On("GetByID", channelID).Return(&domain.Channel{ID: channelID, ServerID: serverID}, nil)
-	srvRepo.On("GetByID", serverID).Return(&domain.Server{ID: serverID, OwnerID: uuid.New()}, nil)
-	srvRepo.On("IsMember", serverID, userID).Return(true, nil)
-	srvRepo.On("GetMemberRole", serverID, userID).Return("admin", nil)
 	msgRepo.On("Create", mock.AnythingOfType("*domain.Message")).Return(nil)
 
-	uc := usecase.NewMessageUseCase(msgRepo, chRepo, srvRepo)
-	msg, err := uc.CreateMessage(channelID, userID, "@everyone hi")
+	uc := usecase.NewMessageUseCase(msgRepo, chRepo, srvRepo, perms)
+	got, err := uc.CreateMessage(channelID, userID, "внимание @everyone")
 
-	assert.NoError(t, err)
-	assert.NotNil(t, msg)
+	require.NoError(t, err)
+	assert.Equal(t, "внимание @everyone", got.Content)
 }
 
-func TestCreateMessage_EveryoneFromMember_Forbidden(t *testing.T) {
+func TestCreateMessage_EveryoneWithoutPermission_Forbidden(t *testing.T) {
 	channelID, serverID, userID := uuid.New(), uuid.New(), uuid.New()
 
 	msgRepo := new(MockMessageRepository)
 	chRepo := new(MockChannelRepository)
 	srvRepo := new(MockServerRepository)
+	perms := permsWith(serverID, userID, domain.PermViewChannels|domain.PermSendMessages)
 
 	chRepo.On("GetByID", channelID).Return(&domain.Channel{ID: channelID, ServerID: serverID}, nil)
-	srvRepo.On("GetByID", serverID).Return(&domain.Server{ID: serverID, OwnerID: uuid.New()}, nil)
-	srvRepo.On("IsMember", serverID, userID).Return(true, nil)
-	srvRepo.On("GetMemberRole", serverID, userID).Return("member", nil)
 
-	uc := usecase.NewMessageUseCase(msgRepo, chRepo, srvRepo)
-	msg, err := uc.CreateMessage(channelID, userID, "@everyone hi")
+	uc := usecase.NewMessageUseCase(msgRepo, chRepo, srvRepo, perms)
+	got, err := uc.CreateMessage(channelID, userID, "внимание @everyone")
 
-	assert.Nil(t, msg)
+	assert.Nil(t, got)
 	assert.ErrorIs(t, err, domain.ErrMentionForbidden)
-	msgRepo.AssertNotCalled(t, "Create", mock.Anything)
 }
 
-func TestCreateMessage_NoMentions_SkipsRoleLookup(t *testing.T) {
+func TestCreateMessage_NoMentions_SkipsMentionChecks(t *testing.T) {
 	channelID, serverID, userID := uuid.New(), uuid.New(), uuid.New()
 
 	msgRepo := new(MockMessageRepository)
 	chRepo := new(MockChannelRepository)
 	srvRepo := new(MockServerRepository)
+	perms := permsWith(serverID, userID, domain.PermSendMessages)
 
 	chRepo.On("GetByID", channelID).Return(&domain.Channel{ID: channelID, ServerID: serverID}, nil)
-	srvRepo.On("GetByID", serverID).Return(&domain.Server{ID: serverID, OwnerID: uuid.New()}, nil)
-	srvRepo.On("IsMember", serverID, userID).Return(true, nil)
 	msgRepo.On("Create", mock.AnythingOfType("*domain.Message")).Return(nil)
 
-	uc := usecase.NewMessageUseCase(msgRepo, chRepo, srvRepo)
+	uc := usecase.NewMessageUseCase(msgRepo, chRepo, srvRepo, perms)
 	msg, err := uc.CreateMessage(channelID, userID, "just a normal message")
 
 	assert.NoError(t, err)
 	assert.NotNil(t, msg)
-	srvRepo.AssertNotCalled(t, "GetMemberRole", mock.Anything, mock.Anything)
+	srvRepo.AssertNotCalled(t, "IsMember", mock.Anything, mock.Anything)
 }
 
-func TestSearchMessages_Member_ReturnsResults(t *testing.T) {
+func TestSearchMessages_WithViewPermission_ReturnsResults(t *testing.T) {
 	channelID, serverID, userID := uuid.New(), uuid.New(), uuid.New()
 
 	msgRepo := new(MockMessageRepository)
 	chRepo := new(MockChannelRepository)
 	srvRepo := new(MockServerRepository)
+	perms := permsWith(serverID, userID, domain.PermViewChannels)
 
 	want := []*domain.MessageWithAuthor{
 		{Message: domain.Message{ID: uuid.New(), ChannelID: channelID, Content: "нашёл баг"}, Username: "petya"},
 	}
 	chRepo.On("GetByID", channelID).Return(&domain.Channel{ID: channelID, ServerID: serverID}, nil)
-	srvRepo.On("GetByID", serverID).Return(&domain.Server{ID: serverID, OwnerID: uuid.New()}, nil)
-	srvRepo.On("IsMember", serverID, userID).Return(true, nil)
 	msgRepo.On("Search", channelID, "баг", 25, 0).Return(want, 1, nil)
 
-	uc := usecase.NewMessageUseCase(msgRepo, chRepo, srvRepo)
+	uc := usecase.NewMessageUseCase(msgRepo, chRepo, srvRepo, perms)
 	got, total, err := uc.SearchMessages(channelID, userID, "баг", 0, 0) // limit 0 -> нормализуется в 25
 
 	assert.NoError(t, err)
@@ -631,18 +602,17 @@ func TestSearchMessages_Member_ReturnsResults(t *testing.T) {
 	assert.Equal(t, 1, total)
 }
 
-func TestSearchMessages_NotMember_Forbidden(t *testing.T) {
+func TestSearchMessages_WithoutViewPermission_Forbidden(t *testing.T) {
 	channelID, serverID, userID := uuid.New(), uuid.New(), uuid.New()
 
 	msgRepo := new(MockMessageRepository)
 	chRepo := new(MockChannelRepository)
 	srvRepo := new(MockServerRepository)
+	perms := permsWith(serverID, userID, 0)
 
 	chRepo.On("GetByID", channelID).Return(&domain.Channel{ID: channelID, ServerID: serverID}, nil)
-	srvRepo.On("GetByID", serverID).Return(&domain.Server{ID: serverID, OwnerID: uuid.New()}, nil)
-	srvRepo.On("IsMember", serverID, userID).Return(false, nil)
 
-	uc := usecase.NewMessageUseCase(msgRepo, chRepo, srvRepo)
+	uc := usecase.NewMessageUseCase(msgRepo, chRepo, srvRepo, perms)
 	got, total, err := uc.SearchMessages(channelID, userID, "баг", 25, 0)
 
 	assert.Nil(t, got)
@@ -652,55 +622,53 @@ func TestSearchMessages_NotMember_Forbidden(t *testing.T) {
 }
 
 func TestSearchMessages_LimitCapped(t *testing.T) {
-	channelID, serverID, ownerID := uuid.New(), uuid.New(), uuid.New()
+	channelID, serverID, userID := uuid.New(), uuid.New(), uuid.New()
 
 	msgRepo := new(MockMessageRepository)
 	chRepo := new(MockChannelRepository)
 	srvRepo := new(MockServerRepository)
+	perms := permsWith(serverID, userID, domain.PermViewChannels)
 
 	chRepo.On("GetByID", channelID).Return(&domain.Channel{ID: channelID, ServerID: serverID}, nil)
-	srvRepo.On("GetByID", serverID).Return(&domain.Server{ID: serverID, OwnerID: ownerID}, nil)
 	msgRepo.On("Search", channelID, "баг", 50, 0).Return([]*domain.MessageWithAuthor{}, 0, nil)
 
-	uc := usecase.NewMessageUseCase(msgRepo, chRepo, srvRepo)
-	_, _, err := uc.SearchMessages(channelID, ownerID, "баг", 500, 0) // 500 -> кэп 50
+	uc := usecase.NewMessageUseCase(msgRepo, chRepo, srvRepo, perms)
+	_, _, err := uc.SearchMessages(channelID, userID, "баг", 500, 0) // 500 -> кэп 50
 
 	assert.NoError(t, err)
 	msgRepo.AssertCalled(t, "Search", channelID, "баг", 50, 0)
 }
 
-func TestGetMessagesAround_Member_ReturnsMessages(t *testing.T) {
+func TestGetMessagesAround_WithViewPermission_ReturnsMessages(t *testing.T) {
 	channelID, serverID, userID, messageID := uuid.New(), uuid.New(), uuid.New(), uuid.New()
 
 	msgRepo := new(MockMessageRepository)
 	chRepo := new(MockChannelRepository)
 	srvRepo := new(MockServerRepository)
+	perms := permsWith(serverID, userID, domain.PermViewChannels)
 
 	want := []*domain.Message{{ID: messageID, ChannelID: channelID, Content: "старое"}}
 	chRepo.On("GetByID", channelID).Return(&domain.Channel{ID: channelID, ServerID: serverID}, nil)
-	srvRepo.On("GetByID", serverID).Return(&domain.Server{ID: serverID, OwnerID: uuid.New()}, nil)
-	srvRepo.On("IsMember", serverID, userID).Return(true, nil)
 	msgRepo.On("GetAround", channelID, messageID, 25).Return(want, nil)
 
-	uc := usecase.NewMessageUseCase(msgRepo, chRepo, srvRepo)
+	uc := usecase.NewMessageUseCase(msgRepo, chRepo, srvRepo, perms)
 	got, err := uc.GetMessagesAround(channelID, messageID, userID, 0) // limit 0 -> 25
 
 	assert.NoError(t, err)
 	assert.Equal(t, want, got)
 }
 
-func TestGetMessagesAround_NotMember_Forbidden(t *testing.T) {
+func TestGetMessagesAround_WithoutViewPermission_Forbidden(t *testing.T) {
 	channelID, serverID, userID, messageID := uuid.New(), uuid.New(), uuid.New(), uuid.New()
 
 	msgRepo := new(MockMessageRepository)
 	chRepo := new(MockChannelRepository)
 	srvRepo := new(MockServerRepository)
+	perms := permsWith(serverID, userID, 0)
 
 	chRepo.On("GetByID", channelID).Return(&domain.Channel{ID: channelID, ServerID: serverID}, nil)
-	srvRepo.On("GetByID", serverID).Return(&domain.Server{ID: serverID, OwnerID: uuid.New()}, nil)
-	srvRepo.On("IsMember", serverID, userID).Return(false, nil)
 
-	uc := usecase.NewMessageUseCase(msgRepo, chRepo, srvRepo)
+	uc := usecase.NewMessageUseCase(msgRepo, chRepo, srvRepo, perms)
 	got, err := uc.GetMessagesAround(channelID, messageID, userID, 25)
 
 	assert.Nil(t, got)
@@ -714,16 +682,15 @@ func TestUpdateMessage_MentionNonMember_InvalidMention(t *testing.T) {
 	msgRepo := new(MockMessageRepository)
 	chRepo := new(MockChannelRepository)
 	srvRepo := new(MockServerRepository)
+	perms := permsWith(serverID, userID, domain.PermSendMessages)
 
 	chRepo.On("GetByID", channelID).Return(&domain.Channel{ID: channelID, ServerID: serverID}, nil)
-	srvRepo.On("GetByID", serverID).Return(&domain.Server{ID: serverID, OwnerID: uuid.New()}, nil)
-	srvRepo.On("IsMember", serverID, userID).Return(true, nil)
-	srvRepo.On("GetMemberRole", serverID, mentionedID).Return("", nil)
+	srvRepo.On("IsMember", serverID, mentionedID).Return(false, nil)
 	existing := &domain.Message{ID: messageID, ChannelID: channelID, UserID: userID, Content: "old"}
 	msgRepo.On("GetByID", messageID).Return(existing, nil)
 
 	content := "hi <@" + mentionedID.String() + ">"
-	uc := usecase.NewMessageUseCase(msgRepo, chRepo, srvRepo)
+	uc := usecase.NewMessageUseCase(msgRepo, chRepo, srvRepo, perms)
 	msg, err := uc.UpdateMessage(channelID, messageID, userID, content)
 
 	assert.Nil(t, msg)

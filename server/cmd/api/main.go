@@ -88,7 +88,7 @@ func main() {
 	userUseCase := usecase.NewUserUseCase(userRepo, storage)
 	permissionUseCase := usecase.NewPermissionUseCase(serverRepo, roleRepo)
 	serverUseCase := usecase.NewServerUseCase(serverRepo, channelRepo, userRepo, roleRepo, storage, permissionUseCase)
-	messageUseCase := usecase.NewMessageUseCase(messageRepo, channelRepo, serverRepo)
+	messageUseCase := usecase.NewMessageUseCase(messageRepo, channelRepo, serverRepo, permissionUseCase)
 	callUseCase := usecase.NewCallUseCase(callRepo)
 	turnUseCase := usecase.NewTURNUseCase(cfg.TURNSecret, cfg.TURNURLs, cfg.TURNTTL)
 

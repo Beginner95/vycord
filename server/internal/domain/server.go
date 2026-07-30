@@ -63,9 +63,6 @@ type ServerRepository interface {
 	// GetMembersWithUsers возвращает всех участников сервера (включая владельца,
 	// который не хранится в server_members) вместе с данными профиля.
 	GetMembersWithUsers(serverID uuid.UUID) ([]*MemberWithUser, error)
-	// GetMemberRole возвращает роль пользователя в сервере ("owner" для владельца).
-	// Если пользователь не владелец и не участник — возвращает "" без ошибки.
-	GetMemberRole(serverID, userID uuid.UUID) (string, error)
 }
 
 type ChannelRepository interface {

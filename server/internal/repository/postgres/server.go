@@ -3,13 +3,11 @@ package postgres
 import (
 	"context"
 	"database/sql"
-	"errors"
 	"fmt"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/vycord/server/internal/domain"
 )
@@ -305,28 +303,4 @@ func (r *serverRepository) GetMembersWithUsers(serverID uuid.UUID) ([]*domain.Me
 	}
 
 	return members, nil
-}
-
-func (r *serverRepository) GetMemberRole(serverID, userID uuid.UUID) (string, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	var ownerID uuid.UUID
-	err := r.db.QueryRow(ctx, `SELECT owner_id FROM servers WHERE id = $1`, serverID).Scan(&ownerID)
-	if err != nil {
-		return "", fmt.Errorf("failed to get server owner: %w", err)
-	}
-	if ownerID == userID {
-		return "owner", nil
-	}
-
-	var role string
-	err = r.db.QueryRow(ctx, `SELECT role FROM server_members WHERE server_id = $1 AND user_id = $2`, serverID, userID).Scan(&role)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return "", nil
-	}
-	if err != nil {
-		return "", fmt.Errorf("failed to get member role: %w", err)
-	}
-	return role, nil
 }
