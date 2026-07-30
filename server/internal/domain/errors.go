@@ -12,7 +12,7 @@ var (
 	ErrMessageNotFound = errors.New("message not found")
 	// ErrInvalidMention — упомянутый через <@uuid> пользователь не состоит в сервере.
 	ErrInvalidMention = errors.New("invalid mention")
-	// ErrMentionForbidden — @everyone от пользователя без прав owner/admin.
+	// ErrMentionForbidden — @everyone от пользователя без права MENTION_EVERYONE.
 	ErrMentionForbidden = errors.New("mention not allowed")
 	// ErrUnsupportedAvatarFormat — загружаемый файл не PNG и не JPEG.
 	ErrUnsupportedAvatarFormat = errors.New("unsupported avatar format")
@@ -24,4 +24,8 @@ var (
 	ErrServerNotFound = errors.New("server not found")
 	// ErrLastChannel — попытка удалить единственный оставшийся канал сервера.
 	ErrLastChannel = errors.New("cannot delete the last channel of a server")
+	// ErrRoleNotFound — роль не существует или принадлежит другому серверу.
+	ErrRoleNotFound = errors.New("role not found")
+	// ErrInvalidPermissions — маска прав содержит неизвестные биты.
+	ErrInvalidPermissions = errors.New("invalid permissions")
 )

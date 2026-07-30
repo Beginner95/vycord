@@ -50,3 +50,18 @@ type TURNUseCase interface {
 	// (nil, nil) when no TURN server is configured.
 	GetCredentials(userID uuid.UUID) (*TURNCredentials, error)
 }
+
+type PermissionUseCase interface {
+	// Resolve возвращает эффективные права пользователя на сервере.
+	// Не-участник получает нулевой набор, а не ошибку.
+	Resolve(serverID, userID uuid.UUID) (PermissionSet, error)
+}
+
+type RoleUseCase interface {
+	ListRoles(serverID, userID uuid.UUID) ([]*Role, error)
+	CreateRole(serverID, actorID uuid.UUID, name string, color, position int, perms Permission) (*Role, error)
+	UpdateRole(serverID, roleID, actorID uuid.UUID, patch RolePatch) (*Role, error)
+	DeleteRole(serverID, roleID, actorID uuid.UUID) error
+	AssignRole(serverID, targetUserID, roleID, actorID uuid.UUID) error
+	UnassignRole(serverID, targetUserID, roleID, actorID uuid.UUID) error
+}
