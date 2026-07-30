@@ -316,9 +316,11 @@ func TestRolePrivilegeEscalation(t *testing.T) {
 		memberToken, map[string]any{"name": "Я главный", "position": 1, "permissions": "1"})
 	assert.Equal(t, http.StatusForbidden, status, "нет MANAGE_ROLES — нет создания ролей")
 
-	// Владелец выдаёт участнику MANAGE_ROLES (4) на позиции 1.
+	// Владелец выдаёт участнику MANAGE_ROLES (4) на позиции 5 — заведомо выше
+	// позиции роли из следующей попытки эскалации (1), чтобы отказ там гарантированно
+	// приходил от canGrant, а не от иерархии позиций (canManagePosition: 1 < 5 — пройдёт).
 	status, body := doJSON(t, http.MethodPost, "/api/v1/servers/"+serverID+"/roles",
-		ownerToken, map[string]any{"name": "Ролевик", "position": 1, "permissions": "4"})
+		ownerToken, map[string]any{"name": "Ролевик", "position": 5, "permissions": "4"})
 	require.Equal(t, http.StatusCreated, status)
 	var role struct {
 		ID string `json:"id"`
@@ -329,7 +331,8 @@ func TestRolePrivilegeEscalation(t *testing.T) {
 		"/api/v1/servers/"+serverID+"/members/"+memberID+"/roles/"+role.ID, ownerToken, nil)
 	require.Equal(t, http.StatusNoContent, status)
 
-	// Теперь у него MANAGE_ROLES, но выдать себе ADMINISTRATOR он не может.
+	// Теперь у него MANAGE_ROLES и позиция 5 (иерархия для position:1 пройдёт),
+	// но выдать себе ADMINISTRATOR он всё равно не может — отказ только от canGrant.
 	status, _ = doJSON(t, http.MethodPost, "/api/v1/servers/"+serverID+"/roles",
 		memberToken, map[string]any{"name": "Root", "position": 1, "permissions": "1"})
 	assert.Equal(t, http.StatusForbidden, status, "нельзя выдать право, которого нет у себя")
