@@ -140,9 +140,9 @@ func (m *MockServerRepository) GetMembersWithUsers(serverID uuid.UUID) ([]*domai
 	}
 	return args.Get(0).([]*domain.MemberWithUser), args.Error(1)
 }
-func (m *MockServerRepository) GetMemberRole(serverID, userID uuid.UUID) (domain.Role, error) {
+func (m *MockServerRepository) GetMemberRole(serverID, userID uuid.UUID) (string, error) {
 	args := m.Called(serverID, userID)
-	return args.Get(0).(domain.Role), args.Error(1)
+	return args.String(0), args.Error(1)
 }
 
 // --- Тесты ---
@@ -516,7 +516,7 @@ func TestCreateMessage_ValidUserMention_Success(t *testing.T) {
 	chRepo.On("GetByID", channelID).Return(&domain.Channel{ID: channelID, ServerID: serverID}, nil)
 	srvRepo.On("GetByID", serverID).Return(&domain.Server{ID: serverID, OwnerID: uuid.New()}, nil)
 	srvRepo.On("IsMember", serverID, userID).Return(true, nil)
-	srvRepo.On("GetMemberRole", serverID, mentionedID).Return(domain.RoleMember, nil)
+	srvRepo.On("GetMemberRole", serverID, mentionedID).Return("member", nil)
 	msgRepo.On("Create", mock.AnythingOfType("*domain.Message")).Return(nil)
 
 	content := "hi <@" + mentionedID.String() + ">"
@@ -537,7 +537,7 @@ func TestCreateMessage_MentionNonMember_InvalidMention(t *testing.T) {
 	chRepo.On("GetByID", channelID).Return(&domain.Channel{ID: channelID, ServerID: serverID}, nil)
 	srvRepo.On("GetByID", serverID).Return(&domain.Server{ID: serverID, OwnerID: uuid.New()}, nil)
 	srvRepo.On("IsMember", serverID, userID).Return(true, nil)
-	srvRepo.On("GetMemberRole", serverID, mentionedID).Return(domain.Role(""), nil)
+	srvRepo.On("GetMemberRole", serverID, mentionedID).Return("", nil)
 
 	content := "hi <@" + mentionedID.String() + ">"
 	uc := usecase.NewMessageUseCase(msgRepo, chRepo, srvRepo)
@@ -558,7 +558,7 @@ func TestCreateMessage_EveryoneFromAdmin_Success(t *testing.T) {
 	chRepo.On("GetByID", channelID).Return(&domain.Channel{ID: channelID, ServerID: serverID}, nil)
 	srvRepo.On("GetByID", serverID).Return(&domain.Server{ID: serverID, OwnerID: uuid.New()}, nil)
 	srvRepo.On("IsMember", serverID, userID).Return(true, nil)
-	srvRepo.On("GetMemberRole", serverID, userID).Return(domain.RoleAdmin, nil)
+	srvRepo.On("GetMemberRole", serverID, userID).Return("admin", nil)
 	msgRepo.On("Create", mock.AnythingOfType("*domain.Message")).Return(nil)
 
 	uc := usecase.NewMessageUseCase(msgRepo, chRepo, srvRepo)
@@ -578,7 +578,7 @@ func TestCreateMessage_EveryoneFromMember_Forbidden(t *testing.T) {
 	chRepo.On("GetByID", channelID).Return(&domain.Channel{ID: channelID, ServerID: serverID}, nil)
 	srvRepo.On("GetByID", serverID).Return(&domain.Server{ID: serverID, OwnerID: uuid.New()}, nil)
 	srvRepo.On("IsMember", serverID, userID).Return(true, nil)
-	srvRepo.On("GetMemberRole", serverID, userID).Return(domain.RoleMember, nil)
+	srvRepo.On("GetMemberRole", serverID, userID).Return("member", nil)
 
 	uc := usecase.NewMessageUseCase(msgRepo, chRepo, srvRepo)
 	msg, err := uc.CreateMessage(channelID, userID, "@everyone hi")
@@ -718,7 +718,7 @@ func TestUpdateMessage_MentionNonMember_InvalidMention(t *testing.T) {
 	chRepo.On("GetByID", channelID).Return(&domain.Channel{ID: channelID, ServerID: serverID}, nil)
 	srvRepo.On("GetByID", serverID).Return(&domain.Server{ID: serverID, OwnerID: uuid.New()}, nil)
 	srvRepo.On("IsMember", serverID, userID).Return(true, nil)
-	srvRepo.On("GetMemberRole", serverID, mentionedID).Return(domain.Role(""), nil)
+	srvRepo.On("GetMemberRole", serverID, mentionedID).Return("", nil)
 	existing := &domain.Message{ID: messageID, ChannelID: channelID, UserID: userID, Content: "old"}
 	msgRepo.On("GetByID", messageID).Return(existing, nil)
 

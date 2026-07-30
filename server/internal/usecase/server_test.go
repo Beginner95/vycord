@@ -22,7 +22,7 @@ func TestGetMembers_Owner_Success(t *testing.T) {
 	usrRepo := new(MockUserRepository)
 	storage := new(MockStorage)
 
-	want := []*domain.MemberWithUser{{UserID: ownerID, Username: "owner", Role: domain.RoleOwner}}
+	want := []*domain.MemberWithUser{{UserID: ownerID, Username: "owner", Role: "owner"}}
 	srvRepo.On("GetByID", serverID).Return(&domain.Server{ID: serverID, OwnerID: ownerID}, nil)
 	srvRepo.On("GetMembersWithUsers", serverID).Return(want, nil)
 
@@ -42,7 +42,7 @@ func TestGetMembers_Member_Success(t *testing.T) {
 	usrRepo := new(MockUserRepository)
 	storage := new(MockStorage)
 
-	want := []*domain.MemberWithUser{{UserID: userID, Username: "member", Role: domain.RoleMember}}
+	want := []*domain.MemberWithUser{{UserID: userID, Username: "member", Role: "member"}}
 	srvRepo.On("GetByID", serverID).Return(&domain.Server{ID: serverID, OwnerID: ownerID}, nil)
 	srvRepo.On("IsMember", serverID, userID).Return(true, nil)
 	srvRepo.On("GetMembersWithUsers", serverID).Return(want, nil)

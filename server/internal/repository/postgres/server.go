@@ -307,7 +307,7 @@ func (r *serverRepository) GetMembersWithUsers(serverID uuid.UUID) ([]*domain.Me
 	return members, nil
 }
 
-func (r *serverRepository) GetMemberRole(serverID, userID uuid.UUID) (domain.Role, error) {
+func (r *serverRepository) GetMemberRole(serverID, userID uuid.UUID) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
@@ -317,7 +317,7 @@ func (r *serverRepository) GetMemberRole(serverID, userID uuid.UUID) (domain.Rol
 		return "", fmt.Errorf("failed to get server owner: %w", err)
 	}
 	if ownerID == userID {
-		return domain.RoleOwner, nil
+		return "owner", nil
 	}
 
 	var role string
@@ -328,5 +328,5 @@ func (r *serverRepository) GetMemberRole(serverID, userID uuid.UUID) (domain.Rol
 	if err != nil {
 		return "", fmt.Errorf("failed to get member role: %w", err)
 	}
-	return domain.Role(role), nil
+	return role, nil
 }

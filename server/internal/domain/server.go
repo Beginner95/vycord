@@ -35,17 +35,9 @@ const (
 type Member struct {
 	ServerID uuid.UUID `json:"server_id"`
 	UserID   uuid.UUID `json:"user_id"`
-	Role     Role      `json:"role"`
+	Role     string    `json:"role"`
 	JoinedAt time.Time `json:"joined_at"`
 }
-
-type Role string
-
-const (
-	RoleOwner  Role = "owner"
-	RoleAdmin  Role = "admin"
-	RoleMember Role = "member"
-)
 
 // MemberWithUser — участник сервера с данными профиля, для списка участников
 // (эндпоинт GET /servers/{id}/members) и для автокомплита упоминаний на клиенте.
@@ -53,7 +45,7 @@ type MemberWithUser struct {
 	UserID    uuid.UUID `json:"user_id"`
 	Username  string    `json:"username"`
 	AvatarURL *string   `json:"avatar_url,omitempty"`
-	Role      Role      `json:"role"`
+	Role      string    `json:"role"`
 	JoinedAt  time.Time `json:"joined_at"`
 }
 
@@ -71,9 +63,9 @@ type ServerRepository interface {
 	// GetMembersWithUsers возвращает всех участников сервера (включая владельца,
 	// который не хранится в server_members) вместе с данными профиля.
 	GetMembersWithUsers(serverID uuid.UUID) ([]*MemberWithUser, error)
-	// GetMemberRole возвращает роль пользователя в сервере (RoleOwner для владельца).
+	// GetMemberRole возвращает роль пользователя в сервере ("owner" для владельца).
 	// Если пользователь не владелец и не участник — возвращает "" без ошибки.
-	GetMemberRole(serverID, userID uuid.UUID) (Role, error)
+	GetMemberRole(serverID, userID uuid.UUID) (string, error)
 }
 
 type ChannelRepository interface {

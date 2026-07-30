@@ -73,7 +73,7 @@ func (uc *messageUseCase) validateMentions(serverID, authorID uuid.UUID, content
 		if err != nil {
 			return fmt.Errorf("get author role: %w", err)
 		}
-		if role != domain.RoleOwner && role != domain.RoleAdmin {
+		if role != "owner" && role != "admin" {
 			return domain.ErrMentionForbidden
 		}
 	}
