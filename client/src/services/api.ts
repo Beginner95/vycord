@@ -1,5 +1,5 @@
 import { useAuthStore } from '@/stores/authStore';
-import type { Server, User } from '@/types';
+import type { Server, User, Role, PermissionsResponse } from '@/types';
 
 export const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8080';
 
@@ -179,6 +179,52 @@ class ApiService {
     return this.requestForm<Server>(`/api/v1/servers/${id}/icon`, {
       method: 'DELETE',
     });
+  }
+
+  // Roles
+  async getRoles(serverId: string): Promise<Role[]> {
+    return this.request(`/api/v1/servers/${serverId}/roles`);
+  }
+
+  async createRole(
+    serverId: string,
+    body: { name: string; color?: number; position?: number; permissions?: string }
+  ): Promise<Role> {
+    return this.request(`/api/v1/servers/${serverId}/roles`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    });
+  }
+
+  async updateRole(
+    serverId: string,
+    roleId: string,
+    patch: { name?: string; color?: number; position?: number; permissions?: string }
+  ): Promise<Role> {
+    return this.request(`/api/v1/servers/${serverId}/roles/${roleId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(patch),
+    });
+  }
+
+  async deleteRole(serverId: string, roleId: string): Promise<void> {
+    return this.request(`/api/v1/servers/${serverId}/roles/${roleId}`, { method: 'DELETE' });
+  }
+
+  async assignRole(serverId: string, userId: string, roleId: string): Promise<void> {
+    return this.request(`/api/v1/servers/${serverId}/members/${userId}/roles/${roleId}`, {
+      method: 'PUT',
+    });
+  }
+
+  async unassignRole(serverId: string, userId: string, roleId: string): Promise<void> {
+    return this.request(`/api/v1/servers/${serverId}/members/${userId}/roles/${roleId}`, {
+      method: 'DELETE',
+    });
+  }
+
+  async getMyPermissions(serverId: string): Promise<PermissionsResponse> {
+    return this.request(`/api/v1/servers/${serverId}/members/me/permissions`);
   }
 
   // Channels

@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { Server, Channel, MemberWithUser } from '@/types';
+import type { Server, Channel, MemberWithUser, PermissionSet } from '@/types';
 
 interface ServerState {
   servers: Server[];
@@ -7,11 +7,13 @@ interface ServerState {
   channels: Channel[];
   currentChannel: Channel | null;
   members: MemberWithUser[];
+  permissions: Map<string, PermissionSet>;
   setServers: (servers: Server[]) => void;
   setCurrentServer: (server: Server | null) => void;
   setChannels: (channels: Channel[]) => void;
   setCurrentChannel: (channel: Channel | null) => void;
   setMembers: (members: MemberWithUser[]) => void;
+  setPermissions: (serverId: string, set: PermissionSet) => void;
   patchMemberAvatar: (userId: string, avatarUrl: string | null) => void;
   patchServer: (id: string, patch: Partial<Server>) => void;
   removeServer: (id: string) => void;
@@ -25,12 +27,19 @@ export const useServerStore = create<ServerState>((set) => ({
   channels: [],
   currentChannel: null,
   members: [],
+  permissions: new Map<string, PermissionSet>(),
 
   setServers: (servers) => set({ servers }),
   setCurrentServer: (server) => set({ currentServer: server }),
   setChannels: (channels) => set({ channels }),
   setCurrentChannel: (channel) => set({ currentChannel: channel }),
   setMembers: (members) => set({ members }),
+  setPermissions: (serverId, permissionSet) =>
+    set((state) => {
+      const next = new Map(state.permissions);
+      next.set(serverId, permissionSet);
+      return { permissions: next };
+    }),
   patchMemberAvatar: (userId, avatarUrl) =>
     set((state) => ({
       members: state.members.map((m) =>
@@ -44,9 +53,11 @@ export const useServerStore = create<ServerState>((set) => ({
         state.currentServer?.id === id ? { ...state.currentServer, ...patch } : state.currentServer,
     })),
   removeServer: (id) =>
-    set((state) => ({
-      servers: state.servers.filter((s) => s.id !== id),
-    })),
+    set((state) => {
+      const permissions = new Map(state.permissions);
+      permissions.delete(id);
+      return { servers: state.servers.filter((s) => s.id !== id), permissions };
+    }),
   patchChannel: (id, patch) =>
     set((state) => ({
       channels: state.channels.map((c) => (c.id === id ? { ...c, ...patch } : c)),

@@ -1,10 +1,10 @@
 import { useMemo, useState, type RefObject, type ChangeEvent, type KeyboardEvent } from 'react';
-import type { MemberWithUser, Role } from '@/types';
-import { roleLabel } from '@/utils/mentions';
+import type { MemberWithUser } from '@/types';
+import { roleLabel, type LegacyMentionRole } from '@/utils/mentions';
 
 export type MentionEntry =
   | { kind: 'user'; id: string; label: string }
-  | { kind: 'role'; role: Role; label: string }
+  | { kind: 'role'; role: LegacyMentionRole; label: string }
   | { kind: 'everyone'; label: string };
 
 interface UseMentionAutocompleteArgs {
@@ -12,7 +12,7 @@ interface UseMentionAutocompleteArgs {
   setValue: (value: string) => void;
   inputRef: RefObject<HTMLTextAreaElement | null>;
   members: MemberWithUser[];
-  currentUserRole: Role | undefined;
+  currentUserRole: LegacyMentionRole | undefined;
 }
 
 export function useMentionAutocomplete({
@@ -36,7 +36,7 @@ export function useMentionAutocomplete({
       }
     }
 
-    const roleEntries: Array<{ role: Role; label: string }> = [
+    const roleEntries: Array<{ role: LegacyMentionRole; label: string }> = [
       { role: 'owner', label: roleLabel('owner') },
       { role: 'admin', label: roleLabel('admin') },
       { role: 'member', label: roleLabel('member') },

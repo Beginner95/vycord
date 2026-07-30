@@ -5,7 +5,7 @@ import { apiService } from '@/services/api';
 import { wsService } from '@/services/websocket';
 import { audioService } from '@/services/audio';
 import { useServerStore } from '@/stores/serverStore';
-import { tokenizeMentions, roleLabel } from '@/utils/mentions';
+import { tokenizeMentions, roleLabel, type LegacyMentionRole } from '@/utils/mentions';
 import { useMentionAutocomplete } from '@/hooks/useMentionAutocomplete';
 import { useFloatingSelectionToolbar } from '@/hooks/useFloatingSelectionToolbar';
 import { MessageSearch } from '@/components/MessageSearch';
@@ -154,7 +154,9 @@ export function ChatArea({ channel, user, onMobileBack, onShowMembers }: ChatAre
   // Cache for user info (id → username)
   const [userCache, setUserCache] = useState<Map<string, { username: string; avatar_url?: string }>>(new Map());
 
-  const currentUserRole = members.find((m) => m.user_id === user?.id)?.role;
+  // Старой строкой role бэкенд больше не отдаёт (заменена на roles: string[]).
+  // Гейт @everyone по новым правам переведёт следующая задача (VYC-55-m Task 13).
+  const currentUserRole: LegacyMentionRole | undefined = undefined;
 
   const composeMention = useMentionAutocomplete({
     value: input,
