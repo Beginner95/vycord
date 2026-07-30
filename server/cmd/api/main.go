@@ -74,6 +74,7 @@ func main() {
 	channelRepo := postgres.NewChannelRepository(db)
 	messageRepo := postgres.NewMessageRepository(db)
 	callRepo := postgres.NewCallRepository(db)
+	roleRepo := postgres.NewRoleRepository(db)
 
 	// Initialize file storage
 	storage, err := filestorage.NewLocal(cfg.UploadDir, "/uploads")
@@ -85,7 +86,8 @@ func main() {
 	// Initialize usecases
 	authUseCase := usecase.NewAuthUseCase(userRepo, cfg.JWTSecret, cfg.JWTExpiration)
 	userUseCase := usecase.NewUserUseCase(userRepo, storage)
-	serverUseCase := usecase.NewServerUseCase(serverRepo, channelRepo, userRepo, storage)
+	permissionUseCase := usecase.NewPermissionUseCase(serverRepo, roleRepo)
+	serverUseCase := usecase.NewServerUseCase(serverRepo, channelRepo, userRepo, storage, permissionUseCase)
 	messageUseCase := usecase.NewMessageUseCase(messageRepo, channelRepo, serverRepo)
 	callUseCase := usecase.NewCallUseCase(callRepo)
 	turnUseCase := usecase.NewTURNUseCase(cfg.TURNSecret, cfg.TURNURLs, cfg.TURNTTL)

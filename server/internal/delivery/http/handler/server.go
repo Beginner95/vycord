@@ -219,9 +219,11 @@ func (h *ServerHandler) CreateChannel(w http.ResponseWriter, r *http.Request) {
 		req.Type = domain.ChannelTypeText
 	}
 
-	channel, err := h.serverUseCase.CreateChannel(serverID, req.Name, req.Type)
+	userID := r.Context().Value("user_id").(uuid.UUID)
+
+	channel, err := h.serverUseCase.CreateChannel(serverID, userID, req.Name, req.Type)
 	if err != nil {
-		h.sendError(w, http.StatusInternalServerError, err.Error())
+		h.writeUseCaseError(w, r, err)
 		return
 	}
 
@@ -236,9 +238,11 @@ func (h *ServerHandler) GetChannels(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	channels, err := h.serverUseCase.GetChannels(serverID)
+	userID := r.Context().Value("user_id").(uuid.UUID)
+
+	channels, err := h.serverUseCase.GetChannels(serverID, userID)
 	if err != nil {
-		h.sendError(w, http.StatusInternalServerError, "failed to get channels")
+		h.writeUseCaseError(w, r, err)
 		return
 	}
 

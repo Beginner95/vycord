@@ -25,8 +25,8 @@ type ServerUseCase interface {
 	JoinServer(serverID, userID uuid.UUID) error
 	LeaveServer(serverID, userID uuid.UUID) error
 	SearchServers(query string, limit int) ([]*Server, error)
-	CreateChannel(serverID uuid.UUID, name string, channelType ChannelType) (*Channel, error)
-	GetChannels(serverID uuid.UUID) ([]*Channel, error)
+	CreateChannel(serverID, userID uuid.UUID, name string, channelType ChannelType) (*Channel, error)
+	GetChannels(serverID, userID uuid.UUID) ([]*Channel, error)
 	GetMembers(serverID, userID uuid.UUID) ([]*MemberWithUser, error)
 	UpdateServer(serverID, userID uuid.UUID, name string) (*Server, error)
 	DeleteServer(serverID, userID uuid.UUID) error
