@@ -88,7 +88,7 @@ func TestGetMembers_Owner_Success(t *testing.T) {
 	storage := new(MockStorage)
 	perms := permsOwner(serverID, ownerID)
 
-	want := []*domain.MemberWithUser{{UserID: ownerID, Username: "owner", Role: "owner"}}
+	want := []*domain.MemberWithUser{{UserID: ownerID, Username: "owner", Roles: []uuid.UUID{}}}
 	srvRepo.On("GetMembersWithUsers", serverID).Return(want, nil)
 
 	uc := usecase.NewServerUseCase(srvRepo, chRepo, usrRepo, new(MockRoleRepository), storage, perms)
@@ -108,7 +108,7 @@ func TestGetMembers_Member_Success(t *testing.T) {
 	storage := new(MockStorage)
 	perms := permsWith(serverID, userID, domain.PermViewChannels)
 
-	want := []*domain.MemberWithUser{{UserID: userID, Username: "member", Role: "member"}}
+	want := []*domain.MemberWithUser{{UserID: userID, Username: "member", Roles: []uuid.UUID{}}}
 	srvRepo.On("GetMembersWithUsers", serverID).Return(want, nil)
 
 	uc := usecase.NewServerUseCase(srvRepo, chRepo, usrRepo, new(MockRoleRepository), storage, perms)

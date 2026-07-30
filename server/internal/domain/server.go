@@ -35,18 +35,19 @@ const (
 type Member struct {
 	ServerID uuid.UUID `json:"server_id"`
 	UserID   uuid.UUID `json:"user_id"`
-	Role     string    `json:"role"`
 	JoinedAt time.Time `json:"joined_at"`
 }
 
 // MemberWithUser — участник сервера с данными профиля, для списка участников
 // (эндпоинт GET /servers/{id}/members) и для автокомплита упоминаний на клиенте.
+// Roles — идентификаторы назначенных ролей без @everyone: она подразумевается
+// для каждого участника и в member_roles не хранится.
 type MemberWithUser struct {
-	UserID    uuid.UUID `json:"user_id"`
-	Username  string    `json:"username"`
-	AvatarURL *string   `json:"avatar_url,omitempty"`
-	Role      string    `json:"role"`
-	JoinedAt  time.Time `json:"joined_at"`
+	UserID    uuid.UUID   `json:"user_id"`
+	Username  string      `json:"username"`
+	AvatarURL *string     `json:"avatar_url,omitempty"`
+	Roles     []uuid.UUID `json:"roles"`
+	JoinedAt  time.Time   `json:"joined_at"`
 }
 
 type ServerRepository interface {
@@ -61,7 +62,8 @@ type ServerRepository interface {
 	RemoveMember(serverID, userID uuid.UUID) error
 	IsMember(serverID, userID uuid.UUID) (bool, error)
 	// GetMembersWithUsers возвращает всех участников сервера (включая владельца,
-	// который не хранится в server_members) вместе с данными профиля.
+	// который с миграции 009 хранится обычной строкой в server_members) вместе
+	// с данными профиля.
 	GetMembersWithUsers(serverID uuid.UUID) ([]*MemberWithUser, error)
 }
 
