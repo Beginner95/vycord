@@ -28,4 +28,6 @@ var (
 	ErrRoleNotFound = errors.New("role not found")
 	// ErrInvalidPermissions — маска прав содержит неизвестные биты.
 	ErrInvalidPermissions = errors.New("invalid permissions")
+	// ErrInvalidRoleName — имя роли пустое или длиннее 100 символов.
+	ErrInvalidRoleName = errors.New("invalid role name")
 )

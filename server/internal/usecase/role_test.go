@@ -1,6 +1,7 @@
 package usecase_test
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
@@ -110,6 +111,39 @@ func TestCreateRole_InvalidPermissionBits_Rejected(t *testing.T) {
 	assert.ErrorIs(t, err, domain.ErrInvalidPermissions)
 }
 
+// --- Валидация имени: сентинел ErrInvalidRoleName, а не голая строковая ошибка ---
+
+func TestCreateRole_EmptyName_Rejected(t *testing.T) {
+	f := newRoleFixture(t)
+	f.actorWith(0, 5)
+
+	_, err := f.uc.CreateRole(f.serverID, f.actorID, "   ", 0, 2, domain.PermViewChannels)
+
+	assert.ErrorIs(t, err, domain.ErrInvalidRoleName)
+	f.roleRepo.AssertNotCalled(t, "Create", mock.Anything)
+}
+
+func TestCreateRole_NameTooLong_Rejected(t *testing.T) {
+	f := newRoleFixture(t)
+	f.actorWith(0, 5)
+
+	_, err := f.uc.CreateRole(f.serverID, f.actorID, strings.Repeat("a", 101), 0, 2, domain.PermViewChannels)
+
+	assert.ErrorIs(t, err, domain.ErrInvalidRoleName)
+}
+
+func TestUpdateRole_EmptyName_Rejected(t *testing.T) {
+	f := newRoleFixture(t)
+	f.actorWith(0, 3)
+	role := f.role(1, domain.PermViewChannels, false)
+
+	name := "   "
+	_, err := f.uc.UpdateRole(f.serverID, role.ID, f.actorID, domain.RolePatch{Name: &name})
+
+	assert.ErrorIs(t, err, domain.ErrInvalidRoleName)
+	f.roleRepo.AssertNotCalled(t, "Update", mock.Anything, mock.Anything)
+}
+
 // --- Инвариант 2: нельзя трогать роль на своём уровне и выше ---
 
 func TestUpdateRole_AtOwnPosition_Forbidden(t *testing.T) {
@@ -137,6 +171,20 @@ func TestUpdateRole_BelowOwnPosition_Success(t *testing.T) {
 	assert.Equal(t, "Переименована", got.Name)
 }
 
+// Снятие права, которого у актора нет самого, запрещено так же, как и выдача:
+// иначе актор мог бы ослаблять роли сильнее себя, отбирая чужие права.
+func TestUpdateRole_RemovingUnheldPermission_Forbidden(t *testing.T) {
+	f := newRoleFixture(t)
+	f.actorWith(0, 3) // нет PermManageChannels
+	role := f.role(1, domain.PermViewChannels|domain.PermManageChannels, false)
+
+	perms := domain.PermViewChannels // снимаем PermManageChannels
+	_, err := f.uc.UpdateRole(f.serverID, role.ID, f.actorID, domain.RolePatch{Permissions: &perms})
+
+	assert.ErrorIs(t, err, domain.ErrForbidden)
+	f.roleRepo.AssertNotCalled(t, "Update", mock.Anything, mock.Anything)
+}
+
 func TestCreateRole_AtOrAboveOwnPosition_Forbidden(t *testing.T) {
 	f := newRoleFixture(t)
 	f.actorWith(0, 3)
@@ -161,7 +209,9 @@ func TestDeleteRole_AboveOwnPosition_Forbidden(t *testing.T) {
 
 func TestAssignRole_TargetAboveActor_Forbidden(t *testing.T) {
 	f := newRoleFixture(t)
-	f.actorWith(0, 3)
+	// Актору выдан PermViewChannels — тот же бит, что несёт назначаемая роль,
+	// иначе тест на самом деле проверял бы инвариант 1, а не инвариант 3.
+	f.actorWith(domain.PermViewChannels, 3)
 	f.targetAt(5)
 	role := f.role(1, domain.PermViewChannels, false)
 
@@ -173,9 +223,39 @@ func TestAssignRole_TargetAboveActor_Forbidden(t *testing.T) {
 
 func TestAssignRole_TargetBelowActor_Success(t *testing.T) {
 	f := newRoleFixture(t)
-	f.actorWith(0, 3)
+	f.actorWith(domain.PermViewChannels, 3)
 	f.targetAt(0)
 	role := f.role(1, domain.PermViewChannels, false)
+	f.srvRepo.On("IsMember", f.serverID, f.targetID).Return(true, nil)
+	f.roleRepo.On("AssignToMember", f.serverID, f.targetID, role.ID).Return(nil)
+
+	err := f.uc.AssignRole(f.serverID, f.targetID, role.ID, f.actorID)
+
+	require.NoError(t, err)
+}
+
+// --- Инвариант 1 применительно к AssignRole: назначение — это тоже выдача прав ---
+
+func TestAssignRole_GrantingUnheldPermission_Forbidden(t *testing.T) {
+	f := newRoleFixture(t)
+	// Актор имеет MANAGE_ROLES, но не ADMINISTRATOR. Роль с ADMINISTATOR лежит
+	// ниже актора по позиции — иерархия одна бы это пропустила, но инвариант 1
+	// обязан заблокировать выдачу права, которого у актора нет.
+	f.actorWith(0, 5)
+	f.targetAt(0)
+	role := f.role(2, domain.PermAdministrator, false)
+
+	err := f.uc.AssignRole(f.serverID, f.targetID, role.ID, f.actorID)
+
+	assert.ErrorIs(t, err, domain.ErrForbidden)
+	f.roleRepo.AssertNotCalled(t, "AssignToMember", mock.Anything, mock.Anything, mock.Anything)
+}
+
+func TestAssignRole_GrantingHeldPermission_Success(t *testing.T) {
+	f := newRoleFixture(t)
+	f.actorWith(domain.PermViewChannels, 5)
+	f.targetAt(0)
+	role := f.role(2, domain.PermViewChannels, false)
 	f.srvRepo.On("IsMember", f.serverID, f.targetID).Return(true, nil)
 	f.roleRepo.On("AssignToMember", f.serverID, f.targetID, role.ID).Return(nil)
 
@@ -268,6 +348,24 @@ func TestUnassignRole_TargetIsOwner_Forbidden(t *testing.T) {
 	assert.ErrorIs(t, err, domain.ErrForbidden)
 }
 
+// Владелец вне досягаемости для чужих действий, но не для своих собственных:
+// смысл инварианта — защита от посторонних, а не запрет себе выбрать цветную
+// роль. Права владельца от ролей не зависят, поэтому угрозы тут нет.
+func TestAssignRole_OwnerAssignsToSelf_Success(t *testing.T) {
+	f := newRoleFixture(t)
+	f.perms.On("Resolve", f.serverID, f.ownerID).
+		Return(domain.PermissionSet{IsOwner: true, HighestPosition: 0}, nil)
+	role := f.role(3, domain.PermAdministrator, false)
+	f.roleRepo.On("AssignToMember", f.serverID, f.ownerID, role.ID).Return(nil)
+
+	err := f.uc.AssignRole(f.serverID, f.ownerID, role.ID, f.ownerID)
+
+	require.NoError(t, err)
+	// Владелец не хранится в server_members, поэтому проверка членства не
+	// должна выполняться вовсе — иначе самоназначение всегда бы падало.
+	f.srvRepo.AssertNotCalled(t, "IsMember", mock.Anything, mock.Anything)
+}
+
 // --- Владелец проходит всё ---
 
 func TestOwner_CanDoEverything(t *testing.T) {
@@ -316,7 +414,9 @@ func TestRoleOps_RoleFromAnotherServer_NotFound(t *testing.T) {
 
 func TestAssignRole_TargetNotMember_Forbidden(t *testing.T) {
 	f := newRoleFixture(t)
-	f.actorWith(0, 5)
+	// PermViewChannels даётся актору, чтобы отказ пришёл именно от проверки
+	// членства, а не заслонился инвариантом 1.
+	f.actorWith(domain.PermViewChannels, 5)
 	f.targetAt(0)
 	role := f.role(1, domain.PermViewChannels, false)
 	f.srvRepo.On("IsMember", f.serverID, f.targetID).Return(false, nil)

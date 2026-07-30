@@ -55,6 +55,17 @@ func (uc *roleUseCase) requireManageRoles(serverID, actorID uuid.UUID) (domain.P
 	return actor, nil
 }
 
+// validateRoleName нормализует и проверяет имя роли. Общий хелпер для
+// CreateRole и UpdateRole: правило одно (1..100 символов после trim), и оно
+// не должно разъезжаться между двумя точками входа.
+func validateRoleName(name string) (string, error) {
+	name = strings.TrimSpace(name)
+	if name == "" || len(name) > 100 {
+		return "", domain.ErrInvalidRoleName
+	}
+	return name, nil
+}
+
 // loadRole достаёт роль и проверяет, что она принадлежит серверу из URL.
 // Роль чужого сервера маскируется под «не найдена», а не под 403.
 func (uc *roleUseCase) loadRole(serverID, roleID uuid.UUID) (*domain.Role, error) {
@@ -80,9 +91,9 @@ func (uc *roleUseCase) ListRoles(serverID, userID uuid.UUID) ([]*domain.Role, er
 }
 
 func (uc *roleUseCase) CreateRole(serverID, actorID uuid.UUID, name string, color, position int, perms domain.Permission) (*domain.Role, error) {
-	name = strings.TrimSpace(name)
-	if name == "" || len(name) > 100 {
-		return nil, fmt.Errorf("role name must be 1..100 characters")
+	name, err := validateRoleName(name)
+	if err != nil {
+		return nil, err
 	}
 	if !perms.IsValid() {
 		return nil, domain.ErrInvalidPermissions
@@ -134,9 +145,9 @@ func (uc *roleUseCase) UpdateRole(serverID, roleID, actorID uuid.UUID, patch dom
 	updates := make(map[string]interface{})
 
 	if patch.Name != nil {
-		name := strings.TrimSpace(*patch.Name)
-		if name == "" || len(name) > 100 {
-			return nil, fmt.Errorf("role name must be 1..100 characters")
+		name, err := validateRoleName(*patch.Name)
+		if err != nil {
+			return nil, err
 		}
 		role.Name = name
 		updates["name"] = name
@@ -204,56 +215,73 @@ func (uc *roleUseCase) DeleteRole(serverID, roleID, actorID uuid.UUID) error {
 }
 
 // requireRoleAssignment — общие проверки для назначения и снятия роли.
-func (uc *roleUseCase) requireRoleAssignment(serverID, targetUserID, roleID, actorID uuid.UUID) (*domain.Role, error) {
+// requireGrant включает проверку инварианта 1 (canGrant): она обязана
+// применяться к AssignRole (назначение роли — это выдача её прав актором),
+// но не к UnassignRole — иначе актор не смог бы снять роль, которую сам
+// не мог бы выдать, что ломает обычную модерацию.
+func (uc *roleUseCase) requireRoleAssignment(serverID, targetUserID, roleID, actorID uuid.UUID, requireGrant bool) (*domain.Role, domain.PermissionSet, error) {
 	actor, err := uc.requireManageRoles(serverID, actorID)
 	if err != nil {
-		return nil, err
+		return nil, domain.PermissionSet{}, err
 	}
 
 	server, err := uc.serverRepo.GetByID(serverID)
 	if err != nil {
-		return nil, fmt.Errorf("server %s: %w", serverID, domain.ErrServerNotFound)
+		return nil, domain.PermissionSet{}, fmt.Errorf("server %s: %w", serverID, domain.ErrServerNotFound)
 	}
-	// Владелец вне досягаемости для всех, включая носителей ADMINISTRATOR.
-	if server.OwnerID == targetUserID {
-		return nil, domain.ErrForbidden
+	// Владелец вне досягаемости для чужих действий, включая носителей
+	// ADMINISTRATOR. Себя самого владелец назначать/снимать может: его права
+	// от ролей не зависят, самоназначение ничем не угрожает.
+	if server.OwnerID == targetUserID && actorID != targetUserID {
+		return nil, domain.PermissionSet{}, domain.ErrForbidden
 	}
 
 	role, err := uc.loadRole(serverID, roleID)
 	if err != nil {
-		return nil, err
+		return nil, domain.PermissionSet{}, err
 	}
 	// @everyone подразумевается для каждого участника и не назначается вручную.
 	if role.IsDefault {
-		return nil, domain.ErrForbidden
+		return nil, domain.PermissionSet{}, domain.ErrForbidden
 	}
 	if !canManagePosition(actor, role.Position) {
-		return nil, domain.ErrForbidden
+		return nil, domain.PermissionSet{}, domain.ErrForbidden
+	}
+	// Инвариант 1: назначение роли выдаёт её права участнику, поэтому актор
+	// не может назначить роль с битами, которых у него нет самого — иначе
+	// он выдавал бы ADMINISTRATOR через роль ниже себя по иерархии.
+	if requireGrant && !canGrant(actor, role.Permissions) {
+		return nil, domain.PermissionSet{}, domain.ErrForbidden
 	}
 
 	target, err := uc.perms.Resolve(serverID, targetUserID)
 	if err != nil {
-		return nil, err
+		return nil, domain.PermissionSet{}, err
 	}
 	if !canManagePosition(actor, target.HighestPosition) {
-		return nil, domain.ErrForbidden
+		return nil, domain.PermissionSet{}, domain.ErrForbidden
 	}
 
-	return role, nil
+	return role, target, nil
 }
 
 func (uc *roleUseCase) AssignRole(serverID, targetUserID, roleID, actorID uuid.UUID) error {
-	role, err := uc.requireRoleAssignment(serverID, targetUserID, roleID, actorID)
+	role, target, err := uc.requireRoleAssignment(serverID, targetUserID, roleID, actorID, true)
 	if err != nil {
 		return err
 	}
 
-	isMember, err := uc.serverRepo.IsMember(serverID, targetUserID)
-	if err != nil {
-		return fmt.Errorf("check membership: %w", err)
-	}
-	if !isMember {
-		return domain.ErrForbidden
+	// Владелец не хранится в server_members (он не «участник» в смысле этой
+	// таблицы), поэтому для него проверка членства обходится: выше уже
+	// установлено, что владелец назначает роль только самому себе.
+	if !target.IsOwner {
+		isMember, err := uc.serverRepo.IsMember(serverID, targetUserID)
+		if err != nil {
+			return fmt.Errorf("check membership: %w", err)
+		}
+		if !isMember {
+			return domain.ErrForbidden
+		}
 	}
 
 	if err := uc.roleRepo.AssignToMember(serverID, targetUserID, role.ID); err != nil {
@@ -263,7 +291,7 @@ func (uc *roleUseCase) AssignRole(serverID, targetUserID, roleID, actorID uuid.U
 }
 
 func (uc *roleUseCase) UnassignRole(serverID, targetUserID, roleID, actorID uuid.UUID) error {
-	role, err := uc.requireRoleAssignment(serverID, targetUserID, roleID, actorID)
+	role, _, err := uc.requireRoleAssignment(serverID, targetUserID, roleID, actorID, false)
 	if err != nil {
 		return err
 	}
