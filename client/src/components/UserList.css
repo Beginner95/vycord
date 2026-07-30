@@ -61,6 +61,23 @@
   box-shadow: 0 0 0 1px var(--green-color);
 }
 
+.user-avatar.list.offline::after {
+  content: '';
+  position: absolute;
+  bottom: -1px;
+  right: -1px;
+  width: 11px;
+  height: 11px;
+  border-radius: var(--radius-full);
+  background: var(--text-muted);
+  border: 2.5px solid var(--bg-primary);
+}
+
+.user-item.offline .user-avatar.list,
+.user-item.offline .username {
+  opacity: 0.5;
+}
+
 .username {
   font-size: 13px;
   font-weight: 500;
