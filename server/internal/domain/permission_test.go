@@ -71,6 +71,14 @@ func TestPermission_UnmarshalRejectsGarbage(t *testing.T) {
 	assert.Error(t, p.UnmarshalJSON([]byte(`"not-a-number"`)))
 }
 
+func TestPermission_UnmarshalRejectsBareNumber(t *testing.T) {
+	// Строковый контракт (см. MarshalJSON) должен отвергать голое JSON-число:
+	// это ровно та ошибка клиента ("забыли закавычить поле"), от которой
+	// строковое кодирование должно защищать.
+	var p domain.Permission
+	assert.Error(t, p.UnmarshalJSON([]byte(`64`)))
+}
+
 func TestPermissionBitValues(t *testing.T) {
 	// Значения зафиксированы: миграция 011 записывает их в БД числами.
 	assert.Equal(t, domain.Permission(1), domain.PermAdministrator)

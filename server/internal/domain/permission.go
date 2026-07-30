@@ -1,9 +1,9 @@
 package domain
 
 import (
+	"encoding/json"
 	"fmt"
 	"strconv"
-	"strings"
 )
 
 // Permission — битовая маска прав участника на сервере.
@@ -47,7 +47,13 @@ func (p Permission) MarshalJSON() ([]byte, error) {
 }
 
 func (p *Permission) UnmarshalJSON(data []byte) error {
-	s := strings.Trim(string(data), `"`)
+	// Сначала распаковываем именно как JSON-строку: голое число (например, `64`
+	// вместо `"64"`) обязано быть отвергнуто, иначе строковый контракт из
+	// MarshalJSON ничего не защищает.
+	var s string
+	if err := json.Unmarshal(data, &s); err != nil {
+		return fmt.Errorf("invalid permissions value %q", string(data))
+	}
 	v, err := strconv.ParseUint(s, 10, 64)
 	if err != nil {
 		return fmt.Errorf("invalid permissions value %q", s)
