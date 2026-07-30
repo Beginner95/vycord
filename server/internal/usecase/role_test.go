@@ -275,6 +275,23 @@ func TestUnassignRole_TargetEqualToActor_Forbidden(t *testing.T) {
 	assert.ErrorIs(t, err, domain.ErrForbidden)
 }
 
+// UnassignRole сознательно НЕ применяет canGrant (requireGrant=false в вызове
+// requireRoleAssignment): снятие роли не выдаёт прав, поэтому актор снимает
+// с участника роль даже с битами, которых у него самого нет — иначе
+// модератор не мог бы разжаловать держателя более широкой роли.
+func TestUnassignRole_RemovingUnheldPermission_Success(t *testing.T) {
+	f := newRoleFixture(t)
+	f.actorWith(0, 5) // нет ADMINISTRATOR
+	f.targetAt(0)
+	role := f.role(1, domain.PermAdministrator, false)
+	f.roleRepo.On("UnassignFromMember", f.serverID, f.targetID, role.ID).Return(nil)
+
+	err := f.uc.UnassignRole(f.serverID, f.targetID, role.ID, f.actorID)
+
+	require.NoError(t, err)
+	f.roleRepo.AssertCalled(t, "UnassignFromMember", f.serverID, f.targetID, role.ID)
+}
+
 // --- Инвариант 4: @everyone неудаляема и неназначаема ---
 
 func TestDeleteRole_Everyone_Forbidden(t *testing.T) {
@@ -356,14 +373,17 @@ func TestAssignRole_OwnerAssignsToSelf_Success(t *testing.T) {
 	f.perms.On("Resolve", f.serverID, f.ownerID).
 		Return(domain.PermissionSet{IsOwner: true, HighestPosition: 0}, nil)
 	role := f.role(3, domain.PermAdministrator, false)
+	// Владелец тоже обязан пройти проверку членства: миграция 009 бэкфиллит
+	// его в server_members, а INSERT в member_roles всё равно завязан на эту
+	// таблицу через FK — обход проверки для владельца лишь заменил бы честный
+	// 403 на 500 от нарушения ограничения на серверах без бэкфилла.
+	f.srvRepo.On("IsMember", f.serverID, f.ownerID).Return(true, nil)
 	f.roleRepo.On("AssignToMember", f.serverID, f.ownerID, role.ID).Return(nil)
 
 	err := f.uc.AssignRole(f.serverID, f.ownerID, role.ID, f.ownerID)
 
 	require.NoError(t, err)
-	// Владелец не хранится в server_members, поэтому проверка членства не
-	// должна выполняться вовсе — иначе самоназначение всегда бы падало.
-	f.srvRepo.AssertNotCalled(t, "IsMember", mock.Anything, mock.Anything)
+	f.srvRepo.AssertCalled(t, "IsMember", f.serverID, f.ownerID)
 }
 
 // --- Владелец проходит всё ---

@@ -219,69 +219,70 @@ func (uc *roleUseCase) DeleteRole(serverID, roleID, actorID uuid.UUID) error {
 // применяться к AssignRole (назначение роли — это выдача её прав актором),
 // но не к UnassignRole — иначе актор не смог бы снять роль, которую сам
 // не мог бы выдать, что ломает обычную модерацию.
-func (uc *roleUseCase) requireRoleAssignment(serverID, targetUserID, roleID, actorID uuid.UUID, requireGrant bool) (*domain.Role, domain.PermissionSet, error) {
+func (uc *roleUseCase) requireRoleAssignment(serverID, targetUserID, roleID, actorID uuid.UUID, requireGrant bool) (*domain.Role, error) {
 	actor, err := uc.requireManageRoles(serverID, actorID)
 	if err != nil {
-		return nil, domain.PermissionSet{}, err
+		return nil, err
 	}
 
 	server, err := uc.serverRepo.GetByID(serverID)
 	if err != nil {
-		return nil, domain.PermissionSet{}, fmt.Errorf("server %s: %w", serverID, domain.ErrServerNotFound)
+		return nil, fmt.Errorf("server %s: %w", serverID, domain.ErrServerNotFound)
 	}
 	// Владелец вне досягаемости для чужих действий, включая носителей
 	// ADMINISTRATOR. Себя самого владелец назначать/снимать может: его права
 	// от ролей не зависят, самоназначение ничем не угрожает.
 	if server.OwnerID == targetUserID && actorID != targetUserID {
-		return nil, domain.PermissionSet{}, domain.ErrForbidden
+		return nil, domain.ErrForbidden
 	}
 
 	role, err := uc.loadRole(serverID, roleID)
 	if err != nil {
-		return nil, domain.PermissionSet{}, err
+		return nil, err
 	}
 	// @everyone подразумевается для каждого участника и не назначается вручную.
 	if role.IsDefault {
-		return nil, domain.PermissionSet{}, domain.ErrForbidden
+		return nil, domain.ErrForbidden
 	}
 	if !canManagePosition(actor, role.Position) {
-		return nil, domain.PermissionSet{}, domain.ErrForbidden
+		return nil, domain.ErrForbidden
 	}
 	// Инвариант 1: назначение роли выдаёт её права участнику, поэтому актор
 	// не может назначить роль с битами, которых у него нет самого — иначе
 	// он выдавал бы ADMINISTRATOR через роль ниже себя по иерархии.
 	if requireGrant && !canGrant(actor, role.Permissions) {
-		return nil, domain.PermissionSet{}, domain.ErrForbidden
+		return nil, domain.ErrForbidden
 	}
 
 	target, err := uc.perms.Resolve(serverID, targetUserID)
 	if err != nil {
-		return nil, domain.PermissionSet{}, err
+		return nil, err
 	}
 	if !canManagePosition(actor, target.HighestPosition) {
-		return nil, domain.PermissionSet{}, domain.ErrForbidden
+		return nil, domain.ErrForbidden
 	}
 
-	return role, target, nil
+	return role, nil
 }
 
 func (uc *roleUseCase) AssignRole(serverID, targetUserID, roleID, actorID uuid.UUID) error {
-	role, target, err := uc.requireRoleAssignment(serverID, targetUserID, roleID, actorID, true)
+	role, err := uc.requireRoleAssignment(serverID, targetUserID, roleID, actorID, true)
 	if err != nil {
 		return err
 	}
 
-	// Владелец не хранится в server_members (он не «участник» в смысле этой
-	// таблицы), поэтому для него проверка членства обходится: выше уже
-	// установлено, что владелец назначает роль только самому себе.
-	if !target.IsOwner {
-		isMember, err := uc.serverRepo.IsMember(serverID, targetUserID)
-		if err != nil {
-			return fmt.Errorf("check membership: %w", err)
-		}
-		if !isMember {
-			return domain.ErrForbidden
-		}
+	// Владелец самоназначения тоже обязан пройти проверку членства: он
+	// забэкфиллен в server_members миграцией 009 для серверов, созданных до
+	// неё, но CreateServer до сих пор не добавляет владельца в эту таблицу
+	// для новых серверов (отдельный известный баг, не в рамках этой задачи).
+	// Обход этой проверки для владельца ломал бы FK member_roles→server_members
+	// и превращал бы честный 403 в 500 от нарушения ограничения.
+	isMember, err := uc.serverRepo.IsMember(serverID, targetUserID)
+	if err != nil {
+		return fmt.Errorf("check membership: %w", err)
+	}
+	if !isMember {
+		return domain.ErrForbidden
 	}
 
 	if err := uc.roleRepo.AssignToMember(serverID, targetUserID, role.ID); err != nil {
@@ -291,7 +292,7 @@ func (uc *roleUseCase) AssignRole(serverID, targetUserID, roleID, actorID uuid.U
 }
 
 func (uc *roleUseCase) UnassignRole(serverID, targetUserID, roleID, actorID uuid.UUID) error {
-	role, _, err := uc.requireRoleAssignment(serverID, targetUserID, roleID, actorID, false)
+	role, err := uc.requireRoleAssignment(serverID, targetUserID, roleID, actorID, false)
 	if err != nil {
 		return err
 	}
