@@ -15,6 +15,7 @@ type serverUseCase struct {
 	serverRepo  domain.ServerRepository
 	channelRepo domain.ChannelRepository
 	userRepo    domain.UserRepository
+	roleRepo    domain.RoleRepository
 	storage     filestorage.Storage
 	perms       domain.PermissionUseCase
 }
@@ -23,6 +24,7 @@ func NewServerUseCase(
 	serverRepo domain.ServerRepository,
 	channelRepo domain.ChannelRepository,
 	userRepo domain.UserRepository,
+	roleRepo domain.RoleRepository,
 	storage filestorage.Storage,
 	perms domain.PermissionUseCase,
 ) domain.ServerUseCase {
@@ -30,6 +32,7 @@ func NewServerUseCase(
 		serverRepo:  serverRepo,
 		channelRepo: channelRepo,
 		userRepo:    userRepo,
+		roleRepo:    roleRepo,
 		storage:     storage,
 		perms:       perms,
 	}
@@ -61,6 +64,25 @@ func (uc *serverUseCase) CreateServer(name string, ownerID uuid.UUID) (*domain.S
 	// регистрировать владельца здесь.
 	if err := uc.serverRepo.AddMember(server.ID, ownerID); err != nil {
 		return nil, fmt.Errorf("failed to add owner as member: %w", err)
+	}
+
+	// Миграция 011 засеяла роль @everyone только для серверов, существовавших
+	// на момент миграции. Без дефолтной роли ResolveMemberPermissions вернёт
+	// (0, -1) для любого не-владельца — состояние, которое остальной код
+	// считает невозможным (HighestPosition -1 == "нет дефолтной роли на сервере").
+	// Новые серверы обязаны создавать её здесь.
+	everyoneRole := &domain.Role{
+		ID:          uuid.New(),
+		ServerID:    server.ID,
+		Name:        "@everyone",
+		Position:    0,
+		Permissions: domain.PermViewChannels | domain.PermSendMessages,
+		IsDefault:   true,
+		CreatedAt:   now,
+		UpdatedAt:   now,
+	}
+	if err := uc.roleRepo.Create(everyoneRole); err != nil {
+		return nil, fmt.Errorf("failed to create default role: %w", err)
 	}
 
 	// Create default text channel

@@ -34,18 +34,49 @@ func TestCreateServer_AddsOwnerAsMember(t *testing.T) {
 	srvRepo := new(MockServerRepository)
 	chRepo := new(MockChannelRepository)
 	usrRepo := new(MockUserRepository)
+	roleRepo := new(MockRoleRepository)
 
 	usrRepo.On("GetByID", ownerID).Return(&domain.User{ID: ownerID}, nil)
 	srvRepo.On("Create", mock.AnythingOfType("*domain.Server")).Return(nil)
 	srvRepo.On("AddMember", mock.AnythingOfType("uuid.UUID"), ownerID).Return(nil)
+	roleRepo.On("Create", mock.AnythingOfType("*domain.Role")).Return(nil)
 	chRepo.On("Create", mock.AnythingOfType("*domain.Channel")).Return(nil)
 
 	perms := new(MockPermissionUseCase)
-	uc := usecase.NewServerUseCase(srvRepo, chRepo, usrRepo, new(MockStorage), perms)
+	uc := usecase.NewServerUseCase(srvRepo, chRepo, usrRepo, roleRepo, new(MockStorage), perms)
 	got, err := uc.CreateServer("Мой сервер", ownerID)
 
 	require.NoError(t, err)
 	srvRepo.AssertCalled(t, "AddMember", got.ID, ownerID)
+
+	roleRepo.AssertCalled(t, "Create", mock.MatchedBy(func(role *domain.Role) bool {
+		return role.ServerID == got.ID &&
+			role.IsDefault &&
+			role.Position == 0 &&
+			role.Permissions == (domain.PermViewChannels|domain.PermSendMessages)
+	}))
+}
+
+func TestCreateServer_DefaultRoleCreationFails_ReturnsError(t *testing.T) {
+	ownerID := uuid.New()
+
+	srvRepo := new(MockServerRepository)
+	chRepo := new(MockChannelRepository)
+	usrRepo := new(MockUserRepository)
+	roleRepo := new(MockRoleRepository)
+
+	usrRepo.On("GetByID", ownerID).Return(&domain.User{ID: ownerID}, nil)
+	srvRepo.On("Create", mock.AnythingOfType("*domain.Server")).Return(nil)
+	srvRepo.On("AddMember", mock.AnythingOfType("uuid.UUID"), ownerID).Return(nil)
+	roleRepo.On("Create", mock.AnythingOfType("*domain.Role")).Return(fmt.Errorf("db down"))
+
+	perms := new(MockPermissionUseCase)
+	uc := usecase.NewServerUseCase(srvRepo, chRepo, usrRepo, roleRepo, new(MockStorage), perms)
+	got, err := uc.CreateServer("Мой сервер", ownerID)
+
+	assert.Nil(t, got)
+	require.Error(t, err)
+	chRepo.AssertNotCalled(t, "Create", mock.Anything)
 }
 
 func TestGetMembers_Owner_Success(t *testing.T) {
@@ -60,7 +91,7 @@ func TestGetMembers_Owner_Success(t *testing.T) {
 	want := []*domain.MemberWithUser{{UserID: ownerID, Username: "owner", Role: "owner"}}
 	srvRepo.On("GetMembersWithUsers", serverID).Return(want, nil)
 
-	uc := usecase.NewServerUseCase(srvRepo, chRepo, usrRepo, storage, perms)
+	uc := usecase.NewServerUseCase(srvRepo, chRepo, usrRepo, new(MockRoleRepository), storage, perms)
 	got, err := uc.GetMembers(serverID, ownerID)
 
 	assert.NoError(t, err)
@@ -80,7 +111,7 @@ func TestGetMembers_Member_Success(t *testing.T) {
 	want := []*domain.MemberWithUser{{UserID: userID, Username: "member", Role: "member"}}
 	srvRepo.On("GetMembersWithUsers", serverID).Return(want, nil)
 
-	uc := usecase.NewServerUseCase(srvRepo, chRepo, usrRepo, storage, perms)
+	uc := usecase.NewServerUseCase(srvRepo, chRepo, usrRepo, new(MockRoleRepository), storage, perms)
 	got, err := uc.GetMembers(serverID, userID)
 
 	assert.NoError(t, err)
@@ -93,7 +124,7 @@ func TestGetMembers_NoViewPermission_Forbidden(t *testing.T) {
 	srvRepo := new(MockServerRepository)
 	perms := permsWith(serverID, userID, 0)
 
-	uc := usecase.NewServerUseCase(srvRepo, new(MockChannelRepository), new(MockUserRepository), new(MockStorage), perms)
+	uc := usecase.NewServerUseCase(srvRepo, new(MockChannelRepository), new(MockUserRepository), new(MockRoleRepository), new(MockStorage), perms)
 	got, err := uc.GetMembers(serverID, userID)
 
 	assert.Nil(t, got)
@@ -113,7 +144,7 @@ func TestUpdateServer_Owner_Success(t *testing.T) {
 	srvRepo.On("GetByID", serverID).Return(&domain.Server{ID: serverID, OwnerID: ownerID, Name: "old"}, nil)
 	srvRepo.On("Update", serverID, map[string]interface{}{"name": "new"}).Return(nil)
 
-	uc := usecase.NewServerUseCase(srvRepo, chRepo, usrRepo, storage, perms)
+	uc := usecase.NewServerUseCase(srvRepo, chRepo, usrRepo, new(MockRoleRepository), storage, perms)
 	got, err := uc.UpdateServer(serverID, ownerID, "new")
 
 	assert.NoError(t, err)
@@ -130,7 +161,7 @@ func TestUpdateServer_NoManageServerPermission_Forbidden(t *testing.T) {
 	storage := new(MockStorage)
 	perms := permsWith(serverID, userID, 0)
 
-	uc := usecase.NewServerUseCase(srvRepo, chRepo, usrRepo, storage, perms)
+	uc := usecase.NewServerUseCase(srvRepo, chRepo, usrRepo, new(MockRoleRepository), storage, perms)
 	got, err := uc.UpdateServer(serverID, userID, "new")
 
 	assert.Nil(t, got)
@@ -149,7 +180,7 @@ func TestUpdateServer_ServerNotFound(t *testing.T) {
 
 	srvRepo.On("GetByID", serverID).Return(nil, fmt.Errorf("server not found"))
 
-	uc := usecase.NewServerUseCase(srvRepo, chRepo, usrRepo, storage, perms)
+	uc := usecase.NewServerUseCase(srvRepo, chRepo, usrRepo, new(MockRoleRepository), storage, perms)
 	got, err := uc.UpdateServer(serverID, userID, "new")
 
 	assert.Nil(t, got)
@@ -168,7 +199,7 @@ func TestDeleteServer_Owner_Success(t *testing.T) {
 	srvRepo.On("GetByID", serverID).Return(&domain.Server{ID: serverID, OwnerID: ownerID}, nil)
 	srvRepo.On("Delete", serverID).Return(nil)
 
-	uc := usecase.NewServerUseCase(srvRepo, chRepo, usrRepo, storage, perms)
+	uc := usecase.NewServerUseCase(srvRepo, chRepo, usrRepo, new(MockRoleRepository), storage, perms)
 	err := uc.DeleteServer(serverID, ownerID)
 
 	assert.NoError(t, err)
@@ -186,7 +217,7 @@ func TestDeleteServer_NotOwner_Forbidden(t *testing.T) {
 
 	srvRepo.On("GetByID", serverID).Return(&domain.Server{ID: serverID, OwnerID: ownerID}, nil)
 
-	uc := usecase.NewServerUseCase(srvRepo, chRepo, usrRepo, storage, perms)
+	uc := usecase.NewServerUseCase(srvRepo, chRepo, usrRepo, new(MockRoleRepository), storage, perms)
 	err := uc.DeleteServer(serverID, userID)
 
 	assert.ErrorIs(t, err, domain.ErrForbidden)
@@ -205,7 +236,7 @@ func TestUpdateChannel_Owner_Success(t *testing.T) {
 	chRepo.On("GetByID", channelID).Return(&domain.Channel{ID: channelID, ServerID: serverID, Name: "old"}, nil)
 	chRepo.On("Update", channelID, map[string]interface{}{"name": "new"}).Return(nil)
 
-	uc := usecase.NewServerUseCase(srvRepo, chRepo, usrRepo, storage, perms)
+	uc := usecase.NewServerUseCase(srvRepo, chRepo, usrRepo, new(MockRoleRepository), storage, perms)
 	got, err := uc.UpdateChannel(serverID, channelID, ownerID, "new")
 
 	assert.NoError(t, err)
@@ -221,7 +252,7 @@ func TestUpdateChannel_NoManageChannelsPermission_Forbidden(t *testing.T) {
 	storage := new(MockStorage)
 	perms := permsWith(serverID, userID, 0)
 
-	uc := usecase.NewServerUseCase(srvRepo, chRepo, usrRepo, storage, perms)
+	uc := usecase.NewServerUseCase(srvRepo, chRepo, usrRepo, new(MockRoleRepository), storage, perms)
 	got, err := uc.UpdateChannel(serverID, channelID, userID, "new")
 
 	assert.Nil(t, got)
@@ -240,7 +271,7 @@ func TestUpdateChannel_WrongServer_NotFound(t *testing.T) {
 
 	chRepo.On("GetByID", channelID).Return(&domain.Channel{ID: channelID, ServerID: otherServerID}, nil)
 
-	uc := usecase.NewServerUseCase(srvRepo, chRepo, usrRepo, storage, perms)
+	uc := usecase.NewServerUseCase(srvRepo, chRepo, usrRepo, new(MockRoleRepository), storage, perms)
 	got, err := uc.UpdateChannel(serverID, channelID, ownerID, "new")
 
 	assert.Nil(t, got)
@@ -260,7 +291,7 @@ func TestDeleteChannel_Owner_MultipleChannels_Success(t *testing.T) {
 	chRepo.On("GetByID", channelID).Return(&domain.Channel{ID: channelID, ServerID: serverID}, nil)
 	chRepo.On("DeleteIfNotLast", channelID, serverID).Return(true, nil)
 
-	uc := usecase.NewServerUseCase(srvRepo, chRepo, usrRepo, storage, perms)
+	uc := usecase.NewServerUseCase(srvRepo, chRepo, usrRepo, new(MockRoleRepository), storage, perms)
 	err := uc.DeleteChannel(serverID, channelID, ownerID)
 
 	assert.NoError(t, err)
@@ -279,7 +310,7 @@ func TestDeleteChannel_LastChannel_Rejected(t *testing.T) {
 	chRepo.On("GetByID", channelID).Return(&domain.Channel{ID: channelID, ServerID: serverID}, nil)
 	chRepo.On("DeleteIfNotLast", channelID, serverID).Return(false, nil)
 
-	uc := usecase.NewServerUseCase(srvRepo, chRepo, usrRepo, storage, perms)
+	uc := usecase.NewServerUseCase(srvRepo, chRepo, usrRepo, new(MockRoleRepository), storage, perms)
 	err := uc.DeleteChannel(serverID, channelID, ownerID)
 
 	assert.ErrorIs(t, err, domain.ErrLastChannel)
@@ -295,7 +326,7 @@ func TestDeleteChannel_NoManageChannelsPermission_Forbidden(t *testing.T) {
 	storage := new(MockStorage)
 	perms := permsWith(serverID, userID, 0)
 
-	uc := usecase.NewServerUseCase(srvRepo, chRepo, usrRepo, storage, perms)
+	uc := usecase.NewServerUseCase(srvRepo, chRepo, usrRepo, new(MockRoleRepository), storage, perms)
 	err := uc.DeleteChannel(serverID, channelID, userID)
 
 	assert.ErrorIs(t, err, domain.ErrForbidden)
@@ -317,7 +348,7 @@ func TestUpdateServerIcon_Owner_SavesAndUpdatesURL(t *testing.T) {
 	}), mock.Anything, "image/png").Return("/uploads/server-icons/x/y.png", nil)
 	srvRepo.On("Update", serverID, map[string]interface{}{"icon_url": "/uploads/server-icons/x/y.png"}).Return(nil)
 
-	uc := usecase.NewServerUseCase(srvRepo, chRepo, usrRepo, storage, perms)
+	uc := usecase.NewServerUseCase(srvRepo, chRepo, usrRepo, new(MockRoleRepository), storage, perms)
 	got, err := uc.UpdateServerIcon(serverID, ownerID, fakePNGBytes(64, 64))
 
 	require.NoError(t, err)
@@ -334,7 +365,7 @@ func TestUpdateServerIcon_NoManageServerPermission_Forbidden(t *testing.T) {
 	storage := new(MockStorage)
 	perms := permsWith(serverID, userID, 0)
 
-	uc := usecase.NewServerUseCase(srvRepo, chRepo, usrRepo, storage, perms)
+	uc := usecase.NewServerUseCase(srvRepo, chRepo, usrRepo, new(MockRoleRepository), storage, perms)
 	got, err := uc.UpdateServerIcon(serverID, userID, fakePNGBytes(64, 64))
 
 	assert.Nil(t, got)
@@ -353,7 +384,7 @@ func TestUpdateServerIcon_RejectsUnsupportedFormat(t *testing.T) {
 
 	srvRepo.On("GetByID", serverID).Return(&domain.Server{ID: serverID, OwnerID: ownerID}, nil)
 
-	uc := usecase.NewServerUseCase(srvRepo, chRepo, usrRepo, storage, perms)
+	uc := usecase.NewServerUseCase(srvRepo, chRepo, usrRepo, new(MockRoleRepository), storage, perms)
 	got, err := uc.UpdateServerIcon(serverID, ownerID, []byte("not an image, just plain text bytes"))
 
 	assert.Nil(t, got)
@@ -374,7 +405,7 @@ func TestRemoveServerIcon_Owner_ClearsURLAndDeletesFile(t *testing.T) {
 	srvRepo.On("Update", serverID, map[string]interface{}{"icon_url": nil}).Return(nil)
 	storage.On("Delete", mock.Anything, oldURL).Return(nil)
 
-	uc := usecase.NewServerUseCase(srvRepo, chRepo, usrRepo, storage, perms)
+	uc := usecase.NewServerUseCase(srvRepo, chRepo, usrRepo, new(MockRoleRepository), storage, perms)
 	got, err := uc.RemoveServerIcon(serverID, ownerID)
 
 	require.NoError(t, err)
@@ -393,7 +424,7 @@ func TestRemoveServerIcon_NoOpWhenNoIconSet(t *testing.T) {
 
 	srvRepo.On("GetByID", serverID).Return(&domain.Server{ID: serverID, OwnerID: ownerID}, nil)
 
-	uc := usecase.NewServerUseCase(srvRepo, chRepo, usrRepo, storage, perms)
+	uc := usecase.NewServerUseCase(srvRepo, chRepo, usrRepo, new(MockRoleRepository), storage, perms)
 	got, err := uc.RemoveServerIcon(serverID, ownerID)
 
 	require.NoError(t, err)
@@ -411,7 +442,7 @@ func TestRemoveServerIcon_NoManageServerPermission_Forbidden(t *testing.T) {
 	storage := new(MockStorage)
 	perms := permsWith(serverID, userID, 0)
 
-	uc := usecase.NewServerUseCase(srvRepo, chRepo, usrRepo, storage, perms)
+	uc := usecase.NewServerUseCase(srvRepo, chRepo, usrRepo, new(MockRoleRepository), storage, perms)
 	got, err := uc.RemoveServerIcon(serverID, userID)
 
 	assert.Nil(t, got)
@@ -424,7 +455,7 @@ func TestCreateChannel_WithoutManageChannels_Forbidden(t *testing.T) {
 	chRepo := new(MockChannelRepository)
 	perms := permsWith(serverID, userID, domain.PermViewChannels|domain.PermSendMessages)
 
-	uc := usecase.NewServerUseCase(new(MockServerRepository), chRepo, new(MockUserRepository), new(MockStorage), perms)
+	uc := usecase.NewServerUseCase(new(MockServerRepository), chRepo, new(MockUserRepository), new(MockRoleRepository), new(MockStorage), perms)
 	got, err := uc.CreateChannel(serverID, userID, "новый", domain.ChannelTypeText)
 
 	assert.Nil(t, got)
@@ -440,7 +471,7 @@ func TestCreateChannel_WithManageChannels_Success(t *testing.T) {
 	chRepo.On("Create", mock.AnythingOfType("*domain.Channel")).Return(nil)
 	perms := permsWith(serverID, userID, domain.PermManageChannels)
 
-	uc := usecase.NewServerUseCase(new(MockServerRepository), chRepo, new(MockUserRepository), new(MockStorage), perms)
+	uc := usecase.NewServerUseCase(new(MockServerRepository), chRepo, new(MockUserRepository), new(MockRoleRepository), new(MockStorage), perms)
 	got, err := uc.CreateChannel(serverID, userID, "новый", domain.ChannelTypeText)
 
 	require.NoError(t, err)
@@ -453,7 +484,7 @@ func TestGetChannels_WithoutViewPermission_Forbidden(t *testing.T) {
 	chRepo := new(MockChannelRepository)
 	perms := permsWith(serverID, userID, 0)
 
-	uc := usecase.NewServerUseCase(new(MockServerRepository), chRepo, new(MockUserRepository), new(MockStorage), perms)
+	uc := usecase.NewServerUseCase(new(MockServerRepository), chRepo, new(MockUserRepository), new(MockRoleRepository), new(MockStorage), perms)
 	got, err := uc.GetChannels(serverID, userID)
 
 	assert.Nil(t, got)
