@@ -71,6 +71,75 @@ export const ru = {
       many: '{{count}} участников',
       other: '{{count}} участника',
     }),
+
+    // Индикатор качества соединения (ConnectionIndicator)
+    qualityGood: 'Хороший сигнал',
+    qualityMedium: 'Средний сигнал',
+    qualityPoor: 'Плохой сигнал',
+    qualityUnknown: 'Нет данных о сигнале',
+    qualityLoss: 'Потери',
+    qualityPing: 'Пинг',
+    qualityBitrate: 'Битрейт',
+    unitPercent: '%',
+    unitMs: 'мс',
+    unitKbps: 'кбит/с',
+
+    // Модалка выбора источника экрана
+    selectScreen: 'Выберите экран для демонстрации',
+    entireScreen: 'Весь экран',
+    applicationWindow: 'Окно приложения',
+
+    // Модалка выбора качества трансляции
+    selectQuality: 'Качество трансляции',
+
+    // Плитки участников
+    volumeLabel: 'Громкость: {{value}}%',
+    focusParticipant: 'Показать участника крупно',
+    sharingBadge: 'Демонстрация',
+    youSuffix: '(Вы)',
+
+    // Заголовок и баннеры
+    groupCallTitle: 'Групповой звонок',
+    screenSharingActive: 'Идёт демонстрация экрана',
+    isSharingScreen: '{{name}} показывает экран',
+    view: 'Смотреть',
+    dismiss: 'Скрыть',
+
+    // Режим фокуса на участнике
+    exitFullscreen: 'Выйти из полноэкранного режима (Esc)',
+    fullscreen: 'На весь экран',
+    backToGrid: 'Вернуться к сетке',
+
+    // Панель чата в звонке
+    chatFallback: 'Чат',
+    channelFallback: 'канал',
+    noMessagesYet: 'Сообщений пока нет',
+    send: 'Отправить',
+
+    // Кнопки управления звонком
+    micUnavailable: 'Микрофон недоступен',
+    micOn: 'Включить микрофон',
+    micOff: 'Выключить микрофон',
+    cameraUnavailableSharing: 'Камера недоступна во время демонстрации экрана',
+    cameraOn: 'Включить камеру',
+    cameraOff: 'Выключить камеру',
+    stopScreenShare: 'Остановить демонстрацию',
+    shareScreen: 'Демонстрировать экран',
+    hideChat: 'Скрыть чат',
+    showChat: 'Показать чат',
+    leaveCall: 'Покинуть звонок',
+
+    // Ошибки демонстрации экрана
+    screenPermissionDenied: 'Доступ к записи экрана запрещён. Разрешите его в Системных настройках → Конфиденциальность и безопасность → Запись экрана и перезапустите приложение.',
+    screenSourcesFailed: 'Не удалось получить источники экрана. Попробуйте снова.',
+    screenShareFailed: 'Не удалось начать демонстрацию экрана. Попробуйте снова.',
+
+    reconnecting: 'Переподключение…',
+
+    // Одиночный звонок (CallUI)
+    incomingCall: 'Входящий звонок',
+    userCalling: 'Вам звонят...',
+    endCall: 'Завершить звонок',
   },
   settings: {
     language: 'Язык',

@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
+import { useT } from '@/i18n';
 import './VolumeControlPopover.css';
 
 interface VolumeControlPopoverProps {
@@ -10,6 +11,7 @@ interface VolumeControlPopoverProps {
 }
 
 export function VolumeControlPopover({ value, position, onChange, onClose }: VolumeControlPopoverProps) {
+  const t = useT();
   const popoverRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -50,7 +52,7 @@ export function VolumeControlPopover({ value, position, onChange, onClose }: Vol
         onChange={(e) => onChange(Number(e.target.value))}
         className="volume-popover-slider"
       />
-      <span className="volume-popover-value">{value}%</span>
+      <span className="volume-popover-value">{value}{t('call.unitPercent')}</span>
     </div>,
     document.body,
   );

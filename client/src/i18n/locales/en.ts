@@ -66,6 +66,75 @@ export const en: Dictionary = {
       one: '{{count}} participant',
       other: '{{count}} participants',
     }),
+
+    // Connection quality indicator (ConnectionIndicator)
+    qualityGood: 'Good signal',
+    qualityMedium: 'Medium signal',
+    qualityPoor: 'Poor signal',
+    qualityUnknown: 'No signal data',
+    qualityLoss: 'Loss',
+    qualityPing: 'Ping',
+    qualityBitrate: 'Bitrate',
+    unitPercent: '%',
+    unitMs: 'ms',
+    unitKbps: 'kbps',
+
+    // Screen source picker modal
+    selectScreen: 'Select a screen to share',
+    entireScreen: 'Entire Screen',
+    applicationWindow: 'Application Window',
+
+    // Screen quality picker modal
+    selectQuality: 'Select quality',
+
+    // Participant tiles
+    volumeLabel: 'Volume: {{value}}%',
+    focusParticipant: 'Focus on this participant',
+    sharingBadge: 'Sharing',
+    youSuffix: '(You)',
+
+    // Header and banners
+    groupCallTitle: 'Group Call',
+    screenSharingActive: 'Screen sharing active',
+    isSharingScreen: '{{name}} is sharing their screen',
+    view: 'View',
+    dismiss: 'Dismiss',
+
+    // Focused participant view
+    exitFullscreen: 'Exit fullscreen (Esc)',
+    fullscreen: 'Fullscreen',
+    backToGrid: 'Back to grid',
+
+    // In-call chat panel
+    chatFallback: 'Chat',
+    channelFallback: 'channel',
+    noMessagesYet: 'No messages yet',
+    send: 'Send',
+
+    // Call control buttons
+    micUnavailable: 'Microphone unavailable',
+    micOn: 'Turn on microphone',
+    micOff: 'Turn off microphone',
+    cameraUnavailableSharing: 'Camera unavailable while screen sharing',
+    cameraOn: 'Turn on camera',
+    cameraOff: 'Turn off camera',
+    stopScreenShare: 'Stop screen sharing',
+    shareScreen: 'Share screen',
+    hideChat: 'Hide chat',
+    showChat: 'Show chat',
+    leaveCall: 'Leave call',
+
+    // Screen share errors
+    screenPermissionDenied: 'Screen Recording permission is denied. Please grant it in System Settings → Privacy & Security → Screen Recording, then restart the app.',
+    screenSourcesFailed: 'Could not get screen sources. Please try again.',
+    screenShareFailed: 'Failed to start screen sharing. Please try again.',
+
+    reconnecting: 'Reconnecting…',
+
+    // 1:1 call (CallUI)
+    incomingCall: 'Incoming Call',
+    userCalling: 'User is calling you...',
+    endCall: 'End call',
   },
   settings: {
     language: 'Language',
