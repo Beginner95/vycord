@@ -7,6 +7,8 @@ import type { User } from '@/types';
 import { useT } from '@/i18n';
 import './Auth.css';
 
+const MIN_PASSWORD_LENGTH = 8;
+
 export function RegisterPage() {
   const navigate = useNavigate();
   const t = useT();
@@ -22,8 +24,8 @@ export function RegisterPage() {
     setError('');
     setLoading(true);
 
-    if (password.length < 6) {
-      setError(t('auth.passwordMinLength6'));
+    if (password.length < MIN_PASSWORD_LENGTH) {
+      setError(t('auth.passwordMinLength', { min: MIN_PASSWORD_LENGTH }));
       setLoading(false);
       return;
     }
@@ -87,7 +89,7 @@ export function RegisterPage() {
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               required
-              minLength={6}
+              minLength={MIN_PASSWORD_LENGTH}
             />
           </div>
 

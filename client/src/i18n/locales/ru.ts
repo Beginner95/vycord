@@ -26,7 +26,7 @@ export const ru = {
     registerSubtitle: 'Присоединитесь к друзьям в Vy Cord!',
     creatingAccount: 'Создание аккаунта...',
     continueButton: 'Продолжить',
-    passwordMinLength6: 'Пароль должен быть не короче 6 символов',
+    passwordMinLength: 'Пароль должен быть не короче {{min}} символов',
   },
   chat: {},
   call: {

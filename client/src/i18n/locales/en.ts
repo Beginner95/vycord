@@ -27,7 +27,7 @@ export const en: Dictionary = {
     registerSubtitle: 'Join your friends in Vy Cord!',
     creatingAccount: 'Creating account...',
     continueButton: 'Continue',
-    passwordMinLength6: 'Password must be at least 6 characters',
+    passwordMinLength: 'Password must be at least {{min}} characters',
   },
   chat: {},
   call: {
