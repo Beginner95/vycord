@@ -36,6 +36,11 @@ const (
 	CodeUsernameTaken       = "username_taken"
 	CodeInvalidCredentials  = "invalid_credentials"
 
+	// Аутентификация (middleware)
+	CodeMissingAuthHeader = "missing_auth_header"
+	CodeInvalidAuthHeader = "invalid_auth_header"
+	CodeInvalidToken      = "invalid_or_expired_token"
+
 	// Пользователи
 	CodeUserNotFound        = "user_not_found"
 	CodeSearchUsersFailed   = "search_users_failed"
@@ -61,6 +66,9 @@ const (
 	CodeGetServersFailed   = "get_servers_failed"
 	CodeGetMembersFailed   = "get_members_failed"
 	CodeSearchServersFail  = "search_servers_failed"
+
+	// TURN
+	CodeTurnCredentialsFailed = "turn_credentials_failed"
 
 	// Каналы
 	CodeChannelNotFound     = "channel_not_found"
