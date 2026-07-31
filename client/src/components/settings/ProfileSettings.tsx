@@ -25,11 +25,11 @@ export function ProfileSettings() {
     if (!file) return;
 
     if (!ALLOWED_TYPES.includes(file.type)) {
-      setPickError('Неподдерживаемый формат. Разрешены PNG, JPG, JPEG');
+      setPickError(t('settings.avatarBadFormat'));
       return;
     }
     if (file.size > MAX_FILE_BYTES) {
-      setPickError('Файл слишком большой. Максимум 2 МБ');
+      setPickError(t('settings.avatarTooLarge'));
       return;
     }
 
@@ -65,7 +65,7 @@ export function ProfileSettings() {
             className="profile-avatar-btn"
             onClick={() => fileInputRef.current?.click()}
           >
-            Изменить аватар
+            {t('settings.changeAvatar')}
           </button>
           {user?.avatar_url && (
             <button
@@ -74,7 +74,7 @@ export function ProfileSettings() {
               onClick={handleRemove}
               disabled={removing}
             >
-              {removing ? 'Удаление...' : 'Удалить аватар'}
+              {removing ? t('settings.removingAvatar') : t('settings.removeAvatar')}
             </button>
           )}
         </div>
@@ -89,16 +89,16 @@ export function ProfileSettings() {
       </div>
 
       <div className="settings-section">
-        <h3>Учётная запись</h3>
+        <h3>{t('settings.account')}</h3>
         <div className="setting-item">
           <div className="setting-info">
-            <label>Имя пользователя</label>
+            <label>{t('settings.usernameLabel')}</label>
             <p className="setting-description">{user?.username}</p>
           </div>
         </div>
         <div className="setting-item">
           <div className="setting-info">
-            <label>Email</label>
+            <label>{t('settings.emailLabel')}</label>
             <p className="setting-description">{user?.email}</p>
           </div>
         </div>

@@ -1,8 +1,10 @@
 import { useState, useEffect } from 'react';
 import { noiseCancellationService, NoiseCancellationService } from '@/services/noiseCancellation';
 import { audioService } from '@/services/audio';
+import { useT } from '@/i18n';
 
 export function AudioSettings() {
+  const t = useT();
   const [noiseCancellation, setNoiseCancellation] = useState(false);
   const [ncLoading, setNcLoading] = useState(false);
   const [isSupported, setIsSupported] = useState(true);
@@ -46,12 +48,12 @@ export function AudioSettings() {
 
   return (
     <div className="settings-section">
-      <h3>Audio</h3>
+      <h3>{t('settings.audio')}</h3>
 
       <div className="setting-item">
         <div className="setting-info">
-          <label>Message Notifications</label>
-          <p className="setting-description">Play a sound when you receive a new message</p>
+          <label>{t('settings.messageNotifications')}</label>
+          <p className="setting-description">{t('settings.messageNotificationsDescription')}</p>
         </div>
         <label className="toggle-switch">
           <input
@@ -68,8 +70,8 @@ export function AudioSettings() {
 
       <div className="setting-item">
         <div className="setting-info">
-          <label>Call Sounds</label>
-          <p className="setting-description">Play ringtone and call status sounds</p>
+          <label>{t('settings.callSounds')}</label>
+          <p className="setting-description">{t('settings.callSoundsDescription')}</p>
         </div>
         <label className="toggle-switch">
           <input
@@ -86,8 +88,8 @@ export function AudioSettings() {
 
       <div className="setting-item">
         <div className="setting-info">
-          <label>Voice Join/Leave Sounds</label>
-          <p className="setting-description">Play a sound when someone joins or leaves a voice call</p>
+          <label>{t('settings.voiceJoinLeaveSounds')}</label>
+          <p className="setting-description">{t('settings.voiceJoinLeaveSoundsDescription')}</p>
         </div>
         <label className="toggle-switch">
           <input
@@ -104,8 +106,8 @@ export function AudioSettings() {
 
       <div className="setting-item">
         <div className="setting-info">
-          <label>Volume</label>
-          <p className="setting-description">Adjust notification volume</p>
+          <label>{t('settings.volume')}</label>
+          <p className="setting-description">{t('settings.volumeDescription')}</p>
         </div>
         <input
           type="range"
@@ -124,8 +126,8 @@ export function AudioSettings() {
 
       <div className="setting-item">
         <div className="setting-info">
-          <label>Test Sounds</label>
-          <p className="setting-description">Preview notification sounds</p>
+          <label>{t('settings.testSounds')}</label>
+          <p className="setting-description">{t('settings.testSoundsDescription')}</p>
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
           <button
@@ -140,7 +142,7 @@ export function AudioSettings() {
               cursor: 'pointer',
             }}
           >
-            💬 Message
+            💬 {t('settings.testMessage')}
           </button>
           <button
             onClick={() => {
@@ -157,7 +159,7 @@ export function AudioSettings() {
               cursor: 'pointer',
             }}
           >
-            📞 Ring
+            📞 {t('settings.testRing')}
           </button>
           <button
             onClick={() => audioService.playUserJoined()}
@@ -171,7 +173,7 @@ export function AudioSettings() {
               cursor: 'pointer',
             }}
           >
-            ➡️ Join
+            ➡️ {t('settings.testJoin')}
           </button>
           <button
             onClick={() => audioService.playUserLeft()}
@@ -185,18 +187,18 @@ export function AudioSettings() {
               cursor: 'pointer',
             }}
           >
-            ⬅️ Leave
+            ⬅️ {t('settings.testLeave')}
           </button>
         </div>
       </div>
 
       <div className="setting-item">
         <div className="setting-info">
-          <label>Noise Cancellation (DeepFilterNet3)</label>
+          <label>{t('settings.noiseCancellation')}</label>
           <p className="setting-description">
             {ncLoading
-              ? 'Loading DeepFilterNet3 model...'
-              : 'AI noise suppression — removes background noise from your mic'}
+              ? t('settings.noiseCancellationLoading')
+              : t('settings.noiseCancellationDescription')}
           </p>
         </div>
         <label className="toggle-switch">
@@ -212,31 +214,31 @@ export function AudioSettings() {
 
       {!isSupported && (
         <p className="setting-warning">
-          Noise cancellation requires AudioWorklet support (Chrome/Edge/Firefox 76+)
+          {t('settings.noiseCancellationUnsupported')}
         </p>
       )}
 
       <div className="setting-item">
         <div className="setting-info">
-          <label>Input Device</label>
+          <label>{t('settings.inputDevice')}</label>
           <p className="setting-description">
-            Select your microphone
+            {t('settings.inputDeviceDescription')}
           </p>
         </div>
         <select className="setting-select">
-          <option>Default Microphone</option>
+          <option>{t('settings.defaultMicrophone')}</option>
         </select>
       </div>
 
       <div className="setting-item">
         <div className="setting-info">
-          <label>Output Device</label>
+          <label>{t('settings.outputDevice')}</label>
           <p className="setting-description">
-            Select your speakers
+            {t('settings.outputDeviceDescription')}
           </p>
         </div>
         <select className="setting-select">
-          <option>Default Speakers</option>
+          <option>{t('settings.defaultSpeakers')}</option>
         </select>
       </div>
     </div>
