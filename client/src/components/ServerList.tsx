@@ -4,6 +4,7 @@ import { apiService } from '@/services/api';
 import { useServerStore } from '@/stores/serverStore';
 import { ContextMenu } from '@/components/ContextMenu';
 import { EditServerModal } from '@/components/EditServerModal';
+import { can, PERMISSIONS } from '@/utils/permissions';
 import './ServerList.css';
 
 interface ServerListProps {
@@ -78,7 +79,8 @@ export function ServerList({
             className={`server-icon ${currentServer?.id === server.id ? 'active' : ''}`}
             onClick={() => onSelectServer(server)}
             onContextMenu={(e) => {
-              if (server.owner_id !== user?.id) return;
+              const perms = useServerStore.getState().permissions.get(server.id);
+              if (!can(perms, PERMISSIONS.MANAGE_SERVER) && server.owner_id !== user?.id) return;
               e.preventDefault();
               setMenu({ x: e.clientX, y: e.clientY, server });
             }}
@@ -147,7 +149,11 @@ export function ServerList({
           onClose={() => setMenu(null)}
           items={[
             { label: 'Редактировать', onClick: () => setEditingServerId(menu.server.id) },
-            { label: 'Удалить сервер', danger: true, onClick: () => handleDeleteServer(menu.server) },
+            // Удаление сервера — привилегия владения и на бэкенде (DeleteServer
+            // проверяет только owner_id), роль с MANAGE_SERVER снести сервер не может.
+            ...(menu.server.owner_id === user?.id
+              ? [{ label: 'Удалить сервер', danger: true, onClick: () => handleDeleteServer(menu.server) }]
+              : []),
           ]}
         />
       )}

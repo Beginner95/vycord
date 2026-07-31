@@ -71,7 +71,7 @@ function startCallRingtone(): () => void {
 
 export function AppPage() {
   const { user, token, logout } = useAuthStore();
-  const { servers, setServers, setCurrentServer, currentServer, setChannels, channels, currentChannel, setCurrentChannel, setMembers, members } = useServerStore();
+  const { servers, setServers, setCurrentServer, currentServer, setChannels, channels, currentChannel, setCurrentChannel, setMembers, members, setPermissions } = useServerStore();
   const { setMessages } = useMessageStore();
   const [showCreateServer, setShowCreateServer] = useState(false);
   const [newServerName, setNewServerName] = useState('');
@@ -223,6 +223,19 @@ export function AppPage() {
       .catch((err) => console.error('Failed to load server members:', err));
   };
 
+  const loadServerPermissions = (serverId: string) => {
+    apiService
+      .getMyPermissions(serverId)
+      .then((res) =>
+        setPermissions(serverId, {
+          isOwner: res.is_owner,
+          bits: BigInt(res.permissions),
+          highestPosition: res.highest_position,
+        })
+      )
+      .catch((err) => console.error('Failed to load server permissions:', err));
+  };
+
   const callLeaveGroupCall = () => {
     const w = window as unknown as Record<string, unknown>;
     (w.leaveGroupCall as (() => void) | undefined)?.();
@@ -295,6 +308,7 @@ export function AppPage() {
           const channelsData = await apiService.getChannels(server.id) as Channel[];
           setChannels(channelsData);
           loadServerMembers(server.id);
+          loadServerPermissions(server.id);
 
           if (lastChannelId) {
             const channel = channelsData.find((c) => c.id === lastChannelId);
@@ -352,6 +366,7 @@ export function AppPage() {
       const data = await apiService.getChannels(server.id) as Channel[];
       setChannels(data);
       loadServerMembers(server.id);
+      loadServerPermissions(server.id);
       const textChannel = data.find((c) => c.type === 'text');
       if (textChannel) {
         handleSelectChannel(textChannel);

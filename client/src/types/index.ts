@@ -53,17 +53,41 @@ export interface MessageSearchResponse {
 export interface Member {
   server_id: string;
   user_id: string;
-  role: Role;
   joined_at: string;
 }
 
-export type Role = 'owner' | 'admin' | 'member';
+/** Роль сервера. permissions приходит строкой: 64-битная маска не переживает JSON-число. */
+export interface Role {
+  id: string;
+  server_id: string;
+  name: string;
+  color: number;
+  position: number;
+  permissions: string;
+  is_default: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+/** Эффективные права пользователя на сервере (клиентское представление). */
+export interface PermissionSet {
+  isOwner: boolean;
+  bits: bigint;
+  highestPosition: number;
+}
+
+/** Сырой ответ GET /servers/{id}/members/me/permissions. */
+export interface PermissionsResponse {
+  is_owner: boolean;
+  permissions: string;
+  highest_position: number;
+}
 
 export interface MemberWithUser {
   user_id: string;
   username: string;
   avatar_url?: string;
-  role: Role;
+  roles: string[];
   joined_at: string;
 }
 

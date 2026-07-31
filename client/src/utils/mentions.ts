@@ -1,7 +1,10 @@
+/** Роли из старой системы: встречаются в исторических сообщениях как <@&owner>. */
+export type LegacyMentionRole = 'owner' | 'admin' | 'member';
+
 export type MentionToken =
   | { type: 'text'; value: string }
   | { type: 'user'; value: string }
-  | { type: 'role'; value: 'owner' | 'admin' | 'member' }
+  | { type: 'role'; value: LegacyMentionRole }
   | { type: 'everyone'; value: string };
 
 const MENTION_RE = /<@([0-9a-fA-F-]{36})>|<@&(owner|admin|member)>|@everyone/g;
@@ -33,7 +36,7 @@ export function tokenizeMentions(content: string): MentionToken[] {
     if (match[1]) {
       tokens.push({ type: 'user', value: match[1] });
     } else if (match[2]) {
-      tokens.push({ type: 'role', value: match[2] as 'owner' | 'admin' | 'member' });
+      tokens.push({ type: 'role', value: match[2] as LegacyMentionRole });
     } else {
       tokens.push({ type: 'everyone', value: '@everyone' });
     }

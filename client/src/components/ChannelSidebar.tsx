@@ -7,6 +7,7 @@ import { EditChannelModal } from '@/components/EditChannelModal';
 import { apiService } from '@/services/api';
 import { useServerStore } from '@/stores/serverStore';
 import { noiseCancellationService } from '@/services/noiseCancellation';
+import { can, PERMISSIONS } from '@/utils/permissions';
 import './ChannelSidebar.css';
 
 interface ChannelSidebarProps {
@@ -38,6 +39,9 @@ export function ChannelSidebar({
   const [ncEnabled, setNcEnabled] = useState(false);
   const [channelMenu, setChannelMenu] = useState<{ x: number; y: number; channel: Channel } | null>(null);
   const [editingChannel, setEditingChannel] = useState<Channel | null>(null);
+
+  const permissions = useServerStore((s) => (server ? s.permissions.get(server.id) : undefined));
+  const canManageChannels = can(permissions, PERMISSIONS.MANAGE_CHANNELS);
 
   const handleDeleteChannel = async (channel: Channel) => {
     if (!server) return;
@@ -116,7 +120,7 @@ export function ChannelSidebar({
                 className={`channel ${currentChannel?.id === channel.id ? 'active' : ''}`}
                 onClick={() => onSelectChannel(channel)}
                 onContextMenu={(e) => {
-                  if (server?.owner_id !== user?.id) return;
+                  if (!canManageChannels) return;
                   e.preventDefault();
                   setChannelMenu({ x: e.clientX, y: e.clientY, channel });
                 }}
@@ -140,7 +144,7 @@ export function ChannelSidebar({
                     className={`channel voice ${currentChannel?.id === channel.id ? 'active' : ''}`}
                     onClick={() => onSelectChannel(channel)}
                     onContextMenu={(e) => {
-                      if (server?.owner_id !== user?.id) return;
+                      if (!canManageChannels) return;
                       e.preventDefault();
                       setChannelMenu({ x: e.clientX, y: e.clientY, channel });
                     }}

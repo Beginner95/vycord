@@ -74,6 +74,7 @@ func main() {
 	channelRepo := postgres.NewChannelRepository(db)
 	messageRepo := postgres.NewMessageRepository(db)
 	callRepo := postgres.NewCallRepository(db)
+	roleRepo := postgres.NewRoleRepository(db)
 
 	// Initialize file storage
 	storage, err := filestorage.NewLocal(cfg.UploadDir, "/uploads")
@@ -85,8 +86,10 @@ func main() {
 	// Initialize usecases
 	authUseCase := usecase.NewAuthUseCase(userRepo, cfg.JWTSecret, cfg.JWTExpiration)
 	userUseCase := usecase.NewUserUseCase(userRepo, storage)
-	serverUseCase := usecase.NewServerUseCase(serverRepo, channelRepo, userRepo, storage)
-	messageUseCase := usecase.NewMessageUseCase(messageRepo, channelRepo, serverRepo)
+	permissionUseCase := usecase.NewPermissionUseCase(serverRepo, roleRepo)
+	roleUseCase := usecase.NewRoleUseCase(serverRepo, roleRepo, permissionUseCase)
+	serverUseCase := usecase.NewServerUseCase(serverRepo, channelRepo, userRepo, roleRepo, storage, permissionUseCase)
+	messageUseCase := usecase.NewMessageUseCase(messageRepo, channelRepo, serverRepo, permissionUseCase)
 	callUseCase := usecase.NewCallUseCase(callRepo)
 	turnUseCase := usecase.NewTURNUseCase(cfg.TURNSecret, cfg.TURNURLs, cfg.TURNTTL)
 
@@ -102,6 +105,7 @@ func main() {
 	onlineUsersHandler := handler.NewOnlineUsersHandler(hub, userRepo, log)
 	wsHandler := handler.NewWebSocketHandler(hub, authUseCase, callUseCase, userUseCase, log)
 	turnHandler := handler.NewTURNHandler(turnUseCase, log)
+	roleHandler := handler.NewRoleHandler(roleUseCase, permissionUseCase, log)
 
 	// Setup router
 	router := http.NewServeMux()
@@ -142,6 +146,15 @@ func main() {
 
 	// Server member routes
 	router.HandleFunc("GET /api/v1/servers/{server_id}/members", authMid.RequireAuth(serverHandler.GetMembers))
+
+	// Role routes
+	router.HandleFunc("GET /api/v1/servers/{server_id}/roles", authMid.RequireAuth(roleHandler.ListRoles))
+	router.HandleFunc("POST /api/v1/servers/{server_id}/roles", authMid.RequireAuth(roleHandler.CreateRole))
+	router.HandleFunc("PATCH /api/v1/servers/{server_id}/roles/{role_id}", authMid.RequireAuth(roleHandler.UpdateRole))
+	router.HandleFunc("DELETE /api/v1/servers/{server_id}/roles/{role_id}", authMid.RequireAuth(roleHandler.DeleteRole))
+	router.HandleFunc("PUT /api/v1/servers/{server_id}/members/{user_id}/roles/{role_id}", authMid.RequireAuth(roleHandler.AssignRole))
+	router.HandleFunc("DELETE /api/v1/servers/{server_id}/members/{user_id}/roles/{role_id}", authMid.RequireAuth(roleHandler.UnassignRole))
+	router.HandleFunc("GET /api/v1/servers/{server_id}/members/me/permissions", authMid.RequireAuth(roleHandler.GetMyPermissions))
 
 	// Message routes
 	router.HandleFunc("POST /api/v1/channels/{channel_id}/messages", authMid.RequireAuth(messageHandler.CreateMessage))
