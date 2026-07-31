@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, type ReactNode } from 'react';
 import { apiService, apiErrorText } from '@/services/api';
 import type { Channel, MessageWithAuthor, MessageSearchResponse } from '@/types';
-import { useT } from '@/i18n';
+import { useT, useTp, useDateFormat } from '@/i18n';
 import './MessageSearch.css';
 
 const MIN_QUERY_LEN = 2;
@@ -14,10 +14,13 @@ interface MessageSearchProps {
   onClose: () => void;
 }
 
-function formatResultDate(dateStr: string) {
+function formatResultDate(
+  dateStr: string,
+  fmt: { formatTime: (d: Date) => string; formatDayMonth: (d: Date) => string },
+) {
   const date = new Date(dateStr);
-  const day = date.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' });
-  const time = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  const day = fmt.formatDayMonth(date);
+  const time = fmt.formatTime(date);
   return `${day}, ${time}`;
 }
 
@@ -50,6 +53,8 @@ function highlightMatches(text: string, query: string): ReactNode[] {
 
 export function MessageSearch({ channel, onJumpToMessage, onClose }: MessageSearchProps) {
   const t = useT();
+  const tp = useTp();
+  const fmt = useDateFormat();
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<MessageWithAuthor[]>([]);
   const [total, setTotal] = useState(0);
@@ -111,7 +116,7 @@ export function MessageSearch({ channel, onJumpToMessage, onClose }: MessageSear
   };
 
   return (
-    <aside className="message-search" aria-label="Поиск сообщений">
+    <aside className="message-search" aria-label={t('chat.searchMessages')}>
       <div className="message-search-header">
         <div className="message-search-input-wrap">
           <svg className="message-search-input-icon" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
@@ -126,33 +131,33 @@ export function MessageSearch({ channel, onJumpToMessage, onClose }: MessageSear
                 onClose();
               }
             }}
-            placeholder={`Поиск в #${channel.name}`}
+            placeholder={t('chat.searchPlaceholder', { channel: channel.name })}
             maxLength={100}
           />
           {query && (
-            <button type="button" className="message-search-clear" aria-label="Очистить" onClick={() => setQuery('')}>
+            <button type="button" className="message-search-clear" aria-label={t('common.clear')} onClick={() => setQuery('')}>
               <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
             </button>
           )}
         </div>
-        <button type="button" className="message-search-close" aria-label="Закрыть поиск" onClick={onClose}>
+        <button type="button" className="message-search-close" aria-label={t('chat.closeSearch')} onClick={onClose}>
           <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
         </button>
       </div>
 
       {searched && !loading && !error && (
-        <div className="message-search-count">Найдено: {total}</div>
+        <div className="message-search-count">{tp('chat.foundCount', total)}</div>
       )}
 
       <div className="message-search-body">
         {trimmed.length < MIN_QUERY_LEN ? (
           <div className="message-search-hint">
             <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-            <p>Введите минимум {MIN_QUERY_LEN} символа для поиска по каналу</p>
+            <p>{tp('chat.minQueryLength', MIN_QUERY_LEN)}</p>
           </div>
         ) : loading ? (
           <div className="message-search-hint">
-            <div className="message-search-spinner" aria-label="Загрузка" />
+            <div className="message-search-spinner" aria-label={t('common.loading')} />
           </div>
         ) : error ? (
           <div className="message-search-hint message-search-error">
@@ -161,7 +166,7 @@ export function MessageSearch({ channel, onJumpToMessage, onClose }: MessageSear
         ) : results.length === 0 ? (
           <div className="message-search-hint">
             <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="8" y1="11" x2="14" y2="11"/></svg>
-            <p>Ничего не найдено по запросу «{trimmed}»</p>
+            <p>{t('chat.nothingFound', { query: trimmed })}</p>
           </div>
         ) : (
           <>
@@ -178,7 +183,7 @@ export function MessageSearch({ channel, onJumpToMessage, onClose }: MessageSear
                 <div className="message-search-result-main">
                   <div className="message-search-result-meta">
                     <span className="message-search-result-author">{msg.username}</span>
-                    <span className="message-search-result-date">{formatResultDate(msg.created_at)}</span>
+                    <span className="message-search-result-date">{formatResultDate(msg.created_at, fmt)}</span>
                   </div>
                   <p className="message-search-result-text">
                     {highlightMatches(snippetAround(msg.content, trimmed), trimmed)}
@@ -193,7 +198,7 @@ export function MessageSearch({ channel, onJumpToMessage, onClose }: MessageSear
                 onClick={loadMore}
                 disabled={loadingMore}
               >
-                {loadingMore ? 'Загрузка…' : 'Показать ещё'}
+                {loadingMore ? t('common.loading') : t('chat.loadMore')}
               </button>
             )}
           </>
