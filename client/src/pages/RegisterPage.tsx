@@ -23,7 +23,7 @@ export function RegisterPage() {
     setLoading(true);
 
     if (password.length < 6) {
-      setError('Password must be at least 6 characters');
+      setError(t('auth.passwordMinLength6'));
       setLoading(false);
       return;
     }
@@ -47,15 +47,15 @@ export function RegisterPage() {
     <div className="auth-container">
       <div className="auth-card">
         <div className="auth-header">
-          <h1>Create an Account</h1>
-          <p>Join your friends in Vy Cord!</p>
+          <h1>{t('auth.createAccount')}</h1>
+          <p>{t('auth.registerSubtitle')}</p>
         </div>
 
         <form onSubmit={handleSubmit}>
           {error && <div className="auth-error">{error}</div>}
 
           <div className="form-group">
-            <label htmlFor="username">Username</label>
+            <label htmlFor="username">{t('auth.username')}</label>
             <input
               id="username"
               type="text"
@@ -69,7 +69,7 @@ export function RegisterPage() {
           </div>
 
           <div className="form-group">
-            <label htmlFor="email">Email</label>
+            <label htmlFor="email">{t('auth.email')}</label>
             <input
               id="email"
               type="email"
@@ -80,7 +80,7 @@ export function RegisterPage() {
           </div>
 
           <div className="form-group">
-            <label htmlFor="password">Password</label>
+            <label htmlFor="password">{t('auth.password')}</label>
             <input
               id="password"
               type="password"
@@ -92,11 +92,11 @@ export function RegisterPage() {
           </div>
 
           <button type="submit" className="auth-btn" disabled={loading}>
-            {loading ? 'Creating account...' : 'Continue'}
+            {loading ? t('auth.creatingAccount') : t('auth.continueButton')}
           </button>
 
           <div className="auth-footer">
-            Already have an account? <Link to="/login">Log In</Link>
+            {t('auth.haveAccount')} <Link to="/login">{t('auth.loginLink')}</Link>
           </div>
         </form>
       </div>
