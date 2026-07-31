@@ -2,7 +2,7 @@ import { useRef, useState } from 'react';
 import { useAuthStore } from '@/stores/authStore';
 import { useLocaleStore, type Locale } from '@/stores/localeStore';
 import { useT } from '@/i18n';
-import { apiService } from '@/services/api';
+import { apiService, apiErrorText } from '@/services/api';
 import { Avatar } from '@/components/Avatar';
 import { AvatarCropModal } from '@/components/AvatarCropModal';
 import './ProfileSettings.css';
@@ -49,7 +49,7 @@ export function ProfileSettings() {
       const updated = await apiService.removeAvatar();
       updateUser({ avatar_url: updated.avatar_url });
     } catch (err) {
-      setPickError(err instanceof Error ? err.message : 'Не удалось удалить аватар');
+      setPickError(apiErrorText(err, t));
     } finally {
       setRemoving(false);
     }

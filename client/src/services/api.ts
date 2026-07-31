@@ -1,7 +1,36 @@
 import { useAuthStore } from '@/stores/authStore';
 import type { Server, User, Role, PermissionsResponse } from '@/types';
+import { hasKey, type TFunc, type TKey } from '@/i18n';
 
 export const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8080';
+
+export class ApiError extends Error {
+  constructor(
+    message: string,
+    readonly code?: string,
+    readonly status?: number,
+  ) {
+    super(message);
+    this.name = 'ApiError';
+  }
+}
+
+/**
+ * Текст ошибки API для показа пользователю.
+ *
+ * Переводит по стабильному code с сервера. Фолбэк на серверный текст
+ * обязателен: если код клиенту неизвестен (старый клиент против нового
+ * сервера или наоборот), пользователь увидит ровно то же, что видел до
+ * появления локализации, — регрессии не будет ни при каком рассинхроне.
+ */
+export function apiErrorText(err: unknown, t: TFunc): string {
+  if (err instanceof ApiError && err.code) {
+    const key = `errors.${err.code}`;
+    if (hasKey(key)) return t(key as TKey);
+  }
+  if (err instanceof Error && err.message) return err.message;
+  return t('errors.unknown');
+}
 
 class ApiService {
   private getToken(): string | null {
@@ -32,13 +61,17 @@ class ApiService {
     });
 
     if (response.status === 401) {
+      // Разлогин при 401 сохраняем без изменений (VYC-54).
       useAuthStore.getState().logout();
-      throw new Error('Unauthorized');
+      // Но тело ответа больше не выбрасываем: 401 приходит и от /auth/login,
+      // где code отличает «неверный пароль» от «истёкший токен».
+      const body = await response.json().catch(() => ({ error: 'Unauthorized' }));
+      throw new ApiError(body.error || 'Unauthorized', body.code, 401);
     }
 
     if (!response.ok) {
-      const error = await response.json().catch(() => ({ error: response.statusText }));
-      throw new Error(error.error || `HTTP ${response.status}`);
+      const body = await response.json().catch(() => ({ error: response.statusText }));
+      throw new ApiError(body.error || `HTTP ${response.status}`, body.code, response.status);
     }
 
     // Handle 204 No Content
@@ -65,14 +98,18 @@ class ApiService {
     });
 
     if (response.status === 401) {
+      // Разлогин при 401 сохраняем без изменений (VYC-54).
       useAuthStore.getState().logout();
       window.location.href = '/login';
-      throw new Error('Unauthorized');
+      // Но тело ответа больше не выбрасываем: 401 приходит и от /auth/login,
+      // где code отличает «неверный пароль» от «истёкший токен».
+      const body = await response.json().catch(() => ({ error: 'Unauthorized' }));
+      throw new ApiError(body.error || 'Unauthorized', body.code, 401);
     }
 
     if (!response.ok) {
-      const error = await response.json().catch(() => ({ error: response.statusText }));
-      throw new Error(error.error || `HTTP ${response.status}`);
+      const body = await response.json().catch(() => ({ error: response.statusText }));
+      throw new ApiError(body.error || `HTTP ${response.status}`, body.code, response.status);
     }
 
     return response.json();

@@ -1,13 +1,15 @@
 import { useState, type FormEvent } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuthStore } from '@/stores/authStore';
-import { apiService } from '@/services/api';
+import { apiService, apiErrorText } from '@/services/api';
 import { wsService } from '@/services/websocket';
 import type { User } from '@/types';
+import { useT } from '@/i18n';
 import './Auth.css';
 
 export function RegisterPage() {
   const navigate = useNavigate();
+  const t = useT();
   const login = useAuthStore((state) => state.login);
   const [username, setUsername] = useState('');
   const [email, setEmail] = useState('');
@@ -35,7 +37,7 @@ export function RegisterPage() {
 
       navigate('/app');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Registration failed');
+      setError(apiErrorText(err, t));
     } finally {
       setLoading(false);
     }

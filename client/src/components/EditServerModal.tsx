@@ -1,8 +1,9 @@
 import { useRef, useState } from 'react';
 import type { Server } from '@/types';
-import { apiService } from '@/services/api';
+import { apiService, apiErrorText } from '@/services/api';
 import { useServerStore } from '@/stores/serverStore';
 import { AvatarCropModal } from '@/components/AvatarCropModal';
+import { useT } from '@/i18n';
 import './EditServerModal.css';
 
 const ALLOWED_TYPES = ['image/png', 'image/jpeg'];
@@ -14,6 +15,7 @@ interface EditServerModalProps {
 }
 
 export function EditServerModal({ server, onClose }: EditServerModalProps) {
+  const t = useT();
   const [name, setName] = useState(server.name);
   const [cropFile, setCropFile] = useState<File | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -49,7 +51,7 @@ export function EditServerModal({ server, onClose }: EditServerModalProps) {
       const updated = (await apiService.removeServerIcon(server.id)) as Server;
       useServerStore.getState().patchServer(server.id, { icon_url: updated.icon_url });
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Не удалось удалить иконку');
+      setError(apiErrorText(err, t));
     } finally {
       setRemovingIcon(false);
     }
@@ -67,7 +69,7 @@ export function EditServerModal({ server, onClose }: EditServerModalProps) {
       useServerStore.getState().patchServer(server.id, { name: updated.name });
       onClose();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Не удалось обновить сервер');
+      setError(apiErrorText(err, t));
     } finally {
       setSaving(false);
     }

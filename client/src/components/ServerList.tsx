@@ -1,10 +1,11 @@
 import { useState } from 'react';
 import type { Server, User } from '@/types';
-import { apiService } from '@/services/api';
+import { apiService, apiErrorText } from '@/services/api';
 import { useServerStore } from '@/stores/serverStore';
 import { ContextMenu } from '@/components/ContextMenu';
 import { EditServerModal } from '@/components/EditServerModal';
 import { can, PERMISSIONS } from '@/utils/permissions';
+import { useT } from '@/i18n';
 import './ServerList.css';
 
 interface ServerListProps {
@@ -26,6 +27,7 @@ export function ServerList({
   onJoinServer,
   onServerDeleted,
 }: ServerListProps) {
+  const t = useT();
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<Server[]>([]);
@@ -55,7 +57,7 @@ export function ServerList({
       onServerDeleted(server.id);
     } catch (err) {
       console.error('Failed to delete server:', err);
-      alert(err instanceof Error ? err.message : 'Не удалось удалить сервер');
+      alert(apiErrorText(err, t));
     }
   };
 

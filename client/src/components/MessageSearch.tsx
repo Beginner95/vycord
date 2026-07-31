@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, type ReactNode } from 'react';
-import { apiService } from '@/services/api';
+import { apiService, apiErrorText } from '@/services/api';
 import type { Channel, MessageWithAuthor, MessageSearchResponse } from '@/types';
+import { useT } from '@/i18n';
 import './MessageSearch.css';
 
 const MIN_QUERY_LEN = 2;
@@ -48,6 +49,7 @@ function highlightMatches(text: string, query: string): ReactNode[] {
 }
 
 export function MessageSearch({ channel, onJumpToMessage, onClose }: MessageSearchProps) {
+  const t = useT();
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<MessageWithAuthor[]>([]);
   const [total, setTotal] = useState(0);
@@ -84,7 +86,7 @@ export function MessageSearch({ channel, onJumpToMessage, onClose }: MessageSear
         setSearched(true);
       } catch (err) {
         if (cancelled) return;
-        setError(err instanceof Error ? err.message : 'Не удалось выполнить поиск');
+        setError(apiErrorText(err, t));
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -102,7 +104,7 @@ export function MessageSearch({ channel, onJumpToMessage, onClose }: MessageSear
       setResults((prev) => [...prev, ...data.results]);
       setTotal(data.total);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Не удалось выполнить поиск');
+      setError(apiErrorText(err, t));
     } finally {
       setLoadingMore(false);
     }

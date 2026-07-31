@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, type FormEvent, type KeyboardEvent, type ChangeEvent } from 'react';
 import { useMessageStore } from '@/stores/messageStore';
 import type { Message } from '@/types';
-import { apiService } from '@/services/api';
+import { apiService, apiErrorText } from '@/services/api';
 import { wsService } from '@/services/websocket';
 import { audioService } from '@/services/audio';
 import { useServerStore } from '@/stores/serverStore';
@@ -12,6 +12,7 @@ import { useFloatingSelectionToolbar } from '@/hooks/useFloatingSelectionToolbar
 import { MessageSearch } from '@/components/MessageSearch';
 import { Avatar } from '@/components/Avatar';
 import type { Channel, User, MemberWithUser } from '@/types';
+import { useT } from '@/i18n';
 import './ChatArea.css';
 
 interface ChatAreaProps {
@@ -140,6 +141,7 @@ function FloatingQuoteButton({ x, y, onConfirm }: { x: number; y: number; onConf
 }
 
 export function ChatArea({ channel, user, onMobileBack, onShowMembers }: ChatAreaProps) {
+  const t = useT();
   const { messages, setMessages, addMessage, updateMessage, removeMessage } = useMessageStore();
   const { members, currentServer } = useServerStore();
   const [input, setInput] = useState('');
@@ -293,7 +295,7 @@ export function ChatArea({ channel, user, onMobileBack, onShowMembers }: ChatAre
       window.setTimeout(() => setHighlightedId(null), 2200);
     } catch (err) {
       console.error('Failed to jump to message:', err);
-      setSendError(err instanceof Error ? err.message : 'Не удалось перейти к сообщению');
+      setSendError(apiErrorText(err, t));
       setTimeout(() => setSendError(null), 5000);
     }
   };
@@ -321,7 +323,7 @@ export function ChatArea({ channel, user, onMobileBack, onShowMembers }: ChatAre
       setCaretInQuoteLine(false);
     } catch (err) {
       console.error('Failed to send message:', err);
-      setSendError(err instanceof Error ? err.message : 'Failed to send message');
+      setSendError(apiErrorText(err, t));
       setTimeout(() => setSendError(null), 5000);
     }
   };
@@ -502,7 +504,7 @@ export function ChatArea({ channel, user, onMobileBack, onShowMembers }: ChatAre
       cancelEdit();
     } catch (err) {
       console.error('Failed to update message:', err);
-      setSendError(err instanceof Error ? err.message : 'Failed to update message');
+      setSendError(apiErrorText(err, t));
       setTimeout(() => setSendError(null), 5000);
     }
   };

@@ -1,13 +1,15 @@
 import { useState, type FormEvent } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuthStore } from '@/stores/authStore';
-import { apiService } from '@/services/api';
+import { apiService, apiErrorText } from '@/services/api';
 import { wsService } from '@/services/websocket';
 import type { User } from '@/types';
+import { useT } from '@/i18n';
 import './Auth.css';
 
 export function LoginPage() {
   const navigate = useNavigate();
+  const t = useT();
   const login = useAuthStore((state) => state.login);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -28,7 +30,7 @@ export function LoginPage() {
 
       navigate('/app');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Login failed');
+      setError(apiErrorText(err, t));
     } finally {
       setLoading(false);
     }

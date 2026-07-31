@@ -4,10 +4,11 @@ import { Settings } from '@/components/Settings';
 import { Avatar } from '@/components/Avatar';
 import { ContextMenu } from '@/components/ContextMenu';
 import { EditChannelModal } from '@/components/EditChannelModal';
-import { apiService } from '@/services/api';
+import { apiService, apiErrorText } from '@/services/api';
 import { useServerStore } from '@/stores/serverStore';
 import { noiseCancellationService } from '@/services/noiseCancellation';
 import { can, PERMISSIONS } from '@/utils/permissions';
+import { useT } from '@/i18n';
 import './ChannelSidebar.css';
 
 interface ChannelSidebarProps {
@@ -35,6 +36,7 @@ export function ChannelSidebar({
   members,
   onChannelDeleted,
 }: ChannelSidebarProps) {
+  const t = useT();
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [ncEnabled, setNcEnabled] = useState(false);
   const [channelMenu, setChannelMenu] = useState<{ x: number; y: number; channel: Channel } | null>(null);
@@ -53,7 +55,7 @@ export function ChannelSidebar({
       onChannelDeleted(channel.id);
     } catch (err) {
       console.error('Failed to delete channel:', err);
-      alert(err instanceof Error ? err.message : 'Не удалось удалить канал');
+      alert(apiErrorText(err, t));
     }
   };
 

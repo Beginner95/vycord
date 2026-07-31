@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import type { Channel } from '@/types';
-import { apiService } from '@/services/api';
+import { apiService, apiErrorText } from '@/services/api';
 import { useServerStore } from '@/stores/serverStore';
+import { useT } from '@/i18n';
 
 interface EditChannelModalProps {
   serverId: string;
@@ -10,6 +11,7 @@ interface EditChannelModalProps {
 }
 
 export function EditChannelModal({ serverId, channel, onClose }: EditChannelModalProps) {
+  const t = useT();
   const [name, setName] = useState(channel.name);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -26,7 +28,7 @@ export function EditChannelModal({ serverId, channel, onClose }: EditChannelModa
       useServerStore.getState().patchChannel(channel.id, { name: updated.name });
       onClose();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Не удалось обновить канал');
+      setError(apiErrorText(err, t));
     } finally {
       setSaving(false);
     }

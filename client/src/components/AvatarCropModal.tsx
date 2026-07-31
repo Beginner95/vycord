@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
+import { apiErrorText } from '@/services/api';
+import { useT } from '@/i18n';
 import './AvatarCropModal.css';
 
 const CANVAS_SIZE = 320;
@@ -58,6 +60,7 @@ function exportCroppedBlob(img: HTMLImageElement, baseScale: number, zoom: numbe
 }
 
 export function AvatarCropModal({ file, title, onCancel, onUpload }: AvatarCropModalProps) {
+  const t = useT();
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const draggingRef = useRef(false);
   const lastPointRef = useRef<Offset>({ x: 0, y: 0 });
@@ -155,7 +158,7 @@ export function AvatarCropModal({ file, title, onCancel, onUpload }: AvatarCropM
       const blob = await exportCroppedBlob(img, baseScale, zoom, offset);
       await onUpload(blob);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Не удалось загрузить аватар. Попробуйте ещё раз');
+      setError(apiErrorText(err, t));
     } finally {
       setSaving(false);
     }
