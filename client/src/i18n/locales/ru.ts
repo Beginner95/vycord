@@ -18,7 +18,12 @@ export const ru = {
       other: '{{count}} участника',
     }),
   },
-  settings: {},
+  settings: {
+    language: 'Язык',
+    languageDescription: 'Язык интерфейса приложения',
+    languageNameRu: 'Русский',
+    languageNameEn: 'English',
+  },
   server: {},
   channel: {},
   update: {},

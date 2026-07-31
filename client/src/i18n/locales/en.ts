@@ -17,7 +17,12 @@ export const en: Dictionary = {
       other: '{{count}} participants',
     }),
   },
-  settings: {},
+  settings: {
+    language: 'Language',
+    languageDescription: 'Application interface language',
+    languageNameRu: 'Русский',
+    languageNameEn: 'English',
+  },
   server: {},
   channel: {},
   update: {},

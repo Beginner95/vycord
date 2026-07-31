@@ -1,5 +1,7 @@
 import { useRef, useState } from 'react';
 import { useAuthStore } from '@/stores/authStore';
+import { useLocaleStore, type Locale } from '@/stores/localeStore';
+import { useT } from '@/i18n';
 import { apiService } from '@/services/api';
 import { Avatar } from '@/components/Avatar';
 import { AvatarCropModal } from '@/components/AvatarCropModal';
@@ -10,6 +12,8 @@ const MAX_FILE_BYTES = 2 * 1024 * 1024;
 
 export function ProfileSettings() {
   const { user, updateUser } = useAuthStore();
+  const { locale, setLocale } = useLocaleStore();
+  const t = useT();
   const [cropFile, setCropFile] = useState<File | null>(null);
   const [pickError, setPickError] = useState<string | null>(null);
   const [removing, setRemoving] = useState(false);
@@ -97,6 +101,24 @@ export function ProfileSettings() {
             <label>Email</label>
             <p className="setting-description">{user?.email}</p>
           </div>
+        </div>
+      </div>
+
+      <div className="settings-section">
+        <h3>{t('settings.language')}</h3>
+        <div className="setting-item">
+          <div className="setting-info">
+            <label>{t('settings.language')}</label>
+            <p className="setting-description">{t('settings.languageDescription')}</p>
+          </div>
+          <select
+            className="setting-select"
+            value={locale}
+            onChange={(e) => setLocale(e.target.value as Locale)}
+          >
+            <option value="ru">{t('settings.languageNameRu')}</option>
+            <option value="en">{t('settings.languageNameEn')}</option>
+          </select>
         </div>
       </div>
 
