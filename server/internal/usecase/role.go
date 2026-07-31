@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 	"github.com/vycord/server/internal/domain"
@@ -58,9 +59,13 @@ func (uc *roleUseCase) requireManageRoles(serverID, actorID uuid.UUID) (domain.P
 // validateRoleName нормализует и проверяет имя роли. Общий хелпер для
 // CreateRole и UpdateRole: правило одно (1..100 символов после trim), и оно
 // не должно разъезжаться между двумя точками входа.
+//
+// Длина считается в символах (utf8.RuneCountInString), а не в байтах: колонка
+// roles.name — VARCHAR(100), т.е. 100 символов. Аудитория проекта
+// русскоязычная, len(name) в байтах отвергал бы кириллицу вдвое короче лимита.
 func validateRoleName(name string) (string, error) {
 	name = strings.TrimSpace(name)
-	if name == "" || len(name) > 100 {
+	if name == "" || utf8.RuneCountInString(name) > 100 {
 		return "", domain.ErrInvalidRoleName
 	}
 	return name, nil

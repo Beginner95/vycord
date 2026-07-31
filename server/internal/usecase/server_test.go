@@ -69,6 +69,8 @@ func TestCreateServer_DefaultRoleCreationFails_ReturnsError(t *testing.T) {
 	srvRepo.On("Create", mock.AnythingOfType("*domain.Server")).Return(nil)
 	srvRepo.On("AddMember", mock.AnythingOfType("uuid.UUID"), ownerID).Return(nil)
 	roleRepo.On("Create", mock.AnythingOfType("*domain.Role")).Return(fmt.Errorf("db down"))
+	wantErr := fmt.Errorf("db down")
+	srvRepo.On("Delete", mock.AnythingOfType("uuid.UUID")).Return(nil)
 
 	perms := new(MockPermissionUseCase)
 	uc := usecase.NewServerUseCase(srvRepo, chRepo, usrRepo, roleRepo, new(MockStorage), perms)
@@ -76,7 +78,70 @@ func TestCreateServer_DefaultRoleCreationFails_ReturnsError(t *testing.T) {
 
 	assert.Nil(t, got)
 	require.Error(t, err)
+	assert.ErrorContains(t, err, wantErr.Error())
 	chRepo.AssertNotCalled(t, "Create", mock.Anything)
+}
+
+// TestCreateServer_DefaultRoleCreationFails_CompensatesByDeletingServer —
+// если создание роли @everyone падает уже после успешного serverRepo.Create,
+// сервер остался бы в БД без дефолтной роли — неремонтируемое состояние
+// (участники получают 403 навсегда, UI управления ролями не сделан). Юзкейс
+// обязан удалить только что созданный сервер компенсирующим вызовом.
+func TestCreateServer_DefaultRoleCreationFails_CompensatesByDeletingServer(t *testing.T) {
+	ownerID := uuid.New()
+
+	srvRepo := new(MockServerRepository)
+	chRepo := new(MockChannelRepository)
+	usrRepo := new(MockUserRepository)
+	roleRepo := new(MockRoleRepository)
+
+	usrRepo.On("GetByID", ownerID).Return(&domain.User{ID: ownerID}, nil)
+	srvRepo.On("Create", mock.AnythingOfType("*domain.Server")).Return(nil)
+	srvRepo.On("AddMember", mock.AnythingOfType("uuid.UUID"), ownerID).Return(nil)
+	roleRepo.On("Create", mock.AnythingOfType("*domain.Role")).Return(fmt.Errorf("db down"))
+	srvRepo.On("Delete", mock.AnythingOfType("uuid.UUID")).Return(nil)
+
+	perms := new(MockPermissionUseCase)
+	uc := usecase.NewServerUseCase(srvRepo, chRepo, usrRepo, roleRepo, new(MockStorage), perms)
+	got, err := uc.CreateServer("Мой сервер", ownerID)
+
+	require.Error(t, err)
+	assert.Nil(t, got)
+
+	// Идентификатор созданного сервера был передан в Delete — берём его из
+	// аргумента Create, так как got == nil после ошибки.
+	require.Len(t, srvRepo.Calls, 3, "Create, AddMember, Delete")
+	createdServer := srvRepo.Calls[0].Arguments.Get(0).(*domain.Server)
+	srvRepo.AssertCalled(t, "Delete", createdServer.ID)
+}
+
+// TestCreateServer_AddMemberFails_CompensatesByDeletingServer — то же самое,
+// но ошибка возникает на шаге AddMember: без владельца в server_members
+// сервер тоже неремонтируем (member_roles ссылается на эту строку по FK).
+func TestCreateServer_AddMemberFails_CompensatesByDeletingServer(t *testing.T) {
+	ownerID := uuid.New()
+
+	srvRepo := new(MockServerRepository)
+	chRepo := new(MockChannelRepository)
+	usrRepo := new(MockUserRepository)
+	roleRepo := new(MockRoleRepository)
+
+	usrRepo.On("GetByID", ownerID).Return(&domain.User{ID: ownerID}, nil)
+	srvRepo.On("Create", mock.AnythingOfType("*domain.Server")).Return(nil)
+	srvRepo.On("AddMember", mock.AnythingOfType("uuid.UUID"), ownerID).Return(fmt.Errorf("db down"))
+	srvRepo.On("Delete", mock.AnythingOfType("uuid.UUID")).Return(nil)
+
+	perms := new(MockPermissionUseCase)
+	uc := usecase.NewServerUseCase(srvRepo, chRepo, usrRepo, roleRepo, new(MockStorage), perms)
+	got, err := uc.CreateServer("Мой сервер", ownerID)
+
+	require.Error(t, err)
+	assert.Nil(t, got)
+	roleRepo.AssertNotCalled(t, "Create", mock.Anything)
+
+	require.Len(t, srvRepo.Calls, 3, "Create, AddMember, Delete")
+	createdServer := srvRepo.Calls[0].Arguments.Get(0).(*domain.Server)
+	srvRepo.AssertCalled(t, "Delete", createdServer.ID)
 }
 
 func TestGetMembers_Owner_Success(t *testing.T) {

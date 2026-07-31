@@ -132,6 +132,31 @@ func TestCreateRole_NameTooLong_Rejected(t *testing.T) {
 	assert.ErrorIs(t, err, domain.ErrInvalidRoleName)
 }
 
+// TestCreateRole_CyrillicNameAt100Runes_Accepted — длина имени роли считается
+// в символах (utf8.RuneCountInString), а не в байтах: колонка VARCHAR(100) —
+// это 100 символов. Кириллица в UTF-8 занимает 2 байта на символ, поэтому
+// байтовый подсчёт отвергал бы кириллические имена вдвое короче лимита.
+func TestCreateRole_CyrillicNameAt100Runes_Accepted(t *testing.T) {
+	f := newRoleFixture(t)
+	f.actorWith(domain.PermViewChannels, 5)
+	f.roleRepo.On("Create", mock.AnythingOfType("*domain.Role")).Return(nil)
+
+	name := strings.Repeat("я", 100)
+	got, err := f.uc.CreateRole(f.serverID, f.actorID, name, 0, 2, domain.PermViewChannels)
+
+	require.NoError(t, err)
+	assert.Equal(t, name, got.Name)
+}
+
+func TestCreateRole_CyrillicNameAt101Runes_Rejected(t *testing.T) {
+	f := newRoleFixture(t)
+	f.actorWith(0, 5)
+
+	_, err := f.uc.CreateRole(f.serverID, f.actorID, strings.Repeat("я", 101), 0, 2, domain.PermViewChannels)
+
+	assert.ErrorIs(t, err, domain.ErrInvalidRoleName)
+}
+
 func TestUpdateRole_EmptyName_Rejected(t *testing.T) {
 	f := newRoleFixture(t)
 	f.actorWith(0, 3)

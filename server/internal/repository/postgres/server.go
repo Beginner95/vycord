@@ -2,12 +2,13 @@ package postgres
 
 import (
 	"context"
-	"database/sql"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/vycord/server/internal/domain"
 )
@@ -68,8 +69,8 @@ func (r *serverRepository) GetByID(id uuid.UUID) (*domain.Server, error) {
 		&server.UpdatedAt,
 	)
 
-	if err == sql.ErrNoRows {
-		return nil, fmt.Errorf("server not found")
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, fmt.Errorf("server %s: %w", id, domain.ErrServerNotFound)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to get server: %w", err)

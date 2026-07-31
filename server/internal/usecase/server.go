@@ -63,6 +63,7 @@ func (uc *serverUseCase) CreateServer(name string, ownerID uuid.UUID) (*domain.S
 	// Миграция 009 забэкфиллила только существующие серверы, новые обязаны
 	// регистрировать владельца здесь.
 	if err := uc.serverRepo.AddMember(server.ID, ownerID); err != nil {
+		uc.compensateFailedCreate(server.ID)
 		return nil, fmt.Errorf("failed to add owner as member: %w", err)
 	}
 
@@ -82,6 +83,7 @@ func (uc *serverUseCase) CreateServer(name string, ownerID uuid.UUID) (*domain.S
 		UpdatedAt:   now,
 	}
 	if err := uc.roleRepo.Create(everyoneRole); err != nil {
+		uc.compensateFailedCreate(server.ID)
 		return nil, fmt.Errorf("failed to create default role: %w", err)
 	}
 
@@ -97,6 +99,7 @@ func (uc *serverUseCase) CreateServer(name string, ownerID uuid.UUID) (*domain.S
 	}
 
 	if err := uc.channelRepo.Create(textChannel); err != nil {
+		uc.compensateFailedCreate(server.ID)
 		return nil, fmt.Errorf("failed to create default channel: %w", err)
 	}
 
@@ -112,10 +115,22 @@ func (uc *serverUseCase) CreateServer(name string, ownerID uuid.UUID) (*domain.S
 	}
 
 	if err := uc.channelRepo.Create(voiceChannel); err != nil {
+		uc.compensateFailedCreate(server.ID)
 		return nil, fmt.Errorf("failed to create default voice channel: %w", err)
 	}
 
 	return server, nil
+}
+
+// compensateFailedCreate удаляет сервер, если какой-то из шагов CreateServer
+// после успешного serverRepo.Create упал. Без этого в БД остаётся сервер без
+// владельца в server_members и/или без роли @everyone — неремонтируемое
+// состояние (см. проектную заметку про инвариант "@everyone + владелец").
+// ON DELETE CASCADE на server_id уберёт членство, роль и уже созданные
+// каналы. Ошибку компенсации логировать здесь нечем — best-effort, как
+// storage.Delete в UpdateServerIcon.
+func (uc *serverUseCase) compensateFailedCreate(serverID uuid.UUID) {
+	_ = uc.serverRepo.Delete(serverID)
 }
 
 func (uc *serverUseCase) GetServer(id uuid.UUID) (*domain.Server, error) {

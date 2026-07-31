@@ -1,6 +1,7 @@
 package usecase
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/google/uuid"
@@ -24,9 +25,16 @@ func NewPermissionUseCase(serverRepo domain.ServerRepository, roleRepo domain.Ro
 // Не-участник получает нулевой набор, а не ошибку: вызывающий сам решает,
 // вернуть 403 или пустой ответ.
 func (uc *permissionUseCase) Resolve(serverID, userID uuid.UUID) (domain.PermissionSet, error) {
+	// Репозиторий уже различает "сервера нет" (domain.ErrServerNotFound) и
+	// сбой самой БД: первое пробрасываем как есть, второе — обёрнутым, чтобы
+	// наружу ушёл 500, а не ложный 404 "сервер не найден" на каждый запрос
+	// при падении Postgres (тот же класс инцидента, что VYC-54 с auth-мидлварью).
 	server, err := uc.serverRepo.GetByID(serverID)
 	if err != nil {
-		return domain.PermissionSet{}, fmt.Errorf("server %s: %w", serverID, domain.ErrServerNotFound)
+		if errors.Is(err, domain.ErrServerNotFound) {
+			return domain.PermissionSet{}, err
+		}
+		return domain.PermissionSet{}, fmt.Errorf("get server: %w", err)
 	}
 
 	if server.OwnerID != userID {

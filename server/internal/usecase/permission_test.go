@@ -2,6 +2,7 @@ package usecase_test
 
 import (
 	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/google/uuid"
@@ -141,12 +142,33 @@ func TestResolve_ServerNotFound(t *testing.T) {
 
 	srvRepo := new(MockServerRepository)
 	roleRepo := new(MockRoleRepository)
-	srvRepo.On("GetByID", serverID).Return(nil, assertAnyError)
+	// Репозиторий сам оборачивает pgx.ErrNoRows в domain.ErrServerNotFound —
+	// здесь имитируем именно этот, а не произвольный, случай.
+	srvRepo.On("GetByID", serverID).Return(nil, fmt.Errorf("server %s: %w", serverID, domain.ErrServerNotFound))
 
 	uc := usecase.NewPermissionUseCase(srvRepo, roleRepo)
 	_, err := uc.Resolve(serverID, userID)
 
 	assert.ErrorIs(t, err, domain.ErrServerNotFound)
+}
+
+// TestResolve_ServerRepoError_NotTranslatedToNotFound — падение БД (или любая
+// другая ошибка репозитория, отличная от ErrServerNotFound) не должно
+// превращаться в "сервер не найден": иначе сбой Postgres выглядел бы для
+// пользователя как исчезновение всех серверов (тот же класс бага, что VYC-54).
+func TestResolve_ServerRepoError_NotTranslatedToNotFound(t *testing.T) {
+	serverID, userID := uuid.New(), uuid.New()
+
+	srvRepo := new(MockServerRepository)
+	roleRepo := new(MockRoleRepository)
+	srvRepo.On("GetByID", serverID).Return(nil, assertAnyError)
+
+	uc := usecase.NewPermissionUseCase(srvRepo, roleRepo)
+	_, err := uc.Resolve(serverID, userID)
+
+	require.Error(t, err)
+	assert.NotErrorIs(t, err, domain.ErrServerNotFound)
+	assert.ErrorIs(t, err, assertAnyError)
 }
 
 // assertAnyError — произвольная ошибка репозитория для проверки трансляции.
