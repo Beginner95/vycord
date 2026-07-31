@@ -30,4 +30,11 @@ var (
 	ErrInvalidPermissions = errors.New("invalid permissions")
 	// ErrInvalidRoleName — имя роли пустое или длиннее 100 символов.
 	ErrInvalidRoleName = errors.New("invalid role name")
+
+	// ErrEmailTaken — при регистрации email уже занят другим пользователем.
+	ErrEmailTaken = errors.New("user with this email already exists")
+	// ErrUsernameTaken — при регистрации username уже занят другим пользователем.
+	ErrUsernameTaken = errors.New("user with this username already exists")
+	// ErrInvalidCredentials — email не найден или пароль не совпадает при входе.
+	ErrInvalidCredentials = errors.New("invalid email or password")
 )

@@ -10,6 +10,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/google/uuid"
+	"github.com/vycord/server/internal/delivery/http/httperr"
 	"github.com/vycord/server/internal/delivery/http/middleware"
 	"github.com/vycord/server/internal/delivery/ws"
 	"github.com/vycord/server/internal/domain"
@@ -39,18 +40,18 @@ func (h *MessageHandler) CreateMessage(w http.ResponseWriter, r *http.Request) {
 	channelIDStr := r.PathValue("channel_id")
 	channelID, err := uuid.Parse(channelIDStr)
 	if err != nil {
-		h.sendError(w, http.StatusBadRequest, "invalid channel id")
+		h.sendError(w, http.StatusBadRequest, httperr.CodeInvalidChannelID, "invalid channel id")
 		return
 	}
 
 	var req CreateMessageRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		h.sendError(w, http.StatusBadRequest, "invalid request body")
+		h.sendError(w, http.StatusBadRequest, httperr.CodeInvalidBody, "invalid request body")
 		return
 	}
 
 	if req.Content == "" {
-		h.sendError(w, http.StatusBadRequest, "message content is required")
+		h.sendError(w, http.StatusBadRequest, httperr.CodeMessageEmpty, "message content is required")
 		return
 	}
 
@@ -76,7 +77,7 @@ func (h *MessageHandler) GetMessages(w http.ResponseWriter, r *http.Request) {
 	channelIDStr := r.PathValue("channel_id")
 	channelID, err := uuid.Parse(channelIDStr)
 	if err != nil {
-		h.sendError(w, http.StatusBadRequest, "invalid channel id")
+		h.sendError(w, http.StatusBadRequest, httperr.CodeInvalidChannelID, "invalid channel id")
 		return
 	}
 
@@ -110,13 +111,13 @@ func (h *MessageHandler) SearchMessages(w http.ResponseWriter, r *http.Request) 
 
 	channelID, err := uuid.Parse(r.PathValue("channel_id"))
 	if err != nil {
-		h.sendError(w, http.StatusBadRequest, "invalid channel id")
+		h.sendError(w, http.StatusBadRequest, httperr.CodeInvalidChannelID, "invalid channel id")
 		return
 	}
 
 	query := strings.TrimSpace(r.URL.Query().Get("q"))
 	if n := utf8.RuneCountInString(query); n < 2 || n > 100 {
-		h.sendError(w, http.StatusBadRequest, "search query must be 2-100 characters")
+		h.sendError(w, http.StatusBadRequest, httperr.CodeSearchQueryLength, "search query must be 2-100 characters")
 		return
 	}
 
@@ -143,12 +144,12 @@ func (h *MessageHandler) GetMessagesAround(w http.ResponseWriter, r *http.Reques
 
 	channelID, err := uuid.Parse(r.PathValue("channel_id"))
 	if err != nil {
-		h.sendError(w, http.StatusBadRequest, "invalid channel id")
+		h.sendError(w, http.StatusBadRequest, httperr.CodeInvalidChannelID, "invalid channel id")
 		return
 	}
 	messageID, err := uuid.Parse(r.PathValue("message_id"))
 	if err != nil {
-		h.sendError(w, http.StatusBadRequest, "invalid message id")
+		h.sendError(w, http.StatusBadRequest, httperr.CodeInvalidMessageID, "invalid message id")
 		return
 	}
 
@@ -175,22 +176,22 @@ func (h *MessageHandler) UpdateMessage(w http.ResponseWriter, r *http.Request) {
 
 	channelID, err := uuid.Parse(r.PathValue("channel_id"))
 	if err != nil {
-		h.sendError(w, http.StatusBadRequest, "invalid channel id")
+		h.sendError(w, http.StatusBadRequest, httperr.CodeInvalidChannelID, "invalid channel id")
 		return
 	}
 	messageID, err := uuid.Parse(r.PathValue("message_id"))
 	if err != nil {
-		h.sendError(w, http.StatusBadRequest, "invalid message id")
+		h.sendError(w, http.StatusBadRequest, httperr.CodeInvalidMessageID, "invalid message id")
 		return
 	}
 
 	var req UpdateMessageRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		h.sendError(w, http.StatusBadRequest, "invalid request body")
+		h.sendError(w, http.StatusBadRequest, httperr.CodeInvalidBody, "invalid request body")
 		return
 	}
 	if req.Content == "" {
-		h.sendError(w, http.StatusBadRequest, "message content is required")
+		h.sendError(w, http.StatusBadRequest, httperr.CodeMessageEmpty, "message content is required")
 		return
 	}
 
@@ -219,12 +220,12 @@ func (h *MessageHandler) DeleteMessage(w http.ResponseWriter, r *http.Request) {
 
 	channelID, err := uuid.Parse(r.PathValue("channel_id"))
 	if err != nil {
-		h.sendError(w, http.StatusBadRequest, "invalid channel id")
+		h.sendError(w, http.StatusBadRequest, httperr.CodeInvalidChannelID, "invalid channel id")
 		return
 	}
 	messageID, err := uuid.Parse(r.PathValue("message_id"))
 	if err != nil {
-		h.sendError(w, http.StatusBadRequest, "invalid message id")
+		h.sendError(w, http.StatusBadRequest, httperr.CodeInvalidMessageID, "invalid message id")
 		return
 	}
 
@@ -247,18 +248,18 @@ func (h *MessageHandler) DeleteMessage(w http.ResponseWriter, r *http.Request) {
 func (h *MessageHandler) writeUseCaseError(w http.ResponseWriter, r *http.Request, err error) {
 	switch {
 	case errors.Is(err, domain.ErrChannelNotFound):
-		h.sendError(w, http.StatusNotFound, "channel not found")
+		h.sendError(w, http.StatusNotFound, httperr.CodeChannelNotFound, "channel not found")
 	case errors.Is(err, domain.ErrMessageNotFound):
-		h.sendError(w, http.StatusNotFound, "message not found")
+		h.sendError(w, http.StatusNotFound, httperr.CodeMessageNotFound, "message not found")
 	case errors.Is(err, domain.ErrInvalidMention):
-		h.sendError(w, http.StatusBadRequest, "invalid mention: user is not a member of this server")
+		h.sendError(w, http.StatusBadRequest, httperr.CodeInvalidMention, "invalid mention: user is not a member of this server")
 	case errors.Is(err, domain.ErrMentionForbidden):
-		h.sendError(w, http.StatusForbidden, "only server owner/admin can mention @everyone")
+		h.sendError(w, http.StatusForbidden, httperr.CodeMentionEveryoneDenied, "only server owner/admin can mention @everyone")
 	case errors.Is(err, domain.ErrForbidden):
-		h.sendError(w, http.StatusForbidden, "access denied")
+		h.sendError(w, http.StatusForbidden, httperr.CodeForbidden, "access denied")
 	default:
 		h.log.Error("message request failed", "request_id", middleware.RequestIDFromContext(r.Context()), "error", err)
-		h.sendError(w, http.StatusInternalServerError, "internal server error")
+		h.sendError(w, http.StatusInternalServerError, httperr.CodeInternalError, "internal server error")
 	}
 }
 
@@ -268,8 +269,6 @@ func (h *MessageHandler) sendJSON(w http.ResponseWriter, status int, data interf
 	json.NewEncoder(w).Encode(data)
 }
 
-func (h *MessageHandler) sendError(w http.ResponseWriter, status int, message string) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	json.NewEncoder(w).Encode(map[string]string{"error": message})
+func (h *MessageHandler) sendError(w http.ResponseWriter, status int, code, message string) {
+	httperr.Write(w, status, code, message)
 }
