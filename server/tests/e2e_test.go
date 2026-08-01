@@ -92,7 +92,7 @@ func TestServerFlow(t *testing.T) {
 	})
 
 	t.Run("duplicate server name rejected", func(t *testing.T) {
-		status, body := doJSON(t, http.MethodPost, "/api/v1/servers", token, map[string]any{"name": "Test Server"})
+		status, body := doJSON(t, http.MethodPost, "/api/v1/servers", token, map[string]any{"name": "test server"})
 		assert.Equal(t, http.StatusConflict, status)
 
 		var resp struct {
