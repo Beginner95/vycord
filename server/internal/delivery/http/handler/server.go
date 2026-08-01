@@ -43,6 +43,8 @@ func (h *ServerHandler) CreateServer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	req.Name = strings.TrimSpace(req.Name)
+
 	if req.Name == "" {
 		h.sendError(w, http.StatusBadRequest, httperr.CodeServerNameRequired, "server name is required")
 		return
@@ -50,7 +52,7 @@ func (h *ServerHandler) CreateServer(w http.ResponseWriter, r *http.Request) {
 
 	server, err := h.serverUseCase.CreateServer(req.Name, userID)
 	if err != nil {
-		h.sendError(w, http.StatusInternalServerError, httperr.CodeInternalError, err.Error())
+		h.writeUseCaseError(w, r, err)
 		return
 	}
 
@@ -468,6 +470,8 @@ func (h *ServerHandler) writeUseCaseError(w http.ResponseWriter, r *http.Request
 	switch {
 	case errors.Is(err, domain.ErrServerNotFound):
 		h.sendError(w, http.StatusNotFound, httperr.CodeServerNotFound, "server not found")
+	case errors.Is(err, domain.ErrServerNameTaken):
+		h.sendError(w, http.StatusConflict, httperr.CodeServerNameTaken, "server with this name already exists")
 	case errors.Is(err, domain.ErrChannelNotFound):
 		h.sendError(w, http.StatusNotFound, httperr.CodeChannelNotFound, "channel not found")
 	case errors.Is(err, domain.ErrLastChannel):

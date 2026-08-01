@@ -53,6 +53,9 @@ type MemberWithUser struct {
 type ServerRepository interface {
 	Create(server *Server) error
 	GetByID(id uuid.UUID) (*Server, error)
+	// GetByName возвращает сервер с таким именем без учёта регистра.
+	// ErrServerNotFound — если сервер с таким именем не существует.
+	GetByName(name string) (*Server, error)
 	GetByOwner(ownerID uuid.UUID) ([]*Server, error)
 	GetByMember(userID uuid.UUID) ([]*Server, error)
 	Update(id uuid.UUID, updates map[string]interface{}) error

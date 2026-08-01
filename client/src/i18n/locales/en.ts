@@ -313,6 +313,7 @@ export const en: Dictionary = {
     server_not_found: 'Server not found',
     server_name_required: 'Enter a server name',
     server_name_too_long: 'Server name must be 100 characters or fewer',
+    server_name_taken: 'A server with this name already exists',
     get_servers_failed: 'Failed to load server list',
     get_members_failed: 'Failed to load member list',
     search_servers_failed: 'Failed to search servers',

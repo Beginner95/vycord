@@ -3,6 +3,7 @@ package usecase
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -43,6 +44,14 @@ func (uc *serverUseCase) CreateServer(name string, ownerID uuid.UUID) (*domain.S
 	_, err := uc.userRepo.GetByID(ownerID)
 	if err != nil {
 		return nil, fmt.Errorf("owner not found: %w", err)
+	}
+
+	existing, err := uc.serverRepo.GetByName(name)
+	if err != nil && !errors.Is(err, domain.ErrServerNotFound) {
+		return nil, fmt.Errorf("failed to check server name: %w", err)
+	}
+	if existing != nil {
+		return nil, domain.ErrServerNameTaken
 	}
 
 	now := time.Now()
@@ -308,6 +317,14 @@ func (uc *serverUseCase) UpdateServer(serverID, userID uuid.UUID, name string) (
 	server, err := uc.serverRepo.GetByID(serverID)
 	if err != nil {
 		return nil, fmt.Errorf("server %s: %w", serverID, domain.ErrServerNotFound)
+	}
+
+	existing, err := uc.serverRepo.GetByName(name)
+	if err != nil && !errors.Is(err, domain.ErrServerNotFound) {
+		return nil, fmt.Errorf("failed to check server name: %w", err)
+	}
+	if existing != nil && existing.ID != serverID {
+		return nil, domain.ErrServerNameTaken
 	}
 
 	if err := uc.serverRepo.Update(serverID, map[string]interface{}{"name": name}); err != nil {

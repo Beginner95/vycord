@@ -28,6 +28,24 @@ func permsWith(serverID, userID uuid.UUID, bits domain.Permission) *MockPermissi
 	return p
 }
 
+func TestCreateServer_NameTaken_ReturnsErr(t *testing.T) {
+	ownerID := uuid.New()
+
+	srvRepo := new(MockServerRepository)
+	usrRepo := new(MockUserRepository)
+
+	usrRepo.On("GetByID", ownerID).Return(&domain.User{ID: ownerID}, nil)
+	srvRepo.On("GetByName", "Webvaha").Return(&domain.Server{ID: uuid.New(), Name: "Webvaha"}, nil)
+
+	perms := new(MockPermissionUseCase)
+	uc := usecase.NewServerUseCase(srvRepo, new(MockChannelRepository), usrRepo, new(MockRoleRepository), new(MockStorage), perms)
+	got, err := uc.CreateServer("Webvaha", ownerID)
+
+	assert.Nil(t, got)
+	assert.ErrorIs(t, err, domain.ErrServerNameTaken)
+	srvRepo.AssertNotCalled(t, "Create", mock.Anything)
+}
+
 func TestCreateServer_AddsOwnerAsMember(t *testing.T) {
 	ownerID := uuid.New()
 
@@ -37,6 +55,7 @@ func TestCreateServer_AddsOwnerAsMember(t *testing.T) {
 	roleRepo := new(MockRoleRepository)
 
 	usrRepo.On("GetByID", ownerID).Return(&domain.User{ID: ownerID}, nil)
+	srvRepo.On("GetByName", "Мой сервер").Return(nil, domain.ErrServerNotFound)
 	srvRepo.On("Create", mock.AnythingOfType("*domain.Server")).Return(nil)
 	srvRepo.On("AddMember", mock.AnythingOfType("uuid.UUID"), ownerID).Return(nil)
 	roleRepo.On("Create", mock.AnythingOfType("*domain.Role")).Return(nil)
@@ -66,6 +85,7 @@ func TestCreateServer_DefaultRoleCreationFails_ReturnsError(t *testing.T) {
 	roleRepo := new(MockRoleRepository)
 
 	usrRepo.On("GetByID", ownerID).Return(&domain.User{ID: ownerID}, nil)
+	srvRepo.On("GetByName", "Мой сервер").Return(nil, domain.ErrServerNotFound)
 	srvRepo.On("Create", mock.AnythingOfType("*domain.Server")).Return(nil)
 	srvRepo.On("AddMember", mock.AnythingOfType("uuid.UUID"), ownerID).Return(nil)
 	roleRepo.On("Create", mock.AnythingOfType("*domain.Role")).Return(fmt.Errorf("db down"))
@@ -96,6 +116,7 @@ func TestCreateServer_DefaultRoleCreationFails_CompensatesByDeletingServer(t *te
 	roleRepo := new(MockRoleRepository)
 
 	usrRepo.On("GetByID", ownerID).Return(&domain.User{ID: ownerID}, nil)
+	srvRepo.On("GetByName", "Мой сервер").Return(nil, domain.ErrServerNotFound)
 	srvRepo.On("Create", mock.AnythingOfType("*domain.Server")).Return(nil)
 	srvRepo.On("AddMember", mock.AnythingOfType("uuid.UUID"), ownerID).Return(nil)
 	roleRepo.On("Create", mock.AnythingOfType("*domain.Role")).Return(fmt.Errorf("db down"))
@@ -110,8 +131,8 @@ func TestCreateServer_DefaultRoleCreationFails_CompensatesByDeletingServer(t *te
 
 	// Идентификатор созданного сервера был передан в Delete — берём его из
 	// аргумента Create, так как got == nil после ошибки.
-	require.Len(t, srvRepo.Calls, 3, "Create, AddMember, Delete")
-	createdServer := srvRepo.Calls[0].Arguments.Get(0).(*domain.Server)
+	require.Len(t, srvRepo.Calls, 4, "GetByName, Create, AddMember, Delete")
+	createdServer := srvRepo.Calls[1].Arguments.Get(0).(*domain.Server)
 	srvRepo.AssertCalled(t, "Delete", createdServer.ID)
 }
 
@@ -127,6 +148,7 @@ func TestCreateServer_AddMemberFails_CompensatesByDeletingServer(t *testing.T) {
 	roleRepo := new(MockRoleRepository)
 
 	usrRepo.On("GetByID", ownerID).Return(&domain.User{ID: ownerID}, nil)
+	srvRepo.On("GetByName", "Мой сервер").Return(nil, domain.ErrServerNotFound)
 	srvRepo.On("Create", mock.AnythingOfType("*domain.Server")).Return(nil)
 	srvRepo.On("AddMember", mock.AnythingOfType("uuid.UUID"), ownerID).Return(fmt.Errorf("db down"))
 	srvRepo.On("Delete", mock.AnythingOfType("uuid.UUID")).Return(nil)
@@ -139,8 +161,8 @@ func TestCreateServer_AddMemberFails_CompensatesByDeletingServer(t *testing.T) {
 	assert.Nil(t, got)
 	roleRepo.AssertNotCalled(t, "Create", mock.Anything)
 
-	require.Len(t, srvRepo.Calls, 3, "Create, AddMember, Delete")
-	createdServer := srvRepo.Calls[0].Arguments.Get(0).(*domain.Server)
+	require.Len(t, srvRepo.Calls, 4, "GetByName, Create, AddMember, Delete")
+	createdServer := srvRepo.Calls[1].Arguments.Get(0).(*domain.Server)
 	srvRepo.AssertCalled(t, "Delete", createdServer.ID)
 }
 
@@ -207,6 +229,7 @@ func TestUpdateServer_Owner_Success(t *testing.T) {
 	perms := permsOwner(serverID, ownerID)
 
 	srvRepo.On("GetByID", serverID).Return(&domain.Server{ID: serverID, OwnerID: ownerID, Name: "old"}, nil)
+	srvRepo.On("GetByName", "new").Return(nil, domain.ErrServerNotFound)
 	srvRepo.On("Update", serverID, map[string]interface{}{"name": "new"}).Return(nil)
 
 	uc := usecase.NewServerUseCase(srvRepo, chRepo, usrRepo, new(MockRoleRepository), storage, perms)
@@ -215,6 +238,41 @@ func TestUpdateServer_Owner_Success(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, "new", got.Name)
 	srvRepo.AssertCalled(t, "Update", serverID, map[string]interface{}{"name": "new"})
+}
+
+func TestUpdateServer_NameTaken_ReturnsErr(t *testing.T) {
+	serverID, ownerID := uuid.New(), uuid.New()
+	takenID := uuid.New()
+
+	srvRepo := new(MockServerRepository)
+	perms := permsOwner(serverID, ownerID)
+
+	srvRepo.On("GetByID", serverID).Return(&domain.Server{ID: serverID, OwnerID: ownerID, Name: "old"}, nil)
+	srvRepo.On("GetByName", "Webvaha").Return(&domain.Server{ID: takenID, Name: "Webvaha"}, nil)
+
+	uc := usecase.NewServerUseCase(srvRepo, new(MockChannelRepository), new(MockUserRepository), new(MockRoleRepository), new(MockStorage), perms)
+	got, err := uc.UpdateServer(serverID, ownerID, "Webvaha")
+
+	assert.Nil(t, got)
+	assert.ErrorIs(t, err, domain.ErrServerNameTaken)
+	srvRepo.AssertNotCalled(t, "Update", mock.Anything, mock.Anything)
+}
+
+func TestUpdateServer_RenameToOwnNameDifferentCase_Success(t *testing.T) {
+	serverID, ownerID := uuid.New(), uuid.New()
+
+	srvRepo := new(MockServerRepository)
+	perms := permsOwner(serverID, ownerID)
+
+	srvRepo.On("GetByID", serverID).Return(&domain.Server{ID: serverID, OwnerID: ownerID, Name: "Webvaha"}, nil)
+	srvRepo.On("GetByName", "webvaha").Return(&domain.Server{ID: serverID, Name: "webvaha"}, nil)
+	srvRepo.On("Update", serverID, map[string]interface{}{"name": "webvaha"}).Return(nil)
+
+	uc := usecase.NewServerUseCase(srvRepo, new(MockChannelRepository), new(MockUserRepository), new(MockRoleRepository), new(MockStorage), perms)
+	got, err := uc.UpdateServer(serverID, ownerID, "webvaha")
+
+	assert.NoError(t, err)
+	assert.Equal(t, "webvaha", got.Name)
 }
 
 func TestUpdateServer_NoManageServerPermission_Forbidden(t *testing.T) {

@@ -30,6 +30,8 @@ var (
 	ErrInvalidPermissions = errors.New("invalid permissions")
 	// ErrInvalidRoleName — имя роли пустое или длиннее 100 символов.
 	ErrInvalidRoleName = errors.New("invalid role name")
+	// ErrServerNameTaken — сервер с таким именем уже существует (без учёта регистра).
+	ErrServerNameTaken = errors.New("server with this name already exists")
 
 	// ErrEmailTaken — при регистрации email уже занят другим пользователем.
 	ErrEmailTaken = errors.New("user with this email already exists")

@@ -90,6 +90,17 @@ func TestServerFlow(t *testing.T) {
 
 		assert.Equal(t, http.StatusCreated, resp.StatusCode)
 	})
+
+	t.Run("duplicate server name rejected", func(t *testing.T) {
+		status, body := doJSON(t, http.MethodPost, "/api/v1/servers", token, map[string]any{"name": "  test server  "})
+		assert.Equal(t, http.StatusConflict, status)
+
+		var resp struct {
+			Code string `json:"code"`
+		}
+		require.NoError(t, json.Unmarshal(body, &resp))
+		assert.Equal(t, "server_name_taken", resp.Code)
+	})
 }
 
 // TestWebSocketConnection tests WebSocket connection with valid token
