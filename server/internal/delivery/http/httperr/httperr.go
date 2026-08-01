@@ -63,6 +63,7 @@ const (
 	CodeServerNotFound     = "server_not_found"
 	CodeServerNameRequired = "server_name_required"
 	CodeServerNameTooLong  = "server_name_too_long"
+	CodeServerNameTaken    = "server_name_taken"
 	CodeGetServersFailed   = "get_servers_failed"
 	CodeGetMembersFailed   = "get_members_failed"
 	CodeSearchServersFail  = "search_servers_failed"
