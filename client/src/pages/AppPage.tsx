@@ -12,6 +12,7 @@ import { TitleBar } from '@/components/TitleBar';
 import { CallUI } from '@/components/CallUI';
 import { GroupCallUI } from '@/components/GroupCallUI';
 import { groupCallService } from '@/services/groupCall';
+import { useT } from '@/i18n';
 import type { Server, Channel, Message, MemberWithUser } from '@/types';
 import './AppPage.css';
 
@@ -70,6 +71,7 @@ function startCallRingtone(): () => void {
 }
 
 export function AppPage() {
+  const t = useT();
   const { user, token, logout } = useAuthStore();
   const { servers, setServers, setCurrentServer, currentServer, setChannels, channels, currentChannel, setCurrentChannel, setMembers, members, setPermissions } = useServerStore();
   const { setMessages } = useMessageStore();
@@ -471,16 +473,16 @@ export function AppPage() {
       {showCreateServer && (
         <div className="modal-overlay" onClick={() => setShowCreateServer(false)}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <h2>Create a Server</h2>
+            <h2>{t('server.create')}</h2>
             <form onSubmit={handleCreateServer}>
               <div className="form-group">
-                <label htmlFor="server-name">Server Name</label>
+                <label htmlFor="server-name">{t('server.nameLabel')}</label>
                 <input
                   id="server-name"
                   type="text"
                   value={newServerName}
                   onChange={(e) => setNewServerName(e.target.value)}
-                  placeholder="My Awesome Server"
+                  placeholder={t('server.namePlaceholder')}
                   maxLength={100}
                   autoFocus
                   required
@@ -488,10 +490,10 @@ export function AppPage() {
               </div>
               <div className="modal-actions">
                 <button type="button" onClick={() => setShowCreateServer(false)}>
-                  Cancel
+                  {t('common.cancel')}
                 </button>
                 <button type="submit" className="primary">
-                  Create
+                  {t('server.createSubmit')}
                 </button>
               </div>
             </form>
@@ -503,7 +505,8 @@ export function AppPage() {
         <div className="call-notif-banner">
           <span className="call-notif-icon">🔔</span>
           <span className="call-notif-text">
-            <strong>{callNotif.callerName}</strong> зовёт в <strong>#{callNotif.channelName}</strong>
+            <strong>{callNotif.callerName}</strong> {t('call.invitesTo')}{' '}
+            <strong>#{callNotif.channelName}</strong>
           </span>
           <button
             className="call-notif-join"
@@ -515,7 +518,7 @@ export function AppPage() {
               setCallNotif(null);
             }}
           >
-            Войти
+            {t('call.joinCall')}
           </button>
           <button
             className="call-notif-dismiss"

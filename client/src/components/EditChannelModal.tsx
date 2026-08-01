@@ -37,10 +37,10 @@ export function EditChannelModal({ serverId, channel, onClose }: EditChannelModa
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal" onClick={(e) => e.stopPropagation()}>
-        <h2>Редактировать канал</h2>
+        <h2>{t('channel.editTitle')}</h2>
         <form onSubmit={handleSubmit}>
           <div className="form-group">
-            <label htmlFor="edit-channel-name">Название канала</label>
+            <label htmlFor="edit-channel-name">{t('channel.nameLabel')}</label>
             <input
               id="edit-channel-name"
               type="text"
@@ -54,10 +54,10 @@ export function EditChannelModal({ serverId, channel, onClose }: EditChannelModa
           {error && <p className="modal-error">{error}</p>}
           <div className="modal-actions">
             <button type="button" onClick={onClose}>
-              Отмена
+              {t('common.cancel')}
             </button>
             <button type="submit" className="primary" disabled={saving}>
-              {saving ? 'Сохранение...' : 'Сохранить'}
+              {saving ? t('common.saving') : t('common.save')}
             </button>
           </div>
         </form>

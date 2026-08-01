@@ -82,7 +82,7 @@ export function AvatarCropModal({ file, title, onCancel, onUpload }: AvatarCropM
       setOffset({ x: 0, y: 0 });
       setImg(image);
     };
-    image.onerror = () => setError('Не удалось открыть изображение');
+    image.onerror = () => setError(t('common.imageOpenFailed'));
     image.src = objectUrl;
     return () => URL.revokeObjectURL(objectUrl);
   }, [file]);
@@ -167,7 +167,7 @@ export function AvatarCropModal({ file, title, onCancel, onUpload }: AvatarCropM
   return (
     <div className="avatar-crop-overlay" onClick={saving ? undefined : onCancel}>
       <div className="avatar-crop-modal" onClick={(e) => e.stopPropagation()}>
-        <h3>{title ?? 'Обрезка аватара'}</h3>
+        <h3>{title ?? t('settings.cropAvatarTitle')}</h3>
 
         <canvas
           ref={canvasRef}
@@ -198,7 +198,7 @@ export function AvatarCropModal({ file, title, onCancel, onUpload }: AvatarCropM
 
         <div className="avatar-crop-actions">
           <button type="button" className="avatar-crop-btn" onClick={onCancel} disabled={saving}>
-            Отмена
+            {t('common.cancel')}
           </button>
           <button
             type="button"
@@ -206,7 +206,7 @@ export function AvatarCropModal({ file, title, onCancel, onUpload }: AvatarCropM
             onClick={handleSaveClick}
             disabled={!img || saving}
           >
-            {saving ? 'Сохранение...' : 'Сохранить'}
+            {saving ? t('common.saving') : t('common.save')}
           </button>
         </div>
       </div>

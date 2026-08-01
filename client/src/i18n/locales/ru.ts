@@ -9,6 +9,11 @@ export const ru = {
     loading: 'Загрузка...',
     edit: 'Изменить',
     clear: 'Очистить',
+    saving: 'Сохранение...',
+    removing: 'Удаление...',
+    back: 'Назад',
+    logout: 'Выйти',
+    imageOpenFailed: 'Не удалось открыть изображение',
   },
   auth: {
     welcomeBack: 'С возвращением!',
@@ -136,6 +141,11 @@ export const ru = {
 
     reconnecting: 'Переподключение…',
 
+    // Баннер приглашения в голосовой канал.
+    // Разбит на части, потому что имя и канал в разметке обёрнуты в <strong>.
+    invitesTo: 'зовёт в',
+    joinCall: 'Войти',
+
     // Одиночный звонок (CallUI)
     incomingCall: 'Входящий звонок',
     userCalling: 'Вам звонят...',
@@ -198,9 +208,60 @@ export const ru = {
     camera: 'Камера',
     cameraDescription: 'Выберите камеру',
     defaultCamera: 'Камера по умолчанию',
+
+    cropAvatarTitle: 'Обрезка аватара',
   },
-  server: {},
-  channel: {},
+  server: {
+    listTitle: 'Серверы',
+    home: 'Главная',
+
+    // Создание сервера
+    create: 'Создать сервер',
+    createSubmit: 'Создать',
+    nameLabel: 'Название сервера',
+    namePlaceholder: 'Мой классный сервер',
+
+    // Поиск серверов
+    explore: 'Обзор серверов',
+    searchPlaceholder: 'Поиск серверов...',
+    search: 'Найти',
+    searching: 'Поиск...',
+    join: 'Присоединиться',
+    noneFound: 'Серверы не найдены',
+
+    // Контекстное меню
+    editMenu: 'Редактировать',
+    deleteMenu: 'Удалить сервер',
+    deleteConfirm: 'Удалить сервер «{{name}}»? Это действие необратимо.',
+
+    // Модалка редактирования
+    editTitle: 'Редактировать сервер',
+    changeIcon: 'Изменить иконку',
+    removeIcon: 'Удалить иконку',
+    cropIconTitle: 'Обрезка иконки сервера',
+    iconBadFormat: 'Неподдерживаемый формат. Разрешены PNG, JPG, JPEG',
+    iconTooLarge: 'Файл слишком большой. Максимум 2 МБ',
+
+    // Список участников
+    online: 'В сети',
+    offline: 'Не в сети',
+    callUser: 'Позвонить {{name}}',
+  },
+  channel: {
+    noServerHint: 'Выберите сервер или создайте новый, чтобы начать',
+    textChannels: 'Текстовые каналы',
+    voiceChannels: 'Голосовые каналы',
+
+    // Контекстное меню
+    editMenu: 'Редактировать',
+    deleteMenu: 'Удалить канал',
+    deleteLastDisabled: 'Нельзя удалить последний канал сервера',
+    deleteConfirm: 'Удалить канал «{{name}}»?',
+
+    // Модалка редактирования
+    editTitle: 'Редактировать канал',
+    nameLabel: 'Название канала',
+  },
   update: {},
   errors: {
     unknown: 'Неизвестная ошибка',

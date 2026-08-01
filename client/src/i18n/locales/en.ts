@@ -10,6 +10,11 @@ export const en: Dictionary = {
     loading: 'Loading...',
     edit: 'Edit',
     clear: 'Clear',
+    saving: 'Saving...',
+    removing: 'Removing...',
+    back: 'Back',
+    logout: 'Log out',
+    imageOpenFailed: 'Failed to open the image',
   },
   auth: {
     welcomeBack: 'Welcome Back!',
@@ -131,6 +136,11 @@ export const en: Dictionary = {
 
     reconnecting: 'Reconnecting…',
 
+    // Voice channel invite banner.
+    // Split up because the name and the channel are wrapped in <strong>.
+    invitesTo: 'is calling you to',
+    joinCall: 'Join',
+
     // 1:1 call (CallUI)
     incomingCall: 'Incoming Call',
     userCalling: 'User is calling you...',
@@ -193,9 +203,60 @@ export const en: Dictionary = {
     camera: 'Camera',
     cameraDescription: 'Select your camera',
     defaultCamera: 'Default Camera',
+
+    cropAvatarTitle: 'Crop avatar',
   },
-  server: {},
-  channel: {},
+  server: {
+    listTitle: 'Servers',
+    home: 'Home',
+
+    // Server creation
+    create: 'Create a Server',
+    createSubmit: 'Create',
+    nameLabel: 'Server Name',
+    namePlaceholder: 'My Awesome Server',
+
+    // Server search
+    explore: 'Explore Servers',
+    searchPlaceholder: 'Search servers...',
+    search: 'Search',
+    searching: 'Searching...',
+    join: 'Join',
+    noneFound: 'No servers found',
+
+    // Context menu
+    editMenu: 'Edit',
+    deleteMenu: 'Delete server',
+    deleteConfirm: 'Delete server “{{name}}”? This cannot be undone.',
+
+    // Edit modal
+    editTitle: 'Edit server',
+    changeIcon: 'Change icon',
+    removeIcon: 'Remove icon',
+    cropIconTitle: 'Crop server icon',
+    iconBadFormat: 'Unsupported format. PNG, JPG and JPEG are allowed',
+    iconTooLarge: 'File is too large. Maximum is 2 MB',
+
+    // Member list
+    online: 'Online',
+    offline: 'Offline',
+    callUser: 'Call {{name}}',
+  },
+  channel: {
+    noServerHint: 'Select or create a server to get started',
+    textChannels: 'Text Channels',
+    voiceChannels: 'Voice Channels',
+
+    // Context menu
+    editMenu: 'Edit',
+    deleteMenu: 'Delete channel',
+    deleteLastDisabled: 'Cannot delete the last channel of a server',
+    deleteConfirm: 'Delete channel “{{name}}”?',
+
+    // Edit modal
+    editTitle: 'Edit channel',
+    nameLabel: 'Channel Name',
+  },
   update: {},
   errors: {
     unknown: 'Unknown error',
