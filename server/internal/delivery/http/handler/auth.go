@@ -2,10 +2,12 @@ package handler
 
 import (
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"net/http"
 	"regexp"
 
+	"github.com/vycord/server/internal/delivery/http/httperr"
 	"github.com/vycord/server/internal/domain"
 )
 
@@ -35,33 +37,40 @@ type RegisterRequest struct {
 func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 	var req RegisterRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		h.sendError(w, http.StatusBadRequest, "invalid request body")
+		h.sendError(w, http.StatusBadRequest, httperr.CodeInvalidBody, "invalid request body")
 		return
 	}
 
 	if req.Username == "" || req.Email == "" || req.Password == "" {
-		h.sendError(w, http.StatusBadRequest, "username, email and password are required")
+		h.sendError(w, http.StatusBadRequest, httperr.CodeSignupFieldsMissing, "username, email and password are required")
 		return
 	}
 
 	if !usernameRegex.MatchString(req.Username) {
-		h.sendError(w, http.StatusBadRequest, "username must be 3-30 characters, alphanumeric, underscore or hyphen only")
+		h.sendError(w, http.StatusBadRequest, httperr.CodeInvalidUsername, "username must be 3-30 characters, alphanumeric, underscore or hyphen only")
 		return
 	}
 
 	if !emailRegex.MatchString(req.Email) {
-		h.sendError(w, http.StatusBadRequest, "invalid email format")
+		h.sendError(w, http.StatusBadRequest, httperr.CodeInvalidEmail, "invalid email format")
 		return
 	}
 
 	if len(req.Password) < 8 {
-		h.sendError(w, http.StatusBadRequest, "password must be at least 8 characters")
+		h.sendError(w, http.StatusBadRequest, httperr.CodePasswordTooShort, "password must be at least 8 characters")
 		return
 	}
 
 	user, token, err := h.authUseCase.Register(req.Username, req.Email, req.Password)
 	if err != nil {
-		h.sendError(w, http.StatusConflict, err.Error())
+		switch {
+		case errors.Is(err, domain.ErrEmailTaken):
+			h.sendError(w, http.StatusConflict, httperr.CodeEmailTaken, err.Error())
+		case errors.Is(err, domain.ErrUsernameTaken):
+			h.sendError(w, http.StatusConflict, httperr.CodeUsernameTaken, err.Error())
+		default:
+			h.sendError(w, http.StatusConflict, httperr.CodeInternalError, err.Error())
+		}
 		return
 	}
 
@@ -84,18 +93,22 @@ type LoginResponse struct {
 func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	var req LoginRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		h.sendError(w, http.StatusBadRequest, "invalid request body")
+		h.sendError(w, http.StatusBadRequest, httperr.CodeInvalidBody, "invalid request body")
 		return
 	}
 
 	if req.Email == "" || req.Password == "" {
-		h.sendError(w, http.StatusBadRequest, "email and password are required")
+		h.sendError(w, http.StatusBadRequest, httperr.CodeCredentialsRequired, "email and password are required")
 		return
 	}
 
 	user, token, err := h.authUseCase.Login(req.Email, req.Password)
 	if err != nil {
-		h.sendError(w, http.StatusUnauthorized, err.Error())
+		if errors.Is(err, domain.ErrInvalidCredentials) {
+			h.sendError(w, http.StatusUnauthorized, httperr.CodeInvalidCredentials, err.Error())
+		} else {
+			h.sendError(w, http.StatusUnauthorized, httperr.CodeInternalError, err.Error())
+		}
 		return
 	}
 
@@ -108,8 +121,6 @@ func (h *AuthHandler) sendJSON(w http.ResponseWriter, status int, data interface
 	json.NewEncoder(w).Encode(data)
 }
 
-func (h *AuthHandler) sendError(w http.ResponseWriter, status int, message string) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	json.NewEncoder(w).Encode(map[string]string{"error": message})
+func (h *AuthHandler) sendError(w http.ResponseWriter, status int, code, message string) {
+	httperr.Write(w, status, code, message)
 }

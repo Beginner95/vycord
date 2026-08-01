@@ -1,8 +1,9 @@
 import { useRef, useState } from 'react';
 import type { Server } from '@/types';
-import { apiService } from '@/services/api';
+import { apiService, apiErrorText } from '@/services/api';
 import { useServerStore } from '@/stores/serverStore';
 import { AvatarCropModal } from '@/components/AvatarCropModal';
+import { useT } from '@/i18n';
 import './EditServerModal.css';
 
 const ALLOWED_TYPES = ['image/png', 'image/jpeg'];
@@ -14,6 +15,7 @@ interface EditServerModalProps {
 }
 
 export function EditServerModal({ server, onClose }: EditServerModalProps) {
+  const t = useT();
   const [name, setName] = useState(server.name);
   const [cropFile, setCropFile] = useState<File | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -26,11 +28,11 @@ export function EditServerModal({ server, onClose }: EditServerModalProps) {
     e.target.value = '';
     if (!file) return;
     if (!ALLOWED_TYPES.includes(file.type)) {
-      setError('Неподдерживаемый формат. Разрешены PNG, JPG, JPEG');
+      setError(t('server.iconBadFormat'));
       return;
     }
     if (file.size > MAX_FILE_BYTES) {
-      setError('Файл слишком большой. Максимум 2 МБ');
+      setError(t('server.iconTooLarge'));
       return;
     }
     setError(null);
@@ -49,7 +51,7 @@ export function EditServerModal({ server, onClose }: EditServerModalProps) {
       const updated = (await apiService.removeServerIcon(server.id)) as Server;
       useServerStore.getState().patchServer(server.id, { icon_url: updated.icon_url });
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Не удалось удалить иконку');
+      setError(apiErrorText(err, t));
     } finally {
       setRemovingIcon(false);
     }
@@ -67,7 +69,7 @@ export function EditServerModal({ server, onClose }: EditServerModalProps) {
       useServerStore.getState().patchServer(server.id, { name: updated.name });
       onClose();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Не удалось обновить сервер');
+      setError(apiErrorText(err, t));
     } finally {
       setSaving(false);
     }
@@ -77,7 +79,7 @@ export function EditServerModal({ server, onClose }: EditServerModalProps) {
     <>
       <div className="modal-overlay" onClick={onClose}>
         <div className="modal" onClick={(e) => e.stopPropagation()}>
-          <h2>Редактировать сервер</h2>
+          <h2>{t('server.editTitle')}</h2>
 
           <div className="edit-server-icon-block">
             {server.icon_url ? (
@@ -91,7 +93,7 @@ export function EditServerModal({ server, onClose }: EditServerModalProps) {
                 className="edit-server-icon-btn"
                 onClick={() => fileInputRef.current?.click()}
               >
-                Изменить иконку
+                {t('server.changeIcon')}
               </button>
               {server.icon_url && (
                 <button
@@ -100,7 +102,7 @@ export function EditServerModal({ server, onClose }: EditServerModalProps) {
                   onClick={handleRemoveIcon}
                   disabled={removingIcon}
                 >
-                  {removingIcon ? 'Удаление...' : 'Удалить иконку'}
+                  {removingIcon ? t('common.removing') : t('server.removeIcon')}
                 </button>
               )}
             </div>
@@ -115,7 +117,7 @@ export function EditServerModal({ server, onClose }: EditServerModalProps) {
 
           <form onSubmit={handleSubmit}>
             <div className="form-group">
-              <label htmlFor="edit-server-name">Название сервера</label>
+              <label htmlFor="edit-server-name">{t('server.nameLabel')}</label>
               <input
                 id="edit-server-name"
                 type="text"
@@ -129,10 +131,10 @@ export function EditServerModal({ server, onClose }: EditServerModalProps) {
             {error && <p className="modal-error">{error}</p>}
             <div className="modal-actions">
               <button type="button" onClick={onClose}>
-                Отмена
+                {t('common.cancel')}
               </button>
               <button type="submit" className="primary" disabled={saving}>
-                {saving ? 'Сохранение...' : 'Сохранить'}
+                {saving ? t('common.saving') : t('common.save')}
               </button>
             </div>
           </form>
@@ -142,7 +144,7 @@ export function EditServerModal({ server, onClose }: EditServerModalProps) {
       {cropFile && (
         <AvatarCropModal
           file={cropFile}
-          title="Обрезка иконки сервера"
+          title={t('server.cropIconTitle')}
           onCancel={() => setCropFile(null)}
           onUpload={handleUploadIcon}
         />

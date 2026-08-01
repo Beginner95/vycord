@@ -4,10 +4,11 @@ import { Settings } from '@/components/Settings';
 import { Avatar } from '@/components/Avatar';
 import { ContextMenu } from '@/components/ContextMenu';
 import { EditChannelModal } from '@/components/EditChannelModal';
-import { apiService } from '@/services/api';
+import { apiService, apiErrorText } from '@/services/api';
 import { useServerStore } from '@/stores/serverStore';
 import { noiseCancellationService } from '@/services/noiseCancellation';
 import { can, PERMISSIONS } from '@/utils/permissions';
+import { useT } from '@/i18n';
 import './ChannelSidebar.css';
 
 interface ChannelSidebarProps {
@@ -35,6 +36,7 @@ export function ChannelSidebar({
   members,
   onChannelDeleted,
 }: ChannelSidebarProps) {
+  const t = useT();
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [ncEnabled, setNcEnabled] = useState(false);
   const [channelMenu, setChannelMenu] = useState<{ x: number; y: number; channel: Channel } | null>(null);
@@ -46,14 +48,14 @@ export function ChannelSidebar({
   const handleDeleteChannel = async (channel: Channel) => {
     if (!server) return;
     if (channels.length <= 1) return;
-    if (!window.confirm(`Удалить канал «${channel.name}»?`)) return;
+    if (!window.confirm(t('channel.deleteConfirm', { name: channel.name }))) return;
     try {
       await apiService.deleteChannel(server.id, channel.id);
       useServerStore.getState().removeChannel(channel.id);
       onChannelDeleted(channel.id);
     } catch (err) {
       console.error('Failed to delete channel:', err);
-      alert(err instanceof Error ? err.message : 'Не удалось удалить канал');
+      alert(apiErrorText(err, t));
     }
   };
 
@@ -84,14 +86,14 @@ export function ChannelSidebar({
       <nav className="channel-sidebar">
         <div className="channel-header">
           {onMobileBack && (
-            <button className="mobile-back-btn" onClick={onMobileBack} aria-label="Back">
+            <button className="mobile-back-btn" onClick={onMobileBack} aria-label={t('common.back')}>
               <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
             </button>
           )}
-          <h2>Home</h2>
+          <h2>{t('server.home')}</h2>
         </div>
         <div className="no-server-message">
-          <p>Select or create a server to get started</p>
+          <p>{t('channel.noServerHint')}</p>
         </div>
       </nav>
     );
@@ -101,7 +103,7 @@ export function ChannelSidebar({
     <nav className="channel-sidebar">
       <div className="channel-header">
         {onMobileBack && (
-          <button className="mobile-back-btn" onClick={onMobileBack} aria-label="Back">
+          <button className="mobile-back-btn" onClick={onMobileBack} aria-label={t('common.back')}>
             <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
           </button>
         )}
@@ -112,7 +114,7 @@ export function ChannelSidebar({
         {textChannels.length > 0 && (
           <>
             <div className="channel-category">
-              <span>Text Channels</span>
+              <span>{t('channel.textChannels')}</span>
             </div>
             {textChannels.map((channel) => (
               <div
@@ -134,7 +136,7 @@ export function ChannelSidebar({
         {voiceChannels.length > 0 && (
           <>
             <div className="channel-category">
-              <span>Voice Channels</span>
+              <span>{t('channel.voiceChannels')}</span>
             </div>
             {voiceChannels.map((channel) => {
               const participantIds = voiceParticipants?.get(channel.id) ?? [];
@@ -185,16 +187,16 @@ export function ChannelSidebar({
           <div className="user-details">
             <span className="user-tag">{user?.username}</span>
             <span className="user-status-text">
-              Online
+              {t('server.online')}
               {ncEnabled && <span className="nc-badge">🔇 NC</span>}
             </span>
           </div>
         </div>
         <div className="user-actions">
-          <button onClick={() => setSettingsOpen(true)} title="Settings" className="settings-btn">
+          <button onClick={() => setSettingsOpen(true)} title={t('settings.title')} className="settings-btn">
             ⚙
           </button>
-          <button onClick={onLogout} title="Logout" className="logout-btn">
+          <button onClick={onLogout} title={t('common.logout')} className="logout-btn">
             <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
               <polyline points="16 17 21 12 16 7"/>
@@ -212,12 +214,12 @@ export function ChannelSidebar({
           y={channelMenu.y}
           onClose={() => setChannelMenu(null)}
           items={[
-            { label: 'Редактировать', onClick: () => setEditingChannel(channelMenu.channel) },
+            { label: t('channel.editMenu'), onClick: () => setEditingChannel(channelMenu.channel) },
             {
-              label: 'Удалить канал',
+              label: t('channel.deleteMenu'),
               danger: true,
               disabled: channels.length <= 1,
-              disabledReason: 'Нельзя удалить последний канал сервера',
+              disabledReason: t('channel.deleteLastDisabled'),
               onClick: () => handleDeleteChannel(channelMenu.channel),
             },
           ]}

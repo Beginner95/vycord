@@ -9,6 +9,7 @@ import (
 	"net/http"
 
 	"github.com/google/uuid"
+	"github.com/vycord/server/internal/delivery/http/httperr"
 	"github.com/vycord/server/internal/delivery/http/middleware"
 	"github.com/vycord/server/internal/delivery/ws"
 	"github.com/vycord/server/internal/domain"
@@ -41,7 +42,7 @@ func (h *UserHandler) GetMe(w http.ResponseWriter, r *http.Request) {
 
 	user, err := h.userUseCase.GetByID(userID)
 	if err != nil {
-		h.sendError(w, http.StatusNotFound, "user not found")
+		h.sendError(w, http.StatusNotFound, httperr.CodeUserNotFound, "user not found")
 		return
 	}
 
@@ -52,13 +53,13 @@ func (h *UserHandler) GetUserByID(w http.ResponseWriter, r *http.Request) {
 	idStr := r.PathValue("id")
 	userID, err := uuid.Parse(idStr)
 	if err != nil {
-		h.sendError(w, http.StatusBadRequest, "invalid user id")
+		h.sendError(w, http.StatusBadRequest, httperr.CodeInvalidUserID, "invalid user id")
 		return
 	}
 
 	user, err := h.userUseCase.GetByID(userID)
 	if err != nil {
-		h.sendError(w, http.StatusNotFound, "user not found")
+		h.sendError(w, http.StatusNotFound, httperr.CodeUserNotFound, "user not found")
 		return
 	}
 
@@ -73,7 +74,7 @@ func (h *UserHandler) UpdateLastVisited(w http.ResponseWriter, r *http.Request) 
 		ChannelID *string `json:"channel_id"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		h.sendError(w, http.StatusBadRequest, "invalid request body")
+		h.sendError(w, http.StatusBadRequest, httperr.CodeInvalidBody, "invalid request body")
 		return
 	}
 
@@ -81,7 +82,7 @@ func (h *UserHandler) UpdateLastVisited(w http.ResponseWriter, r *http.Request) 
 	if req.ServerID != nil {
 		id, err := uuid.Parse(*req.ServerID)
 		if err != nil {
-			h.sendError(w, http.StatusBadRequest, "invalid server_id")
+			h.sendError(w, http.StatusBadRequest, httperr.CodeInvalidServerID, "invalid server_id")
 			return
 		}
 		serverID = &id
@@ -89,7 +90,7 @@ func (h *UserHandler) UpdateLastVisited(w http.ResponseWriter, r *http.Request) 
 	if req.ChannelID != nil {
 		id, err := uuid.Parse(*req.ChannelID)
 		if err != nil {
-			h.sendError(w, http.StatusBadRequest, "invalid channel_id")
+			h.sendError(w, http.StatusBadRequest, httperr.CodeInvalidChannelID, "invalid channel_id")
 			return
 		}
 		channelID = &id
@@ -97,7 +98,7 @@ func (h *UserHandler) UpdateLastVisited(w http.ResponseWriter, r *http.Request) 
 
 	if err := h.userUseCase.UpdateLastVisited(userID, serverID, channelID); err != nil {
 		h.log.Error("failed to update last visited", "request_id", middleware.RequestIDFromContext(r.Context()), "error", err)
-		h.sendError(w, http.StatusInternalServerError, "failed to update last visited")
+		h.sendError(w, http.StatusInternalServerError, httperr.CodeLastVisitedFailed, "failed to update last visited")
 		return
 	}
 
@@ -107,7 +108,7 @@ func (h *UserHandler) UpdateLastVisited(w http.ResponseWriter, r *http.Request) 
 func (h *UserHandler) SearchUsers(w http.ResponseWriter, r *http.Request) {
 	query := r.URL.Query().Get("q")
 	if query == "" {
-		h.sendError(w, http.StatusBadRequest, "query parameter 'q' is required")
+		h.sendError(w, http.StatusBadRequest, httperr.CodeSearchQueryRequired, "query parameter 'q' is required")
 		return
 	}
 
@@ -120,7 +121,7 @@ func (h *UserHandler) SearchUsers(w http.ResponseWriter, r *http.Request) {
 
 	users, err := h.userUseCase.Search(query, limit)
 	if err != nil {
-		h.sendError(w, http.StatusInternalServerError, "failed to search users")
+		h.sendError(w, http.StatusInternalServerError, httperr.CodeSearchUsersFailed, "failed to search users")
 		return
 	}
 
@@ -135,25 +136,25 @@ func (h *UserHandler) UploadAvatar(w http.ResponseWriter, r *http.Request) {
 
 	r.Body = http.MaxBytesReader(w, r.Body, maxAvatarRequestBytes)
 	if err := r.ParseMultipartForm(maxAvatarRequestBytes); err != nil {
-		h.sendError(w, http.StatusRequestEntityTooLarge, "avatar file is too large")
+		h.sendError(w, http.StatusRequestEntityTooLarge, httperr.CodeAvatarTooLarge, "avatar file is too large")
 		return
 	}
 	defer r.MultipartForm.RemoveAll()
 
 	file, _, err := r.FormFile("avatar")
 	if err != nil {
-		h.sendError(w, http.StatusBadRequest, "avatar file is required")
+		h.sendError(w, http.StatusBadRequest, httperr.CodeAvatarRequired, "avatar file is required")
 		return
 	}
 	defer file.Close()
 
 	data, err := io.ReadAll(io.LimitReader(file, maxAvatarFileBytes+1))
 	if err != nil {
-		h.sendError(w, http.StatusBadRequest, "failed to read avatar file")
+		h.sendError(w, http.StatusBadRequest, httperr.CodeAvatarReadFailed, "failed to read avatar file")
 		return
 	}
 	if len(data) > maxAvatarFileBytes {
-		h.sendError(w, http.StatusRequestEntityTooLarge, "avatar file is too large")
+		h.sendError(w, http.StatusRequestEntityTooLarge, httperr.CodeAvatarTooLarge, "avatar file is too large")
 		return
 	}
 
@@ -184,14 +185,14 @@ func (h *UserHandler) RemoveAvatar(w http.ResponseWriter, r *http.Request) {
 func (h *UserHandler) writeUserError(w http.ResponseWriter, r *http.Request, err error) {
 	switch {
 	case errors.Is(err, domain.ErrUnsupportedAvatarFormat):
-		h.sendError(w, http.StatusBadRequest, "unsupported format: only PNG and JPEG are allowed")
+		h.sendError(w, http.StatusBadRequest, httperr.CodeUnsupportedImageType, "unsupported format: only PNG and JPEG are allowed")
 	case errors.Is(err, domain.ErrInvalidAvatarImage):
-		h.sendError(w, http.StatusBadRequest, "invalid image file")
+		h.sendError(w, http.StatusBadRequest, httperr.CodeInvalidImage, "invalid image file")
 	case errors.Is(err, domain.ErrInvalidAvatarDimensions):
-		h.sendError(w, http.StatusBadRequest, "image dimensions are out of allowed range")
+		h.sendError(w, http.StatusBadRequest, httperr.CodeInvalidImageSize, "image dimensions are out of allowed range")
 	default:
 		h.log.Error("user avatar request failed", "request_id", middleware.RequestIDFromContext(r.Context()), "error", err)
-		h.sendError(w, http.StatusInternalServerError, "failed to update avatar")
+		h.sendError(w, http.StatusInternalServerError, httperr.CodeAvatarUpdateFailed, "failed to update avatar")
 	}
 }
 
@@ -201,8 +202,6 @@ func (h *UserHandler) sendJSON(w http.ResponseWriter, status int, data interface
 	json.NewEncoder(w).Encode(data)
 }
 
-func (h *UserHandler) sendError(w http.ResponseWriter, status int, message string) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	json.NewEncoder(w).Encode(map[string]string{"error": message})
+func (h *UserHandler) sendError(w http.ResponseWriter, status int, code, message string) {
+	httperr.Write(w, status, code, message)
 }

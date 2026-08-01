@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import type { Channel } from '@/types';
-import { apiService } from '@/services/api';
+import { apiService, apiErrorText } from '@/services/api';
 import { useServerStore } from '@/stores/serverStore';
+import { useT } from '@/i18n';
 
 interface EditChannelModalProps {
   serverId: string;
@@ -10,6 +11,7 @@ interface EditChannelModalProps {
 }
 
 export function EditChannelModal({ serverId, channel, onClose }: EditChannelModalProps) {
+  const t = useT();
   const [name, setName] = useState(channel.name);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -26,7 +28,7 @@ export function EditChannelModal({ serverId, channel, onClose }: EditChannelModa
       useServerStore.getState().patchChannel(channel.id, { name: updated.name });
       onClose();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Не удалось обновить канал');
+      setError(apiErrorText(err, t));
     } finally {
       setSaving(false);
     }
@@ -35,10 +37,10 @@ export function EditChannelModal({ serverId, channel, onClose }: EditChannelModa
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal" onClick={(e) => e.stopPropagation()}>
-        <h2>Редактировать канал</h2>
+        <h2>{t('channel.editTitle')}</h2>
         <form onSubmit={handleSubmit}>
           <div className="form-group">
-            <label htmlFor="edit-channel-name">Название канала</label>
+            <label htmlFor="edit-channel-name">{t('channel.nameLabel')}</label>
             <input
               id="edit-channel-name"
               type="text"
@@ -52,10 +54,10 @@ export function EditChannelModal({ serverId, channel, onClose }: EditChannelModa
           {error && <p className="modal-error">{error}</p>}
           <div className="modal-actions">
             <button type="button" onClick={onClose}>
-              Отмена
+              {t('common.cancel')}
             </button>
             <button type="submit" className="primary" disabled={saving}>
-              {saving ? 'Сохранение...' : 'Сохранить'}
+              {saving ? t('common.saving') : t('common.save')}
             </button>
           </div>
         </form>

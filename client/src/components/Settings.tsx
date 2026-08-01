@@ -3,6 +3,7 @@ import { ProfileSettings } from '@/components/settings/ProfileSettings';
 import { AudioSettings } from '@/components/settings/AudioSettings';
 import { VideoSettings } from '@/components/settings/VideoSettings';
 import { AppearanceSettings } from '@/components/settings/AppearanceSettings';
+import { useT, type TKey } from '@/i18n';
 import './Settings.css';
 
 interface SettingsProps {
@@ -12,14 +13,15 @@ interface SettingsProps {
 
 type SettingsTab = 'profile' | 'audio' | 'video' | 'appearance';
 
-const TABS: { id: SettingsTab; label: string }[] = [
-  { id: 'profile', label: 'Профиль' },
-  { id: 'audio', label: 'Аудио' },
-  { id: 'video', label: 'Видео' },
-  { id: 'appearance', label: 'Внешний вид' },
+const TABS: { id: SettingsTab; labelKey: TKey }[] = [
+  { id: 'profile', labelKey: 'settings.tabProfile' },
+  { id: 'audio', labelKey: 'settings.tabAudio' },
+  { id: 'video', labelKey: 'settings.tabVideo' },
+  { id: 'appearance', labelKey: 'settings.tabAppearance' },
 ];
 
 export function Settings({ isOpen, onClose }: SettingsProps) {
+  const t = useT();
   const [activeTab, setActiveTab] = useState<SettingsTab>('profile');
 
   if (!isOpen) return null;
@@ -28,7 +30,7 @@ export function Settings({ isOpen, onClose }: SettingsProps) {
     <div className="settings-overlay" onClick={onClose}>
       <div className="settings-modal" onClick={(e) => e.stopPropagation()}>
         <div className="settings-header">
-          <h2>Настройки</h2>
+          <h2>{t('settings.title')}</h2>
           <button className="close-btn" onClick={onClose}>✕</button>
         </div>
 
@@ -41,7 +43,7 @@ export function Settings({ isOpen, onClose }: SettingsProps) {
                 className={`settings-tab ${activeTab === tab.id ? 'active' : ''}`}
                 onClick={() => setActiveTab(tab.id)}
               >
-                {tab.label}
+                {t(tab.labelKey)}
               </button>
             ))}
           </nav>

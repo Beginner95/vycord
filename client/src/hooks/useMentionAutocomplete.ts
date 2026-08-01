@@ -1,6 +1,7 @@
 import { useMemo, useState, type RefObject, type ChangeEvent, type KeyboardEvent } from 'react';
 import type { MemberWithUser } from '@/types';
-import { roleLabel, type LegacyMentionRole } from '@/utils/mentions';
+import { LEGACY_ROLE_KEYS, type LegacyMentionRole } from '@/utils/mentions';
+import { useT } from '@/i18n';
 
 export type MentionEntry =
   | { kind: 'user'; id: string; label: string }
@@ -22,6 +23,7 @@ export function useMentionAutocomplete({
   members,
   canMentionEveryone,
 }: UseMentionAutocompleteArgs) {
+  const t = useT();
   const [mentionQuery, setMentionQuery] = useState<string | null>(null);
   const [mentionIndex, setMentionIndex] = useState(0);
 
@@ -37,9 +39,9 @@ export function useMentionAutocomplete({
     }
 
     const roleEntries: Array<{ role: LegacyMentionRole; label: string }> = [
-      { role: 'owner', label: roleLabel('owner') },
-      { role: 'admin', label: roleLabel('admin') },
-      { role: 'member', label: roleLabel('member') },
+      { role: 'owner', label: t(LEGACY_ROLE_KEYS.owner) },
+      { role: 'admin', label: t(LEGACY_ROLE_KEYS.admin) },
+      { role: 'member', label: t(LEGACY_ROLE_KEYS.member) },
     ];
     for (const r of roleEntries) {
       if (r.label.toLowerCase().includes(q) || r.role.includes(q)) {
@@ -52,7 +54,7 @@ export function useMentionAutocomplete({
     }
 
     return entries;
-  }, [mentionQuery, members, canMentionEveryone]);
+  }, [mentionQuery, members, canMentionEveryone, t]);
 
   const reset = () => {
     setMentionQuery(null);

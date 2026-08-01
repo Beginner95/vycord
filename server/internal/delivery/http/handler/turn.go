@@ -6,6 +6,7 @@ import (
 	"net/http"
 
 	"github.com/google/uuid"
+	"github.com/vycord/server/internal/delivery/http/httperr"
 	"github.com/vycord/server/internal/delivery/http/middleware"
 	"github.com/vycord/server/internal/domain"
 )
@@ -42,9 +43,7 @@ func (h *TURNHandler) GetCredentials(w http.ResponseWriter, r *http.Request) {
 	creds, err := h.turnUseCase.GetCredentials(userID)
 	if err != nil {
 		h.log.Error("failed to generate turn credentials", "user_id", userID, "request_id", middleware.RequestIDFromContext(r.Context()), "error", err)
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]string{"error": "failed to generate turn credentials"})
+		httperr.Write(w, http.StatusInternalServerError, httperr.CodeTurnCredentialsFailed, "failed to generate turn credentials")
 		return
 	}
 

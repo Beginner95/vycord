@@ -19,7 +19,8 @@
     "dist": "npm run build && electron-builder",
     "preview": "vite preview",
     "test:e2e": "bash e2e/run.sh",
-    "smoke:aec3": "node scripts/smoke-test-aec3.mjs"
+    "smoke:aec3": "node scripts/smoke-test-aec3.mjs",
+    "check:i18n": "node scripts/check-i18n.mjs"
   },
   "dependencies": {
     "electron-log": "^5.4.4",

@@ -12,6 +12,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   platform: process.platform,
   getScreenSources: () => ipcRenderer.invoke('get-screen-sources'),
   audioAssetsUrl,
+  setLocale: (locale: string) => ipcRenderer.send('locale:changed', locale),
   update: {
     onAvailable: (cb: (version: string) => void) =>
       ipcRenderer.on('update:available', (_event, data: { version: string }) => cb(data.version)),

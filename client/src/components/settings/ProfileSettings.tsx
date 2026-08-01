@@ -1,6 +1,8 @@
 import { useRef, useState } from 'react';
 import { useAuthStore } from '@/stores/authStore';
-import { apiService } from '@/services/api';
+import { useLocaleStore, type Locale } from '@/stores/localeStore';
+import { useT } from '@/i18n';
+import { apiService, apiErrorText } from '@/services/api';
 import { Avatar } from '@/components/Avatar';
 import { AvatarCropModal } from '@/components/AvatarCropModal';
 import './ProfileSettings.css';
@@ -10,6 +12,8 @@ const MAX_FILE_BYTES = 2 * 1024 * 1024;
 
 export function ProfileSettings() {
   const { user, updateUser } = useAuthStore();
+  const { locale, setLocale } = useLocaleStore();
+  const t = useT();
   const [cropFile, setCropFile] = useState<File | null>(null);
   const [pickError, setPickError] = useState<string | null>(null);
   const [removing, setRemoving] = useState(false);
@@ -21,11 +25,11 @@ export function ProfileSettings() {
     if (!file) return;
 
     if (!ALLOWED_TYPES.includes(file.type)) {
-      setPickError('Неподдерживаемый формат. Разрешены PNG, JPG, JPEG');
+      setPickError(t('settings.avatarBadFormat'));
       return;
     }
     if (file.size > MAX_FILE_BYTES) {
-      setPickError('Файл слишком большой. Максимум 2 МБ');
+      setPickError(t('settings.avatarTooLarge'));
       return;
     }
 
@@ -45,7 +49,7 @@ export function ProfileSettings() {
       const updated = await apiService.removeAvatar();
       updateUser({ avatar_url: updated.avatar_url });
     } catch (err) {
-      setPickError(err instanceof Error ? err.message : 'Не удалось удалить аватар');
+      setPickError(apiErrorText(err, t));
     } finally {
       setRemoving(false);
     }
@@ -61,7 +65,7 @@ export function ProfileSettings() {
             className="profile-avatar-btn"
             onClick={() => fileInputRef.current?.click()}
           >
-            Изменить аватар
+            {t('settings.changeAvatar')}
           </button>
           {user?.avatar_url && (
             <button
@@ -70,7 +74,7 @@ export function ProfileSettings() {
               onClick={handleRemove}
               disabled={removing}
             >
-              {removing ? 'Удаление...' : 'Удалить аватар'}
+              {removing ? t('settings.removingAvatar') : t('settings.removeAvatar')}
             </button>
           )}
         </div>
@@ -85,18 +89,36 @@ export function ProfileSettings() {
       </div>
 
       <div className="settings-section">
-        <h3>Учётная запись</h3>
+        <h3>{t('settings.account')}</h3>
         <div className="setting-item">
           <div className="setting-info">
-            <label>Имя пользователя</label>
+            <label>{t('settings.usernameLabel')}</label>
             <p className="setting-description">{user?.username}</p>
           </div>
         </div>
         <div className="setting-item">
           <div className="setting-info">
-            <label>Email</label>
+            <label>{t('settings.emailLabel')}</label>
             <p className="setting-description">{user?.email}</p>
           </div>
+        </div>
+      </div>
+
+      <div className="settings-section">
+        <h3>{t('settings.language')}</h3>
+        <div className="setting-item">
+          <div className="setting-info">
+            <label>{t('settings.interfaceLanguage')}</label>
+            <p className="setting-description">{t('settings.languageDescription')}</p>
+          </div>
+          <select
+            className="setting-select"
+            value={locale}
+            onChange={(e) => setLocale(e.target.value as Locale)}
+          >
+            <option value="ru">{t('settings.languageNameRu')}</option>
+            <option value="en">{t('settings.languageNameEn')}</option>
+          </select>
         </div>
       </div>
 

@@ -6,6 +6,7 @@ import { wsService } from '@/services/websocket';
 import { callService } from '@/services/call';
 import { Avatar } from '@/components/Avatar';
 import type { User, MemberWithUser } from '@/types';
+import { useT } from '@/i18n';
 import './UserList.css';
 
 interface UserListProps {
@@ -19,6 +20,7 @@ function sortByUsername(members: MemberWithUser[]): MemberWithUser[] {
 }
 
 export function UserList({ onMobileBack }: UserListProps) {
+  const t = useT();
   const { user: currentUser } = useAuthStore();
   const { members } = useServerStore();
   const [onlineIds, setOnlineIds] = useState<Set<string>>(new Set());
@@ -73,7 +75,7 @@ export function UserList({ onMobileBack }: UserListProps) {
         <button
           className="call-user-btn"
           onClick={() => handleCallUser(m.user_id)}
-          title={`Call ${m.username}`}
+          title={t('server.callUser', { name: m.username })}
         >
           📞
         </button>
@@ -85,20 +87,20 @@ export function UserList({ onMobileBack }: UserListProps) {
     <aside className="user-list">
       <div className="user-list-mobile-header">
         {onMobileBack && (
-          <button className="mobile-back-btn" onClick={onMobileBack} aria-label="Back">
+          <button className="mobile-back-btn" onClick={onMobileBack} aria-label={t('common.back')}>
             <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
           </button>
         )}
-        <span>Members</span>
+        <span>{t('chat.members')}</span>
       </div>
 
       <div className="user-category">
-        Online — {onlineMembers.length}
+        {t('server.online')} — {onlineMembers.length}
       </div>
       {onlineMembers.map((m) => renderMember(m, true))}
 
       <div className="user-category">
-        Offline — {offlineMembers.length}
+        {t('server.offline')} — {offlineMembers.length}
       </div>
       {offlineMembers.map((m) => renderMember(m, false))}
     </aside>

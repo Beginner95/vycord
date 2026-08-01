@@ -1,6 +1,10 @@
 import { wsService } from './websocket';
 import { noiseCancellationService } from './noiseCancellation';
 import { getIceServers } from './iceConfig';
+// Сервис — не компонент, подписаться на стор нечем: берём нереактивный t.
+// Строка читается один раз в момент ошибки и сразу уходит в тост, поэтому
+// смена языка после её показа значения не имеет.
+import { t } from '@/i18n';
 
 interface WebRTCCallbacks {
   onRemoteStream: (stream: MediaStream) => void;
@@ -100,7 +104,9 @@ class CallService {
         }, 30000);
       });
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Failed to start call';
+      // err.message приходит из браузера (getUserMedia и т.п.) и остаётся
+      // на языке браузера — переводится только наш собственный фолбэк.
+      const message = err instanceof Error ? err.message : t('call.startFailed');
       this.callbacks?.onError(message);
       return null;
     }
@@ -247,7 +253,7 @@ class CallService {
 
   private handleCallRejected = (): void => {
     this.cleanup();
-    this.callbacks?.onError('Call was rejected');
+    this.callbacks?.onError(t('call.rejected'));
   };
 
   private handleCallEnded = (): void => {

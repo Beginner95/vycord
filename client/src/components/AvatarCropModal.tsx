@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
+import { apiErrorText } from '@/services/api';
+import { t, useT } from '@/i18n';
 import './AvatarCropModal.css';
 
 const CANVAS_SIZE = 320;
@@ -40,7 +42,9 @@ function exportCroppedBlob(img: HTMLImageElement, baseScale: number, zoom: numbe
   output.width = OUTPUT_SIZE;
   output.height = OUTPUT_SIZE;
   const ctx = output.getContext('2d');
-  if (!ctx) return Promise.reject(new Error('Canvas is not supported'));
+  // Функция живёт вне компонента, хука здесь нет — берём нереактивный t.
+  // Текст сразу уходит в setError и дальше не перерисовывается.
+  if (!ctx) return Promise.reject(new Error(t('common.canvasUnsupported')));
 
   const ratio = OUTPUT_SIZE / CIRCLE_DIAMETER;
   const drawWidth = img.naturalWidth * baseScale * zoom * ratio;
@@ -50,7 +54,7 @@ function exportCroppedBlob(img: HTMLImageElement, baseScale: number, zoom: numbe
 
   return new Promise((resolve, reject) => {
     output.toBlob(
-      (blob) => (blob ? resolve(blob) : reject(new Error('Failed to export image'))),
+      (blob) => (blob ? resolve(blob) : reject(new Error(t('common.imageExportFailed')))),
       'image/jpeg',
       0.92
     );
@@ -58,6 +62,7 @@ function exportCroppedBlob(img: HTMLImageElement, baseScale: number, zoom: numbe
 }
 
 export function AvatarCropModal({ file, title, onCancel, onUpload }: AvatarCropModalProps) {
+  const t = useT();
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const draggingRef = useRef(false);
   const lastPointRef = useRef<Offset>({ x: 0, y: 0 });
@@ -79,7 +84,7 @@ export function AvatarCropModal({ file, title, onCancel, onUpload }: AvatarCropM
       setOffset({ x: 0, y: 0 });
       setImg(image);
     };
-    image.onerror = () => setError('Не удалось открыть изображение');
+    image.onerror = () => setError(t('common.imageOpenFailed'));
     image.src = objectUrl;
     return () => URL.revokeObjectURL(objectUrl);
   }, [file]);
@@ -155,7 +160,7 @@ export function AvatarCropModal({ file, title, onCancel, onUpload }: AvatarCropM
       const blob = await exportCroppedBlob(img, baseScale, zoom, offset);
       await onUpload(blob);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Не удалось загрузить аватар. Попробуйте ещё раз');
+      setError(apiErrorText(err, t));
     } finally {
       setSaving(false);
     }
@@ -164,7 +169,7 @@ export function AvatarCropModal({ file, title, onCancel, onUpload }: AvatarCropM
   return (
     <div className="avatar-crop-overlay" onClick={saving ? undefined : onCancel}>
       <div className="avatar-crop-modal" onClick={(e) => e.stopPropagation()}>
-        <h3>{title ?? 'Обрезка аватара'}</h3>
+        <h3>{title ?? t('settings.cropAvatarTitle')}</h3>
 
         <canvas
           ref={canvasRef}
@@ -195,7 +200,7 @@ export function AvatarCropModal({ file, title, onCancel, onUpload }: AvatarCropM
 
         <div className="avatar-crop-actions">
           <button type="button" className="avatar-crop-btn" onClick={onCancel} disabled={saving}>
-            Отмена
+            {t('common.cancel')}
           </button>
           <button
             type="button"
@@ -203,7 +208,7 @@ export function AvatarCropModal({ file, title, onCancel, onUpload }: AvatarCropM
             onClick={handleSaveClick}
             disabled={!img || saving}
           >
-            {saving ? 'Сохранение...' : 'Сохранить'}
+            {saving ? t('common.saving') : t('common.save')}
           </button>
         </div>
       </div>

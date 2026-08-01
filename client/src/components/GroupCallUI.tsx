@@ -12,6 +12,7 @@ import type { User, Message } from '@/types';
 import type { DesktopCapturerSource } from '@/types/electron';
 import type { ConnectionQualityMetrics, QualityLevel } from '@/utils/callQuality';
 import { VolumeControlPopover } from './VolumeControlPopover';
+import { useT, useTp, useDateFormat, type TKey } from '@/i18n';
 import './GroupCallUI.css';
 
 function useMicLevel(stream: MediaStream | null, isMuted: boolean): number {
@@ -110,6 +111,7 @@ interface ScreenSourcePickerProps {
 }
 
 function ScreenSourcePicker({ sources, onSelect, onCancel }: ScreenSourcePickerProps) {
+  const t = useT();
   const screens = sources.filter((s) => s.id.startsWith('screen:'));
   const windows = sources.filter((s) => s.id.startsWith('window:'));
 
@@ -117,13 +119,13 @@ function ScreenSourcePicker({ sources, onSelect, onCancel }: ScreenSourcePickerP
     <div className="screen-picker-backdrop" onClick={onCancel}>
       <div className="screen-picker-modal" onClick={(e) => e.stopPropagation()}>
         <div className="screen-picker-header">
-          <span>Select a screen to share</span>
+          <span>{t('call.selectScreen')}</span>
           <button className="screen-picker-close" onClick={onCancel}>✕</button>
         </div>
 
         {screens.length > 0 && (
           <div className="screen-picker-section">
-            <div className="screen-picker-section-label">Entire Screen</div>
+            <div className="screen-picker-section-label">{t('call.entireScreen')}</div>
             <div className="screen-picker-grid">
               {screens.map((s) => (
                 <button key={s.id} className="screen-picker-item" onClick={() => onSelect(s.id)}>
@@ -137,7 +139,7 @@ function ScreenSourcePicker({ sources, onSelect, onCancel }: ScreenSourcePickerP
 
         {windows.length > 0 && (
           <div className="screen-picker-section">
-            <div className="screen-picker-section-label">Application Window</div>
+            <div className="screen-picker-section-label">{t('call.applicationWindow')}</div>
             <div className="screen-picker-grid">
               {windows.map((s) => (
                 <button key={s.id} className="screen-picker-item" onClick={() => onSelect(s.id)}>
@@ -164,12 +166,13 @@ interface ScreenQualityPickerProps {
 }
 
 function ScreenQualityPicker({ onSelect, onCancel }: ScreenQualityPickerProps) {
+  const t = useT();
   const entries = Object.entries(SCREEN_QUALITY_PRESETS) as [ScreenQuality, ScreenQualityPreset][];
   return (
     <div className="screen-picker-backdrop" onClick={onCancel}>
       <div className="screen-quality-modal" onClick={(e) => e.stopPropagation()}>
         <div className="screen-picker-header">
-          <span>Select quality</span>
+          <span>{t('call.selectQuality')}</span>
           <button className="screen-picker-close" onClick={onCancel}>✕</button>
         </div>
         <div className="screen-quality-list">
@@ -190,14 +193,15 @@ function ScreenQualityPicker({ onSelect, onCancel }: ScreenQualityPickerProps) {
 // ─── Connection Indicator ────────────────────────────────────────────────────
 // Presentational signal-bars icon showing outbound (uplink) connection quality.
 
-const QUALITY_TITLE: Record<QualityLevel, string> = {
-  good: 'Хороший сигнал',
-  medium: 'Средний сигнал',
-  poor: 'Плохой сигнал',
-  unknown: 'Нет данных о сигнале',
+const QUALITY_KEY: Record<QualityLevel, TKey> = {
+  good: 'call.qualityGood',
+  medium: 'call.qualityMedium',
+  poor: 'call.qualityPoor',
+  unknown: 'call.qualityUnknown',
 };
 
 export function ConnectionIndicator({ metrics }: { metrics?: ConnectionQualityMetrics }) {
+  const t = useT();
   const ref = useRef<HTMLDivElement>(null);
   const [tip, setTip] = useState<{ top: number; left: number } | null>(null);
 
@@ -213,11 +217,13 @@ export function ConnectionIndicator({ metrics }: { metrics?: ConnectionQualityMe
 
   if (!metrics) return null;
   const { level, packetLoss, rtt, bitrate } = metrics;
-  const label = QUALITY_TITLE[level];
+  const label = t(QUALITY_KEY[level]);
   const ariaLabel =
     level === 'unknown'
       ? label
-      : `${label} · Потери: ${packetLoss}% · Пинг: ${rtt} мс · Битрейт: ${bitrate} кбит/с`;
+      : `${label} · ${t('call.qualityLoss')}: ${packetLoss}${t('call.unitPercent')} · ` +
+        `${t('call.qualityPing')}: ${rtt} ${t('call.unitMs')} · ` +
+        `${t('call.qualityBitrate')}: ${bitrate} ${t('call.unitKbps')}`;
 
   return (
     <div
@@ -244,16 +250,16 @@ export function ConnectionIndicator({ metrics }: { metrics?: ConnectionQualityMe
             {level !== 'unknown' && (
               <div className="conn-tooltip__rows">
                 <div className="conn-tooltip__row">
-                  <span className="conn-tooltip__key">Потери</span>
-                  <span className="conn-tooltip__val">{packetLoss}%</span>
+                  <span className="conn-tooltip__key">{t('call.qualityLoss')}</span>
+                  <span className="conn-tooltip__val">{packetLoss}{t('call.unitPercent')}</span>
                 </div>
                 <div className="conn-tooltip__row">
-                  <span className="conn-tooltip__key">Пинг</span>
-                  <span className="conn-tooltip__val">{rtt} мс</span>
+                  <span className="conn-tooltip__key">{t('call.qualityPing')}</span>
+                  <span className="conn-tooltip__val">{rtt} {t('call.unitMs')}</span>
                 </div>
                 <div className="conn-tooltip__row">
-                  <span className="conn-tooltip__key">Битрейт</span>
-                  <span className="conn-tooltip__val">{bitrate} кбит/с</span>
+                  <span className="conn-tooltip__key">{t('call.qualityBitrate')}</span>
+                  <span className="conn-tooltip__val">{bitrate} {t('call.unitKbps')}</span>
                 </div>
               </div>
             )}
@@ -302,6 +308,7 @@ function RemoteParticipantTile({
   onVolumeChange,
   quality,
 }: RemoteParticipantTileProps) {
+  const t = useT();
   const level = useMicLevel(participant.stream, muted);
   const speaking = level > 0.05;
   const micBadgeClass = muted
@@ -335,7 +342,7 @@ function RemoteParticipantTile({
           className="volume-btn"
           onClick={handleVolumeBtnClick}
           onMouseDown={(e) => e.stopPropagation()}
-          title={`Volume: ${volume}%`}
+          title={t('call.volumeLabel', { value: volume })}
         >
           ⋮
         </button>
@@ -358,14 +365,14 @@ function RemoteParticipantTile({
     <div className={`video-tile ${!participant.stream ? 'video-off' : ''} ${speaking ? 'speaking' : ''}`}>
       <video ref={videoRefSetter} autoPlay playsInline />
       {!participant.stream && <div className="video-off-placeholder">📷</div>}
-      {isSharing && <div className="screen-share-badge">🖥 Sharing</div>}
-      <button className="focus-btn" onClick={onFocus} title="Focus on this participant">⛶</button>
+      {isSharing && <div className="screen-share-badge">🖥 {t('call.sharingBadge')}</div>}
+      <button className="focus-btn" onClick={onFocus} title={t('call.focusParticipant')}>⛶</button>
       <button
         ref={volumeBtnRef}
         className="volume-btn"
         onClick={handleVolumeBtnClick}
         onMouseDown={(e) => e.stopPropagation()}
-        title={`Volume: ${volume}%`}
+        title={t('call.volumeLabel', { value: volume })}
       >
         ⋮
       </button>
@@ -385,6 +392,9 @@ function RemoteParticipantTile({
 }
 
 export function GroupCallUI() {
+  const t = useT();
+  const tp = useTp();
+  const { formatTime } = useDateFormat();
   const { user } = useAuthStore();
   const { currentServer, currentChannel } = useServerStore();
   const { messages, addMessage } = useMessageStore();
@@ -813,11 +823,11 @@ export function GroupCallUI() {
       // Electron: fetch sources → source picker → quality picker → start
       const result = await api.getScreenSources();
       if (result.error === 'screen_permission_denied') {
-        alert('Screen Recording permission is denied. Please grant it in System Settings → Privacy & Security → Screen Recording, then restart the app.');
+        alert(t('call.screenPermissionDenied'));
         return;
       }
       if (result.error || !result.sources?.length) {
-        alert('Could not get screen sources. Please try again.');
+        alert(t('call.screenSourcesFailed'));
         return;
       }
       setScreenSources(result.sources);
@@ -827,7 +837,7 @@ export function GroupCallUI() {
       setSelectedSourceId(null);
       setShowQualityPicker(true);
     }
-  }, [isScreenSharing]);
+  }, [isScreenSharing, t]);
 
   const handleSelectSource = useCallback((sourceId: string) => {
     setShowSourcePicker(false);
@@ -845,9 +855,9 @@ export function GroupCallUI() {
       wsService.send('screen_share_started', {});
     } catch (err) {
       console.error('[GroupCall] Screen share failed:', err);
-      alert('Failed to start screen sharing. Please try again.');
+      alert(t('call.screenShareFailed'));
     }
-  }, [selectedSourceId]);
+  }, [selectedSourceId, t]);
 
   // Expose joinGroupCall to window for other components
   useEffect(() => {
@@ -897,11 +907,6 @@ export function GroupCallUI() {
     }
   }, [currentChannel, chatInput, user, addMessage]);
 
-  const formatTime = (dateStr: string) => {
-    const date = new Date(dateStr);
-    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-  };
-
   if (!isInGroupCall) return null;
 
   const showSourcePickerModal = showSourcePicker && screenSources.length > 0;
@@ -919,7 +924,7 @@ export function GroupCallUI() {
   return (
     <div className="group-call-overlay">
       {isReconnecting && (
-        <div className="gc-reconnecting-banner">Переподключение…</div>
+        <div className="gc-reconnecting-banner">{t('call.reconnecting')}</div>
       )}
       {showSourcePickerModal && (
         <ScreenSourcePicker
@@ -935,12 +940,12 @@ export function GroupCallUI() {
         />
       )}
       <div className="group-call-header">
-        <h2>Group Call{currentChannel ? ` · #${currentChannel.name}` : ''}</h2>
+        <h2>{t('call.groupCallTitle')}{currentChannel ? ` · #${currentChannel.name}` : ''}</h2>
         <div className="group-call-header-right">
           {screenSharers.size > 0 && (
-            <span className="header-screen-share-indicator">🖥 Screen sharing active</span>
+            <span className="header-screen-share-indicator">🖥 {t('call.screenSharingActive')}</span>
           )}
-          <span className="participant-count">{totalParticipants} participants</span>
+          <span className="participant-count">{tp('call.participants', totalParticipants)}</span>
         </div>
       </div>
 
@@ -951,18 +956,18 @@ export function GroupCallUI() {
             <div className="screen-share-banner">
               <span className="screen-share-banner-icon">🖥</span>
               <span className="screen-share-banner-text">
-                {userCache.get(firstSharer) ?? firstSharer.slice(0, 8)} is sharing their screen
+                {t('call.isSharingScreen', { name: userCache.get(firstSharer) ?? firstSharer.slice(0, 8) })}
               </span>
               <button
                 className="screen-share-banner-btn"
                 onClick={() => setFocusedUserId(firstSharer)}
               >
-                View
+                {t('call.view')}
               </button>
               <button
                 className="screen-share-banner-dismiss"
                 onClick={() => setScreenSharers(new Set())}
-                title="Dismiss"
+                title={t('call.dismiss')}
               >
                 ✕
               </button>
@@ -983,21 +988,21 @@ export function GroupCallUI() {
                 <div className="screen-share-main-label">
                   {focusedName}
                   {screenSharers.has(focusedUserId) && (
-                    <span className="screen-share-badge-sm">🖥 Sharing</span>
+                    <span className="screen-share-badge-sm">🖥 {t('call.sharingBadge')}</span>
                   )}
                 </div>
                 <div className="screen-share-main-controls">
                   <button
                     className="screen-share-ctrl-btn"
                     onClick={() => { void handleFullscreen(); }}
-                    title={isFullscreen ? 'Exit fullscreen (Esc)' : 'Fullscreen'}
+                    title={isFullscreen ? t('call.exitFullscreen') : t('call.fullscreen')}
                   >
                     {isFullscreen ? '⊡' : '⛶'}
                   </button>
                   <button
                     className="screen-share-ctrl-btn"
                     onClick={() => setFocusedUserId(null)}
-                    title="Back to grid"
+                    title={t('call.backToGrid')}
                   >
                     ⊞
                   </button>
@@ -1009,7 +1014,7 @@ export function GroupCallUI() {
                 {/* Local thumbnail */}
                 <div
                   className={`thumbnail-tile ${micLevel > 0.05 ? 'speaking' : ''}`}
-                  title={`${user?.username ?? ''} (You)`}
+                  title={`${user?.username ?? ''} ${t('call.youSuffix')}`}
                 >
                   <video
                     ref={localVideoRef}
@@ -1027,7 +1032,7 @@ export function GroupCallUI() {
                   </div>
                   <ConnectionIndicator metrics={localQuality} />
                   <div className="thumbnail-label">
-                    {user?.username} (You)
+                    {user?.username} {t('call.youSuffix')}
                   </div>
                 </div>
 
@@ -1066,13 +1071,13 @@ export function GroupCallUI() {
                   className={isScreenSharing ? 'local-video-screen' : 'local-video'}
                 />
                 {isVideoOff && !isScreenSharing && <div className="video-off-placeholder">📷</div>}
-                {isScreenSharing && <div className="screen-share-badge">🖥 Sharing</div>}
+                {isScreenSharing && <div className="screen-share-badge">🖥 {t('call.sharingBadge')}</div>}
                 <div className={`mic-badge ${isMuted ? 'mic-badge--muted' : micLevel > 0.05 ? 'mic-badge--speaking' : 'mic-badge--idle'}`}>
                   {isMuted ? '🔇' : '🎤'}
                 </div>
                 <ConnectionIndicator metrics={localQuality} />
                 <div className="video-label">
-                  {user?.username} (You)
+                  {user?.username} {t('call.youSuffix')}
                 </div>
               </div>
 
@@ -1102,11 +1107,11 @@ export function GroupCallUI() {
         {showChat && (
           <div className="call-chat">
             <div className="call-chat-header">
-              <span>#{currentChannel?.name ?? 'Chat'}</span>
+              <span>#{currentChannel?.name ?? t('call.chatFallback')}</span>
             </div>
             <div className="call-chat-messages">
               {messages.length === 0 ? (
-                <p className="call-chat-empty">No messages yet</p>
+                <p className="call-chat-empty">{t('call.noMessagesYet')}</p>
               ) : (
                 messages.map((msg) => {
                   const isFromMe = msg.user_id === user?.id;
@@ -1116,7 +1121,7 @@ export function GroupCallUI() {
                   return (
                     <div key={msg.id} className={`call-chat-msg ${isFromMe ? 'self' : ''}`}>
                       <span className="call-chat-author">{displayName}</span>
-                      <span className="call-chat-time">{formatTime(msg.created_at)}</span>
+                      <span className="call-chat-time">{formatTime(new Date(msg.created_at))}</span>
                       <p className="call-chat-text">{msg.content}</p>
                     </div>
                   );
@@ -1129,10 +1134,10 @@ export function GroupCallUI() {
                 type="text"
                 value={chatInput}
                 onChange={(e) => setChatInput(e.target.value)}
-                placeholder={`Message #${currentChannel?.name ?? 'channel'}`}
+                placeholder={t('chat.messagePlaceholder', { channel: currentChannel?.name ?? t('call.channelFallback') })}
                 maxLength={2000}
               />
-              <button type="submit" disabled={!chatInput.trim()}>Send</button>
+              <button type="submit" disabled={!chatInput.trim()}>{t('call.send')}</button>
             </form>
           </div>
         )}
@@ -1147,7 +1152,7 @@ export function GroupCallUI() {
             className={`control-btn ${isMuted ? 'active' : ''}`}
             onClick={handleToggleMute}
             disabled={!isMicAvailable}
-            title={!isMicAvailable ? 'Микрофон недоступен' : isMuted ? 'Включить микрофон' : 'Выключить микрофон'}
+            title={!isMicAvailable ? t('call.micUnavailable') : isMuted ? t('call.micOn') : t('call.micOff')}
           >
             {!isMicAvailable ? '🚫' : isMuted ? '🔇' : '🎤'}
           </button>
@@ -1156,25 +1161,25 @@ export function GroupCallUI() {
           className={`control-btn ${isVideoOff ? 'active' : ''}`}
           onClick={handleToggleVideo}
           disabled={isScreenSharing}
-          title={isScreenSharing ? 'Camera unavailable while screen sharing' : isVideoOff ? 'Turn on camera' : 'Turn off camera'}
+          title={isScreenSharing ? t('call.cameraUnavailableSharing') : isVideoOff ? t('call.cameraOn') : t('call.cameraOff')}
         >
           {isVideoOff ? '📷' : '🎥'}
         </button>
         <button
           className={`control-btn ${isScreenSharing ? 'screen-sharing-active' : ''}`}
           onClick={() => { void handleToggleScreenShare(); }}
-          title={isScreenSharing ? 'Stop screen sharing' : 'Share screen'}
+          title={isScreenSharing ? t('call.stopScreenShare') : t('call.shareScreen')}
         >
           🖥
         </button>
         <button
           className={`control-btn ${showChat ? 'chat-active' : ''}`}
           onClick={() => setShowChat((v) => !v)}
-          title={showChat ? 'Hide chat' : 'Show chat'}
+          title={showChat ? t('call.hideChat') : t('call.showChat')}
         >
           💬
         </button>
-        <button className="control-btn end-call" onClick={handleLeaveGroupCall} title="Leave call">
+        <button className="control-btn end-call" onClick={handleLeaveGroupCall} title={t('call.leaveCall')}>
           📞
         </button>
       </div>
