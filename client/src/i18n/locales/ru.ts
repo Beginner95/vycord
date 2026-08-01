@@ -16,6 +16,8 @@ export const ru = {
     minimize: 'Свернуть',
     maximize: 'Развернуть',
     imageOpenFailed: 'Не удалось открыть изображение',
+    imageExportFailed: 'Не удалось сохранить изображение',
+    canvasUnsupported: 'Браузер не поддерживает canvas',
   },
   auth: {
     welcomeBack: 'С возвращением!',
@@ -151,11 +153,14 @@ export const ru = {
     // Одиночный звонок (CallUI)
     incomingCall: 'Входящий звонок',
     userCalling: 'Вам звонят...',
+    rejected: 'Звонок отклонён',
+    startFailed: 'Не удалось начать звонок',
     endCall: 'Завершить звонок',
   },
   settings: {
     language: 'Язык',
-    languageDescription: 'Язык интерфейса приложения',
+    interfaceLanguage: 'Язык интерфейса',
+    languageDescription: 'Выберите язык интерфейса приложения',
     languageNameRu: 'Русский',
     languageNameEn: 'English',
 

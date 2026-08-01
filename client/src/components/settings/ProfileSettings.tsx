@@ -108,7 +108,7 @@ export function ProfileSettings() {
         <h3>{t('settings.language')}</h3>
         <div className="setting-item">
           <div className="setting-info">
-            <label>{t('settings.language')}</label>
+            <label>{t('settings.interfaceLanguage')}</label>
             <p className="setting-description">{t('settings.languageDescription')}</p>
           </div>
           <select

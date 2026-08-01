@@ -13,7 +13,6 @@ const SKIP_FILES = [
   'services/echoCancellation.ts',
   'services/groupCall.ts',
   'services/ncModels.ts',
-  'services/call.ts',
   'utils/callQuality.ts',
   'i18n/locales/ru.ts',
   'i18n/locales/en.ts',
@@ -41,19 +40,26 @@ for (const file of walk(SRC)) {
   const rel = relative(SRC, file);
   if (SKIP_FILES.includes(rel)) continue;
 
+  // Разметка живёт только в .tsx. Проверять на неё .ts бессмысленно: там
+  // ловятся дженерики и HTML-строки неиспользуемого шаблона Vite (src/main.ts).
+  const isJsx = rel.endsWith('.tsx');
+
   const lines = readFileSync(file, 'utf8').split('\n');
   lines.forEach((raw, i) => {
     const line = stripComments(raw);
     if (!line.trim() || line.includes('console.')) return;
 
     // 1. Текстовые узлы JSX: >Текст<
-    const jsxText = line.match(/>\s*([A-Za-zА-Яа-яЁё][^<>{}\n]{2,}?)\s*</);
+    // Лукбихайнд отсекает стрелку функции: `=> Promise<void>` — это не JSX.
+    const jsxText = isJsx && line.match(/(?<!=)>\s*([A-Za-zА-Яа-яЁё][^<>{}\n]{2,}?)\s*</);
     if (jsxText) findings.push([rel, i + 1, jsxText[1].trim()]);
 
     // 2. Локализуемые атрибуты со строковым литералом
-    for (const attr of ATTRS) {
-      const m = line.match(new RegExp(`${attr}="([^"]{2,})"`));
-      if (m) findings.push([rel, i + 1, `${attr}="${m[1]}"`]);
+    if (isJsx) {
+      for (const attr of ATTRS) {
+        const m = line.match(new RegExp(`${attr}="([^"]{2,})"`));
+        if (m) findings.push([rel, i + 1, `${attr}="${m[1]}"`]);
+      }
     }
 
     // 3. alert() / confirm() со строковым литералом

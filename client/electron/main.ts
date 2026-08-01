@@ -76,7 +76,9 @@ function createTray(): void {
 // Пересобирается при каждой смене языка в рендерере — Electron не умеет
 // менять подписи уже установленного меню, только заменять меню целиком.
 function buildTrayMenu(): void {
-  if (!tray) return;
+  // isDestroyed: before-quit делает tray.destroy(), но переменную не обнуляет,
+  // а locale:changed может прийти уже после этого.
+  if (!tray || tray.isDestroyed()) return;
 
   const labels = TRAY_LABELS[currentTrayLocale];
   const contextMenu = Menu.buildFromTemplate([

@@ -17,6 +17,8 @@ export const en: Dictionary = {
     minimize: 'Minimize',
     maximize: 'Maximize',
     imageOpenFailed: 'Failed to open the image',
+    imageExportFailed: 'Failed to export the image',
+    canvasUnsupported: 'Your browser does not support canvas',
   },
   auth: {
     welcomeBack: 'Welcome Back!',
@@ -146,11 +148,14 @@ export const en: Dictionary = {
     // 1:1 call (CallUI)
     incomingCall: 'Incoming Call',
     userCalling: 'User is calling you...',
+    rejected: 'Call was rejected',
+    startFailed: 'Failed to start call',
     endCall: 'End call',
   },
   settings: {
     language: 'Language',
-    languageDescription: 'Application interface language',
+    interfaceLanguage: 'Interface language',
+    languageDescription: 'Choose the application interface language',
     languageNameRu: 'Русский',
     languageNameEn: 'English',
 

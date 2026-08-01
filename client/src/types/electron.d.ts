@@ -1,3 +1,5 @@
+import type { Locale } from '@/stores/localeStore';
+
 export interface DesktopCapturerSource {
   id: string;
   name: string;
@@ -20,7 +22,7 @@ export interface ElectronAPI {
   audioAssetsUrl: string;
   // Опционально: в веб-сборке electronAPI нет вовсе, а у клиентов,
   // собранных до появления локализации, нет этого метода.
-  setLocale?: (locale: string) => void;
+  setLocale?: (locale: Locale) => void;
   update: {
     onAvailable: (cb: (version: string) => void) => void;
     onReady: (cb: (version: string) => void) => void;

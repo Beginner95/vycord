@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { apiErrorText } from '@/services/api';
-import { useT } from '@/i18n';
+import { t, useT } from '@/i18n';
 import './AvatarCropModal.css';
 
 const CANVAS_SIZE = 320;
@@ -42,7 +42,9 @@ function exportCroppedBlob(img: HTMLImageElement, baseScale: number, zoom: numbe
   output.width = OUTPUT_SIZE;
   output.height = OUTPUT_SIZE;
   const ctx = output.getContext('2d');
-  if (!ctx) return Promise.reject(new Error('Canvas is not supported'));
+  // Функция живёт вне компонента, хука здесь нет — берём нереактивный t.
+  // Текст сразу уходит в setError и дальше не перерисовывается.
+  if (!ctx) return Promise.reject(new Error(t('common.canvasUnsupported')));
 
   const ratio = OUTPUT_SIZE / CIRCLE_DIAMETER;
   const drawWidth = img.naturalWidth * baseScale * zoom * ratio;
@@ -52,7 +54,7 @@ function exportCroppedBlob(img: HTMLImageElement, baseScale: number, zoom: numbe
 
   return new Promise((resolve, reject) => {
     output.toBlob(
-      (blob) => (blob ? resolve(blob) : reject(new Error('Failed to export image'))),
+      (blob) => (blob ? resolve(blob) : reject(new Error(t('common.imageExportFailed')))),
       'image/jpeg',
       0.92
     );
