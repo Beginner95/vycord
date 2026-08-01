@@ -9,6 +9,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/vycord/server/internal/domain"
 )
@@ -43,6 +44,9 @@ func (r *serverRepository) Create(server *domain.Server) error {
 	).Scan(&server.ID)
 
 	if err != nil {
+		if isUniqueNameViolation(err) {
+			return domain.ErrServerNameTaken
+		}
 		return fmt.Errorf("failed to create server: %w", err)
 	}
 
@@ -107,6 +111,16 @@ func (r *serverRepository) GetByName(name string) (*domain.Server, error) {
 	}
 
 	return server, nil
+}
+
+// isUniqueNameViolation определяет, что ошибка — нарушение уникального
+// индекса idx_servers_name_lower (CREATE UNIQUE INDEX ... LOWER(name)),
+// который накатывается на проде вручную. Других уникальных ограничений
+// в таблице servers нет, поэтому 23505 в Create/Update однозначно
+// означает занятое имя.
+func isUniqueNameViolation(err error) bool {
+	var pgErr *pgconn.PgError
+	return errors.As(err, &pgErr) && pgErr.Code == "23505"
 }
 
 func (r *serverRepository) GetByOwner(ownerID uuid.UUID) ([]*domain.Server, error) {
@@ -207,6 +221,9 @@ func (r *serverRepository) Update(id uuid.UUID, updates map[string]interface{}) 
 
 	_, err := r.db.Exec(ctx, query, args...)
 	if err != nil {
+		if isUniqueNameViolation(err) {
+			return domain.ErrServerNameTaken
+		}
 		return fmt.Errorf("failed to update server: %w", err)
 	}
 
