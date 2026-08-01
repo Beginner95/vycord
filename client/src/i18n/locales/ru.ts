@@ -13,6 +13,8 @@ export const ru = {
     removing: 'Удаление...',
     back: 'Назад',
     logout: 'Выйти',
+    minimize: 'Свернуть',
+    maximize: 'Развернуть',
     imageOpenFailed: 'Не удалось открыть изображение',
   },
   auth: {
@@ -262,7 +264,17 @@ export const ru = {
     editTitle: 'Редактировать канал',
     nameLabel: 'Название канала',
   },
-  update: {},
+  update: {
+    downloading: 'Скачивание обновления {{version}}... установится автоматически',
+    available: 'Доступна версия {{version}}',
+    install: 'Установить',
+    later: 'Позже',
+    willInstallAfterCall: 'Обновление {{version}} установится после звонка',
+    ready: 'Обновление {{version}} готово',
+    restartAndInstall: 'Перезапустить и установить',
+    failed: 'Не удалось обновиться автоматически',
+    downloadManually: 'Скачать вручную',
+  },
   errors: {
     unknown: 'Неизвестная ошибка',
     internal_error: 'Внутренняя ошибка сервера',

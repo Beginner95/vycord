@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { groupCallService } from '@/services/groupCall';
 import { callService } from '@/services/call';
+import { useT } from '@/i18n';
 import './UpdateBanner.css';
 
 type UpdateStatus = 'idle' | 'available' | 'ready' | 'error';
@@ -12,6 +13,7 @@ function isBusyWithCall(): boolean {
 }
 
 export function UpdateBanner() {
+  const t = useT();
   const [status, setStatus] = useState<UpdateStatus>('idle');
   const [version, setVersion] = useState('');
   const [dismissed, setDismissed] = useState(false);
@@ -89,14 +91,14 @@ export function UpdateBanner() {
         <>
           <span>
             {installRequested
-              ? `Скачивание обновления ${version}... установится автоматически`
-              : `Доступна версия ${version}`}
+              ? t('update.downloading', { version })
+              : t('update.available', { version })}
           </span>
           {!installRequested && (
             <>
-              <button onClick={handleAvailableInstallClick}>Установить</button>
+              <button onClick={handleAvailableInstallClick}>{t('update.install')}</button>
               <button className="update-banner__dismiss" onClick={() => setDismissed(true)}>
-                Позже
+                {t('update.later')}
               </button>
             </>
           )}
@@ -106,16 +108,16 @@ export function UpdateBanner() {
         <>
           <span>
             {waitingForCallEnd
-              ? `Обновление ${version} установится после звонка`
-              : `Обновление ${version} готово`}
+              ? t('update.willInstallAfterCall', { version })
+              : t('update.ready', { version })}
           </span>
-          {!waitingForCallEnd && <button onClick={startInstall}>Перезапустить и установить</button>}
+          {!waitingForCallEnd && <button onClick={startInstall}>{t('update.restartAndInstall')}</button>}
         </>
       )}
       {status === 'error' && (
         <>
-          <span>Не удалось обновиться автоматически</span>
-          <button onClick={handleManualDownload}>Скачать вручную</button>
+          <span>{t('update.failed')}</span>
+          <button onClick={handleManualDownload}>{t('update.downloadManually')}</button>
         </>
       )}
     </div>

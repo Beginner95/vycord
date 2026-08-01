@@ -14,6 +14,8 @@ export const en: Dictionary = {
     removing: 'Removing...',
     back: 'Back',
     logout: 'Log out',
+    minimize: 'Minimize',
+    maximize: 'Maximize',
     imageOpenFailed: 'Failed to open the image',
   },
   auth: {
@@ -257,7 +259,17 @@ export const en: Dictionary = {
     editTitle: 'Edit channel',
     nameLabel: 'Channel Name',
   },
-  update: {},
+  update: {
+    downloading: 'Downloading update {{version}}… it will install automatically',
+    available: 'Version {{version}} is available',
+    install: 'Install',
+    later: 'Later',
+    willInstallAfterCall: 'Update {{version}} will install after the call',
+    ready: 'Update {{version}} is ready',
+    restartAndInstall: 'Restart and install',
+    failed: 'Automatic update failed',
+    downloadManually: 'Download manually',
+  },
   errors: {
     unknown: 'Unknown error',
     internal_error: 'Internal server error',
