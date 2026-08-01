@@ -18,6 +18,9 @@ export interface ElectronAPI {
   platform: string;
   getScreenSources: () => Promise<ScreenSourcesResult>;
   audioAssetsUrl: string;
+  // Опционально: в веб-сборке electronAPI нет вовсе, а у клиентов,
+  // собранных до появления локализации, нет этого метода.
+  setLocale?: (locale: string) => void;
   update: {
     onAvailable: (cb: (version: string) => void) => void;
     onReady: (cb: (version: string) => void) => void;

@@ -8,6 +8,9 @@ const LOCALE_KEY = 'vycord_locale';
 
 function applyLocale(locale: Locale) {
   document.documentElement.setAttribute('lang', locale);
+  // Меню трея живёт в main-процессе Electron и о сторе не знает.
+  // В браузерной версии electronAPI нет — тихо пропускаем.
+  window.electronAPI?.setLocale?.(locale);
 }
 
 function getInitialLocale(): Locale {
