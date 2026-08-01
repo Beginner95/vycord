@@ -318,6 +318,7 @@ export const ru = {
     server_not_found: 'Сервер не найден',
     server_name_required: 'Введите название сервера',
     server_name_too_long: 'Название сервера не длиннее 100 символов',
+    server_name_taken: 'Сервер с таким именем уже существует',
     get_servers_failed: 'Не удалось загрузить список серверов',
     get_members_failed: 'Не удалось загрузить список участников',
     search_servers_failed: 'Не удалось выполнить поиск серверов',

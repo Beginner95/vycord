@@ -3,7 +3,7 @@ import { useAuthStore } from '@/stores/authStore';
 import { useServerStore } from '@/stores/serverStore';
 import { useMessageStore } from '@/stores/messageStore';
 import { wsService } from '@/services/websocket';
-import { apiService } from '@/services/api';
+import { apiService, apiErrorText } from '@/services/api';
 import { ServerList } from '@/components/ServerList';
 import { ChannelSidebar } from '@/components/ChannelSidebar';
 import { ChatArea } from '@/components/ChatArea';
@@ -77,6 +77,7 @@ export function AppPage() {
   const { setMessages } = useMessageStore();
   const [showCreateServer, setShowCreateServer] = useState(false);
   const [newServerName, setNewServerName] = useState('');
+  const [createServerError, setCreateServerError] = useState('');
   const [mobilePanel, setMobilePanel] = useState<MobilePanel>('servers');
   const [callNotif, setCallNotif] = useState<CallNotif | null>(null);
   const [voiceParticipants, setVoiceParticipants] = useState<Map<string, string[]>>(new Map());
@@ -421,6 +422,7 @@ export function AppPage() {
   const handleCreateServer = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newServerName.trim()) return;
+    setCreateServerError('');
 
     try {
       const server = await apiService.createServer(newServerName.trim()) as Server;
@@ -429,7 +431,7 @@ export function AppPage() {
       setShowCreateServer(false);
       handleSelectServer(server);
     } catch (err) {
-      console.error('Failed to create server:', err);
+      setCreateServerError(apiErrorText(err, t));
     }
   };
 
@@ -471,7 +473,7 @@ export function AppPage() {
       </div>
 
       {showCreateServer && (
-        <div className="modal-overlay" onClick={() => setShowCreateServer(false)}>
+        <div className="modal-overlay" onClick={() => { setShowCreateServer(false); setCreateServerError(''); }}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
             <h2>{t('server.create')}</h2>
             <form onSubmit={handleCreateServer}>
@@ -481,13 +483,14 @@ export function AppPage() {
                   id="server-name"
                   type="text"
                   value={newServerName}
-                  onChange={(e) => setNewServerName(e.target.value)}
+                  onChange={(e) => { setNewServerName(e.target.value); setCreateServerError(''); }}
                   placeholder={t('server.namePlaceholder')}
                   maxLength={100}
                   autoFocus
                   required
                 />
               </div>
+              {createServerError && <p className="modal-error">{createServerError}</p>}
               <div className="modal-actions">
                 <button type="button" onClick={() => setShowCreateServer(false)}>
                   {t('common.cancel')}
