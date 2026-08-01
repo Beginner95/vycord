@@ -97,6 +97,13 @@ func (m *MockServerRepository) GetByID(id uuid.UUID) (*domain.Server, error) {
 	}
 	return args.Get(0).(*domain.Server), args.Error(1)
 }
+func (m *MockServerRepository) GetByName(name string) (*domain.Server, error) {
+	args := m.Called(name)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*domain.Server), args.Error(1)
+}
 func (m *MockServerRepository) GetByOwner(ownerID uuid.UUID) ([]*domain.Server, error) {
 	args := m.Called(ownerID)
 	if args.Get(0) == nil {

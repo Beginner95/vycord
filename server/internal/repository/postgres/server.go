@@ -79,6 +79,36 @@ func (r *serverRepository) GetByID(id uuid.UUID) (*domain.Server, error) {
 	return server, nil
 }
 
+func (r *serverRepository) GetByName(name string) (*domain.Server, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	query := `
+		SELECT id, name, icon_url, owner_id, created_at, updated_at
+		FROM servers
+		WHERE LOWER(name) = LOWER($1)
+	`
+
+	server := &domain.Server{}
+	err := r.db.QueryRow(ctx, query, name).Scan(
+		&server.ID,
+		&server.Name,
+		&server.IconURL,
+		&server.OwnerID,
+		&server.CreatedAt,
+		&server.UpdatedAt,
+	)
+
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, fmt.Errorf("server name %s: %w", name, domain.ErrServerNotFound)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to get server by name: %w", err)
+	}
+
+	return server, nil
+}
+
 func (r *serverRepository) GetByOwner(ownerID uuid.UUID) ([]*domain.Server, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
