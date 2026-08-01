@@ -229,6 +229,7 @@ func TestUpdateServer_Owner_Success(t *testing.T) {
 	perms := permsOwner(serverID, ownerID)
 
 	srvRepo.On("GetByID", serverID).Return(&domain.Server{ID: serverID, OwnerID: ownerID, Name: "old"}, nil)
+	srvRepo.On("GetByName", "new").Return(nil, domain.ErrServerNotFound)
 	srvRepo.On("Update", serverID, map[string]interface{}{"name": "new"}).Return(nil)
 
 	uc := usecase.NewServerUseCase(srvRepo, chRepo, usrRepo, new(MockRoleRepository), storage, perms)
@@ -237,6 +238,41 @@ func TestUpdateServer_Owner_Success(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, "new", got.Name)
 	srvRepo.AssertCalled(t, "Update", serverID, map[string]interface{}{"name": "new"})
+}
+
+func TestUpdateServer_NameTaken_ReturnsErr(t *testing.T) {
+	serverID, ownerID := uuid.New(), uuid.New()
+	takenID := uuid.New()
+
+	srvRepo := new(MockServerRepository)
+	perms := permsOwner(serverID, ownerID)
+
+	srvRepo.On("GetByID", serverID).Return(&domain.Server{ID: serverID, OwnerID: ownerID, Name: "old"}, nil)
+	srvRepo.On("GetByName", "Webvaha").Return(&domain.Server{ID: takenID, Name: "Webvaha"}, nil)
+
+	uc := usecase.NewServerUseCase(srvRepo, new(MockChannelRepository), new(MockUserRepository), new(MockRoleRepository), new(MockStorage), perms)
+	got, err := uc.UpdateServer(serverID, ownerID, "Webvaha")
+
+	assert.Nil(t, got)
+	assert.ErrorIs(t, err, domain.ErrServerNameTaken)
+	srvRepo.AssertNotCalled(t, "Update", mock.Anything, mock.Anything)
+}
+
+func TestUpdateServer_RenameToOwnNameDifferentCase_Success(t *testing.T) {
+	serverID, ownerID := uuid.New(), uuid.New()
+
+	srvRepo := new(MockServerRepository)
+	perms := permsOwner(serverID, ownerID)
+
+	srvRepo.On("GetByID", serverID).Return(&domain.Server{ID: serverID, OwnerID: ownerID, Name: "Webvaha"}, nil)
+	srvRepo.On("GetByName", "webvaha").Return(&domain.Server{ID: serverID, Name: "webvaha"}, nil)
+	srvRepo.On("Update", serverID, map[string]interface{}{"name": "webvaha"}).Return(nil)
+
+	uc := usecase.NewServerUseCase(srvRepo, new(MockChannelRepository), new(MockUserRepository), new(MockRoleRepository), new(MockStorage), perms)
+	got, err := uc.UpdateServer(serverID, ownerID, "webvaha")
+
+	assert.NoError(t, err)
+	assert.Equal(t, "webvaha", got.Name)
 }
 
 func TestUpdateServer_NoManageServerPermission_Forbidden(t *testing.T) {

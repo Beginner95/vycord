@@ -319,6 +319,14 @@ func (uc *serverUseCase) UpdateServer(serverID, userID uuid.UUID, name string) (
 		return nil, fmt.Errorf("server %s: %w", serverID, domain.ErrServerNotFound)
 	}
 
+	existing, err := uc.serverRepo.GetByName(name)
+	if err != nil && !errors.Is(err, domain.ErrServerNotFound) {
+		return nil, fmt.Errorf("failed to check server name: %w", err)
+	}
+	if existing != nil && existing.ID != serverID {
+		return nil, domain.ErrServerNameTaken
+	}
+
 	if err := uc.serverRepo.Update(serverID, map[string]interface{}{"name": name}); err != nil {
 		return nil, fmt.Errorf("failed to update server: %w", err)
 	}
