@@ -444,7 +444,7 @@ export function AppPage() {
           currentServer={currentServer}
           user={user}
           onSelectServer={handleSelectServer}
-          onCreateServer={() => setShowCreateServer(true)}
+          onCreateServer={() => { setShowCreateServer(true); setCreateServerError(''); }}
           onJoinServer={handleJoinServer}
           onServerDeleted={handleServerRemoved}
         />
@@ -492,7 +492,7 @@ export function AppPage() {
               </div>
               {createServerError && <p className="modal-error">{createServerError}</p>}
               <div className="modal-actions">
-                <button type="button" onClick={() => setShowCreateServer(false)}>
+                <button type="button" onClick={() => { setShowCreateServer(false); setCreateServerError(''); }}>
                   {t('common.cancel')}
                 </button>
                 <button type="submit" className="primary">
