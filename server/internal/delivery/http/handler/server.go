@@ -43,6 +43,8 @@ func (h *ServerHandler) CreateServer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	req.Name = strings.TrimSpace(req.Name)
+
 	if req.Name == "" {
 		h.sendError(w, http.StatusBadRequest, httperr.CodeServerNameRequired, "server name is required")
 		return
