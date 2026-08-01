@@ -3,6 +3,7 @@ package usecase
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -43,6 +44,14 @@ func (uc *serverUseCase) CreateServer(name string, ownerID uuid.UUID) (*domain.S
 	_, err := uc.userRepo.GetByID(ownerID)
 	if err != nil {
 		return nil, fmt.Errorf("owner not found: %w", err)
+	}
+
+	existing, err := uc.serverRepo.GetByName(name)
+	if err != nil && !errors.Is(err, domain.ErrServerNotFound) {
+		return nil, fmt.Errorf("failed to check server name: %w", err)
+	}
+	if existing != nil {
+		return nil, domain.ErrServerNameTaken
 	}
 
 	now := time.Now()
