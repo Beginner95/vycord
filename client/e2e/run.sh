@@ -127,6 +127,7 @@ run_scenario "voice-sound-tones" "http://localhost:$VITE_PORT/e2e/voice-sound-to
 run_scenario "no-camera-screenshare" "$PAGE_URL"
 run_scenario "nc-toggle" "http://localhost:$VITE_PORT/e2e/nc-toggle.html"
 run_scenario "join-leave-events" "http://localhost:$VITE_PORT/e2e/join-leave-events.html"
+run_scenario "screenshare-echo-cancellation" "http://localhost:$VITE_PORT/e2e/screenshare-echo-cancellation.html"
 
 echo "PASS"
 exit 0

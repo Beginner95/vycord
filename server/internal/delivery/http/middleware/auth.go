@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/vycord/server/internal/delivery/http/httperr"
 	"github.com/vycord/server/internal/domain"
 )
 
@@ -25,19 +26,19 @@ func (m *AuthMiddleware) RequireAuth(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		authHeader := r.Header.Get("Authorization")
 		if authHeader == "" {
-			m.sendError(w, http.StatusUnauthorized, "missing authorization header")
+			m.sendError(w, http.StatusUnauthorized, httperr.CodeMissingAuthHeader, "missing authorization header")
 			return
 		}
 
 		tokenString := strings.TrimPrefix(authHeader, "Bearer ")
 		if tokenString == authHeader {
-			m.sendError(w, http.StatusUnauthorized, "invalid authorization header format")
+			m.sendError(w, http.StatusUnauthorized, httperr.CodeInvalidAuthHeader, "invalid authorization header format")
 			return
 		}
 
 		user, err := m.authUseCase.ValidateToken(tokenString)
 		if err != nil {
-			m.sendError(w, http.StatusUnauthorized, "invalid or expired token")
+			m.sendError(w, http.StatusUnauthorized, httperr.CodeInvalidToken, "invalid or expired token")
 			return
 		}
 
@@ -49,8 +50,6 @@ func (m *AuthMiddleware) RequireAuth(next http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
-func (m *AuthMiddleware) sendError(w http.ResponseWriter, status int, message string) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	w.Write([]byte(`{"error":"` + message + `"}`))
+func (m *AuthMiddleware) sendError(w http.ResponseWriter, status int, code, message string) {
+	httperr.Write(w, status, code, message)
 }

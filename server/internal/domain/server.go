@@ -35,31 +35,27 @@ const (
 type Member struct {
 	ServerID uuid.UUID `json:"server_id"`
 	UserID   uuid.UUID `json:"user_id"`
-	Role     Role      `json:"role"`
 	JoinedAt time.Time `json:"joined_at"`
 }
 
-type Role string
-
-const (
-	RoleOwner  Role = "owner"
-	RoleAdmin  Role = "admin"
-	RoleMember Role = "member"
-)
-
 // MemberWithUser — участник сервера с данными профиля, для списка участников
 // (эндпоинт GET /servers/{id}/members) и для автокомплита упоминаний на клиенте.
+// Roles — идентификаторы назначенных ролей без @everyone: она подразумевается
+// для каждого участника и в member_roles не хранится.
 type MemberWithUser struct {
-	UserID    uuid.UUID `json:"user_id"`
-	Username  string    `json:"username"`
-	AvatarURL *string   `json:"avatar_url,omitempty"`
-	Role      Role      `json:"role"`
-	JoinedAt  time.Time `json:"joined_at"`
+	UserID    uuid.UUID   `json:"user_id"`
+	Username  string      `json:"username"`
+	AvatarURL *string     `json:"avatar_url,omitempty"`
+	Roles     []uuid.UUID `json:"roles"`
+	JoinedAt  time.Time   `json:"joined_at"`
 }
 
 type ServerRepository interface {
 	Create(server *Server) error
 	GetByID(id uuid.UUID) (*Server, error)
+	// GetByName возвращает сервер с таким именем без учёта регистра.
+	// ErrServerNotFound — если сервер с таким именем не существует.
+	GetByName(name string) (*Server, error)
 	GetByOwner(ownerID uuid.UUID) ([]*Server, error)
 	GetByMember(userID uuid.UUID) ([]*Server, error)
 	Update(id uuid.UUID, updates map[string]interface{}) error
@@ -69,11 +65,9 @@ type ServerRepository interface {
 	RemoveMember(serverID, userID uuid.UUID) error
 	IsMember(serverID, userID uuid.UUID) (bool, error)
 	// GetMembersWithUsers возвращает всех участников сервера (включая владельца,
-	// который не хранится в server_members) вместе с данными профиля.
+	// который с миграции 009 хранится обычной строкой в server_members) вместе
+	// с данными профиля.
 	GetMembersWithUsers(serverID uuid.UUID) ([]*MemberWithUser, error)
-	// GetMemberRole возвращает роль пользователя в сервере (RoleOwner для владельца).
-	// Если пользователь не владелец и не участник — возвращает "" без ошибки.
-	GetMemberRole(serverID, userID uuid.UUID) (Role, error)
 }
 
 type ChannelRepository interface {
@@ -82,4 +76,8 @@ type ChannelRepository interface {
 	GetByServerID(serverID uuid.UUID) ([]*Channel, error)
 	Update(id uuid.UUID, updates map[string]interface{}) error
 	Delete(id uuid.UUID) error
+	// DeleteIfNotLast deletes the channel only if it is not the last remaining
+	// channel of its server, atomically. Returns false (no error) if it was
+	// the last channel and nothing was deleted.
+	DeleteIfNotLast(id, serverID uuid.UUID) (bool, error)
 }

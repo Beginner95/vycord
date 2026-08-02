@@ -1,6 +1,7 @@
 import { app, BrowserWindow, ipcMain, Tray, Menu, session, desktopCapturer, systemPreferences } from 'electron';
 import * as path from 'path';
 import { initAutoUpdater } from './updater';
+import { TRAY_LABELS, isTrayLocale, type TrayLocale } from './tray-labels';
 
 // __dirname is available via CommonJS module output
 const electronDistDir = __dirname;
@@ -8,6 +9,7 @@ const projectRoot = path.resolve(electronDistDir, '..');
 
 let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
+let currentTrayLocale: TrayLocale = 'ru';
 
 const isDev = process.env.NODE_ENV === 'development';
 
@@ -63,29 +65,47 @@ function createTray(): void {
     }
   }
 
+  tray.setToolTip('Vy Cord');
+  buildTrayMenu();
+
+  tray.on('click', () => {
+    mainWindow?.show();
+  });
+}
+
+// Пересобирается при каждой смене языка в рендерере — Electron не умеет
+// менять подписи уже установленного меню, только заменять меню целиком.
+function buildTrayMenu(): void {
+  // isDestroyed: before-quit делает tray.destroy(), но переменную не обнуляет,
+  // а locale:changed может прийти уже после этого.
+  if (!tray || tray.isDestroyed()) return;
+
+  const labels = TRAY_LABELS[currentTrayLocale];
   const contextMenu = Menu.buildFromTemplate([
     {
-      label: 'Open Vy Cord',
+      label: labels.open,
       click: () => {
         mainWindow?.show();
       },
     },
     { type: 'separator' },
     {
-      label: 'Quit',
+      label: labels.quit,
       click: () => {
         app.quit();
       },
     },
   ]);
 
-  tray.setToolTip('Vy Cord');
   tray.setContextMenu(contextMenu);
-
-  tray.on('click', () => {
-    mainWindow?.show();
-  });
 }
+
+// Локаль приходит из рендерера: значение произвольное, поэтому валидируется.
+ipcMain.on('locale:changed', (_event, locale: unknown) => {
+  if (!isTrayLocale(locale) || locale === currentTrayLocale) return;
+  currentTrayLocale = locale;
+  buildTrayMenu();
+});
 
 // Sync IPC: preload (sandbox:true, no Node.js) calls this to get the correct audio URL.
 // Main process has full Node.js access and knows where asarUnpack placed the files.

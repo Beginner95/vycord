@@ -3,6 +3,7 @@ import { useAuthStore } from '@/stores/authStore';
 import { callService } from '@/services/call';
 import { audioService } from '@/services/audio';
 import { wsService } from '@/services/websocket';
+import { useT } from '@/i18n';
 import './CallUI.css';
 
 function useMicLevel(stream: MediaStream | null, isMuted: boolean): number {
@@ -51,6 +52,7 @@ function useMicLevel(stream: MediaStream | null, isMuted: boolean): number {
 }
 
 export function CallUI() {
+  const t = useT();
   const { user } = useAuthStore();
   const [incomingCall, setIncomingCall] = useState<{ call_id: string; caller_id: string } | null>(null);
   const [activeCall, setActiveCall] = useState<{ call_id: string } | null>(null);
@@ -205,8 +207,8 @@ export function CallUI() {
         <div className="call-overlay incoming">
           <div className="call-modal">
             <div className="call-avatar incoming-avatar">📞</div>
-            <h2>Incoming Call</h2>
-            <p>User is calling you...</p>
+            <h2>{t('call.incomingCall')}</h2>
+            <p>{t('call.userCalling')}</p>
             <div className="call-actions">
               <button className="call-btn reject" onClick={handleRejectCall}>
                 ✕
@@ -250,7 +252,7 @@ export function CallUI() {
               </div>
               {user && (
                 <div className="local-video-label">
-                  {user.username} (You)
+                  {user.username} {t('call.youSuffix')}
                 </div>
               )}
             </div>
@@ -265,7 +267,7 @@ export function CallUI() {
                 className={`control-btn ${isMuted ? 'active' : ''}`}
                 onClick={handleToggleMute}
                 disabled={!isMicAvailable}
-                title={!isMicAvailable ? 'Микрофон недоступен' : isMuted ? 'Включить микрофон' : 'Выключить микрофон'}
+                title={!isMicAvailable ? t('call.micUnavailable') : isMuted ? t('call.micOn') : t('call.micOff')}
               >
                 {!isMicAvailable ? '🚫' : isMuted ? '🔇' : '🎤'}
               </button>
@@ -273,11 +275,11 @@ export function CallUI() {
             <button
               className={`control-btn ${isVideoOff ? 'active' : ''}`}
               onClick={handleToggleVideo}
-              title={isVideoOff ? 'Turn on camera' : 'Turn off camera'}
+              title={isVideoOff ? t('call.cameraOn') : t('call.cameraOff')}
             >
               {isVideoOff ? '📷' : '🎥'}
             </button>
-            <button className="control-btn end-call" onClick={handleEndCall} title="End call">
+            <button className="control-btn end-call" onClick={handleEndCall} title={t('call.endCall')}>
               📞
             </button>
           </div>

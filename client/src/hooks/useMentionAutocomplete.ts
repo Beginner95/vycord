@@ -1,10 +1,11 @@
 import { useMemo, useState, type RefObject, type ChangeEvent, type KeyboardEvent } from 'react';
-import type { MemberWithUser, Role } from '@/types';
-import { roleLabel } from '@/utils/mentions';
+import type { MemberWithUser } from '@/types';
+import { LEGACY_ROLE_KEYS, type LegacyMentionRole } from '@/utils/mentions';
+import { useT } from '@/i18n';
 
 export type MentionEntry =
   | { kind: 'user'; id: string; label: string }
-  | { kind: 'role'; role: Role; label: string }
+  | { kind: 'role'; role: LegacyMentionRole; label: string }
   | { kind: 'everyone'; label: string };
 
 interface UseMentionAutocompleteArgs {
@@ -12,7 +13,7 @@ interface UseMentionAutocompleteArgs {
   setValue: (value: string) => void;
   inputRef: RefObject<HTMLTextAreaElement | null>;
   members: MemberWithUser[];
-  currentUserRole: Role | undefined;
+  canMentionEveryone: boolean;
 }
 
 export function useMentionAutocomplete({
@@ -20,8 +21,9 @@ export function useMentionAutocomplete({
   setValue,
   inputRef,
   members,
-  currentUserRole,
+  canMentionEveryone,
 }: UseMentionAutocompleteArgs) {
+  const t = useT();
   const [mentionQuery, setMentionQuery] = useState<string | null>(null);
   const [mentionIndex, setMentionIndex] = useState(0);
 
@@ -36,10 +38,10 @@ export function useMentionAutocomplete({
       }
     }
 
-    const roleEntries: Array<{ role: Role; label: string }> = [
-      { role: 'owner', label: roleLabel('owner') },
-      { role: 'admin', label: roleLabel('admin') },
-      { role: 'member', label: roleLabel('member') },
+    const roleEntries: Array<{ role: LegacyMentionRole; label: string }> = [
+      { role: 'owner', label: t(LEGACY_ROLE_KEYS.owner) },
+      { role: 'admin', label: t(LEGACY_ROLE_KEYS.admin) },
+      { role: 'member', label: t(LEGACY_ROLE_KEYS.member) },
     ];
     for (const r of roleEntries) {
       if (r.label.toLowerCase().includes(q) || r.role.includes(q)) {
@@ -47,12 +49,12 @@ export function useMentionAutocomplete({
       }
     }
 
-    if ((currentUserRole === 'owner' || currentUserRole === 'admin') && 'everyone'.includes(q)) {
+    if (canMentionEveryone && 'everyone'.includes(q)) {
       entries.push({ kind: 'everyone', label: 'everyone' });
     }
 
     return entries;
-  }, [mentionQuery, members, currentUserRole]);
+  }, [mentionQuery, members, canMentionEveryone, t]);
 
   const reset = () => {
     setMentionQuery(null);

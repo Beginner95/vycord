@@ -30,12 +30,12 @@ func (uc *authUseCase) Register(username, email, password string) (*domain.User,
 	// Check if user already exists
 	_, err := uc.userRepo.GetByEmail(email)
 	if err == nil {
-		return nil, "", fmt.Errorf("user with this email already exists")
+		return nil, "", domain.ErrEmailTaken
 	}
 
 	_, err = uc.userRepo.GetByUsername(username)
 	if err == nil {
-		return nil, "", fmt.Errorf("user with this username already exists")
+		return nil, "", domain.ErrUsernameTaken
 	}
 
 	// Hash password
@@ -73,12 +73,12 @@ func (uc *authUseCase) Register(username, email, password string) (*domain.User,
 func (uc *authUseCase) Login(email, password string) (*domain.User, string, error) {
 	user, err := uc.userRepo.GetByEmail(email)
 	if err != nil {
-		return nil, "", fmt.Errorf("invalid email or password")
+		return nil, "", domain.ErrInvalidCredentials
 	}
 
 	// Compare password
 	if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(password)); err != nil {
-		return nil, "", fmt.Errorf("invalid email or password")
+		return nil, "", domain.ErrInvalidCredentials
 	}
 
 	// Generate JWT token

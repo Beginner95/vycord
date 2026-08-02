@@ -1,20 +1,22 @@
+import type { TKey } from '@/i18n';
+
+/** Роли из старой системы: встречаются в исторических сообщениях как <@&owner>. */
+export type LegacyMentionRole = 'owner' | 'admin' | 'member';
+
 export type MentionToken =
   | { type: 'text'; value: string }
   | { type: 'user'; value: string }
-  | { type: 'role'; value: 'owner' | 'admin' | 'member' }
+  | { type: 'role'; value: LegacyMentionRole }
   | { type: 'everyone'; value: string };
 
 const MENTION_RE = /<@([0-9a-fA-F-]{36})>|<@&(owner|admin|member)>|@everyone/g;
 
-const ROLE_LABELS: Record<string, string> = {
-  owner: 'Владелец',
-  admin: 'Админ',
-  member: 'Участник',
+/** Метки ролей старой системы — ключи словаря, переводятся в точке рендера. */
+export const LEGACY_ROLE_KEYS: Record<LegacyMentionRole, TKey> = {
+  owner: 'chat.legacyRoleOwner',
+  admin: 'chat.legacyRoleAdmin',
+  member: 'chat.legacyRoleMember',
 };
-
-export function roleLabel(role: string): string {
-  return ROLE_LABELS[role] ?? role;
-}
 
 // tokenizeMentions разбивает текст сообщения на обычный текст и токены
 // упоминаний — тот же формат, что парсит бэкенд (server/internal/usecase/mentions.go),
@@ -33,7 +35,7 @@ export function tokenizeMentions(content: string): MentionToken[] {
     if (match[1]) {
       tokens.push({ type: 'user', value: match[1] });
     } else if (match[2]) {
-      tokens.push({ type: 'role', value: match[2] as 'owner' | 'admin' | 'member' });
+      tokens.push({ type: 'role', value: match[2] as LegacyMentionRole });
     } else {
       tokens.push({ type: 'everyone', value: '@everyone' });
     }

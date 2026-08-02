@@ -1,7 +1,7 @@
 {
   "name": "vycord",
   "private": true,
-  "version": "1.0.1",
+  "version": "1.1.1",
   "description": "Discord-like application with noise cancellation",
   "author": "Vy Cord Team",
   "license": "MIT",
@@ -12,13 +12,15 @@
     "dev:electron:start": "cross-env NODE_ENV=development electron electron-dist/main.js",
     "dev:electron": "npm run dev:electron:build && npm run dev:electron:start",
     "dev": "concurrently -k \"npm run dev:vite\" \"wait-on http://localhost:3000 && npm run dev:electron\"",
-    "copy-audio-assets": "node -e \"const {cpSync}=require('fs');const src='node_modules/@cc-livekit/audio-pipeline-plugin/dist/';const dst='public/audio/';require('fs').mkdirSync(dst,{recursive:true});['AudioPipelineWorklet.js','AudioPipelineWorker.js','deepfilter.wasm','rnnoise.wasm','soundtouch.wasm'].forEach(f=>cpSync(src+f,dst+f));\"",
+    "copy-audio-assets": "node -e \"const {cpSync}=require('fs');const src='node_modules/@cc-livekit/audio-pipeline-plugin/dist/';const aecSrc='node_modules/@ennuicastr/webrtcaec3.js/dist/';const dst='public/audio/';require('fs').mkdirSync(dst,{recursive:true});['AudioPipelineWorklet.js','AudioPipelineWorker.js','deepfilter.wasm','rnnoise.wasm','soundtouch.wasm'].forEach(f=>cpSync(src+f,dst+f));['webrtcaec3-0.3.0.js','webrtcaec3-0.3.0.wasm'].forEach(f=>cpSync(aecSrc+f,dst+f));\"",
     "build:vite": "npm run copy-audio-assets && tsc && vite build",
     "build:electron-main": "tsc -p electron/tsconfig.json --outDir electron-dist --declaration false --declarationMap false --sourceMap false && node -e \"require('fs').writeFileSync('electron-dist/package.json', JSON.stringify({type:'commonjs'}))\"",
     "build": "npm run build:vite && npm run build:electron-main",
     "dist": "npm run build && electron-builder",
     "preview": "vite preview",
-    "test:e2e": "bash e2e/run.sh"
+    "test:e2e": "bash e2e/run.sh",
+    "smoke:aec3": "node scripts/smoke-test-aec3.mjs",
+    "check:i18n": "node scripts/check-i18n.mjs"
   },
   "dependencies": {
     "electron-log": "^5.4.4",
@@ -29,6 +31,7 @@
   },
   "devDependencies": {
     "@cc-livekit/audio-pipeline-plugin": "^1.1.9",
+    "@ennuicastr/webrtcaec3.js": "0.3.0",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.1",

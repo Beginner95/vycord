@@ -3,7 +3,7 @@ import { useAuthStore } from '@/stores/authStore';
 import { useServerStore } from '@/stores/serverStore';
 import { useMessageStore } from '@/stores/messageStore';
 import { wsService } from '@/services/websocket';
-import { apiService } from '@/services/api';
+import { apiService, apiErrorText } from '@/services/api';
 import { ServerList } from '@/components/ServerList';
 import { ChannelSidebar } from '@/components/ChannelSidebar';
 import { ChatArea } from '@/components/ChatArea';
@@ -12,6 +12,7 @@ import { TitleBar } from '@/components/TitleBar';
 import { CallUI } from '@/components/CallUI';
 import { GroupCallUI } from '@/components/GroupCallUI';
 import { groupCallService } from '@/services/groupCall';
+import { useT } from '@/i18n';
 import type { Server, Channel, Message, MemberWithUser } from '@/types';
 import './AppPage.css';
 
@@ -70,16 +71,19 @@ function startCallRingtone(): () => void {
 }
 
 export function AppPage() {
+  const t = useT();
   const { user, token, logout } = useAuthStore();
-  const { servers, setServers, setCurrentServer, currentServer, setChannels, channels, currentChannel, setCurrentChannel, setMembers, members } = useServerStore();
+  const { servers, setServers, setCurrentServer, currentServer, setChannels, channels, currentChannel, setCurrentChannel, setMembers, members, setPermissions } = useServerStore();
   const { setMessages } = useMessageStore();
   const [showCreateServer, setShowCreateServer] = useState(false);
   const [newServerName, setNewServerName] = useState('');
+  const [createServerError, setCreateServerError] = useState('');
   const [mobilePanel, setMobilePanel] = useState<MobilePanel>('servers');
   const [callNotif, setCallNotif] = useState<CallNotif | null>(null);
   const [voiceParticipants, setVoiceParticipants] = useState<Map<string, string[]>>(new Map());
   const stopRingtoneRef = useRef<(() => void) | null>(null);
   const callNotifRef = useRef<CallNotif | null>(null);
+  const handledRemovalsRef = useRef<Set<string>>(new Set());
   useEffect(() => { callNotifRef.current = callNotif; }, [callNotif]);
 
   useEffect(() => {
@@ -189,10 +193,100 @@ export function AppPage() {
     return () => unsubscribe();
   }, []);
 
+  useEffect(() => {
+    const unsubServerUpdate = wsService.on('server_update', (payload) => {
+      const p = payload as Server;
+      useServerStore.getState().patchServer(p.id, { name: p.name, icon_url: p.icon_url });
+    });
+    const unsubChannelUpdate = wsService.on('channel_update', (payload) => {
+      const p = payload as Channel;
+      useServerStore.getState().patchChannel(p.id, { name: p.name });
+    });
+    const unsubServerDelete = wsService.on('server_delete', (payload) => {
+      const { id } = payload as { id: string };
+      useServerStore.getState().removeServer(id);
+      handleServerRemoved(id);
+    });
+    const unsubChannelDelete = wsService.on('channel_delete', (payload) => {
+      const { id } = payload as { id: string; server_id: string };
+      useServerStore.getState().removeChannel(id);
+      handleChannelRemoved(id);
+    });
+    return () => {
+      unsubServerUpdate();
+      unsubChannelUpdate();
+      unsubServerDelete();
+      unsubChannelDelete();
+    };
+  }, [currentServer, currentChannel, channels]);
+
   const loadServerMembers = (serverId: string) => {
     apiService.getServerMembers(serverId)
       .then((members) => setMembers(members as MemberWithUser[]))
       .catch((err) => console.error('Failed to load server members:', err));
+  };
+
+  const loadServerPermissions = (serverId: string) => {
+    apiService
+      .getMyPermissions(serverId)
+      .then((res) =>
+        setPermissions(serverId, {
+          isOwner: res.is_owner,
+          bits: BigInt(res.permissions),
+          highestPosition: res.highest_position,
+        })
+      )
+      .catch((err) => console.error('Failed to load server permissions:', err));
+  };
+
+  const callLeaveGroupCall = () => {
+    const w = window as unknown as Record<string, unknown>;
+    (w.leaveGroupCall as (() => void) | undefined)?.();
+  };
+
+  const handleServerRemoved = (removedServerId: string) => {
+    if (handledRemovalsRef.current.has(removedServerId)) return;
+    handledRemovalsRef.current.add(removedServerId);
+
+    if (currentServer?.id !== removedServerId) return;
+
+    if (
+      groupCallService.isInGroupCallState &&
+      channels.some((c) => c.id === groupCallService.currentRoomIdState)
+    ) {
+      callLeaveGroupCall();
+    }
+
+    const remaining = useServerStore.getState().servers;
+    if (remaining.length > 0) {
+      handleSelectServer(remaining[0]);
+    } else {
+      setCurrentServer(null);
+      setChannels([]);
+      setCurrentChannel(null);
+      setMembers([]);
+      setMessages([]);
+    }
+  };
+
+  const handleChannelRemoved = (removedChannelId: string) => {
+    if (handledRemovalsRef.current.has(removedChannelId)) return;
+    handledRemovalsRef.current.add(removedChannelId);
+
+    if (groupCallService.isInGroupCallState && groupCallService.currentRoomIdState === removedChannelId) {
+      callLeaveGroupCall();
+    }
+
+    if (currentChannel?.id !== removedChannelId) return;
+
+    const remaining = useServerStore.getState().channels;
+    const textChannel = remaining.find((c) => c.type === 'text');
+    if (textChannel) {
+      handleSelectChannel(textChannel);
+    } else {
+      setCurrentChannel(null);
+      setMessages([]);
+    }
   };
 
   const loadServers = async () => {
@@ -217,6 +311,7 @@ export function AppPage() {
           const channelsData = await apiService.getChannels(server.id) as Channel[];
           setChannels(channelsData);
           loadServerMembers(server.id);
+          loadServerPermissions(server.id);
 
           if (lastChannelId) {
             const channel = channelsData.find((c) => c.id === lastChannelId);
@@ -232,6 +327,9 @@ export function AppPage() {
           const textChannel = channelsData.find((c) => c.type === 'text');
           if (textChannel) {
             handleSelectChannel(textChannel);
+          } else {
+            setCurrentChannel(null);
+            setMessages([]);
           }
           return;
         }
@@ -271,9 +369,13 @@ export function AppPage() {
       const data = await apiService.getChannels(server.id) as Channel[];
       setChannels(data);
       loadServerMembers(server.id);
+      loadServerPermissions(server.id);
       const textChannel = data.find((c) => c.type === 'text');
       if (textChannel) {
         handleSelectChannel(textChannel);
+      } else {
+        setCurrentChannel(null);
+        setMessages([]);
       }
     } catch (err) {
       console.error('Failed to load channels:', err);
@@ -320,6 +422,7 @@ export function AppPage() {
   const handleCreateServer = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newServerName.trim()) return;
+    setCreateServerError('');
 
     try {
       const server = await apiService.createServer(newServerName.trim()) as Server;
@@ -328,7 +431,7 @@ export function AppPage() {
       setShowCreateServer(false);
       handleSelectServer(server);
     } catch (err) {
-      console.error('Failed to create server:', err);
+      setCreateServerError(apiErrorText(err, t));
     }
   };
 
@@ -339,9 +442,11 @@ export function AppPage() {
         <ServerList
           servers={servers}
           currentServer={currentServer}
+          user={user}
           onSelectServer={handleSelectServer}
-          onCreateServer={() => setShowCreateServer(true)}
+          onCreateServer={() => { setShowCreateServer(true); setCreateServerError(''); }}
           onJoinServer={handleJoinServer}
+          onServerDeleted={handleServerRemoved}
         />
 
         <ChannelSidebar
@@ -354,6 +459,7 @@ export function AppPage() {
           onMobileBack={() => setMobilePanel('servers')}
           voiceParticipants={voiceParticipants}
           members={members}
+          onChannelDeleted={handleChannelRemoved}
         />
 
         <ChatArea
@@ -367,29 +473,30 @@ export function AppPage() {
       </div>
 
       {showCreateServer && (
-        <div className="modal-overlay" onClick={() => setShowCreateServer(false)}>
+        <div className="modal-overlay" onClick={() => { setShowCreateServer(false); setCreateServerError(''); }}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <h2>Create a Server</h2>
+            <h2>{t('server.create')}</h2>
             <form onSubmit={handleCreateServer}>
               <div className="form-group">
-                <label htmlFor="server-name">Server Name</label>
+                <label htmlFor="server-name">{t('server.nameLabel')}</label>
                 <input
                   id="server-name"
                   type="text"
                   value={newServerName}
-                  onChange={(e) => setNewServerName(e.target.value)}
-                  placeholder="My Awesome Server"
+                  onChange={(e) => { setNewServerName(e.target.value); setCreateServerError(''); }}
+                  placeholder={t('server.namePlaceholder')}
                   maxLength={100}
                   autoFocus
                   required
                 />
               </div>
+              {createServerError && <p className="modal-error">{createServerError}</p>}
               <div className="modal-actions">
-                <button type="button" onClick={() => setShowCreateServer(false)}>
-                  Cancel
+                <button type="button" onClick={() => { setShowCreateServer(false); setCreateServerError(''); }}>
+                  {t('common.cancel')}
                 </button>
                 <button type="submit" className="primary">
-                  Create
+                  {t('server.createSubmit')}
                 </button>
               </div>
             </form>
@@ -401,7 +508,8 @@ export function AppPage() {
         <div className="call-notif-banner">
           <span className="call-notif-icon">🔔</span>
           <span className="call-notif-text">
-            <strong>{callNotif.callerName}</strong> зовёт в <strong>#{callNotif.channelName}</strong>
+            <strong>{callNotif.callerName}</strong> {t('call.invitesTo')}{' '}
+            <strong>#{callNotif.channelName}</strong>
           </span>
           <button
             className="call-notif-join"
@@ -413,7 +521,7 @@ export function AppPage() {
               setCallNotif(null);
             }}
           >
-            Войти
+            {t('call.joinCall')}
           </button>
           <button
             className="call-notif-dismiss"

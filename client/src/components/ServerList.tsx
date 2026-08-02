@@ -1,21 +1,40 @@
 import { useState } from 'react';
-import type { Server } from '@/types';
-import { apiService } from '@/services/api';
+import type { Server, User } from '@/types';
+import { apiService, apiErrorText } from '@/services/api';
+import { useServerStore } from '@/stores/serverStore';
+import { ContextMenu } from '@/components/ContextMenu';
+import { EditServerModal } from '@/components/EditServerModal';
+import { can, PERMISSIONS } from '@/utils/permissions';
+import { useT } from '@/i18n';
 import './ServerList.css';
 
 interface ServerListProps {
   servers: Server[];
   currentServer: Server | null;
+  user: User | null;
   onSelectServer: (server: Server) => void;
   onCreateServer: () => void;
   onJoinServer: (server: Server) => void;
+  onServerDeleted: (serverId: string) => void;
 }
 
-export function ServerList({ servers, currentServer, onSelectServer, onCreateServer, onJoinServer }: ServerListProps) {
+export function ServerList({
+  servers,
+  currentServer,
+  user,
+  onSelectServer,
+  onCreateServer,
+  onJoinServer,
+  onServerDeleted,
+}: ServerListProps) {
+  const t = useT();
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<Server[]>([]);
   const [searchLoading, setSearchLoading] = useState(false);
+  const [menu, setMenu] = useState<{ x: number; y: number; server: Server } | null>(null);
+  const [editingServerId, setEditingServerId] = useState<string | null>(null);
+  const editingServer = servers.find((s) => s.id === editingServerId) ?? null;
 
   const handleSearch = async () => {
     if (!searchQuery.trim()) return;
@@ -30,18 +49,30 @@ export function ServerList({ servers, currentServer, onSelectServer, onCreateSer
     }
   };
 
+  const handleDeleteServer = async (server: Server) => {
+    if (!window.confirm(t('server.deleteConfirm', { name: server.name }))) return;
+    try {
+      await apiService.deleteServer(server.id);
+      useServerStore.getState().removeServer(server.id);
+      onServerDeleted(server.id);
+    } catch (err) {
+      console.error('Failed to delete server:', err);
+      alert(apiErrorText(err, t));
+    }
+  };
+
   return (
     <>
       <aside className="server-list">
         <div className="server-list-mobile-header">
-          <span>Servers</span>
+          <span>{t('server.listTitle')}</span>
         </div>
         <div
           className={`server-icon home ${!currentServer ? 'active' : ''}`}
-          title="Home"
+          title={t('server.home')}
         >
           <span className="server-icon-symbol">🏠</span>
-          <span className="server-icon-name">Home</span>
+          <span className="server-icon-name">{t('server.home')}</span>
         </div>
         <div className="server-divider" />
         {servers.map((server) => (
@@ -49,6 +80,12 @@ export function ServerList({ servers, currentServer, onSelectServer, onCreateSer
             key={server.id}
             className={`server-icon ${currentServer?.id === server.id ? 'active' : ''}`}
             onClick={() => onSelectServer(server)}
+            onContextMenu={(e) => {
+              const perms = useServerStore.getState().permissions.get(server.id);
+              if (!can(perms, PERMISSIONS.MANAGE_SERVER) && server.owner_id !== user?.id) return;
+              e.preventDefault();
+              setMenu({ x: e.clientX, y: e.clientY, server });
+            }}
             title={server.name}
           >
             {server.icon_url ? (
@@ -59,31 +96,31 @@ export function ServerList({ servers, currentServer, onSelectServer, onCreateSer
             <span className="server-icon-name">{server.name}</span>
           </div>
         ))}
-        <div className="server-icon add" onClick={onCreateServer} title="Create a Server">
+        <div className="server-icon add" onClick={onCreateServer} title={t('server.create')}>
           <span className="server-icon-symbol">+</span>
-          <span className="server-icon-name">Create Server</span>
+          <span className="server-icon-name">{t('server.create')}</span>
         </div>
-        <div className="server-icon search" onClick={() => setSearchOpen(true)} title="Explore Servers">
+        <div className="server-icon search" onClick={() => setSearchOpen(true)} title={t('server.explore')}>
           <span className="server-icon-symbol">🔍</span>
-          <span className="server-icon-name">Explore Servers</span>
+          <span className="server-icon-name">{t('server.explore')}</span>
         </div>
       </aside>
 
       {searchOpen && (
         <div className="modal-overlay" onClick={() => setSearchOpen(false)}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <h2>Explore Servers</h2>
+            <h2>{t('server.explore')}</h2>
             <div className="search-bar">
               <input
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
-                placeholder="Search servers..."
+                placeholder={t('server.searchPlaceholder')}
                 autoFocus
               />
               <button onClick={handleSearch} disabled={searchLoading}>
-                {searchLoading ? 'Searching...' : 'Search'}
+                {searchLoading ? t('server.searching') : t('server.search')}
               </button>
             </div>
 
@@ -93,7 +130,7 @@ export function ServerList({ servers, currentServer, onSelectServer, onCreateSer
                   <div key={s.id} className="search-result-item">
                     <span>{s.name}</span>
                     <button onClick={() => { onJoinServer(s); setSearchOpen(false); }}>
-                      Join
+                      {t('server.join')}
                     </button>
                   </div>
                 ))}
@@ -101,10 +138,30 @@ export function ServerList({ servers, currentServer, onSelectServer, onCreateSer
             )}
 
             {searchQuery && searchResults.length === 0 && !searchLoading && (
-              <p className="search-empty">No servers found</p>
+              <p className="search-empty">{t('server.noneFound')}</p>
             )}
           </div>
         </div>
+      )}
+
+      {menu && (
+        <ContextMenu
+          x={menu.x}
+          y={menu.y}
+          onClose={() => setMenu(null)}
+          items={[
+            { label: t('server.editMenu'), onClick: () => setEditingServerId(menu.server.id) },
+            // Удаление сервера — привилегия владения и на бэкенде (DeleteServer
+            // проверяет только owner_id), роль с MANAGE_SERVER снести сервер не может.
+            ...(menu.server.owner_id === user?.id
+              ? [{ label: t('server.deleteMenu'), danger: true, onClick: () => handleDeleteServer(menu.server) }]
+              : []),
+          ]}
+        />
+      )}
+
+      {editingServer && (
+        <EditServerModal server={editingServer} onClose={() => setEditingServerId(null)} />
       )}
     </>
   );

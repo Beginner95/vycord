@@ -1,7 +1,36 @@
 import { useAuthStore } from '@/stores/authStore';
-import type { User } from '@/types';
+import type { Server, User, Role, PermissionsResponse } from '@/types';
+import { hasKey, type TFunc, type TKey } from '@/i18n';
 
 export const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8080';
+
+export class ApiError extends Error {
+  constructor(
+    message: string,
+    readonly code?: string,
+    readonly status?: number,
+  ) {
+    super(message);
+    this.name = 'ApiError';
+  }
+}
+
+/**
+ * Текст ошибки API для показа пользователю.
+ *
+ * Переводит по стабильному code с сервера. Фолбэк на серверный текст
+ * обязателен: если код клиенту неизвестен (старый клиент против нового
+ * сервера или наоборот), пользователь увидит ровно то же, что видел до
+ * появления локализации, — регрессии не будет ни при каком рассинхроне.
+ */
+export function apiErrorText(err: unknown, t: TFunc): string {
+  if (err instanceof ApiError && err.code) {
+    const key = `errors.${err.code}`;
+    if (hasKey(key)) return t(key as TKey);
+  }
+  if (err instanceof Error && err.message) return err.message;
+  return t('errors.unknown');
+}
 
 class ApiService {
   private getToken(): string | null {
@@ -32,13 +61,17 @@ class ApiService {
     });
 
     if (response.status === 401) {
+      // Разлогин при 401 сохраняем без изменений (VYC-54).
       useAuthStore.getState().logout();
-      throw new Error('Unauthorized');
+      // Но тело ответа больше не выбрасываем: 401 приходит и от /auth/login,
+      // где code отличает «неверный пароль» от «истёкший токен».
+      const body = await response.json().catch(() => ({ error: 'Unauthorized' }));
+      throw new ApiError(body.error || 'Unauthorized', body.code, 401);
     }
 
     if (!response.ok) {
-      const error = await response.json().catch(() => ({ error: response.statusText }));
-      throw new Error(error.error || `HTTP ${response.status}`);
+      const body = await response.json().catch(() => ({ error: response.statusText }));
+      throw new ApiError(body.error || `HTTP ${response.status}`, body.code, response.status);
     }
 
     // Handle 204 No Content
@@ -65,14 +98,18 @@ class ApiService {
     });
 
     if (response.status === 401) {
+      // Разлогин при 401 сохраняем без изменений (VYC-54).
       useAuthStore.getState().logout();
       window.location.href = '/login';
-      throw new Error('Unauthorized');
+      // Но тело ответа больше не выбрасываем: 401 приходит и от /auth/login,
+      // где code отличает «неверный пароль» от «истёкший токен».
+      const body = await response.json().catch(() => ({ error: 'Unauthorized' }));
+      throw new ApiError(body.error || 'Unauthorized', body.code, 401);
     }
 
     if (!response.ok) {
-      const error = await response.json().catch(() => ({ error: response.statusText }));
-      throw new Error(error.error || `HTTP ${response.status}`);
+      const body = await response.json().catch(() => ({ error: response.statusText }));
+      throw new ApiError(body.error || `HTTP ${response.status}`, body.code, response.status);
     }
 
     return response.json();
@@ -153,6 +190,80 @@ class ApiService {
     });
   }
 
+  async updateServer(id: string, name: string) {
+    return this.request(`/api/v1/servers/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ name }),
+    });
+  }
+
+  async deleteServer(id: string) {
+    return this.request(`/api/v1/servers/${id}`, {
+      method: 'DELETE',
+    });
+  }
+
+  async uploadServerIcon(id: string, blob: Blob) {
+    const formData = new FormData();
+    formData.append('icon', blob, 'icon.jpg');
+    return this.requestForm<Server>(`/api/v1/servers/${id}/icon`, {
+      method: 'POST',
+      body: formData,
+    });
+  }
+
+  async removeServerIcon(id: string) {
+    return this.requestForm<Server>(`/api/v1/servers/${id}/icon`, {
+      method: 'DELETE',
+    });
+  }
+
+  // Roles
+  async getRoles(serverId: string): Promise<Role[]> {
+    return this.request(`/api/v1/servers/${serverId}/roles`);
+  }
+
+  async createRole(
+    serverId: string,
+    body: { name: string; color?: number; position?: number; permissions?: string }
+  ): Promise<Role> {
+    return this.request(`/api/v1/servers/${serverId}/roles`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    });
+  }
+
+  async updateRole(
+    serverId: string,
+    roleId: string,
+    patch: { name?: string; color?: number; position?: number; permissions?: string }
+  ): Promise<Role> {
+    return this.request(`/api/v1/servers/${serverId}/roles/${roleId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(patch),
+    });
+  }
+
+  async deleteRole(serverId: string, roleId: string): Promise<void> {
+    return this.request(`/api/v1/servers/${serverId}/roles/${roleId}`, { method: 'DELETE' });
+  }
+
+  async assignRole(serverId: string, userId: string, roleId: string): Promise<void> {
+    return this.request(`/api/v1/servers/${serverId}/members/${userId}/roles/${roleId}`, {
+      method: 'PUT',
+    });
+  }
+
+  async unassignRole(serverId: string, userId: string, roleId: string): Promise<void> {
+    return this.request(`/api/v1/servers/${serverId}/members/${userId}/roles/${roleId}`, {
+      method: 'DELETE',
+    });
+  }
+
+  async getMyPermissions(serverId: string): Promise<PermissionsResponse> {
+    return this.request(`/api/v1/servers/${serverId}/members/me/permissions`);
+  }
+
   // Channels
   async createChannel(serverId: string, name: string, type: 'text' | 'voice' = 'text') {
     return this.request(`/api/v1/servers/${serverId}/channels`, {
@@ -167,6 +278,19 @@ class ApiService {
 
   async getServerMembers(serverId: string) {
     return this.request(`/api/v1/servers/${serverId}/members`);
+  }
+
+  async updateChannel(serverId: string, channelId: string, name: string) {
+    return this.request(`/api/v1/servers/${serverId}/channels/${channelId}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ name }),
+    });
+  }
+
+  async deleteChannel(serverId: string, channelId: string) {
+    return this.request(`/api/v1/servers/${serverId}/channels/${channelId}`, {
+      method: 'DELETE',
+    });
   }
 
   // Messages

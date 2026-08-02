@@ -12,68 +12,63 @@ type messageUseCase struct {
 	messageRepo domain.MessageRepository
 	channelRepo domain.ChannelRepository
 	serverRepo  domain.ServerRepository
+	perms       domain.PermissionUseCase
 }
 
 func NewMessageUseCase(
 	messageRepo domain.MessageRepository,
 	channelRepo domain.ChannelRepository,
 	serverRepo domain.ServerRepository,
+	perms domain.PermissionUseCase,
 ) domain.MessageUseCase {
 	return &messageUseCase{
 		messageRepo: messageRepo,
 		channelRepo: channelRepo,
 		serverRepo:  serverRepo,
+		perms:       perms,
 	}
 }
 
-// requireMembership проверяет, что канал существует и пользователь состоит в его
-// сервере, и возвращает сам канал (нужен вызывающему для serverID без повторного запроса).
-// Возвращает domain.ErrChannelNotFound (обёрнуто) или domain.ErrForbidden.
-func (uc *messageUseCase) requireMembership(channelID, userID uuid.UUID) (*domain.Channel, error) {
+// requirePermission проверяет, что канал существует и у пользователя есть право
+// perm на его сервере. Возвращает сам канал — вызывающему нужен serverID
+// без повторного запроса.
+func (uc *messageUseCase) requirePermission(channelID, userID uuid.UUID, perm domain.Permission) (*domain.Channel, error) {
 	ch, err := uc.channelRepo.GetByID(channelID)
 	if err != nil {
 		return nil, fmt.Errorf("get channel: %w", err)
 	}
 
-	server, err := uc.serverRepo.GetByID(ch.ServerID)
+	ps, err := uc.perms.Resolve(ch.ServerID, userID)
 	if err != nil {
-		return nil, fmt.Errorf("get server: %w", err)
+		return nil, err
 	}
-	if server.OwnerID == userID {
-		return ch, nil
-	}
-
-	isMember, err := uc.serverRepo.IsMember(ch.ServerID, userID)
-	if err != nil {
-		return nil, fmt.Errorf("check membership: %w", err)
-	}
-	if !isMember {
+	if !ps.Has(perm) {
 		return nil, domain.ErrForbidden
 	}
 	return ch, nil
 }
 
 // validateMentions проверяет, что все упомянутые через <@uuid> пользователи
-// состоят в сервере, а @everyone встречается только в сообщении от owner/admin.
+// состоят в сервере, а @everyone доступен только при праве MENTION_EVERYONE.
 func (uc *messageUseCase) validateMentions(serverID, authorID uuid.UUID, content string) error {
 	m := parseMentions(content)
 
 	for _, uid := range m.userIDs {
-		role, err := uc.serverRepo.GetMemberRole(serverID, uid)
+		isMember, err := uc.serverRepo.IsMember(serverID, uid)
 		if err != nil {
 			return fmt.Errorf("check mention membership: %w", err)
 		}
-		if role == "" {
+		if !isMember {
 			return fmt.Errorf("mention %s: %w", uid, domain.ErrInvalidMention)
 		}
 	}
 
 	if m.everyone {
-		role, err := uc.serverRepo.GetMemberRole(serverID, authorID)
+		ps, err := uc.perms.Resolve(serverID, authorID)
 		if err != nil {
-			return fmt.Errorf("get author role: %w", err)
+			return fmt.Errorf("resolve author permissions: %w", err)
 		}
-		if role != domain.RoleOwner && role != domain.RoleAdmin {
+		if !ps.Has(domain.PermMentionEveryone) {
 			return domain.ErrMentionForbidden
 		}
 	}
@@ -82,7 +77,7 @@ func (uc *messageUseCase) validateMentions(serverID, authorID uuid.UUID, content
 }
 
 func (uc *messageUseCase) CreateMessage(channelID, userID uuid.UUID, content string) (*domain.Message, error) {
-	ch, err := uc.requireMembership(channelID, userID)
+	ch, err := uc.requirePermission(channelID, userID, domain.PermSendMessages)
 	if err != nil {
 		return nil, err
 	}
@@ -108,7 +103,7 @@ func (uc *messageUseCase) CreateMessage(channelID, userID uuid.UUID, content str
 }
 
 func (uc *messageUseCase) GetMessages(channelID, userID uuid.UUID, limit, offset int) ([]*domain.Message, error) {
-	if _, err := uc.requireMembership(channelID, userID); err != nil {
+	if _, err := uc.requirePermission(channelID, userID, domain.PermViewChannels); err != nil {
 		return nil, err
 	}
 
@@ -138,7 +133,7 @@ func normalizeSearchLimit(limit int) int {
 }
 
 func (uc *messageUseCase) SearchMessages(channelID, userID uuid.UUID, query string, limit, offset int) ([]*domain.MessageWithAuthor, int, error) {
-	if _, err := uc.requireMembership(channelID, userID); err != nil {
+	if _, err := uc.requirePermission(channelID, userID, domain.PermViewChannels); err != nil {
 		return nil, 0, err
 	}
 
@@ -150,7 +145,7 @@ func (uc *messageUseCase) SearchMessages(channelID, userID uuid.UUID, query stri
 }
 
 func (uc *messageUseCase) GetMessagesAround(channelID, messageID, userID uuid.UUID, limit int) ([]*domain.Message, error) {
-	if _, err := uc.requireMembership(channelID, userID); err != nil {
+	if _, err := uc.requirePermission(channelID, userID, domain.PermViewChannels); err != nil {
 		return nil, err
 	}
 
@@ -162,7 +157,7 @@ func (uc *messageUseCase) GetMessagesAround(channelID, messageID, userID uuid.UU
 }
 
 func (uc *messageUseCase) UpdateMessage(channelID, messageID, userID uuid.UUID, content string) (*domain.Message, error) {
-	ch, err := uc.requireMembership(channelID, userID)
+	ch, err := uc.requirePermission(channelID, userID, domain.PermSendMessages)
 	if err != nil {
 		return nil, err
 	}
@@ -196,7 +191,7 @@ func (uc *messageUseCase) UpdateMessage(channelID, messageID, userID uuid.UUID, 
 }
 
 func (uc *messageUseCase) DeleteMessage(channelID, messageID, userID uuid.UUID) error {
-	if _, err := uc.requireMembership(channelID, userID); err != nil {
+	if _, err := uc.requirePermission(channelID, userID, domain.PermSendMessages); err != nil {
 		return err
 	}
 
