@@ -18,7 +18,22 @@ type UserUseCase interface {
 	RemoveAvatar(id uuid.UUID) (*User, error)
 }
 
+// ChannelAccessChecker — минимальный срез ServerUseCase для мест, которым
+// важно только «есть ли доступ», а не весь набор операций над сервером
+// (WS-хаб, выдача voice-токенов для SFU).
+type ChannelAccessChecker interface {
+	// CheckChannelAccess возвращает канал, если userID может его видеть и
+	// использовать: публичный канал требует членства в сервере
+	// (PermViewChannels), приватный — дополнительно Channel.CanAccess.
+	CheckChannelAccess(channelID, userID uuid.UUID) (*Channel, error)
+	// GetChannelAudience возвращает ID пользователей, которым можно
+	// адресовать реалтайм-события приватного канала (войс-ростер и т.п.).
+	// nil означает «канал публичный, шли всем подключённым».
+	GetChannelAudience(channelID uuid.UUID) ([]uuid.UUID, error)
+}
+
 type ServerUseCase interface {
+	ChannelAccessChecker
 	CreateServer(name string, ownerID uuid.UUID) (*Server, error)
 	GetServer(id uuid.UUID) (*Server, error)
 	GetUserServers(userID uuid.UUID) ([]*Server, error)

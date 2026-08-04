@@ -483,6 +483,85 @@ func (uc *serverUseCase) UpdateServerIcon(serverID, userID uuid.UUID, data []byt
 	return server, nil
 }
 
+func (uc *serverUseCase) CheckChannelAccess(channelID, userID uuid.UUID) (*domain.Channel, error) {
+	ch, err := uc.channelRepo.GetByID(channelID)
+	if err != nil {
+		return nil, err
+	}
+
+	ps, err := uc.perms.Resolve(ch.ServerID, userID)
+	if err != nil {
+		return nil, err
+	}
+	if !ps.Has(domain.PermViewChannels) {
+		return nil, domain.ErrChannelForbidden
+	}
+
+	isMember := false
+	if ch.IsPrivate && !ch.IsManagedBy(userID, ps) {
+		isMember, err = uc.channelRepo.IsMember(ch.ID, userID)
+		if err != nil {
+			return nil, fmt.Errorf("check channel membership: %w", err)
+		}
+	}
+	if !ch.CanAccess(userID, ps, isMember) {
+		return nil, domain.ErrChannelForbidden
+	}
+
+	return ch, nil
+}
+
+// GetChannelAudience returns the user IDs allowed to receive realtime events
+// scoped to channelID: nil for a public channel (broadcast to everyone),
+// otherwise the channel owner, the server owner, every administrator, and
+// every invited channel_member.
+func (uc *serverUseCase) GetChannelAudience(channelID uuid.UUID) ([]uuid.UUID, error) {
+	ch, err := uc.channelRepo.GetByID(channelID)
+	if err != nil {
+		return nil, err
+	}
+	if !ch.IsPrivate {
+		return nil, nil
+	}
+
+	server, err := uc.serverRepo.GetByID(ch.ServerID)
+	if err != nil {
+		return nil, fmt.Errorf("get server: %w", err)
+	}
+
+	members, err := uc.channelRepo.GetMembersWithUsers(ch.ID)
+	if err != nil {
+		return nil, fmt.Errorf("get channel members: %w", err)
+	}
+
+	audience := make(map[uuid.UUID]struct{}, len(members)+2)
+	audience[ch.OwnerID] = struct{}{}
+	audience[server.OwnerID] = struct{}{}
+	for _, m := range members {
+		audience[m.UserID] = struct{}{}
+	}
+
+	serverMembers, err := uc.serverRepo.GetMembersWithUsers(ch.ServerID)
+	if err != nil {
+		return nil, fmt.Errorf("get server members: %w", err)
+	}
+	for _, m := range serverMembers {
+		ps, err := uc.perms.Resolve(ch.ServerID, m.UserID)
+		if err != nil {
+			return nil, fmt.Errorf("resolve permissions for %s: %w", m.UserID, err)
+		}
+		if ps.Has(domain.PermAdministrator) {
+			audience[m.UserID] = struct{}{}
+		}
+	}
+
+	result := make([]uuid.UUID, 0, len(audience))
+	for id := range audience {
+		result = append(result, id)
+	}
+	return result, nil
+}
+
 // RemoveServerIcon очищает icon_url сервера и удаляет файл. No-op, если
 // иконка уже не установлена.
 func (uc *serverUseCase) RemoveServerIcon(serverID, userID uuid.UUID) (*domain.Server, error) {
