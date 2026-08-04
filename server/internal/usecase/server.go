@@ -226,7 +226,7 @@ func (uc *serverUseCase) SearchServers(query string, limit int) ([]*domain.Serve
 	return servers, nil
 }
 
-func (uc *serverUseCase) CreateChannel(serverID, userID uuid.UUID, name string, channelType domain.ChannelType) (*domain.Channel, error) {
+func (uc *serverUseCase) CreateChannel(serverID, userID uuid.UUID, name string, channelType domain.ChannelType, isPrivate bool) (*domain.Channel, error) {
 	if err := uc.requirePermission(serverID, userID, domain.PermManageChannels); err != nil {
 		return nil, err
 	}
@@ -245,6 +245,8 @@ func (uc *serverUseCase) CreateChannel(serverID, userID uuid.UUID, name string, 
 		Name:      name,
 		Type:      channelType,
 		Position:  position,
+		IsPrivate: isPrivate,
+		OwnerID:   userID,
 		CreatedAt: now,
 		UpdatedAt: now,
 	}
@@ -253,12 +255,22 @@ func (uc *serverUseCase) CreateChannel(serverID, userID uuid.UUID, name string, 
 		return nil, fmt.Errorf("failed to create channel: %w", err)
 	}
 
+	if isPrivate {
+		if err := uc.channelRepo.AddMember(channel.ID, userID, userID); err != nil {
+			return nil, fmt.Errorf("failed to add channel owner as member: %w", err)
+		}
+	}
+
 	return channel, nil
 }
 
 func (uc *serverUseCase) GetChannels(serverID, userID uuid.UUID) ([]*domain.Channel, error) {
-	if err := uc.requirePermission(serverID, userID, domain.PermViewChannels); err != nil {
+	ps, err := uc.perms.Resolve(serverID, userID)
+	if err != nil {
 		return nil, err
+	}
+	if !ps.Has(domain.PermViewChannels) {
+		return nil, domain.ErrForbidden
 	}
 
 	channels, err := uc.channelRepo.GetByServerID(serverID)
@@ -266,7 +278,25 @@ func (uc *serverUseCase) GetChannels(serverID, userID uuid.UUID) ([]*domain.Chan
 		return nil, fmt.Errorf("failed to get channels: %w", err)
 	}
 
-	return channels, nil
+	visible := make([]*domain.Channel, 0, len(channels))
+	for _, ch := range channels {
+		if !ch.IsPrivate {
+			visible = append(visible, ch)
+			continue
+		}
+		isMember := false
+		if !ch.IsManagedBy(userID, ps) {
+			isMember, err = uc.channelRepo.IsMember(ch.ID, userID)
+			if err != nil {
+				return nil, fmt.Errorf("check channel membership: %w", err)
+			}
+		}
+		if ch.CanAccess(userID, ps, isMember) {
+			visible = append(visible, ch)
+		}
+	}
+
+	return visible, nil
 }
 
 func (uc *serverUseCase) GetMembers(serverID, userID uuid.UUID) ([]*domain.MemberWithUser, error) {
@@ -347,7 +377,7 @@ func (uc *serverUseCase) DeleteServer(serverID, userID uuid.UUID) error {
 	return nil
 }
 
-func (uc *serverUseCase) UpdateChannel(serverID, channelID, userID uuid.UUID, name string) (*domain.Channel, error) {
+func (uc *serverUseCase) UpdateChannel(serverID, channelID, userID uuid.UUID, name string, isPrivate bool) (*domain.Channel, error) {
 	if err := uc.requirePermission(serverID, userID, domain.PermManageChannels); err != nil {
 		return nil, err
 	}
@@ -360,11 +390,35 @@ func (uc *serverUseCase) UpdateChannel(serverID, channelID, userID uuid.UUID, na
 		return nil, fmt.Errorf("channel %s: %w", channelID, domain.ErrChannelNotFound)
 	}
 
-	if err := uc.channelRepo.Update(channelID, map[string]interface{}{"name": name}); err != nil {
+	privacyChanged := isPrivate != channel.IsPrivate
+	if privacyChanged {
+		ps, err := uc.perms.Resolve(serverID, userID)
+		if err != nil {
+			return nil, err
+		}
+		if !channel.IsManagedBy(userID, ps) {
+			return nil, domain.ErrChannelForbidden
+		}
+	}
+
+	if err := uc.channelRepo.Update(channelID, map[string]interface{}{"name": name, "is_private": isPrivate}); err != nil {
 		return nil, fmt.Errorf("failed to update channel: %w", err)
 	}
 
+	if privacyChanged {
+		if isPrivate {
+			if err := uc.channelRepo.AddMember(channel.ID, channel.OwnerID, channel.OwnerID); err != nil {
+				return nil, fmt.Errorf("failed to add channel owner as member: %w", err)
+			}
+		} else {
+			if err := uc.channelRepo.RemoveAllMembers(channel.ID); err != nil {
+				return nil, fmt.Errorf("failed to clear channel members: %w", err)
+			}
+		}
+	}
+
 	channel.Name = name
+	channel.IsPrivate = isPrivate
 	channel.UpdatedAt = time.Now()
 	return channel, nil
 }

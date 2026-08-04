@@ -357,10 +357,10 @@ func TestUpdateChannel_Owner_Success(t *testing.T) {
 	perms := permsOwner(serverID, ownerID)
 
 	chRepo.On("GetByID", channelID).Return(&domain.Channel{ID: channelID, ServerID: serverID, Name: "old"}, nil)
-	chRepo.On("Update", channelID, map[string]interface{}{"name": "new"}).Return(nil)
+	chRepo.On("Update", channelID, map[string]interface{}{"name": "new", "is_private": false}).Return(nil)
 
 	uc := usecase.NewServerUseCase(srvRepo, chRepo, usrRepo, new(MockRoleRepository), storage, perms)
-	got, err := uc.UpdateChannel(serverID, channelID, ownerID, "new")
+	got, err := uc.UpdateChannel(serverID, channelID, ownerID, "new", false)
 
 	assert.NoError(t, err)
 	assert.Equal(t, "new", got.Name)
@@ -376,7 +376,7 @@ func TestUpdateChannel_NoManageChannelsPermission_Forbidden(t *testing.T) {
 	perms := permsWith(serverID, userID, 0)
 
 	uc := usecase.NewServerUseCase(srvRepo, chRepo, usrRepo, new(MockRoleRepository), storage, perms)
-	got, err := uc.UpdateChannel(serverID, channelID, userID, "new")
+	got, err := uc.UpdateChannel(serverID, channelID, userID, "new", false)
 
 	assert.Nil(t, got)
 	assert.ErrorIs(t, err, domain.ErrForbidden)
@@ -395,7 +395,7 @@ func TestUpdateChannel_WrongServer_NotFound(t *testing.T) {
 	chRepo.On("GetByID", channelID).Return(&domain.Channel{ID: channelID, ServerID: otherServerID}, nil)
 
 	uc := usecase.NewServerUseCase(srvRepo, chRepo, usrRepo, new(MockRoleRepository), storage, perms)
-	got, err := uc.UpdateChannel(serverID, channelID, ownerID, "new")
+	got, err := uc.UpdateChannel(serverID, channelID, ownerID, "new", false)
 
 	assert.Nil(t, got)
 	assert.ErrorIs(t, err, domain.ErrChannelNotFound)
@@ -579,7 +579,7 @@ func TestCreateChannel_WithoutManageChannels_Forbidden(t *testing.T) {
 	perms := permsWith(serverID, userID, domain.PermViewChannels|domain.PermSendMessages)
 
 	uc := usecase.NewServerUseCase(new(MockServerRepository), chRepo, new(MockUserRepository), new(MockRoleRepository), new(MockStorage), perms)
-	got, err := uc.CreateChannel(serverID, userID, "новый", domain.ChannelTypeText)
+	got, err := uc.CreateChannel(serverID, userID, "новый", domain.ChannelTypeText, false)
 
 	assert.Nil(t, got)
 	assert.ErrorIs(t, err, domain.ErrForbidden)
@@ -595,7 +595,7 @@ func TestCreateChannel_WithManageChannels_Success(t *testing.T) {
 	perms := permsWith(serverID, userID, domain.PermManageChannels)
 
 	uc := usecase.NewServerUseCase(new(MockServerRepository), chRepo, new(MockUserRepository), new(MockRoleRepository), new(MockStorage), perms)
-	got, err := uc.CreateChannel(serverID, userID, "новый", domain.ChannelTypeText)
+	got, err := uc.CreateChannel(serverID, userID, "новый", domain.ChannelTypeText, false)
 
 	require.NoError(t, err)
 	assert.Equal(t, "новый", got.Name)
@@ -613,4 +613,192 @@ func TestGetChannels_WithoutViewPermission_Forbidden(t *testing.T) {
 	assert.Nil(t, got)
 	assert.ErrorIs(t, err, domain.ErrForbidden)
 	chRepo.AssertNotCalled(t, "GetByServerID", mock.Anything)
+}
+
+func TestCreateChannel_Private_AddsOwnerAsMember(t *testing.T) {
+	serverID := uuid.New()
+	userID := uuid.New()
+
+	chRepo := new(MockChannelRepository)
+	chRepo.On("GetByServerID", serverID).Return([]*domain.Channel{}, nil)
+	chRepo.On("Create", mock.AnythingOfType("*domain.Channel")).Return(nil)
+	chRepo.On("AddMember", mock.AnythingOfType("uuid.UUID"), userID, userID).Return(nil)
+
+	perms := permsWith(serverID, userID, domain.PermManageChannels)
+	uc := usecase.NewServerUseCase(new(MockServerRepository), chRepo, new(MockUserRepository), new(MockRoleRepository), new(MockStorage), perms)
+
+	ch, err := uc.CreateChannel(serverID, userID, "secret", domain.ChannelTypeText, true)
+
+	require.NoError(t, err)
+	assert.True(t, ch.IsPrivate)
+	assert.Equal(t, userID, ch.OwnerID)
+	chRepo.AssertCalled(t, "AddMember", ch.ID, userID, userID)
+}
+
+func TestCreateChannel_Public_DoesNotAddMember(t *testing.T) {
+	serverID := uuid.New()
+	userID := uuid.New()
+
+	chRepo := new(MockChannelRepository)
+	chRepo.On("GetByServerID", serverID).Return([]*domain.Channel{}, nil)
+	chRepo.On("Create", mock.AnythingOfType("*domain.Channel")).Return(nil)
+
+	perms := permsWith(serverID, userID, domain.PermManageChannels)
+	uc := usecase.NewServerUseCase(new(MockServerRepository), chRepo, new(MockUserRepository), new(MockRoleRepository), new(MockStorage), perms)
+
+	_, err := uc.CreateChannel(serverID, userID, "general", domain.ChannelTypeText, false)
+
+	require.NoError(t, err)
+	chRepo.AssertNotCalled(t, "AddMember", mock.Anything, mock.Anything, mock.Anything)
+}
+
+func TestGetChannels_HidesPrivateChannelFromOutsider(t *testing.T) {
+	serverID := uuid.New()
+	ownerID := uuid.New()
+	outsiderID := uuid.New()
+
+	publicCh := &domain.Channel{ID: uuid.New(), ServerID: serverID, IsPrivate: false}
+	privateCh := &domain.Channel{ID: uuid.New(), ServerID: serverID, IsPrivate: true, OwnerID: ownerID}
+
+	chRepo := new(MockChannelRepository)
+	chRepo.On("GetByServerID", serverID).Return([]*domain.Channel{publicCh, privateCh}, nil)
+	chRepo.On("IsMember", privateCh.ID, outsiderID).Return(false, nil)
+
+	perms := permsWith(serverID, outsiderID, domain.PermViewChannels)
+	uc := usecase.NewServerUseCase(new(MockServerRepository), chRepo, new(MockUserRepository), new(MockRoleRepository), new(MockStorage), perms)
+
+	got, err := uc.GetChannels(serverID, outsiderID)
+
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	assert.Equal(t, publicCh.ID, got[0].ID)
+}
+
+func TestGetChannels_ShowsPrivateChannelToInvitedMember(t *testing.T) {
+	serverID := uuid.New()
+	ownerID := uuid.New()
+	memberID := uuid.New()
+
+	privateCh := &domain.Channel{ID: uuid.New(), ServerID: serverID, IsPrivate: true, OwnerID: ownerID}
+
+	chRepo := new(MockChannelRepository)
+	chRepo.On("GetByServerID", serverID).Return([]*domain.Channel{privateCh}, nil)
+	chRepo.On("IsMember", privateCh.ID, memberID).Return(true, nil)
+
+	perms := permsWith(serverID, memberID, domain.PermViewChannels)
+	uc := usecase.NewServerUseCase(new(MockServerRepository), chRepo, new(MockUserRepository), new(MockRoleRepository), new(MockStorage), perms)
+
+	got, err := uc.GetChannels(serverID, memberID)
+
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+}
+
+func TestGetChannels_OwnerSeesOwnPrivateChannelWithoutMembershipLookup(t *testing.T) {
+	serverID := uuid.New()
+	ownerID := uuid.New()
+
+	privateCh := &domain.Channel{ID: uuid.New(), ServerID: serverID, IsPrivate: true, OwnerID: ownerID}
+
+	chRepo := new(MockChannelRepository)
+	chRepo.On("GetByServerID", serverID).Return([]*domain.Channel{privateCh}, nil)
+
+	perms := permsWith(serverID, ownerID, domain.PermViewChannels)
+	uc := usecase.NewServerUseCase(new(MockServerRepository), chRepo, new(MockUserRepository), new(MockRoleRepository), new(MockStorage), perms)
+
+	got, err := uc.GetChannels(serverID, ownerID)
+
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	chRepo.AssertNotCalled(t, "IsMember", mock.Anything, mock.Anything)
+}
+
+func TestUpdateChannel_TogglePublicToPrivate_AddsOwnerAsMember(t *testing.T) {
+	serverID := uuid.New()
+	ownerID := uuid.New()
+	channelID := uuid.New()
+
+	ch := &domain.Channel{ID: channelID, ServerID: serverID, Name: "general", IsPrivate: false, OwnerID: ownerID}
+
+	chRepo := new(MockChannelRepository)
+	chRepo.On("GetByID", channelID).Return(ch, nil)
+	chRepo.On("Update", channelID, map[string]interface{}{"name": "general", "is_private": true}).Return(nil)
+	chRepo.On("AddMember", channelID, ownerID, ownerID).Return(nil)
+
+	perms := permsWith(serverID, ownerID, domain.PermManageChannels)
+	uc := usecase.NewServerUseCase(new(MockServerRepository), chRepo, new(MockUserRepository), new(MockRoleRepository), new(MockStorage), perms)
+
+	got, err := uc.UpdateChannel(serverID, channelID, ownerID, "general", true)
+
+	require.NoError(t, err)
+	assert.True(t, got.IsPrivate)
+	chRepo.AssertCalled(t, "AddMember", channelID, ownerID, ownerID)
+}
+
+func TestUpdateChannel_TogglePrivateToPublic_ClearsMembers(t *testing.T) {
+	serverID := uuid.New()
+	ownerID := uuid.New()
+	channelID := uuid.New()
+
+	ch := &domain.Channel{ID: channelID, ServerID: serverID, Name: "secret", IsPrivate: true, OwnerID: ownerID}
+
+	chRepo := new(MockChannelRepository)
+	chRepo.On("GetByID", channelID).Return(ch, nil)
+	chRepo.On("Update", channelID, map[string]interface{}{"name": "secret", "is_private": false}).Return(nil)
+	chRepo.On("RemoveAllMembers", channelID).Return(nil)
+
+	perms := permsWith(serverID, ownerID, domain.PermManageChannels)
+	uc := usecase.NewServerUseCase(new(MockServerRepository), chRepo, new(MockUserRepository), new(MockRoleRepository), new(MockStorage), perms)
+
+	got, err := uc.UpdateChannel(serverID, channelID, ownerID, "secret", false)
+
+	require.NoError(t, err)
+	assert.False(t, got.IsPrivate)
+	chRepo.AssertCalled(t, "RemoveAllMembers", channelID)
+}
+
+func TestUpdateChannel_PrivacyChangeByNonOwnerNonAdmin_Forbidden(t *testing.T) {
+	serverID := uuid.New()
+	ownerID := uuid.New()
+	otherID := uuid.New()
+	channelID := uuid.New()
+
+	ch := &domain.Channel{ID: channelID, ServerID: serverID, Name: "general", IsPrivate: false, OwnerID: ownerID}
+
+	chRepo := new(MockChannelRepository)
+	chRepo.On("GetByID", channelID).Return(ch, nil)
+
+	// otherID has MANAGE_CHANNELS but is neither the channel owner, the
+	// server owner, nor an administrator — must not be able to flip privacy.
+	perms := permsWith(serverID, otherID, domain.PermManageChannels)
+	uc := usecase.NewServerUseCase(new(MockServerRepository), chRepo, new(MockUserRepository), new(MockRoleRepository), new(MockStorage), perms)
+
+	_, err := uc.UpdateChannel(serverID, channelID, otherID, "general", true)
+
+	assert.ErrorIs(t, err, domain.ErrChannelForbidden)
+	chRepo.AssertNotCalled(t, "Update", mock.Anything, mock.Anything)
+}
+
+func TestUpdateChannel_RenameOnly_DoesNotTouchMembers(t *testing.T) {
+	serverID := uuid.New()
+	ownerID := uuid.New()
+	channelID := uuid.New()
+
+	ch := &domain.Channel{ID: channelID, ServerID: serverID, Name: "general", IsPrivate: false, OwnerID: ownerID}
+
+	chRepo := new(MockChannelRepository)
+	chRepo.On("GetByID", channelID).Return(ch, nil)
+	chRepo.On("Update", channelID, map[string]interface{}{"name": "renamed", "is_private": false}).Return(nil)
+
+	// Renaming only needs MANAGE_CHANNELS — the caller here isn't the channel
+	// owner, and that's fine because is_private isn't changing.
+	renamerID := uuid.New()
+	perms := permsWith(serverID, renamerID, domain.PermManageChannels)
+	uc := usecase.NewServerUseCase(new(MockServerRepository), chRepo, new(MockUserRepository), new(MockRoleRepository), new(MockStorage), perms)
+
+	_, err := uc.UpdateChannel(serverID, channelID, renamerID, "renamed", false)
+
+	require.NoError(t, err)
+	chRepo.AssertNotCalled(t, "AddMember", mock.Anything, mock.Anything, mock.Anything)
+	chRepo.AssertNotCalled(t, "RemoveAllMembers", mock.Anything)
 }
