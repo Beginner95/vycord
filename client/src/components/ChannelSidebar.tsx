@@ -5,10 +5,11 @@ import { Avatar } from '@/components/Avatar';
 import { ContextMenu } from '@/components/ContextMenu';
 import { EditChannelModal } from '@/components/EditChannelModal';
 import { CreateChannelModal } from '@/components/CreateChannelModal';
+import { ManageChannelAccessModal } from '@/components/ManageChannelAccessModal';
 import { apiService, apiErrorText } from '@/services/api';
 import { useServerStore } from '@/stores/serverStore';
 import { noiseCancellationService } from '@/services/noiseCancellation';
-import { can, PERMISSIONS } from '@/utils/permissions';
+import { can, canManageChannelPrivacy, PERMISSIONS } from '@/utils/permissions';
 import { useT } from '@/i18n';
 import './ChannelSidebar.css';
 
@@ -42,6 +43,7 @@ export function ChannelSidebar({
   const [ncEnabled, setNcEnabled] = useState(false);
   const [channelMenu, setChannelMenu] = useState<{ x: number; y: number; channel: Channel } | null>(null);
   const [editingChannel, setEditingChannel] = useState<Channel | null>(null);
+  const [managingAccessChannel, setManagingAccessChannel] = useState<Channel | null>(null);
   const [creatingChannelType, setCreatingChannelType] = useState<ChannelType | null>(null);
 
   const permissions = useServerStore((s) => (server ? s.permissions.get(server.id) : undefined));
@@ -239,6 +241,9 @@ export function ChannelSidebar({
           onClose={() => setChannelMenu(null)}
           items={[
             { label: t('channel.editMenu'), onClick: () => setEditingChannel(channelMenu.channel) },
+            ...(channelMenu.channel.is_private && canManageChannelPrivacy(permissions, channelMenu.channel, user?.id)
+              ? [{ label: t('channel.manageAccessMenu'), onClick: () => setManagingAccessChannel(channelMenu.channel) }]
+              : []),
             {
               label: t('channel.deleteMenu'),
               danger: true,
@@ -257,6 +262,15 @@ export function ChannelSidebar({
           userId={user?.id}
           permissions={permissions}
           onClose={() => setEditingChannel(null)}
+        />
+      )}
+
+      {managingAccessChannel && server && (
+        <ManageChannelAccessModal
+          serverId={server.id}
+          channel={managingAccessChannel}
+          serverMembers={members}
+          onClose={() => setManagingAccessChannel(null)}
         />
       )}
 
