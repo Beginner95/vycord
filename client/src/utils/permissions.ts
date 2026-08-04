@@ -1,4 +1,4 @@
-import type { PermissionSet } from '@/types';
+import type { Channel, PermissionSet } from '@/types';
 
 // Значения битов зафиксированы на бэкенде (server/internal/domain/permission.go)
 // и записаны в БД числами — менять их нельзя.
@@ -28,4 +28,21 @@ export function can(set: PermissionSet | undefined, perm: bigint): boolean {
   if (set.isOwner) return true;
   if ((set.bits & PERMISSIONS.ADMINISTRATOR) !== 0n) return true;
   return (set.bits & perm) !== 0n;
+}
+
+/**
+ * canManageChannelPrivacy — может ли userId менять приватность канала и
+ * управлять списком приглашённых. Отдельно от can(MANAGE_CHANNELS): та
+ * пропускает любую роль с этим правом, а приватностью управляет только
+ * владелец канала, владелец сервера или администратор.
+ */
+export function canManageChannelPrivacy(
+  permissions: PermissionSet | undefined,
+  channel: Channel,
+  userId: string | undefined,
+): boolean {
+  if (!permissions || !userId) return false;
+  if (permissions.isOwner) return true;
+  if ((permissions.bits & PERMISSIONS.ADMINISTRATOR) !== 0n) return true;
+  return channel.owner_id === userId;
 }
