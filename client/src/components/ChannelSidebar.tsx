@@ -49,6 +49,13 @@ export function ChannelSidebar({
   const permissions = useServerStore((s) => (server ? s.permissions.get(server.id) : undefined));
   const canManageChannels = can(permissions, PERMISSIONS.MANAGE_CHANNELS);
 
+  // Приватным каналом управляет (переименование/удаление) только его
+  // владелец, владелец сервера или администратор — MANAGE_CHANNELS одной
+  // роли недостаточно, зеркалит серверную проверку в UpdateChannel/DeleteChannel.
+  // Публичные каналы не меняются: там достаточно MANAGE_CHANNELS, как раньше.
+  const canManageThisChannel = (channel: Channel) =>
+    channel.is_private ? canManageChannelPrivacy(permissions, channel, user?.id) : canManageChannels;
+
   const handleDeleteChannel = async (channel: Channel) => {
     if (!server) return;
     if (channels.length <= 1) return;
@@ -136,7 +143,7 @@ export function ChannelSidebar({
                 className={`channel ${currentChannel?.id === channel.id ? 'active' : ''}`}
                 onClick={() => onSelectChannel(channel)}
                 onContextMenu={(e) => {
-                  if (!canManageChannels) return;
+                  if (!canManageThisChannel(channel)) return;
                   e.preventDefault();
                   setChannelMenu({ x: e.clientX, y: e.clientY, channel });
                 }}
@@ -240,17 +247,21 @@ export function ChannelSidebar({
           y={channelMenu.y}
           onClose={() => setChannelMenu(null)}
           items={[
-            { label: t('channel.editMenu'), onClick: () => setEditingChannel(channelMenu.channel) },
+            ...(canManageThisChannel(channelMenu.channel)
+              ? [{ label: t('channel.editMenu'), onClick: () => setEditingChannel(channelMenu.channel) }]
+              : []),
             ...(channelMenu.channel.is_private && canManageChannelPrivacy(permissions, channelMenu.channel, user?.id)
               ? [{ label: t('channel.manageAccessMenu'), onClick: () => setManagingAccessChannel(channelMenu.channel) }]
               : []),
-            {
-              label: t('channel.deleteMenu'),
-              danger: true,
-              disabled: channels.length <= 1,
-              disabledReason: t('channel.deleteLastDisabled'),
-              onClick: () => handleDeleteChannel(channelMenu.channel),
-            },
+            ...(canManageThisChannel(channelMenu.channel)
+              ? [{
+                  label: t('channel.deleteMenu'),
+                  danger: true,
+                  disabled: channels.length <= 1,
+                  disabledReason: t('channel.deleteLastDisabled'),
+                  onClick: () => handleDeleteChannel(channelMenu.channel),
+                }]
+              : []),
           ]}
         />
       )}
