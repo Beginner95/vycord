@@ -266,9 +266,14 @@ func (h *ServerHandler) GetChannels(w http.ResponseWriter, r *http.Request) {
 	h.sendJSON(w, http.StatusOK, channels)
 }
 
+// UpdateChannelRequest describes a channel PATCH. IsPrivate is a pointer so an
+// omitted "is_private" key (nil) can be told apart from an explicit false: a
+// plain rename must never flip a private channel public and wipe its invite
+// list, which is exactly what the zero value used to do for any client that
+// only sends "name".
 type UpdateChannelRequest struct {
 	Name      string `json:"name"`
-	IsPrivate bool   `json:"is_private"`
+	IsPrivate *bool  `json:"is_private"`
 }
 
 func (h *ServerHandler) UpdateChannel(w http.ResponseWriter, r *http.Request) {
@@ -300,7 +305,22 @@ func (h *ServerHandler) UpdateChannel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	channel, err := h.serverUseCase.UpdateChannel(serverID, channelID, userID, req.Name, req.IsPrivate)
+	// "is_private" omitted → keep the channel's current privacy, so the usecase's
+	// privacyChanged check evaluates false and the AddMember/RemoveAllMembers
+	// branch is skipped entirely.
+	isPrivate := false
+	if req.IsPrivate != nil {
+		isPrivate = *req.IsPrivate
+	} else {
+		current, err := h.serverUseCase.CheckChannelAccess(channelID, userID)
+		if err != nil {
+			h.writeUseCaseError(w, r, err)
+			return
+		}
+		isPrivate = current.IsPrivate
+	}
+
+	channel, err := h.serverUseCase.UpdateChannel(serverID, channelID, userID, req.Name, isPrivate)
 	if err != nil {
 		h.writeUseCaseError(w, r, err)
 		return
