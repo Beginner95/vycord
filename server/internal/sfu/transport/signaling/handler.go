@@ -44,9 +44,14 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	uid, err := authtoken.ValidateToken(h.jwtSecret, token)
+	uid, tokenRoomID, err := authtoken.ValidateRoomToken(h.jwtSecret, token)
 	if err != nil {
 		h.log.Warn("rejected connection: invalid token", "room_id", roomID, "error", err)
+		http.Error(w, "invalid token", http.StatusUnauthorized)
+		return
+	}
+	if tokenRoomID.String() != roomID {
+		h.log.Warn("rejected connection: token not scoped to this room", "room_id", roomID, "token_room_id", tokenRoomID)
 		http.Error(w, "invalid token", http.StatusUnauthorized)
 		return
 	}

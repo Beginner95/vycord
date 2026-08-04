@@ -46,6 +46,20 @@ func signToken(t *testing.T, userID string, exp time.Time) string {
 	return s
 }
 
+func signRoomToken(t *testing.T, userID, roomID string, exp time.Time) string {
+	t.Helper()
+	tok := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
+		"user_id": userID,
+		"room_id": roomID,
+		"exp":     exp.Unix(),
+	})
+	s, err := tok.SignedString([]byte(testSecret))
+	if err != nil {
+		t.Fatalf("sign room token: %v", err)
+	}
+	return s
+}
+
 // dialStatus attempts a WebSocket handshake and returns the HTTP status of
 // the response (101 on a successful upgrade).
 func dialStatus(t *testing.T, srv *httptest.Server, query string) int {
@@ -93,8 +107,9 @@ func TestServeHTTPRejectsExpiredToken(t *testing.T) {
 
 func TestServeHTTPAcceptsValidTokenAndJoins(t *testing.T) {
 	srv := newTestServer(t)
-	tok := signToken(t, uuid.NewString(), time.Now().Add(time.Hour))
-	url := "ws" + strings.TrimPrefix(srv.URL, "http") + "/ws?room_id=r1&token=" + tok
+	roomID := uuid.NewString()
+	tok := signRoomToken(t, uuid.NewString(), roomID, time.Now().Add(time.Hour))
+	url := "ws" + strings.TrimPrefix(srv.URL, "http") + "/ws?room_id=" + roomID + "&token=" + tok
 
 	conn, _, err := websocket.DefaultDialer.Dial(url, nil)
 	if err != nil {
@@ -115,5 +130,23 @@ func TestServeHTTPAcceptsValidTokenAndJoins(t *testing.T) {
 		if msg.Type == "joined" {
 			return
 		}
+	}
+}
+
+func TestServeHTTPRejectsTokenWithoutRoomIDClaim(t *testing.T) {
+	srv := newTestServer(t)
+	tok := signToken(t, uuid.NewString(), time.Now().Add(time.Hour)) // no room_id claim
+	if got := dialStatus(t, srv, "room_id=r1&token="+tok); got != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want 401", got)
+	}
+}
+
+func TestServeHTTPRejectsMismatchedRoomID(t *testing.T) {
+	srv := newTestServer(t)
+	tokenRoomID := uuid.NewString()
+	otherRoomID := uuid.NewString()
+	tok := signRoomToken(t, uuid.NewString(), tokenRoomID, time.Now().Add(time.Hour))
+	if got := dialStatus(t, srv, "room_id="+otherRoomID+"&token="+tok); got != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want 401", got)
 	}
 }
