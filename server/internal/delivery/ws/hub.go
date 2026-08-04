@@ -69,8 +69,13 @@ func (h *Hub) Run() {
 			h.clients[client.UserID] = client
 			currentIDs := h.getOnlineUserIDsLocked()
 			voiceState := h.voiceStateLocked()
+			// Read the resolver under the lock we already hold; it must be
+			// CALLED outside h.mu (it goes to the DB and may re-enter the hub).
+			resolver := h.voiceAudienceResolver
 			h.mu.Unlock()
 			h.log.Info("client connected", "user_id", client.UserID, "total", len(h.clients))
+
+			voiceState = filterVoiceStateForUser(h.log, resolver, client.UserID, voiceState)
 
 			// Send online users list and current voice-channel roster to the newly connected client
 			h.sendOnlineUsersToClient(client, currentIDs)
@@ -155,6 +160,51 @@ func (h *Hub) sendOnlineUsersToClient(client *Client, userIDs []string) {
 	}):
 	default:
 	}
+}
+
+// filterVoiceStateForUser drops from a voice-state snapshot every channel that
+// userID may not see. The connect-time snapshot is the one place where the whole
+// global roster is handed to a single client, so a private channel that leaks
+// here defeats the per-event narrowing done by BroadcastVoiceParticipants.
+//
+// Must be called WITHOUT h.mu held: resolver hits the database.
+//
+// A nil resolver means no privacy model is configured (bare NewHub, as in tests)
+// and the snapshot passes through untouched. Unlike BroadcastVoiceParticipants,
+// a resolver ERROR excludes the channel instead of falling back to "show it":
+// this builds a fresh per-user payload, so omitting a channel merely delays its
+// appearance until the next voice_participants event, whereas including it
+// would leak a roster the user might not be entitled to.
+func filterVoiceStateForUser(
+	log *slog.Logger,
+	resolver func(channelID uuid.UUID) ([]uuid.UUID, error),
+	userID uuid.UUID,
+	state map[uuid.UUID][]uuid.UUID,
+) map[uuid.UUID][]uuid.UUID {
+	if resolver == nil || len(state) == 0 {
+		return state
+	}
+
+	filtered := make(map[uuid.UUID][]uuid.UUID, len(state))
+	for channelID, participants := range state {
+		audience, err := resolver(channelID)
+		if err != nil {
+			log.Warn("failed to resolve voice audience, excluding channel from snapshot",
+				"channel_id", channelID, "user_id", userID, "error", err)
+			continue
+		}
+		if audience == nil {
+			filtered[channelID] = participants // public channel
+			continue
+		}
+		for _, id := range audience {
+			if id == userID {
+				filtered[channelID] = participants
+				break
+			}
+		}
+	}
+	return filtered
 }
 
 func (h *Hub) sendVoiceStateToClient(client *Client, state map[uuid.UUID][]uuid.UUID) {
