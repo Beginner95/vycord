@@ -212,7 +212,24 @@ func (uc *serverUseCase) LeaveServer(serverID, userID uuid.UUID) error {
 		return fmt.Errorf("owner cannot leave their own server")
 	}
 
-	return uc.serverRepo.RemoveMember(serverID, userID)
+	if err := uc.serverRepo.RemoveMember(serverID, userID); err != nil {
+		return err
+	}
+
+	// Приглашения в приватные каналы не должны переживать выход с сервера:
+	// иначе при повторном вступлении доступ ко всем каналам, куда юзера
+	// когда-то звали, воскресает сам собой, без нового приглашения.
+	// Ошибка не глотается: это часть авторизационной модели, а сам выход
+	// идемпотентен — повторный вызов доведёт очистку до конца.
+	// Приглашения в приватные каналы не должны переживать выход с сервера:
+	// иначе при повторном вступлении доступ ко всем каналам, куда юзера
+	// когда-то звали, воскресает сам собой, без нового приглашения.
+	// Ошибка не глотается: это часть авторизационной модели, а сам выход
+	// идемпотентен — повторный вызов доведёт очистку до конца.
+	if err := uc.channelRepo.RemoveMemberFromServerChannels(serverID, userID); err != nil {
+		return fmt.Errorf("failed to clear channel invites: %w", err)
+	}
+	return nil
 }
 
 func (uc *serverUseCase) SearchServers(query string, limit int) ([]*domain.Server, error) {

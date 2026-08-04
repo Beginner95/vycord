@@ -93,6 +93,9 @@ func (m *MockChannelRepository) RemoveMember(channelID, userID uuid.UUID) error 
 func (m *MockChannelRepository) RemoveAllMembers(channelID uuid.UUID) error {
 	return m.Called(channelID).Error(0)
 }
+func (m *MockChannelRepository) RemoveMemberFromServerChannels(serverID, userID uuid.UUID) error {
+	return m.Called(serverID, userID).Error(0)
+}
 func (m *MockChannelRepository) IsMember(channelID, userID uuid.UUID) (bool, error) {
 	args := m.Called(channelID, userID)
 	return args.Bool(0), args.Error(1)

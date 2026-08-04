@@ -232,6 +232,22 @@ func (r *channelRepository) RemoveAllMembers(channelID uuid.UUID) error {
 	return nil
 }
 
+func (r *channelRepository) RemoveMemberFromServerChannels(serverID, userID uuid.UUID) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	query := `
+		DELETE FROM channel_members
+		WHERE user_id = $2
+		AND channel_id IN (SELECT id FROM channels WHERE server_id = $1)
+	`
+	_, err := r.db.Exec(ctx, query, serverID, userID)
+	if err != nil {
+		return fmt.Errorf("failed to remove member from server channels: %w", err)
+	}
+	return nil
+}
+
 func (r *channelRepository) IsMember(channelID, userID uuid.UUID) (bool, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()

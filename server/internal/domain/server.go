@@ -122,6 +122,11 @@ type ChannelRepository interface {
 	// RemoveAllMembers очищает список приглашённых — при переключении
 	// приватный → публичный.
 	RemoveAllMembers(channelID uuid.UUID) error
+	// RemoveMemberFromServerChannels убирает userID из приглашённых во всех
+	// приватных каналах сервера serverID. Вызывается при выходе с сервера:
+	// иначе приглашения переживают выход и при повторном вступлении доступ
+	// к приватным каналам молча воскресает без нового приглашения.
+	RemoveMemberFromServerChannels(serverID, userID uuid.UUID) error
 	IsMember(channelID, userID uuid.UUID) (bool, error)
 	GetMembersWithUsers(channelID uuid.UUID) ([]*ChannelMemberWithUser, error)
 }

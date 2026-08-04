@@ -1084,3 +1084,67 @@ func TestGetChannelMembers_OwnerSuccess(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, got, 1)
 }
+
+// Выход с сервера обязан снимать приглашения в приватные каналы этого
+// сервера: иначе при повторном вступлении доступ воскресает молча, без
+// нового приглашения от кого-либо.
+func TestLeaveServer_ClearsPrivateChannelInvites(t *testing.T) {
+	serverID := uuid.New()
+	ownerID := uuid.New()
+	userID := uuid.New()
+
+	srvRepo := new(MockServerRepository)
+	srvRepo.On("GetByID", serverID).Return(&domain.Server{ID: serverID, OwnerID: ownerID}, nil)
+	srvRepo.On("RemoveMember", serverID, userID).Return(nil)
+
+	chRepo := new(MockChannelRepository)
+	chRepo.On("RemoveMemberFromServerChannels", serverID, userID).Return(nil)
+
+	uc := usecase.NewServerUseCase(srvRepo, chRepo, new(MockUserRepository), new(MockRoleRepository), new(MockStorage), new(MockPermissionUseCase))
+
+	err := uc.LeaveServer(serverID, userID)
+
+	require.NoError(t, err)
+	srvRepo.AssertCalled(t, "RemoveMember", serverID, userID)
+	chRepo.AssertCalled(t, "RemoveMemberFromServerChannels", serverID, userID)
+}
+
+// Владелец не покидает свой сервер — и очистка приглашений не запускается.
+func TestLeaveServer_Owner_NoCleanup(t *testing.T) {
+	serverID := uuid.New()
+	ownerID := uuid.New()
+
+	srvRepo := new(MockServerRepository)
+	srvRepo.On("GetByID", serverID).Return(&domain.Server{ID: serverID, OwnerID: ownerID}, nil)
+
+	chRepo := new(MockChannelRepository)
+	uc := usecase.NewServerUseCase(srvRepo, chRepo, new(MockUserRepository), new(MockRoleRepository), new(MockStorage), new(MockPermissionUseCase))
+
+	err := uc.LeaveServer(serverID, ownerID)
+
+	assert.Error(t, err)
+	srvRepo.AssertNotCalled(t, "RemoveMember", mock.Anything, mock.Anything)
+	chRepo.AssertNotCalled(t, "RemoveMemberFromServerChannels", mock.Anything, mock.Anything)
+}
+
+// Сбой очистки не проглатывается: у usecase нет логгера, а незамеченные
+// осиротевшие channel_members — это ровно тот дефект, который чинится.
+// Выход идемпотентен, поэтому повтор операции доведёт очистку до конца.
+func TestLeaveServer_CleanupFailure_ReturnsError(t *testing.T) {
+	serverID := uuid.New()
+	userID := uuid.New()
+
+	srvRepo := new(MockServerRepository)
+	srvRepo.On("GetByID", serverID).Return(&domain.Server{ID: serverID, OwnerID: uuid.New()}, nil)
+	srvRepo.On("RemoveMember", serverID, userID).Return(nil)
+
+	chRepo := new(MockChannelRepository)
+	chRepo.On("RemoveMemberFromServerChannels", serverID, userID).Return(fmt.Errorf("db down"))
+
+	uc := usecase.NewServerUseCase(srvRepo, chRepo, new(MockUserRepository), new(MockRoleRepository), new(MockStorage), new(MockPermissionUseCase))
+
+	err := uc.LeaveServer(serverID, userID)
+
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "db down")
+}
