@@ -204,6 +204,10 @@ export function AppPage() {
     });
     const unsubChannelCreate = wsService.on('channel_create', (payload) => {
       const p = payload as Channel;
+      // channel_create для публичного канала рассылается всем подключённым
+      // клиентам, поэтому фильтруем по текущему серверу: иначе канал чужого
+      // сервера всплывает в открытом сайдбаре до перехода туда-обратно.
+      if (p.server_id !== useServerStore.getState().currentServer?.id) return;
       useServerStore.getState().addChannel(p);
     });
     const unsubServerDelete = wsService.on('server_delete', (payload) => {

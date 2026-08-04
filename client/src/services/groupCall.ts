@@ -2,7 +2,9 @@ import { noiseCancellationService } from './noiseCancellation';
 import { echoCancellationService } from './echoCancellation';
 import { getIceServers, STUN_SERVERS } from './iceConfig';
 import { computeQualityLevel, type ConnectionQualityMetrics } from '@/utils/callQuality';
-import { apiService } from './api';
+import { apiService, apiErrorText } from './api';
+// Нехуковый t: groupCall — обычный класс, useT() здесь вызвать нельзя.
+import { t } from '@/i18n';
 
 const SFU_URL = import.meta.env.VITE_SFU_URL || 'ws://localhost:8081';
 
@@ -855,7 +857,7 @@ class GroupCallService {
       token = resp.token;
     } catch (err) {
       gcLog(userId, 'failed to obtain voice token', { error: String(err) });
-      if (!this.reconnecting) this.callbacks?.onError('Failed to authorize voice channel access');
+      if (!this.reconnecting) this.callbacks?.onError(apiErrorText(err, t));
       return false;
     }
 
