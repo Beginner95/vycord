@@ -200,7 +200,15 @@ export function AppPage() {
     });
     const unsubChannelUpdate = wsService.on('channel_update', (payload) => {
       const p = payload as Channel;
-      useServerStore.getState().patchChannel(p.id, { name: p.name });
+      useServerStore.getState().patchChannel(p.id, { name: p.name, is_private: p.is_private });
+    });
+    const unsubChannelCreate = wsService.on('channel_create', (payload) => {
+      const p = payload as Channel;
+      // channel_create для публичного канала рассылается всем подключённым
+      // клиентам, поэтому фильтруем по текущему серверу: иначе канал чужого
+      // сервера всплывает в открытом сайдбаре до перехода туда-обратно.
+      if (p.server_id !== useServerStore.getState().currentServer?.id) return;
+      useServerStore.getState().addChannel(p);
     });
     const unsubServerDelete = wsService.on('server_delete', (payload) => {
       const { id } = payload as { id: string };
@@ -215,6 +223,7 @@ export function AppPage() {
     return () => {
       unsubServerUpdate();
       unsubChannelUpdate();
+      unsubChannelCreate();
       unsubServerDelete();
       unsubChannelDelete();
     };

@@ -25,11 +25,21 @@ export interface Channel {
   name: string;
   type: ChannelType;
   position: number;
+  is_private: boolean;
+  owner_id: string;
   created_at: string;
   updated_at: string;
 }
 
 export type ChannelType = 'text' | 'voice';
+
+export interface ChannelMember {
+  user_id: string;
+  username: string;
+  avatar_url?: string;
+  invited_by: string;
+  invited_at: string;
+}
 
 export interface Message {
   id: string;

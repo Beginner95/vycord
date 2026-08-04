@@ -18,22 +18,40 @@ type UserUseCase interface {
 	RemoveAvatar(id uuid.UUID) (*User, error)
 }
 
+// ChannelAccessChecker — минимальный срез ServerUseCase для мест, которым
+// важно только «есть ли доступ», а не весь набор операций над сервером
+// (WS-хаб, выдача voice-токенов для SFU).
+type ChannelAccessChecker interface {
+	// CheckChannelAccess возвращает канал, если userID может его видеть и
+	// использовать: публичный канал требует членства в сервере
+	// (PermViewChannels), приватный — дополнительно Channel.CanAccess.
+	CheckChannelAccess(channelID, userID uuid.UUID) (*Channel, error)
+	// GetChannelAudience возвращает ID пользователей, которым можно
+	// адресовать реалтайм-события приватного канала (войс-ростер и т.п.).
+	// nil означает «канал публичный, шли всем подключённым».
+	GetChannelAudience(channelID uuid.UUID) ([]uuid.UUID, error)
+}
+
 type ServerUseCase interface {
+	ChannelAccessChecker
 	CreateServer(name string, ownerID uuid.UUID) (*Server, error)
 	GetServer(id uuid.UUID) (*Server, error)
 	GetUserServers(userID uuid.UUID) ([]*Server, error)
 	JoinServer(serverID, userID uuid.UUID) error
 	LeaveServer(serverID, userID uuid.UUID) error
 	SearchServers(query string, limit int) ([]*Server, error)
-	CreateChannel(serverID, userID uuid.UUID, name string, channelType ChannelType) (*Channel, error)
+	CreateChannel(serverID, userID uuid.UUID, name string, channelType ChannelType, isPrivate bool) (*Channel, error)
 	GetChannels(serverID, userID uuid.UUID) ([]*Channel, error)
 	GetMembers(serverID, userID uuid.UUID) ([]*MemberWithUser, error)
 	UpdateServer(serverID, userID uuid.UUID, name string) (*Server, error)
 	DeleteServer(serverID, userID uuid.UUID) error
-	UpdateChannel(serverID, channelID, userID uuid.UUID, name string) (*Channel, error)
+	UpdateChannel(serverID, channelID, userID uuid.UUID, name string, isPrivate bool) (*Channel, error)
 	DeleteChannel(serverID, channelID, userID uuid.UUID) error
 	UpdateServerIcon(serverID, userID uuid.UUID, data []byte) (*Server, error)
 	RemoveServerIcon(serverID, userID uuid.UUID) (*Server, error)
+	InviteToChannel(serverID, channelID, inviterID, targetUserID uuid.UUID) error
+	RemoveFromChannel(serverID, channelID, removerID, targetUserID uuid.UUID) error
+	GetChannelMembers(serverID, channelID, userID uuid.UUID) ([]*ChannelMemberWithUser, error)
 }
 
 type MessageUseCase interface {
@@ -49,6 +67,13 @@ type TURNUseCase interface {
 	// GetCredentials returns ephemeral TURN credentials for the user, or
 	// (nil, nil) when no TURN server is configured.
 	GetCredentials(userID uuid.UUID) (*TURNCredentials, error)
+}
+
+type VoiceTokenUseCase interface {
+	// IssueToken mints a short-lived JWT scoped to a single SFU room after
+	// verifying userID may access channelID (server membership, and — for
+	// private channels — CanAccess). Requires channelID to be a voice channel.
+	IssueToken(channelID, userID uuid.UUID) (string, error)
 }
 
 type PermissionUseCase interface {

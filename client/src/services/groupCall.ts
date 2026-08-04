@@ -2,6 +2,9 @@ import { noiseCancellationService } from './noiseCancellation';
 import { echoCancellationService } from './echoCancellation';
 import { getIceServers, STUN_SERVERS } from './iceConfig';
 import { computeQualityLevel, type ConnectionQualityMetrics } from '@/utils/callQuality';
+import { apiService, apiErrorText } from './api';
+// Нехуковый t: groupCall — обычный класс, useT() здесь вызвать нельзя.
+import { t } from '@/i18n';
 
 const SFU_URL = import.meta.env.VITE_SFU_URL || 'ws://localhost:8081';
 
@@ -841,11 +844,23 @@ class GroupCallService {
     return this.connectSignaling(roomId, userId);
   }
 
-  private connectSignaling(roomId: string, userId: string): Promise<boolean> {
-    // Read the token on every attempt, not once per call: a VYC-24 reconnect
-    // may run after the user re-logged in, and a token frozen at join time
-    // would be stale.
-    const token = localStorage.getItem('vycord_token') ?? '';
+  private async connectSignaling(roomId: string, userId: string): Promise<boolean> {
+    // Room-scoped token minted by the API on every attempt (not cached): it
+    // proves server/channel membership to the SFU, which otherwise only
+    // knows the caller holds *some* valid Vycord session — see
+    // docs/superpowers/specs/2026-08-04-private-channels-design.md. A VYC-24
+    // reconnect may also run after the user re-logged in, so a token frozen
+    // at join time would be stale regardless.
+    let token: string;
+    try {
+      const resp = await apiService.getVoiceToken(roomId);
+      token = resp.token;
+    } catch (err) {
+      gcLog(userId, 'failed to obtain voice token', { error: String(err) });
+      if (!this.reconnecting) this.callbacks?.onError(apiErrorText(err, t));
+      return false;
+    }
+
     const url = `${SFU_URL}/ws?room_id=${encodeURIComponent(roomId)}&token=${encodeURIComponent(token)}`;
     const socket = new WebSocket(url);
     this.ws = socket;

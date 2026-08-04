@@ -45,6 +45,18 @@ func (uc *messageUseCase) requirePermission(channelID, userID uuid.UUID, perm do
 	if !ps.Has(perm) {
 		return nil, domain.ErrForbidden
 	}
+
+	isMember := false
+	if ch.IsPrivate && !ch.IsManagedBy(userID, ps) {
+		isMember, err = uc.channelRepo.IsMember(ch.ID, userID)
+		if err != nil {
+			return nil, fmt.Errorf("check channel membership: %w", err)
+		}
+	}
+	if !ch.CanAccess(userID, ps, isMember) {
+		return nil, domain.ErrChannelForbidden
+	}
+
 	return ch, nil
 }
 

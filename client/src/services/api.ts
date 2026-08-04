@@ -1,5 +1,5 @@
 import { useAuthStore } from '@/stores/authStore';
-import type { Server, User, Role, PermissionsResponse } from '@/types';
+import type { Server, User, Role, PermissionsResponse, ChannelMember } from '@/types';
 import { hasKey, type TFunc, type TKey } from '@/i18n';
 
 export const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8080';
@@ -265,10 +265,10 @@ class ApiService {
   }
 
   // Channels
-  async createChannel(serverId: string, name: string, type: 'text' | 'voice' = 'text') {
+  async createChannel(serverId: string, name: string, type: 'text' | 'voice' = 'text', isPrivate = false) {
     return this.request(`/api/v1/servers/${serverId}/channels`, {
       method: 'POST',
-      body: JSON.stringify({ name, type }),
+      body: JSON.stringify({ name, type, is_private: isPrivate }),
     });
   }
 
@@ -280,11 +280,32 @@ class ApiService {
     return this.request(`/api/v1/servers/${serverId}/members`);
   }
 
-  async updateChannel(serverId: string, channelId: string, name: string) {
+  async updateChannel(serverId: string, channelId: string, name: string, isPrivate: boolean) {
     return this.request(`/api/v1/servers/${serverId}/channels/${channelId}`, {
       method: 'PATCH',
-      body: JSON.stringify({ name }),
+      body: JSON.stringify({ name, is_private: isPrivate }),
     });
+  }
+
+  async getChannelMembers(serverId: string, channelId: string): Promise<ChannelMember[]> {
+    return this.request(`/api/v1/servers/${serverId}/channels/${channelId}/members`);
+  }
+
+  async inviteToChannel(serverId: string, channelId: string, userId: string): Promise<void> {
+    return this.request(`/api/v1/servers/${serverId}/channels/${channelId}/members`, {
+      method: 'POST',
+      body: JSON.stringify({ user_id: userId }),
+    });
+  }
+
+  async removeFromChannel(serverId: string, channelId: string, userId: string): Promise<void> {
+    return this.request(`/api/v1/servers/${serverId}/channels/${channelId}/members/${userId}`, {
+      method: 'DELETE',
+    });
+  }
+
+  async getVoiceToken(channelId: string): Promise<{ token: string }> {
+    return this.request(`/api/v1/channels/${channelId}/voice-token`, { method: 'POST' });
   }
 
   async deleteChannel(serverId: string, channelId: string) {

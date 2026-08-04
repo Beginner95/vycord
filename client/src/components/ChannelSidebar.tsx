@@ -1,13 +1,15 @@
 import { useState, useEffect, useMemo } from 'react';
-import type { Server, Channel, User, MemberWithUser } from '@/types';
+import type { Server, Channel, ChannelType, User, MemberWithUser } from '@/types';
 import { Settings } from '@/components/Settings';
 import { Avatar } from '@/components/Avatar';
 import { ContextMenu } from '@/components/ContextMenu';
 import { EditChannelModal } from '@/components/EditChannelModal';
+import { CreateChannelModal } from '@/components/CreateChannelModal';
+import { ManageChannelAccessModal } from '@/components/ManageChannelAccessModal';
 import { apiService, apiErrorText } from '@/services/api';
 import { useServerStore } from '@/stores/serverStore';
 import { noiseCancellationService } from '@/services/noiseCancellation';
-import { can, PERMISSIONS } from '@/utils/permissions';
+import { can, canManageChannelPrivacy, PERMISSIONS } from '@/utils/permissions';
 import { useT } from '@/i18n';
 import './ChannelSidebar.css';
 
@@ -41,9 +43,18 @@ export function ChannelSidebar({
   const [ncEnabled, setNcEnabled] = useState(false);
   const [channelMenu, setChannelMenu] = useState<{ x: number; y: number; channel: Channel } | null>(null);
   const [editingChannel, setEditingChannel] = useState<Channel | null>(null);
+  const [managingAccessChannel, setManagingAccessChannel] = useState<Channel | null>(null);
+  const [creatingChannelType, setCreatingChannelType] = useState<ChannelType | null>(null);
 
   const permissions = useServerStore((s) => (server ? s.permissions.get(server.id) : undefined));
   const canManageChannels = can(permissions, PERMISSIONS.MANAGE_CHANNELS);
+
+  // Приватным каналом управляет (переименование/удаление) только его
+  // владелец, владелец сервера или администратор — MANAGE_CHANNELS одной
+  // роли недостаточно, зеркалит серверную проверку в UpdateChannel/DeleteChannel.
+  // Публичные каналы не меняются: там достаточно MANAGE_CHANNELS, как раньше.
+  const canManageThisChannel = (channel: Channel) =>
+    channel.is_private ? canManageChannelPrivacy(permissions, channel, user?.id) : canManageChannels;
 
   const handleDeleteChannel = async (channel: Channel) => {
     if (!server) return;
@@ -111,10 +122,20 @@ export function ChannelSidebar({
       </div>
 
       <div className="channel-list">
-        {textChannels.length > 0 && (
+        {(textChannels.length > 0 || canManageChannels) && (
           <>
             <div className="channel-category">
               <span>{t('channel.textChannels')}</span>
+              {canManageChannels && (
+                <button
+                  type="button"
+                  className="channel-category-add"
+                  title={t('channel.createChannelMenu')}
+                  onClick={() => setCreatingChannelType('text')}
+                >
+                  +
+                </button>
+              )}
             </div>
             {textChannels.map((channel) => (
               <div
@@ -122,21 +143,32 @@ export function ChannelSidebar({
                 className={`channel ${currentChannel?.id === channel.id ? 'active' : ''}`}
                 onClick={() => onSelectChannel(channel)}
                 onContextMenu={(e) => {
-                  if (!canManageChannels) return;
+                  if (!canManageThisChannel(channel)) return;
                   e.preventDefault();
                   setChannelMenu({ x: e.clientX, y: e.clientY, channel });
                 }}
               >
+                {channel.is_private && <span className="channel-lock" title={t('channel.privateLabel')}>🔒</span>}
                 {channel.name}
               </div>
             ))}
           </>
         )}
 
-        {voiceChannels.length > 0 && (
+        {(voiceChannels.length > 0 || canManageChannels) && (
           <>
             <div className="channel-category">
               <span>{t('channel.voiceChannels')}</span>
+              {canManageChannels && (
+                <button
+                  type="button"
+                  className="channel-category-add"
+                  title={t('channel.createChannelMenu')}
+                  onClick={() => setCreatingChannelType('voice')}
+                >
+                  +
+                </button>
+              )}
             </div>
             {voiceChannels.map((channel) => {
               const participantIds = voiceParticipants?.get(channel.id) ?? [];
@@ -151,6 +183,7 @@ export function ChannelSidebar({
                       setChannelMenu({ x: e.clientX, y: e.clientY, channel });
                     }}
                   >
+                    {channel.is_private && <span className="channel-lock" title={t('channel.privateLabel')}>🔒</span>}
                     {channel.name}
                     {participantIds.length > 0 && (
                       <span className="voice-count">({participantIds.length})</span>
@@ -214,14 +247,21 @@ export function ChannelSidebar({
           y={channelMenu.y}
           onClose={() => setChannelMenu(null)}
           items={[
-            { label: t('channel.editMenu'), onClick: () => setEditingChannel(channelMenu.channel) },
-            {
-              label: t('channel.deleteMenu'),
-              danger: true,
-              disabled: channels.length <= 1,
-              disabledReason: t('channel.deleteLastDisabled'),
-              onClick: () => handleDeleteChannel(channelMenu.channel),
-            },
+            ...(canManageThisChannel(channelMenu.channel)
+              ? [{ label: t('channel.editMenu'), onClick: () => setEditingChannel(channelMenu.channel) }]
+              : []),
+            ...(channelMenu.channel.is_private && canManageChannelPrivacy(permissions, channelMenu.channel, user?.id)
+              ? [{ label: t('channel.manageAccessMenu'), onClick: () => setManagingAccessChannel(channelMenu.channel) }]
+              : []),
+            ...(canManageThisChannel(channelMenu.channel)
+              ? [{
+                  label: t('channel.deleteMenu'),
+                  danger: true,
+                  disabled: channels.length <= 1,
+                  disabledReason: t('channel.deleteLastDisabled'),
+                  onClick: () => handleDeleteChannel(channelMenu.channel),
+                }]
+              : []),
           ]}
         />
       )}
@@ -230,7 +270,26 @@ export function ChannelSidebar({
         <EditChannelModal
           serverId={server.id}
           channel={editingChannel}
+          userId={user?.id}
+          permissions={permissions}
           onClose={() => setEditingChannel(null)}
+        />
+      )}
+
+      {managingAccessChannel && server && (
+        <ManageChannelAccessModal
+          serverId={server.id}
+          channel={managingAccessChannel}
+          serverMembers={members}
+          onClose={() => setManagingAccessChannel(null)}
+        />
+      )}
+
+      {creatingChannelType && server && (
+        <CreateChannelModal
+          serverId={server.id}
+          defaultType={creatingChannelType}
+          onClose={() => setCreatingChannelType(null)}
         />
       )}
     </nav>

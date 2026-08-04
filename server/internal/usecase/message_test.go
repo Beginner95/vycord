@@ -84,6 +84,29 @@ func (m *MockChannelRepository) DeleteIfNotLast(id, serverID uuid.UUID) (bool, e
 	args := m.Called(id, serverID)
 	return args.Bool(0), args.Error(1)
 }
+func (m *MockChannelRepository) AddMember(channelID, userID, invitedBy uuid.UUID) error {
+	return m.Called(channelID, userID, invitedBy).Error(0)
+}
+func (m *MockChannelRepository) RemoveMember(channelID, userID uuid.UUID) error {
+	return m.Called(channelID, userID).Error(0)
+}
+func (m *MockChannelRepository) RemoveAllMembers(channelID uuid.UUID) error {
+	return m.Called(channelID).Error(0)
+}
+func (m *MockChannelRepository) RemoveMemberFromServerChannels(serverID, userID uuid.UUID) error {
+	return m.Called(serverID, userID).Error(0)
+}
+func (m *MockChannelRepository) IsMember(channelID, userID uuid.UUID) (bool, error) {
+	args := m.Called(channelID, userID)
+	return args.Bool(0), args.Error(1)
+}
+func (m *MockChannelRepository) GetMembersWithUsers(channelID uuid.UUID) ([]*domain.ChannelMemberWithUser, error) {
+	args := m.Called(channelID)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]*domain.ChannelMemberWithUser), args.Error(1)
+}
 
 type MockServerRepository struct{ mock.Mock }
 
@@ -703,4 +726,67 @@ func TestUpdateMessage_MentionNonMember_InvalidMention(t *testing.T) {
 	assert.Nil(t, msg)
 	assert.ErrorIs(t, err, domain.ErrInvalidMention)
 	msgRepo.AssertNotCalled(t, "Update", mock.Anything, mock.Anything)
+}
+
+func TestCreateMessage_PrivateChannel_OutsiderForbidden(t *testing.T) {
+	channelID := uuid.New()
+	serverID := uuid.New()
+	userID := uuid.New()
+	ch := &domain.Channel{ID: channelID, ServerID: serverID, IsPrivate: true, OwnerID: uuid.New()}
+
+	chRepo := new(MockChannelRepository)
+	chRepo.On("GetByID", channelID).Return(ch, nil)
+	chRepo.On("IsMember", channelID, userID).Return(false, nil)
+
+	perms := permsWith(serverID, userID, domain.PermSendMessages)
+	msgRepo := new(MockMessageRepository)
+
+	uc := usecase.NewMessageUseCase(msgRepo, chRepo, new(MockServerRepository), perms)
+
+	_, err := uc.CreateMessage(channelID, userID, "hi")
+
+	assert.ErrorIs(t, err, domain.ErrChannelForbidden)
+	msgRepo.AssertNotCalled(t, "Create", mock.Anything)
+}
+
+func TestCreateMessage_PrivateChannel_InvitedMemberAllowed(t *testing.T) {
+	channelID := uuid.New()
+	serverID := uuid.New()
+	userID := uuid.New()
+	ch := &domain.Channel{ID: channelID, ServerID: serverID, IsPrivate: true, OwnerID: uuid.New()}
+
+	chRepo := new(MockChannelRepository)
+	chRepo.On("GetByID", channelID).Return(ch, nil)
+	chRepo.On("IsMember", channelID, userID).Return(true, nil)
+
+	perms := permsWith(serverID, userID, domain.PermSendMessages)
+	msgRepo := new(MockMessageRepository)
+	msgRepo.On("Create", mock.AnythingOfType("*domain.Message")).Return(nil)
+
+	uc := usecase.NewMessageUseCase(msgRepo, chRepo, new(MockServerRepository), perms)
+
+	_, err := uc.CreateMessage(channelID, userID, "hi")
+
+	require.NoError(t, err)
+}
+
+func TestGetMessages_PrivateChannel_ChannelOwnerAllowedWithoutMembershipLookup(t *testing.T) {
+	channelID := uuid.New()
+	serverID := uuid.New()
+	ownerID := uuid.New()
+	ch := &domain.Channel{ID: channelID, ServerID: serverID, IsPrivate: true, OwnerID: ownerID}
+
+	chRepo := new(MockChannelRepository)
+	chRepo.On("GetByID", channelID).Return(ch, nil)
+
+	perms := permsWith(serverID, ownerID, domain.PermViewChannels)
+	msgRepo := new(MockMessageRepository)
+	msgRepo.On("GetByChannelID", channelID, 50, 0).Return([]*domain.Message{}, nil)
+
+	uc := usecase.NewMessageUseCase(msgRepo, chRepo, new(MockServerRepository), perms)
+
+	_, err := uc.GetMessages(channelID, ownerID, 0, 0)
+
+	require.NoError(t, err)
+	chRepo.AssertNotCalled(t, "IsMember", mock.Anything, mock.Anything)
 }

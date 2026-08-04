@@ -1,10 +1,11 @@
 package ws
 
 import (
-	"sync"
+	"errors"
 	"io"
 	"log/slog"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -104,6 +105,83 @@ func TestRegisterClient_ReceivesVoiceStateSnapshot(t *testing.T) {
 			t.Fatal("timed out waiting for voice_state snapshot")
 		}
 	}
+}
+
+// readVoiceStateSnapshot returns the raw voice_state message a freshly
+// registered client received, failing the test if none arrives.
+func readVoiceStateSnapshot(t *testing.T, client *Client) string {
+	t.Helper()
+	deadline := time.After(time.Second)
+	for {
+		select {
+		case msg := <-client.Send:
+			if strings.Contains(string(msg), `"voice_state"`) {
+				return string(msg)
+			}
+		case <-deadline:
+			t.Fatal("timed out waiting for voice_state snapshot")
+			return ""
+		}
+	}
+}
+
+// The connect-time snapshot must not hand a private channel's roster to a user
+// who is not in its audience — reconnects are routine, so an unfiltered
+// snapshot would undo the per-event narrowing entirely.
+func TestRegisterClient_VoiceStateSnapshotExcludesPrivateChannels(t *testing.T) {
+	h := newTestHub()
+	go h.Run()
+
+	allowedChannel := uuid.New()
+	deniedChannel := uuid.New()
+	publicChannel := uuid.New()
+	newUserID := uuid.New()
+
+	h.JoinVoiceChannel(uuid.New(), allowedChannel)
+	h.JoinVoiceChannel(uuid.New(), deniedChannel)
+	h.JoinVoiceChannel(uuid.New(), publicChannel)
+
+	h.SetVoiceAudienceResolver(func(channelID uuid.UUID) ([]uuid.UUID, error) {
+		switch channelID {
+		case allowedChannel:
+			return []uuid.UUID{newUserID}, nil
+		case deniedChannel:
+			return []uuid.UUID{uuid.New()}, nil
+		default:
+			return nil, nil // public
+		}
+	})
+
+	client := &Client{UserID: newUserID, Send: make(chan []byte, 8)}
+	h.RegisterClient(client)
+
+	snapshot := readVoiceStateSnapshot(t, client)
+	assert.NotContains(t, snapshot, deniedChannel.String(),
+		"private channel the user is not in must not appear in the snapshot")
+	assert.Contains(t, snapshot, allowedChannel.String(),
+		"private channel the user IS in must still appear")
+	assert.Contains(t, snapshot, publicChannel.String(),
+		"public channel must still appear")
+}
+
+// A resolver failure must fail closed for the snapshot: better a missing
+// channel (the next voice_participants event restores it) than a leaked one.
+func TestRegisterClient_VoiceStateSnapshotExcludesChannelOnResolverError(t *testing.T) {
+	h := newTestHub()
+	go h.Run()
+
+	brokenChannel := uuid.New()
+	h.JoinVoiceChannel(uuid.New(), brokenChannel)
+	h.SetVoiceAudienceResolver(func(uuid.UUID) ([]uuid.UUID, error) {
+		return nil, errors.New("db down")
+	})
+
+	client := &Client{UserID: uuid.New(), Send: make(chan []byte, 8)}
+	h.RegisterClient(client)
+
+	snapshot := readVoiceStateSnapshot(t, client)
+	assert.NotContains(t, snapshot, brokenChannel.String(),
+		"channel must be excluded when its audience cannot be resolved")
 }
 
 func TestUnregisterClient_LeavesVoiceChannel(t *testing.T) {
@@ -304,4 +382,109 @@ func TestHubConcurrentBroadcastAndChurnNoRace(t *testing.T) {
 	time.Sleep(300 * time.Millisecond)
 	close(stop)
 	wg.Wait()
+}
+
+func TestSendToUsers_DeliversOnlyToListedClients(t *testing.T) {
+	h := newTestHub()
+	go h.Run()
+
+	targetID := uuid.New()
+	otherID := uuid.New()
+	target := &Client{UserID: targetID, Send: make(chan []byte, 8)}
+	other := &Client{UserID: otherID, Send: make(chan []byte, 8)}
+	h.RegisterClient(target)
+	h.RegisterClient(other)
+	assert.Eventually(t, func() bool { return h.IsOnline(targetID) && h.IsOnline(otherID) },
+		time.Second, 10*time.Millisecond)
+
+	h.SendToUsers([]uuid.UUID{targetID}, &Message{Type: "voice_participants", Payload: []byte(`{}`)})
+
+	deadline := time.After(time.Second)
+waitForTarget:
+	for {
+		select {
+		case msg := <-target.Send:
+			if strings.Contains(string(msg), `"voice_participants"`) {
+				break waitForTarget
+			}
+		case <-deadline:
+			t.Fatal("targeted client did not receive the message")
+		}
+	}
+
+	select {
+	case msg := <-other.Send:
+		if strings.Contains(string(msg), `"voice_participants"`) {
+			t.Fatalf("non-targeted client received the message: %s", msg)
+		}
+	case <-time.After(200 * time.Millisecond):
+	}
+}
+
+func TestBroadcastVoiceParticipants_UsesResolverToRestrictAudience(t *testing.T) {
+	h := newTestHub()
+	go h.Run()
+
+	channelID := uuid.New()
+	targetID := uuid.New()
+	otherID := uuid.New()
+	target := &Client{UserID: targetID, Send: make(chan []byte, 8)}
+	other := &Client{UserID: otherID, Send: make(chan []byte, 8)}
+	h.RegisterClient(target)
+	h.RegisterClient(other)
+	assert.Eventually(t, func() bool { return h.IsOnline(targetID) && h.IsOnline(otherID) },
+		time.Second, 10*time.Millisecond)
+
+	h.SetVoiceAudienceResolver(func(cID uuid.UUID) ([]uuid.UUID, error) {
+		assert.Equal(t, channelID, cID)
+		return []uuid.UUID{targetID}, nil
+	})
+
+	h.BroadcastVoiceParticipants(channelID, []uuid.UUID{targetID})
+
+	deadline := time.After(time.Second)
+waitForTarget2:
+	for {
+		select {
+		case msg := <-target.Send:
+			if strings.Contains(string(msg), `"voice_participants"`) {
+				break waitForTarget2
+			}
+		case <-deadline:
+			t.Fatal("targeted client did not receive voice_participants")
+		}
+	}
+
+	select {
+	case msg := <-other.Send:
+		if strings.Contains(string(msg), `"voice_participants"`) {
+			t.Fatalf("non-audience client received voice_participants: %s", msg)
+		}
+	case <-time.After(200 * time.Millisecond):
+	}
+}
+
+func TestBroadcastVoiceParticipants_NilResolverBroadcastsToAll(t *testing.T) {
+	h := newTestHub()
+	go h.Run()
+
+	channelID := uuid.New()
+	userA := uuid.New()
+	clientA := &Client{UserID: userA, Send: make(chan []byte, 8)}
+	h.RegisterClient(clientA)
+	assert.Eventually(t, func() bool { return h.IsOnline(userA) }, time.Second, 10*time.Millisecond)
+
+	h.BroadcastVoiceParticipants(channelID, []uuid.UUID{userA})
+
+	deadline := time.After(time.Second)
+	for {
+		select {
+		case msg := <-clientA.Send:
+			if strings.Contains(string(msg), `"voice_participants"`) {
+				return
+			}
+		case <-deadline:
+			t.Fatal("client did not receive voice_participants broadcast")
+		}
+	}
 }

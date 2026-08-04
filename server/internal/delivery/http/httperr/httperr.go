@@ -77,6 +77,13 @@ const (
 	CodeChannelNameTooLong  = "channel_name_too_long"
 	CodeLastChannel         = "cannot_delete_last_channel"
 
+	CodeChannelForbidden         = "channel_forbidden"
+	CodeChannelNotPrivate        = "channel_not_private"
+	CodeChannelNotVoice          = "channel_not_voice"
+	CodeTargetNotServerMember    = "target_not_server_member"
+	CodeCannotRemoveChannelOwner = "cannot_remove_channel_owner"
+	CodeVoiceTokenFailed         = "voice_token_failed"
+
 	// Сообщения
 	CodeMessageNotFound       = "message_not_found"
 	CodeMessageEmpty          = "message_content_required"
