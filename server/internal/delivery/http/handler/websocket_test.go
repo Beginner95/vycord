@@ -278,6 +278,27 @@ func readUntilType(t *testing.T, conn *websocket.Conn, wantType string, timeout 
 	}
 }
 
+// assertNoMessageOfType fails if a message of wantType arrives on conn within
+// timeout. Other message types (user_joined, online_users, …) are ignored.
+func assertNoMessageOfType(t *testing.T, conn *websocket.Conn, wantType string, timeout time.Duration) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for {
+		conn.SetReadDeadline(deadline)
+		_, data, err := conn.ReadMessage()
+		if err != nil {
+			return // timed out / closed — nothing of wantType arrived
+		}
+		var msg ws.Message
+		if err := json.Unmarshal(data, &msg); err != nil {
+			continue
+		}
+		if msg.Type == wantType {
+			t.Fatalf("client unexpectedly received %q message: %s", wantType, data)
+		}
+	}
+}
+
 // --- Tests ---
 
 func TestVoiceJoinedBroadcastsParticipants(t *testing.T) {
@@ -402,6 +423,193 @@ func TestHandleJoinChannel_DeniedAccess_DoesNotSetCurrentChannel(t *testing.T) {
 	if err == nil && strings.Contains(string(data), `"probe"`) {
 		t.Fatalf("client received channel message despite denied join_channel: %s", data)
 	}
+}
+
+// TestHandleJoinChannel_DeniedAccess_ClearsPreviousChannel: a denial must also
+// drop the channel the client was previously viewing — otherwise a user whose
+// access was revoked keeps receiving that channel's events via SendToChannel.
+func TestHandleJoinChannel_DeniedAccess_ClearsPreviousChannel(t *testing.T) {
+	userID := uuid.New()
+	channelA := uuid.New()
+	channelB := uuid.New()
+
+	h, hub := newTestHandler(t, userID)
+	access := &mockChannelAccess{}
+	access.On("CheckChannelAccess", channelA, userID).Return(&domain.Channel{}, nil)
+	access.On("CheckChannelAccess", channelB, userID).Return(nil, domain.ErrChannelForbidden)
+	h.channelAccess = access
+	// This test deliberately pauses between reads; the default 100ms pongWait of
+	// newTestHandler would reap the connection as dead mid-test.
+	h.pongWait = 5 * time.Second
+	h.pingPeriod = 2 * time.Second
+
+	srv := httptest.NewServer(http.HandlerFunc(h.HandleWebSocket))
+	defer srv.Close()
+	conn := dialWS(t, srv)
+	defer conn.Close()
+
+	assert.Eventually(t, func() bool { return hub.IsOnline(userID) }, time.Second, 10*time.Millisecond)
+
+	// Successfully view channel A, and prove events for A reach this client.
+	sendJSON(t, conn, "join_channel", map[string]string{"channel_id": channelA.String()})
+	time.Sleep(100 * time.Millisecond)
+	hub.SendToChannel(channelA, &ws.Message{Type: "probe_a", Payload: []byte(`{}`)})
+	readUntilType(t, conn, "probe_a", 2*time.Second)
+
+	// Now a denied join for B must clear the client's current channel entirely.
+	sendJSON(t, conn, "join_channel", map[string]string{"channel_id": channelB.String()})
+	time.Sleep(100 * time.Millisecond)
+
+	hub.SendToChannel(channelA, &ws.Message{Type: "probe_b", Payload: []byte(`{}`)})
+	assertNoMessageOfType(t, conn, "probe_b", 300*time.Millisecond)
+}
+
+func TestVoiceCallRing_PrivateChannel_OnlyAudienceReceives(t *testing.T) {
+	caller := uuid.New()
+	insider := uuid.New()
+	outsider := uuid.New()
+	channelID := uuid.New()
+
+	h, hub := newMultiUserTestHandler(t, map[string]*domain.User{
+		"token-caller":   {ID: caller, Username: "caller", Email: "c@e.st", Status: domain.StatusOffline},
+		"token-insider":  {ID: insider, Username: "insider", Email: "i@e.st", Status: domain.StatusOffline},
+		"token-outsider": {ID: outsider, Username: "outsider", Email: "o@e.st", Status: domain.StatusOffline},
+	})
+	access := &mockChannelAccess{}
+	access.On("CheckChannelAccess", channelID, caller).Return(&domain.Channel{IsPrivate: true}, nil)
+	access.On("GetChannelAudience", channelID).Return([]uuid.UUID{caller, insider}, nil)
+	h.channelAccess = access
+
+	srv := httptest.NewServer(http.HandlerFunc(h.HandleWebSocket))
+	defer srv.Close()
+
+	connCaller := dialWSWithToken(t, srv, "token-caller")
+	defer connCaller.Close()
+	connInsider := dialWSWithToken(t, srv, "token-insider")
+	defer connInsider.Close()
+	connOutsider := dialWSWithToken(t, srv, "token-outsider")
+	defer connOutsider.Close()
+
+	assert.Eventually(t, func() bool {
+		return hub.IsOnline(caller) && hub.IsOnline(insider) && hub.IsOnline(outsider)
+	}, time.Second, 10*time.Millisecond)
+
+	sendJSON(t, connCaller, "voice_call_ring", map[string]string{
+		"channel_id":   channelID.String(),
+		"channel_name": "secret-channel",
+		"caller_id":    caller.String(),
+	})
+
+	msg := readUntilType(t, connInsider, "voice_call_ring", 2*time.Second)
+	assert.Contains(t, string(msg), "secret-channel")
+
+	assertNoMessageOfType(t, connOutsider, "voice_call_ring", 300*time.Millisecond)
+}
+
+func TestVoiceCallCancel_PrivateChannel_OnlyAudienceReceives(t *testing.T) {
+	caller := uuid.New()
+	insider := uuid.New()
+	outsider := uuid.New()
+	channelID := uuid.New()
+
+	h, hub := newMultiUserTestHandler(t, map[string]*domain.User{
+		"token-caller":   {ID: caller, Username: "caller", Email: "c@e.st", Status: domain.StatusOffline},
+		"token-insider":  {ID: insider, Username: "insider", Email: "i@e.st", Status: domain.StatusOffline},
+		"token-outsider": {ID: outsider, Username: "outsider", Email: "o@e.st", Status: domain.StatusOffline},
+	})
+	access := &mockChannelAccess{}
+	access.On("CheckChannelAccess", channelID, caller).Return(&domain.Channel{IsPrivate: true}, nil)
+	access.On("GetChannelAudience", channelID).Return([]uuid.UUID{caller, insider}, nil)
+	h.channelAccess = access
+
+	srv := httptest.NewServer(http.HandlerFunc(h.HandleWebSocket))
+	defer srv.Close()
+
+	connCaller := dialWSWithToken(t, srv, "token-caller")
+	defer connCaller.Close()
+	connInsider := dialWSWithToken(t, srv, "token-insider")
+	defer connInsider.Close()
+	connOutsider := dialWSWithToken(t, srv, "token-outsider")
+	defer connOutsider.Close()
+
+	assert.Eventually(t, func() bool {
+		return hub.IsOnline(caller) && hub.IsOnline(insider) && hub.IsOnline(outsider)
+	}, time.Second, 10*time.Millisecond)
+
+	sendJSON(t, connCaller, "voice_call_cancel", map[string]string{
+		"channel_id":   channelID.String(),
+		"channel_name": "secret-channel",
+	})
+
+	msg := readUntilType(t, connInsider, "voice_call_cancel", 2*time.Second)
+	assert.Contains(t, string(msg), "secret-channel")
+
+	assertNoMessageOfType(t, connOutsider, "voice_call_cancel", 300*time.Millisecond)
+}
+
+// A public channel (nil audience) keeps the pre-existing broadcast-to-everyone
+// behavior — every connected client sees the ring, not just channel viewers.
+func TestVoiceCallRing_PublicChannel_BroadcastsToEveryone(t *testing.T) {
+	caller := uuid.New()
+	other := uuid.New()
+	channelID := uuid.New()
+
+	h, hub := newMultiUserTestHandler(t, map[string]*domain.User{
+		"token-caller": {ID: caller, Username: "caller", Email: "c@e.st", Status: domain.StatusOffline},
+		"token-other":  {ID: other, Username: "other", Email: "o@e.st", Status: domain.StatusOffline},
+	})
+	access := &mockChannelAccess{}
+	access.On("CheckChannelAccess", channelID, caller).Return(&domain.Channel{}, nil)
+	access.On("GetChannelAudience", channelID).Return(nil, nil)
+	h.channelAccess = access
+
+	srv := httptest.NewServer(http.HandlerFunc(h.HandleWebSocket))
+	defer srv.Close()
+
+	connCaller := dialWSWithToken(t, srv, "token-caller")
+	defer connCaller.Close()
+	connOther := dialWSWithToken(t, srv, "token-other")
+	defer connOther.Close()
+
+	assert.Eventually(t, func() bool { return hub.IsOnline(caller) && hub.IsOnline(other) },
+		time.Second, 10*time.Millisecond)
+
+	sendJSON(t, connCaller, "voice_call_ring", map[string]string{"channel_id": channelID.String()})
+
+	msg := readUntilType(t, connOther, "voice_call_ring", 2*time.Second)
+	assert.Contains(t, string(msg), channelID.String())
+}
+
+// A client that cannot access the channel it claims to ring for must not cause
+// any delivery at all.
+func TestVoiceCallRing_DeniedSender_SendsNothing(t *testing.T) {
+	caller := uuid.New()
+	other := uuid.New()
+	channelID := uuid.New()
+
+	h, hub := newMultiUserTestHandler(t, map[string]*domain.User{
+		"token-caller": {ID: caller, Username: "caller", Email: "c@e.st", Status: domain.StatusOffline},
+		"token-other":  {ID: other, Username: "other", Email: "o@e.st", Status: domain.StatusOffline},
+	})
+	access := &mockChannelAccess{}
+	access.On("CheckChannelAccess", channelID, caller).Return(nil, domain.ErrChannelForbidden)
+	h.channelAccess = access
+
+	srv := httptest.NewServer(http.HandlerFunc(h.HandleWebSocket))
+	defer srv.Close()
+
+	connCaller := dialWSWithToken(t, srv, "token-caller")
+	defer connCaller.Close()
+	connOther := dialWSWithToken(t, srv, "token-other")
+	defer connOther.Close()
+
+	assert.Eventually(t, func() bool { return hub.IsOnline(caller) && hub.IsOnline(other) },
+		time.Second, 10*time.Millisecond)
+
+	sendJSON(t, connCaller, "voice_call_ring", map[string]string{"channel_id": channelID.String()})
+
+	assertNoMessageOfType(t, connOther, "voice_call_ring", 300*time.Millisecond)
+	access.AssertNotCalled(t, "GetChannelAudience", mock.Anything)
 }
 
 func TestVoiceJoined_DeniedAccess_DoesNotJoinRoster(t *testing.T) {
