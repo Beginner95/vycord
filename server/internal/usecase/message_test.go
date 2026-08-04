@@ -724,3 +724,66 @@ func TestUpdateMessage_MentionNonMember_InvalidMention(t *testing.T) {
 	assert.ErrorIs(t, err, domain.ErrInvalidMention)
 	msgRepo.AssertNotCalled(t, "Update", mock.Anything, mock.Anything)
 }
+
+func TestCreateMessage_PrivateChannel_OutsiderForbidden(t *testing.T) {
+	channelID := uuid.New()
+	serverID := uuid.New()
+	userID := uuid.New()
+	ch := &domain.Channel{ID: channelID, ServerID: serverID, IsPrivate: true, OwnerID: uuid.New()}
+
+	chRepo := new(MockChannelRepository)
+	chRepo.On("GetByID", channelID).Return(ch, nil)
+	chRepo.On("IsMember", channelID, userID).Return(false, nil)
+
+	perms := permsWith(serverID, userID, domain.PermSendMessages)
+	msgRepo := new(MockMessageRepository)
+
+	uc := usecase.NewMessageUseCase(msgRepo, chRepo, new(MockServerRepository), perms)
+
+	_, err := uc.CreateMessage(channelID, userID, "hi")
+
+	assert.ErrorIs(t, err, domain.ErrChannelForbidden)
+	msgRepo.AssertNotCalled(t, "Create", mock.Anything)
+}
+
+func TestCreateMessage_PrivateChannel_InvitedMemberAllowed(t *testing.T) {
+	channelID := uuid.New()
+	serverID := uuid.New()
+	userID := uuid.New()
+	ch := &domain.Channel{ID: channelID, ServerID: serverID, IsPrivate: true, OwnerID: uuid.New()}
+
+	chRepo := new(MockChannelRepository)
+	chRepo.On("GetByID", channelID).Return(ch, nil)
+	chRepo.On("IsMember", channelID, userID).Return(true, nil)
+
+	perms := permsWith(serverID, userID, domain.PermSendMessages)
+	msgRepo := new(MockMessageRepository)
+	msgRepo.On("Create", mock.AnythingOfType("*domain.Message")).Return(nil)
+
+	uc := usecase.NewMessageUseCase(msgRepo, chRepo, new(MockServerRepository), perms)
+
+	_, err := uc.CreateMessage(channelID, userID, "hi")
+
+	require.NoError(t, err)
+}
+
+func TestGetMessages_PrivateChannel_ChannelOwnerAllowedWithoutMembershipLookup(t *testing.T) {
+	channelID := uuid.New()
+	serverID := uuid.New()
+	ownerID := uuid.New()
+	ch := &domain.Channel{ID: channelID, ServerID: serverID, IsPrivate: true, OwnerID: ownerID}
+
+	chRepo := new(MockChannelRepository)
+	chRepo.On("GetByID", channelID).Return(ch, nil)
+
+	perms := permsWith(serverID, ownerID, domain.PermViewChannels)
+	msgRepo := new(MockMessageRepository)
+	msgRepo.On("GetByChannelID", channelID, 50, 0).Return([]*domain.Message{}, nil)
+
+	uc := usecase.NewMessageUseCase(msgRepo, chRepo, new(MockServerRepository), perms)
+
+	_, err := uc.GetMessages(channelID, ownerID, 0, 0)
+
+	require.NoError(t, err)
+	chRepo.AssertNotCalled(t, "IsMember", mock.Anything, mock.Anything)
+}
