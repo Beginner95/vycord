@@ -43,6 +43,11 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "missing room_id", http.StatusBadRequest)
 		return
 	}
+	parsedRoomID, err := uuid.Parse(roomID)
+	if err != nil {
+		http.Error(w, "invalid room_id", http.StatusBadRequest)
+		return
+	}
 
 	uid, tokenRoomID, err := authtoken.ValidateRoomToken(h.jwtSecret, token)
 	if err != nil {
@@ -50,7 +55,9 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid token", http.StatusUnauthorized)
 		return
 	}
-	if tokenRoomID.String() != roomID {
+	// Сравниваем разобранные UUID, а не строки: одинаковый идентификатор в
+	// другом регистре — это тот же самый room, отказывать по нему нельзя.
+	if tokenRoomID != parsedRoomID {
 		h.log.Warn("rejected connection: token not scoped to this room", "room_id", roomID, "token_room_id", tokenRoomID)
 		http.Error(w, "invalid token", http.StatusUnauthorized)
 		return

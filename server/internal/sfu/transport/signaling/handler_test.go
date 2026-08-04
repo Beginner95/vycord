@@ -77,7 +77,7 @@ func dialStatus(t *testing.T, srv *httptest.Server, query string) int {
 
 func TestServeHTTPRejectsMissingToken(t *testing.T) {
 	srv := newTestServer(t)
-	if got := dialStatus(t, srv, "room_id=r1"); got != http.StatusUnauthorized {
+	if got := dialStatus(t, srv, "room_id="+uuid.NewString()+""); got != http.StatusUnauthorized {
 		t.Fatalf("status = %d, want 401", got)
 	}
 }
@@ -92,7 +92,7 @@ func TestServeHTTPRejectsMissingRoomID(t *testing.T) {
 
 func TestServeHTTPRejectsGarbageToken(t *testing.T) {
 	srv := newTestServer(t)
-	if got := dialStatus(t, srv, "room_id=r1&token=garbage"); got != http.StatusUnauthorized {
+	if got := dialStatus(t, srv, "room_id="+uuid.NewString()+"&token=garbage"); got != http.StatusUnauthorized {
 		t.Fatalf("status = %d, want 401", got)
 	}
 }
@@ -100,7 +100,7 @@ func TestServeHTTPRejectsGarbageToken(t *testing.T) {
 func TestServeHTTPRejectsExpiredToken(t *testing.T) {
 	srv := newTestServer(t)
 	tok := signToken(t, uuid.NewString(), time.Now().Add(-time.Hour))
-	if got := dialStatus(t, srv, "room_id=r1&token="+tok); got != http.StatusUnauthorized {
+	if got := dialStatus(t, srv, "room_id="+uuid.NewString()+"&token="+tok); got != http.StatusUnauthorized {
 		t.Fatalf("status = %d, want 401", got)
 	}
 }
@@ -136,9 +136,32 @@ func TestServeHTTPAcceptsValidTokenAndJoins(t *testing.T) {
 func TestServeHTTPRejectsTokenWithoutRoomIDClaim(t *testing.T) {
 	srv := newTestServer(t)
 	tok := signToken(t, uuid.NewString(), time.Now().Add(time.Hour)) // no room_id claim
-	if got := dialStatus(t, srv, "room_id=r1&token="+tok); got != http.StatusUnauthorized {
+	if got := dialStatus(t, srv, "room_id="+uuid.NewString()+"&token="+tok); got != http.StatusUnauthorized {
 		t.Fatalf("status = %d, want 401", got)
 	}
+}
+
+func TestServeHTTPRejectsMalformedRoomID(t *testing.T) {
+	srv := newTestServer(t)
+	tok := signRoomToken(t, uuid.NewString(), uuid.NewString(), time.Now().Add(time.Hour))
+	if got := dialStatus(t, srv, "room_id=not-a-uuid&token="+tok); got != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", got)
+	}
+}
+
+// The same room id in a different case is the same room: the comparison is on
+// parsed UUIDs, not on the raw query-string bytes.
+func TestServeHTTPAcceptsDifferentlyCasedRoomID(t *testing.T) {
+	srv := newTestServer(t)
+	roomID := uuid.NewString()
+	tok := signRoomToken(t, uuid.NewString(), roomID, time.Now().Add(time.Hour))
+	url := "ws" + strings.TrimPrefix(srv.URL, "http") + "/ws?room_id=" + strings.ToUpper(roomID) + "&token=" + tok
+
+	conn, resp, err := websocket.DefaultDialer.Dial(url, nil)
+	if err != nil {
+		t.Fatalf("dial with upper-cased room id: %v (status %v)", err, resp.StatusCode)
+	}
+	defer conn.Close()
 }
 
 func TestServeHTTPRejectsMismatchedRoomID(t *testing.T) {
