@@ -305,3 +305,108 @@ func TestHubConcurrentBroadcastAndChurnNoRace(t *testing.T) {
 	close(stop)
 	wg.Wait()
 }
+
+func TestSendToUsers_DeliversOnlyToListedClients(t *testing.T) {
+	h := newTestHub()
+	go h.Run()
+
+	targetID := uuid.New()
+	otherID := uuid.New()
+	target := &Client{UserID: targetID, Send: make(chan []byte, 8)}
+	other := &Client{UserID: otherID, Send: make(chan []byte, 8)}
+	h.RegisterClient(target)
+	h.RegisterClient(other)
+	assert.Eventually(t, func() bool { return h.IsOnline(targetID) && h.IsOnline(otherID) },
+		time.Second, 10*time.Millisecond)
+
+	h.SendToUsers([]uuid.UUID{targetID}, &Message{Type: "voice_participants", Payload: []byte(`{}`)})
+
+	deadline := time.After(time.Second)
+waitForTarget:
+	for {
+		select {
+		case msg := <-target.Send:
+			if strings.Contains(string(msg), `"voice_participants"`) {
+				break waitForTarget
+			}
+		case <-deadline:
+			t.Fatal("targeted client did not receive the message")
+		}
+	}
+
+	select {
+	case msg := <-other.Send:
+		if strings.Contains(string(msg), `"voice_participants"`) {
+			t.Fatalf("non-targeted client received the message: %s", msg)
+		}
+	case <-time.After(200 * time.Millisecond):
+	}
+}
+
+func TestBroadcastVoiceParticipants_UsesResolverToRestrictAudience(t *testing.T) {
+	h := newTestHub()
+	go h.Run()
+
+	channelID := uuid.New()
+	targetID := uuid.New()
+	otherID := uuid.New()
+	target := &Client{UserID: targetID, Send: make(chan []byte, 8)}
+	other := &Client{UserID: otherID, Send: make(chan []byte, 8)}
+	h.RegisterClient(target)
+	h.RegisterClient(other)
+	assert.Eventually(t, func() bool { return h.IsOnline(targetID) && h.IsOnline(otherID) },
+		time.Second, 10*time.Millisecond)
+
+	h.SetVoiceAudienceResolver(func(cID uuid.UUID) ([]uuid.UUID, error) {
+		assert.Equal(t, channelID, cID)
+		return []uuid.UUID{targetID}, nil
+	})
+
+	h.BroadcastVoiceParticipants(channelID, []uuid.UUID{targetID})
+
+	deadline := time.After(time.Second)
+waitForTarget2:
+	for {
+		select {
+		case msg := <-target.Send:
+			if strings.Contains(string(msg), `"voice_participants"`) {
+				break waitForTarget2
+			}
+		case <-deadline:
+			t.Fatal("targeted client did not receive voice_participants")
+		}
+	}
+
+	select {
+	case msg := <-other.Send:
+		if strings.Contains(string(msg), `"voice_participants"`) {
+			t.Fatalf("non-audience client received voice_participants: %s", msg)
+		}
+	case <-time.After(200 * time.Millisecond):
+	}
+}
+
+func TestBroadcastVoiceParticipants_NilResolverBroadcastsToAll(t *testing.T) {
+	h := newTestHub()
+	go h.Run()
+
+	channelID := uuid.New()
+	userA := uuid.New()
+	clientA := &Client{UserID: userA, Send: make(chan []byte, 8)}
+	h.RegisterClient(clientA)
+	assert.Eventually(t, func() bool { return h.IsOnline(userA) }, time.Second, 10*time.Millisecond)
+
+	h.BroadcastVoiceParticipants(channelID, []uuid.UUID{userA})
+
+	deadline := time.After(time.Second)
+	for {
+		select {
+		case msg := <-clientA.Send:
+			if strings.Contains(string(msg), `"voice_participants"`) {
+				return
+			}
+		case <-deadline:
+			t.Fatal("client did not receive voice_participants broadcast")
+		}
+	}
+}

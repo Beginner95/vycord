@@ -18,6 +18,11 @@ type Hub struct {
 	clientVoiceChannel map[uuid.UUID]uuid.UUID              // userID → channelID
 	mu                 sync.RWMutex
 	log                *slog.Logger
+	// voiceAudienceResolver, when set, restricts BroadcastVoiceParticipants
+	// to the returned user IDs for private voice channels (nil result =
+	// broadcast to everyone). Injected from main.go after the usecase layer
+	// is constructed — this package has no DB/domain dependency itself.
+	voiceAudienceResolver func(channelID uuid.UUID) ([]uuid.UUID, error)
 }
 
 type Message struct {
@@ -173,20 +178,64 @@ func (h *Hub) sendVoiceStateToClient(client *Client, state map[uuid.UUID][]uuid.
 	}
 }
 
-// BroadcastVoiceParticipants notifies all connected clients about the current
-// participant list for a voice channel.
+// SetVoiceAudienceResolver installs a callback used by BroadcastVoiceParticipants
+// to restrict delivery for private voice channels. nil (the zero value, as in
+// any Hub built by a bare NewHub) keeps the pre-existing "broadcast to
+// everyone" behavior.
+func (h *Hub) SetVoiceAudienceResolver(resolver func(channelID uuid.UUID) ([]uuid.UUID, error)) {
+	h.voiceAudienceResolver = resolver
+}
+
+// BroadcastVoiceParticipants notifies clients about the current participant
+// list for a voice channel. When a voiceAudienceResolver is set and returns
+// a non-nil audience for channelID (a private channel), delivery is
+// restricted to those user IDs; otherwise every connected client gets it —
+// the pre-existing behavior, exercised by both explicit join/leave events
+// and Run()'s automatic disconnect cleanup.
 func (h *Hub) BroadcastVoiceParticipants(channelID uuid.UUID, participants []uuid.UUID) {
 	ids := make([]string, len(participants))
 	for i, id := range participants {
 		ids[i] = id.String()
 	}
-	h.BroadcastMessage(&Message{
+	msg := &Message{
 		Type: "voice_participants",
 		Payload: mustMarshal(map[string]interface{}{
 			"channel_id": channelID.String(),
 			"user_ids":   ids,
 		}),
-	})
+	}
+
+	if h.voiceAudienceResolver != nil {
+		audience, err := h.voiceAudienceResolver(channelID)
+		if err != nil {
+			h.log.Warn("failed to resolve voice audience, broadcasting to everyone", "channel_id", channelID, "error", err)
+		} else if audience != nil {
+			h.SendToUsers(audience, msg)
+			return
+		}
+	}
+	h.BroadcastMessage(msg)
+}
+
+// SendToUsers delivers message to each connected client whose UserID is in
+// userIDs — used for private-channel realtime events that must not reach
+// every connected client the way BroadcastMessage does.
+func (h *Hub) SendToUsers(userIDs []uuid.UUID, message *Message) {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+
+	data := mustMarshal(message)
+	for _, userID := range userIDs {
+		client, ok := h.clients[userID]
+		if !ok {
+			continue
+		}
+		select {
+		case client.Send <- data:
+		default:
+			h.log.Warn("SendToUsers: send channel full, dropping message", "user_id", userID, "msg_type", message.Type)
+		}
+	}
 }
 
 // BroadcastUserUpdate notifies all connected clients that userID's profile
