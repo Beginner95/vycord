@@ -202,6 +202,10 @@ export function AppPage() {
       const p = payload as Channel;
       useServerStore.getState().patchChannel(p.id, { name: p.name });
     });
+    const unsubChannelCreate = wsService.on('channel_create', (payload) => {
+      const p = payload as Channel;
+      useServerStore.getState().addChannel(p);
+    });
     const unsubServerDelete = wsService.on('server_delete', (payload) => {
       const { id } = payload as { id: string };
       useServerStore.getState().removeServer(id);
@@ -215,6 +219,7 @@ export function AppPage() {
     return () => {
       unsubServerUpdate();
       unsubChannelUpdate();
+      unsubChannelCreate();
       unsubServerDelete();
       unsubChannelDelete();
     };
