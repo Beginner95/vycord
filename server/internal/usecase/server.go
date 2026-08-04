@@ -395,10 +395,6 @@ func (uc *serverUseCase) DeleteServer(serverID, userID uuid.UUID) error {
 }
 
 func (uc *serverUseCase) UpdateChannel(serverID, channelID, userID uuid.UUID, name string, isPrivate bool) (*domain.Channel, error) {
-	if err := uc.requirePermission(serverID, userID, domain.PermManageChannels); err != nil {
-		return nil, err
-	}
-
 	channel, err := uc.channelRepo.GetByID(channelID)
 	if err != nil {
 		return nil, fmt.Errorf("get channel: %w", err)
@@ -407,13 +403,26 @@ func (uc *serverUseCase) UpdateChannel(serverID, channelID, userID uuid.UUID, na
 		return nil, fmt.Errorf("channel %s: %w", channelID, domain.ErrChannelNotFound)
 	}
 
+	ps, err := uc.perms.Resolve(serverID, userID)
+	if err != nil {
+		return nil, err
+	}
+
 	privacyChanged := isPrivate != channel.IsPrivate
-	if privacyChanged {
-		ps, err := uc.perms.Resolve(serverID, userID)
-		if err != nil {
-			return nil, err
-		}
+
+	if channel.IsPrivate {
+		// Уже приватным каналом управляет только владелец канала/сервера или
+		// администратор — MANAGE_CHANNELS одной роли недостаточно даже на
+		// простое переименование, иначе любой с этим правом мог бы трогать
+		// чужой приватный канал, не имея к нему доступа на чтение.
 		if !channel.IsManagedBy(userID, ps) {
+			return nil, domain.ErrChannelForbidden
+		}
+	} else {
+		if !ps.Has(domain.PermManageChannels) {
+			return nil, domain.ErrForbidden
+		}
+		if privacyChanged && !channel.IsManagedBy(userID, ps) {
 			return nil, domain.ErrChannelForbidden
 		}
 	}
@@ -441,16 +450,28 @@ func (uc *serverUseCase) UpdateChannel(serverID, channelID, userID uuid.UUID, na
 }
 
 func (uc *serverUseCase) DeleteChannel(serverID, channelID, userID uuid.UUID) error {
-	if err := uc.requirePermission(serverID, userID, domain.PermManageChannels); err != nil {
-		return err
-	}
-
 	channel, err := uc.channelRepo.GetByID(channelID)
 	if err != nil {
 		return fmt.Errorf("get channel: %w", err)
 	}
 	if channel.ServerID != serverID {
 		return fmt.Errorf("channel %s: %w", channelID, domain.ErrChannelNotFound)
+	}
+
+	if channel.IsPrivate {
+		// Симметрично UpdateChannel: удалить уже приватный канал может только
+		// его владелец, владелец сервера или администратор.
+		ps, err := uc.perms.Resolve(serverID, userID)
+		if err != nil {
+			return err
+		}
+		if !channel.IsManagedBy(userID, ps) {
+			return domain.ErrChannelForbidden
+		}
+	} else {
+		if err := uc.requirePermission(serverID, userID, domain.PermManageChannels); err != nil {
+			return err
+		}
 	}
 
 	deleted, err := uc.channelRepo.DeleteIfNotLast(channelID, serverID)
