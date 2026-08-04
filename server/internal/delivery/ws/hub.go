@@ -183,6 +183,8 @@ func (h *Hub) sendVoiceStateToClient(client *Client, state map[uuid.UUID][]uuid.
 // any Hub built by a bare NewHub) keeps the pre-existing "broadcast to
 // everyone" behavior.
 func (h *Hub) SetVoiceAudienceResolver(resolver func(channelID uuid.UUID) ([]uuid.UUID, error)) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
 	h.voiceAudienceResolver = resolver
 }
 
@@ -205,8 +207,12 @@ func (h *Hub) BroadcastVoiceParticipants(channelID uuid.UUID, participants []uui
 		}),
 	}
 
-	if h.voiceAudienceResolver != nil {
-		audience, err := h.voiceAudienceResolver(channelID)
+	h.mu.RLock()
+	resolver := h.voiceAudienceResolver
+	h.mu.RUnlock()
+
+	if resolver != nil {
+		audience, err := resolver(channelID)
 		if err != nil {
 			h.log.Warn("failed to resolve voice audience, broadcasting to everyone", "channel_id", channelID, "error", err)
 		} else if audience != nil {
