@@ -84,6 +84,26 @@ func (m *MockChannelRepository) DeleteIfNotLast(id, serverID uuid.UUID) (bool, e
 	args := m.Called(id, serverID)
 	return args.Bool(0), args.Error(1)
 }
+func (m *MockChannelRepository) AddMember(channelID, userID, invitedBy uuid.UUID) error {
+	return m.Called(channelID, userID, invitedBy).Error(0)
+}
+func (m *MockChannelRepository) RemoveMember(channelID, userID uuid.UUID) error {
+	return m.Called(channelID, userID).Error(0)
+}
+func (m *MockChannelRepository) RemoveAllMembers(channelID uuid.UUID) error {
+	return m.Called(channelID).Error(0)
+}
+func (m *MockChannelRepository) IsMember(channelID, userID uuid.UUID) (bool, error) {
+	args := m.Called(channelID, userID)
+	return args.Bool(0), args.Error(1)
+}
+func (m *MockChannelRepository) GetMembersWithUsers(channelID uuid.UUID) ([]*domain.ChannelMemberWithUser, error) {
+	args := m.Called(channelID)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]*domain.ChannelMemberWithUser), args.Error(1)
+}
 
 type MockServerRepository struct{ mock.Mock }
 
