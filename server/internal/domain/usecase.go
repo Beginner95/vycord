@@ -69,6 +69,13 @@ type TURNUseCase interface {
 	GetCredentials(userID uuid.UUID) (*TURNCredentials, error)
 }
 
+type VoiceTokenUseCase interface {
+	// IssueToken mints a short-lived JWT scoped to a single SFU room after
+	// verifying userID may access channelID (server membership, and — for
+	// private channels — CanAccess). Requires channelID to be a voice channel.
+	IssueToken(channelID, userID uuid.UUID) (string, error)
+}
+
 type PermissionUseCase interface {
 	// Resolve возвращает эффективные права пользователя на сервере.
 	// Не-участник получает нулевой набор, а не ошибку.
