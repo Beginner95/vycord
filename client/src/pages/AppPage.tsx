@@ -200,7 +200,7 @@ export function AppPage() {
     });
     const unsubChannelUpdate = wsService.on('channel_update', (payload) => {
       const p = payload as Channel;
-      useServerStore.getState().patchChannel(p.id, { name: p.name });
+      useServerStore.getState().patchChannel(p.id, { name: p.name, is_private: p.is_private });
     });
     const unsubChannelCreate = wsService.on('channel_create', (payload) => {
       const p = payload as Channel;

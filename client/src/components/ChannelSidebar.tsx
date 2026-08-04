@@ -254,6 +254,8 @@ export function ChannelSidebar({
         <EditChannelModal
           serverId={server.id}
           channel={editingChannel}
+          userId={user?.id}
+          permissions={permissions}
           onClose={() => setEditingChannel(null)}
         />
       )}
