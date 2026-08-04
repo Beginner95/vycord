@@ -586,3 +586,86 @@ func (uc *serverUseCase) RemoveServerIcon(serverID, userID uuid.UUID) (*domain.S
 	server.IconURL = nil
 	return server, nil
 }
+
+// requireChannelManager проверяет, что канал существует, принадлежит
+// serverID, и userID управляет им (Channel.IsManagedBy) — владелец канала,
+// владелец сервера или администратор. Используется InviteToChannel,
+// RemoveFromChannel и GetChannelMembers: операциями, доступными только этому
+// кругу, а не всем, у кого есть CanAccess (обычный приглашённый участник
+// видит канал, но не управляет списком приглашённых).
+func (uc *serverUseCase) requireChannelManager(serverID, channelID, userID uuid.UUID) (*domain.Channel, error) {
+	channel, err := uc.channelRepo.GetByID(channelID)
+	if err != nil {
+		return nil, fmt.Errorf("get channel: %w", err)
+	}
+	if channel.ServerID != serverID {
+		return nil, fmt.Errorf("channel %s: %w", channelID, domain.ErrChannelNotFound)
+	}
+
+	ps, err := uc.perms.Resolve(serverID, userID)
+	if err != nil {
+		return nil, err
+	}
+	if !channel.IsManagedBy(userID, ps) {
+		return nil, domain.ErrChannelForbidden
+	}
+
+	return channel, nil
+}
+
+func (uc *serverUseCase) InviteToChannel(serverID, channelID, inviterID, targetUserID uuid.UUID) error {
+	channel, err := uc.requireChannelManager(serverID, channelID, inviterID)
+	if err != nil {
+		return err
+	}
+	if !channel.IsPrivate {
+		return domain.ErrChannelNotPrivate
+	}
+
+	isTargetMember, err := uc.serverRepo.IsMember(serverID, targetUserID)
+	if err != nil {
+		return fmt.Errorf("check target membership: %w", err)
+	}
+	if !isTargetMember {
+		return domain.ErrTargetNotServerMember
+	}
+
+	if err := uc.channelRepo.AddMember(channelID, targetUserID, inviterID); err != nil {
+		return fmt.Errorf("failed to add channel member: %w", err)
+	}
+	return nil
+}
+
+func (uc *serverUseCase) RemoveFromChannel(serverID, channelID, removerID, targetUserID uuid.UUID) error {
+	channel, err := uc.requireChannelManager(serverID, channelID, removerID)
+	if err != nil {
+		return err
+	}
+	if !channel.IsPrivate {
+		return domain.ErrChannelNotPrivate
+	}
+	if targetUserID == channel.OwnerID {
+		return domain.ErrCannotRemoveChannelOwner
+	}
+
+	if err := uc.channelRepo.RemoveMember(channelID, targetUserID); err != nil {
+		return fmt.Errorf("failed to remove channel member: %w", err)
+	}
+	return nil
+}
+
+func (uc *serverUseCase) GetChannelMembers(serverID, channelID, userID uuid.UUID) ([]*domain.ChannelMemberWithUser, error) {
+	channel, err := uc.requireChannelManager(serverID, channelID, userID)
+	if err != nil {
+		return nil, err
+	}
+	if !channel.IsPrivate {
+		return nil, domain.ErrChannelNotPrivate
+	}
+
+	members, err := uc.channelRepo.GetMembersWithUsers(channelID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get channel members: %w", err)
+	}
+	return members, nil
+}

@@ -925,3 +925,162 @@ func TestGetChannelAudience_PrivateChannel_IncludesOwnerServerOwnerAndMembers(t 
 	require.NoError(t, err)
 	assert.ElementsMatch(t, []uuid.UUID{serverOwnerID, channelOwnerID, invitedID}, got)
 }
+
+func TestInviteToChannel_OwnerInvitesServerMember_Success(t *testing.T) {
+	serverID := uuid.New()
+	ownerID := uuid.New()
+	targetID := uuid.New()
+	channelID := uuid.New()
+	ch := &domain.Channel{ID: channelID, ServerID: serverID, IsPrivate: true, OwnerID: ownerID}
+
+	chRepo := new(MockChannelRepository)
+	chRepo.On("GetByID", channelID).Return(ch, nil)
+	chRepo.On("AddMember", channelID, targetID, ownerID).Return(nil)
+
+	srvRepo := new(MockServerRepository)
+	srvRepo.On("IsMember", serverID, targetID).Return(true, nil)
+
+	perms := permsWith(serverID, ownerID, 0)
+	uc := usecase.NewServerUseCase(srvRepo, chRepo, new(MockUserRepository), new(MockRoleRepository), new(MockStorage), perms)
+
+	err := uc.InviteToChannel(serverID, channelID, ownerID, targetID)
+
+	require.NoError(t, err)
+	chRepo.AssertCalled(t, "AddMember", channelID, targetID, ownerID)
+}
+
+func TestInviteToChannel_NonManagerForbidden(t *testing.T) {
+	serverID := uuid.New()
+	ownerID := uuid.New()
+	otherID := uuid.New()
+	targetID := uuid.New()
+	channelID := uuid.New()
+	ch := &domain.Channel{ID: channelID, ServerID: serverID, IsPrivate: true, OwnerID: ownerID}
+
+	chRepo := new(MockChannelRepository)
+	chRepo.On("GetByID", channelID).Return(ch, nil)
+
+	// otherID has MANAGE_CHANNELS but isn't the channel owner/server owner/admin.
+	perms := permsWith(serverID, otherID, domain.PermManageChannels)
+	uc := usecase.NewServerUseCase(new(MockServerRepository), chRepo, new(MockUserRepository), new(MockRoleRepository), new(MockStorage), perms)
+
+	err := uc.InviteToChannel(serverID, channelID, otherID, targetID)
+
+	assert.ErrorIs(t, err, domain.ErrChannelForbidden)
+	chRepo.AssertNotCalled(t, "AddMember", mock.Anything, mock.Anything, mock.Anything)
+}
+
+func TestInviteToChannel_TargetNotServerMember_Rejected(t *testing.T) {
+	serverID := uuid.New()
+	ownerID := uuid.New()
+	targetID := uuid.New()
+	channelID := uuid.New()
+	ch := &domain.Channel{ID: channelID, ServerID: serverID, IsPrivate: true, OwnerID: ownerID}
+
+	chRepo := new(MockChannelRepository)
+	chRepo.On("GetByID", channelID).Return(ch, nil)
+
+	srvRepo := new(MockServerRepository)
+	srvRepo.On("IsMember", serverID, targetID).Return(false, nil)
+
+	perms := permsWith(serverID, ownerID, 0)
+	uc := usecase.NewServerUseCase(srvRepo, chRepo, new(MockUserRepository), new(MockRoleRepository), new(MockStorage), perms)
+
+	err := uc.InviteToChannel(serverID, channelID, ownerID, targetID)
+
+	assert.ErrorIs(t, err, domain.ErrTargetNotServerMember)
+	chRepo.AssertNotCalled(t, "AddMember", mock.Anything, mock.Anything, mock.Anything)
+}
+
+func TestInviteToChannel_PublicChannel_Rejected(t *testing.T) {
+	serverID := uuid.New()
+	ownerID := uuid.New()
+	targetID := uuid.New()
+	channelID := uuid.New()
+	ch := &domain.Channel{ID: channelID, ServerID: serverID, IsPrivate: false, OwnerID: ownerID}
+
+	chRepo := new(MockChannelRepository)
+	chRepo.On("GetByID", channelID).Return(ch, nil)
+
+	perms := permsWith(serverID, ownerID, 0)
+	uc := usecase.NewServerUseCase(new(MockServerRepository), chRepo, new(MockUserRepository), new(MockRoleRepository), new(MockStorage), perms)
+
+	err := uc.InviteToChannel(serverID, channelID, ownerID, targetID)
+
+	assert.ErrorIs(t, err, domain.ErrChannelNotPrivate)
+}
+
+func TestRemoveFromChannel_CannotRemoveOwner(t *testing.T) {
+	serverID := uuid.New()
+	ownerID := uuid.New()
+	channelID := uuid.New()
+	ch := &domain.Channel{ID: channelID, ServerID: serverID, IsPrivate: true, OwnerID: ownerID}
+
+	chRepo := new(MockChannelRepository)
+	chRepo.On("GetByID", channelID).Return(ch, nil)
+
+	perms := permsWith(serverID, ownerID, 0)
+	uc := usecase.NewServerUseCase(new(MockServerRepository), chRepo, new(MockUserRepository), new(MockRoleRepository), new(MockStorage), perms)
+
+	err := uc.RemoveFromChannel(serverID, channelID, ownerID, ownerID)
+
+	assert.ErrorIs(t, err, domain.ErrCannotRemoveChannelOwner)
+	chRepo.AssertNotCalled(t, "RemoveMember", mock.Anything, mock.Anything)
+}
+
+func TestRemoveFromChannel_Success(t *testing.T) {
+	serverID := uuid.New()
+	ownerID := uuid.New()
+	memberID := uuid.New()
+	channelID := uuid.New()
+	ch := &domain.Channel{ID: channelID, ServerID: serverID, IsPrivate: true, OwnerID: ownerID}
+
+	chRepo := new(MockChannelRepository)
+	chRepo.On("GetByID", channelID).Return(ch, nil)
+	chRepo.On("RemoveMember", channelID, memberID).Return(nil)
+
+	perms := permsWith(serverID, ownerID, 0)
+	uc := usecase.NewServerUseCase(new(MockServerRepository), chRepo, new(MockUserRepository), new(MockRoleRepository), new(MockStorage), perms)
+
+	err := uc.RemoveFromChannel(serverID, channelID, ownerID, memberID)
+
+	require.NoError(t, err)
+}
+
+func TestGetChannelMembers_NonManagerForbidden(t *testing.T) {
+	serverID := uuid.New()
+	ownerID := uuid.New()
+	memberID := uuid.New()
+	channelID := uuid.New()
+	ch := &domain.Channel{ID: channelID, ServerID: serverID, IsPrivate: true, OwnerID: ownerID}
+
+	chRepo := new(MockChannelRepository)
+	chRepo.On("GetByID", channelID).Return(ch, nil)
+
+	// memberID could be an invited channel member (can view) but is not a manager.
+	perms := permsWith(serverID, memberID, 0)
+	uc := usecase.NewServerUseCase(new(MockServerRepository), chRepo, new(MockUserRepository), new(MockRoleRepository), new(MockStorage), perms)
+
+	_, err := uc.GetChannelMembers(serverID, channelID, memberID)
+
+	assert.ErrorIs(t, err, domain.ErrChannelForbidden)
+}
+
+func TestGetChannelMembers_OwnerSuccess(t *testing.T) {
+	serverID := uuid.New()
+	ownerID := uuid.New()
+	channelID := uuid.New()
+	ch := &domain.Channel{ID: channelID, ServerID: serverID, IsPrivate: true, OwnerID: ownerID}
+
+	chRepo := new(MockChannelRepository)
+	chRepo.On("GetByID", channelID).Return(ch, nil)
+	chRepo.On("GetMembersWithUsers", channelID).Return([]*domain.ChannelMemberWithUser{{UserID: ownerID}}, nil)
+
+	perms := permsWith(serverID, ownerID, 0)
+	uc := usecase.NewServerUseCase(new(MockServerRepository), chRepo, new(MockUserRepository), new(MockRoleRepository), new(MockStorage), perms)
+
+	got, err := uc.GetChannelMembers(serverID, channelID, ownerID)
+
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+}

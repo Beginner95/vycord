@@ -49,6 +49,9 @@ type ServerUseCase interface {
 	DeleteChannel(serverID, channelID, userID uuid.UUID) error
 	UpdateServerIcon(serverID, userID uuid.UUID, data []byte) (*Server, error)
 	RemoveServerIcon(serverID, userID uuid.UUID) (*Server, error)
+	InviteToChannel(serverID, channelID, inviterID, targetUserID uuid.UUID) error
+	RemoveFromChannel(serverID, channelID, removerID, targetUserID uuid.UUID) error
+	GetChannelMembers(serverID, channelID, userID uuid.UUID) ([]*ChannelMemberWithUser, error)
 }
 
 type MessageUseCase interface {
