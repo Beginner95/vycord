@@ -103,7 +103,7 @@ func main() {
 	serverHandler := handler.NewServerHandler(serverUseCase, hub, log)
 	messageHandler := handler.NewMessageHandler(messageUseCase, hub, log)
 	onlineUsersHandler := handler.NewOnlineUsersHandler(hub, userRepo, log)
-	wsHandler := handler.NewWebSocketHandler(hub, authUseCase, callUseCase, userUseCase, log)
+	wsHandler := handler.NewWebSocketHandler(hub, authUseCase, callUseCase, userUseCase, serverUseCase, log)
 	turnHandler := handler.NewTURNHandler(turnUseCase, log)
 	roleHandler := handler.NewRoleHandler(roleUseCase, permissionUseCase, log)
 

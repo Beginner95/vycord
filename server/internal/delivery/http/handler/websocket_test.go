@@ -94,6 +94,27 @@ func (m *mockCallUseCase) EndAllActiveCalls(userID uuid.UUID) error {
 	return m.Called(userID).Error(0)
 }
 
+type mockChannelAccess struct{ mock.Mock }
+
+func (m *mockChannelAccess) CheckChannelAccess(channelID, userID uuid.UUID) (*domain.Channel, error) {
+	args := m.Called(channelID, userID)
+	ch, _ := args.Get(0).(*domain.Channel)
+	return ch, args.Error(1)
+}
+func (m *mockChannelAccess) GetChannelAudience(channelID uuid.UUID) ([]uuid.UUID, error) {
+	args := m.Called(channelID)
+	ids, _ := args.Get(0).([]uuid.UUID)
+	return ids, args.Error(1)
+}
+
+// allowAllChannelAccess grants access to any channel/user pair — the default
+// for tests that aren't exercising the access-check itself.
+func allowAllChannelAccess() *mockChannelAccess {
+	m := &mockChannelAccess{}
+	m.On("CheckChannelAccess", mock.Anything, mock.Anything).Return(&domain.Channel{}, nil)
+	return m
+}
+
 // --- Харнесс ---
 
 // newTestHandler собирает WebSocketHandler с короткими таймаутами и запущенным hub.
@@ -115,7 +136,7 @@ func newTestHandler(t *testing.T, userID uuid.UUID) (*WebSocketHandler, *ws.Hub)
 	hub := ws.NewHub(log)
 	go hub.Run()
 
-	h := NewWebSocketHandler(hub, auth, calls, users, log)
+	h := NewWebSocketHandler(hub, auth, calls, users, allowAllChannelAccess(), log)
 	h.pongWait = 100 * time.Millisecond
 	h.pingPeriod = 40 * time.Millisecond
 	h.writeWait = 50 * time.Millisecond
@@ -204,7 +225,7 @@ func newMultiUserTestHandler(t *testing.T, users map[string]*domain.User) (*WebS
 	hub := ws.NewHub(log)
 	go hub.Run()
 
-	h := NewWebSocketHandler(hub, auth, calls, userUC, log)
+	h := NewWebSocketHandler(hub, auth, calls, userUC, allowAllChannelAccess(), log)
 	h.pongWait = 200 * time.Millisecond
 	h.pingPeriod = 80 * time.Millisecond
 	h.writeWait = 100 * time.Millisecond
@@ -353,4 +374,57 @@ func TestConnectionQualityBroadcast(t *testing.T) {
 	msg := readUntilType(t, connB, "connection_quality", 2*time.Second)
 	assert.Contains(t, string(msg), userA.String())
 	assert.Contains(t, string(msg), "poor")
+}
+
+func TestHandleJoinChannel_DeniedAccess_DoesNotSetCurrentChannel(t *testing.T) {
+	userID := uuid.New()
+	channelID := uuid.New()
+	h, hub := newTestHandler(t, userID)
+	access := &mockChannelAccess{}
+	access.On("CheckChannelAccess", channelID, userID).Return(nil, domain.ErrChannelForbidden)
+	h.channelAccess = access
+
+	srv := httptest.NewServer(http.HandlerFunc(h.HandleWebSocket))
+	defer srv.Close()
+	conn := dialWS(t, srv)
+	defer conn.Close()
+
+	sendJSON(t, conn, "join_channel", map[string]string{"channel_id": channelID.String()})
+	assert.Eventually(t, func() bool { return hub.IsOnline(userID) }, time.Second, 10*time.Millisecond)
+
+	// Give handleJoinChannel time to run, then verify SendToChannel does NOT
+	// reach this client — proof CurrentChannelID was never set to channelID.
+	time.Sleep(100 * time.Millisecond)
+	hub.SendToChannel(channelID, &ws.Message{Type: "probe", Payload: []byte(`{}`)})
+
+	conn.SetReadDeadline(time.Now().Add(300 * time.Millisecond))
+	_, data, err := conn.ReadMessage()
+	if err == nil && strings.Contains(string(data), `"probe"`) {
+		t.Fatalf("client received channel message despite denied join_channel: %s", data)
+	}
+}
+
+func TestVoiceJoined_DeniedAccess_DoesNotJoinRoster(t *testing.T) {
+	userA := uuid.New()
+	channelID := uuid.New()
+
+	h, hub := newMultiUserTestHandler(t, map[string]*domain.User{
+		"token-a": {ID: userA, Username: "alice", Email: "a@e.st", Status: domain.StatusOffline},
+	})
+	access := &mockChannelAccess{}
+	access.On("CheckChannelAccess", channelID, userA).Return(nil, domain.ErrChannelForbidden)
+	h.channelAccess = access
+
+	srv := httptest.NewServer(http.HandlerFunc(h.HandleWebSocket))
+	defer srv.Close()
+	conn := dialWSWithToken(t, srv, "token-a")
+	defer conn.Close()
+
+	sendJSON(t, conn, "voice_joined", map[string]string{"channel_id": channelID.String()})
+
+	assert.Eventually(t, func() bool { return hub.IsOnline(userA) }, time.Second, 10*time.Millisecond)
+	time.Sleep(100 * time.Millisecond)
+
+	_, ok := hub.GetVoiceState()[channelID]
+	assert.False(t, ok, "denied user must not appear in the voice channel roster")
 }

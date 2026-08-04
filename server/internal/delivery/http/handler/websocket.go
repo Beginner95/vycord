@@ -27,27 +27,29 @@ var upgrader = websocket.Upgrader{
 }
 
 type WebSocketHandler struct {
-	hub         *ws.Hub
-	authUseCase domain.AuthUseCase
-	callUseCase domain.CallUseCase
-	userUseCase domain.UserUseCase
-	log         *slog.Logger
+	hub           *ws.Hub
+	authUseCase   domain.AuthUseCase
+	callUseCase   domain.CallUseCase
+	userUseCase   domain.UserUseCase
+	channelAccess domain.ChannelAccessChecker
+	log           *slog.Logger
 
 	writeWait  time.Duration
 	pongWait   time.Duration
 	pingPeriod time.Duration
 }
 
-func NewWebSocketHandler(hub *ws.Hub, authUseCase domain.AuthUseCase, callUseCase domain.CallUseCase, userUseCase domain.UserUseCase, log *slog.Logger) *WebSocketHandler {
+func NewWebSocketHandler(hub *ws.Hub, authUseCase domain.AuthUseCase, callUseCase domain.CallUseCase, userUseCase domain.UserUseCase, channelAccess domain.ChannelAccessChecker, log *slog.Logger) *WebSocketHandler {
 	return &WebSocketHandler{
-		hub:         hub,
-		authUseCase: authUseCase,
-		callUseCase: callUseCase,
-		userUseCase: userUseCase,
-		log:         log,
-		writeWait:   defaultWriteWait,
-		pongWait:    defaultPongWait,
-		pingPeriod:  defaultPingPeriod,
+		hub:           hub,
+		authUseCase:   authUseCase,
+		callUseCase:   callUseCase,
+		userUseCase:   userUseCase,
+		channelAccess: channelAccess,
+		log:           log,
+		writeWait:     defaultWriteWait,
+		pongWait:      defaultPongWait,
+		pingPeriod:    defaultPingPeriod,
 	}
 }
 
@@ -221,6 +223,10 @@ func (h *WebSocketHandler) handleJoinChannel(client *ws.Client, msg *ws.Message)
 	if err != nil {
 		return
 	}
+	if _, err := h.channelAccess.CheckChannelAccess(channelID, client.UserID); err != nil {
+		h.log.Warn("join_channel denied", "user_id", client.UserID, "channel_id", channelID, "error", err)
+		return
+	}
 	h.hub.SetClientChannel(client.UserID, &channelID)
 }
 
@@ -233,6 +239,10 @@ func (h *WebSocketHandler) handleVoiceJoined(client *ws.Client, msg *ws.Message)
 	}
 	channelID, err := uuid.Parse(payload.ChannelID)
 	if err != nil {
+		return
+	}
+	if _, err := h.channelAccess.CheckChannelAccess(channelID, client.UserID); err != nil {
+		h.log.Warn("voice_joined denied", "user_id", client.UserID, "channel_id", channelID, "error", err)
 		return
 	}
 
