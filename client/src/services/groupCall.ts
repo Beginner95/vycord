@@ -105,6 +105,10 @@ interface ErrorPayload {
 
 export interface GroupCallCallbacks {
   onRemoteStream: (userId: string, stream: MediaStream) => void;
+  // Fired when a remote participant's screen-share video/audio arrives —
+  // separate from onRemoteStream (camera/mic), since screen tracks are only
+  // delivered to subscribers who called watchShare().
+  onRemoteScreenStream: (userId: string, stream: MediaStream) => void;
   // source='snapshot' — peer was already in the room when we connected (also fires on
   // every successful auto-reconnect); source='live' — peer arrived just now.
   // Consumers that notify the user must react only to 'live'.
@@ -164,6 +168,10 @@ class GroupCallService {
 
   // Keyed by the remote user's ID (= pion stream ID on track events).
   private remoteStreams: RemoteStreams = new Map();
+
+  // Screen-share streams, keyed by the remote user's ID — separate from
+  // remoteStreams (camera/mic) since these only exist for watched shares.
+  private remoteScreenStreams: RemoteStreams = new Map();
 
   // ICE candidates buffered before setRemoteDescription has been called.
   private pendingCandidates: RTCIceCandidateInit[] = [];
@@ -360,6 +368,7 @@ class GroupCallService {
     this.dummyVideoTrack = null;
     this.screenSender = null; // belonged to the old PC
     this.remoteStreams.clear();
+    this.remoteScreenStreams.clear();
     this.pendingCandidates = [];
     this.inCall = false;
   }
@@ -1077,7 +1086,11 @@ class GroupCallService {
         elapsedFromConnectedMs: this.pcConnectedAt ? ontrackAt - this.pcConnectedAt : -1,
       });
 
-      if (streamId === this.currentUserId) {
+      const screenSuffix = ':screen';
+      const isScreenTrack = streamId.endsWith(screenSuffix);
+      const ownerUserId = isScreenTrack ? streamId.slice(0, -screenSuffix.length) : streamId;
+
+      if (ownerUserId === this.currentUserId) {
         gcLog(this.currentUserId, 'ontrack BLOCKED by echo guard', { streamId: streamId.slice(0, 8) });
         return;
       }
@@ -1157,23 +1170,36 @@ class GroupCallService {
         remoteTrackMonitors.set(event.track.id, monitorId);
       }
 
-      let stream = this.remoteStreams.get(streamId);
+      const targetMap = isScreenTrack ? this.remoteScreenStreams : this.remoteStreams;
+      let stream = targetMap.get(ownerUserId);
       if (!stream) {
         stream = event.streams[0] ?? new MediaStream();
-        this.remoteStreams.set(streamId, stream);
-        gcLog(this.currentUserId, 'ontrack new remote stream', { streamId: streamId.slice(0, 8) });
+        targetMap.set(ownerUserId, stream);
+        gcLog(this.currentUserId, 'ontrack new remote stream', { streamId: streamId.slice(0, 8), isScreenTrack });
       }
       if (!stream.getTrackById(event.track.id)) {
         stream.addTrack(event.track);
       }
-      if (this._isScreenSharing && event.track.kind === 'audio') {
-        echoCancellationService.addReferenceTrack(streamId, event.track);
+      // Reference bus for our OWN outgoing screen-share AEC — only camera/mic
+      // audio from other participants is a useful echo reference, never
+      // someone else's screen-share audio.
+      if (this._isScreenSharing && !isScreenTrack && event.track.kind === 'audio') {
+        echoCancellationService.addReferenceTrack(ownerUserId, event.track);
       }
-      gcLog(this.currentUserId, 'ontrack → onRemoteStream', {
-        streamId: streamId.slice(0, 8),
-        tracksInStream: stream.getTracks().map((t) => `${t.kind}:${t.id.slice(0, 8)}`),
-      });
-      this.callbacks?.onRemoteStream(streamId, stream);
+
+      if (isScreenTrack) {
+        gcLog(this.currentUserId, 'ontrack → onRemoteScreenStream', {
+          ownerUserId: ownerUserId.slice(0, 8),
+          tracksInStream: stream.getTracks().map((t) => `${t.kind}:${t.id.slice(0, 8)}`),
+        });
+        this.callbacks?.onRemoteScreenStream(ownerUserId, stream);
+      } else {
+        gcLog(this.currentUserId, 'ontrack → onRemoteStream', {
+          streamId: streamId.slice(0, 8),
+          tracksInStream: stream.getTracks().map((t) => `${t.kind}:${t.id.slice(0, 8)}`),
+        });
+        this.callbacks?.onRemoteStream(ownerUserId, stream);
+      }
     };
 
     // Monitor local audio track + all senders every 3s for 60s.
@@ -1402,6 +1428,7 @@ class GroupCallService {
         // second-device login.
         if (user_id === this.currentUserId) break;
         this.remoteStreams.delete(user_id);
+        this.remoteScreenStreams.delete(user_id);
         if (this._isScreenSharing) echoCancellationService.removeReferenceTrack(user_id);
         this.callbacks?.onPeerLeft(user_id);
         break;
@@ -1618,6 +1645,7 @@ class GroupCallService {
     this.dummyVideoTrack = null;
 
     this.remoteStreams.clear();
+    this.remoteScreenStreams.clear();
     this.pendingCandidates = [];
     this.inCall = false;
     // Cleared only on full teardown (not partialTeardown, which the reconnect
