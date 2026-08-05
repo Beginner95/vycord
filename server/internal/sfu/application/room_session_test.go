@@ -306,6 +306,121 @@ func TestUnwatchShareStopsForwarding(t *testing.T) {
 	}
 }
 
+// TestJoinDoesNotDeliverScreenTracksToNewParticipant: the Join-time "deliver all
+// already-published tracks" loop predates screen sharing and used to hand every
+// existing track to a new joiner. Screen-role tracks must be excluded — otherwise
+// anyone joining AFTER a share started receives it without ever calling
+// watch_share, defeating the subscription gate for every late joiner.
+func TestJoinDoesNotDeliverScreenTracksToNewParticipant(t *testing.T) {
+	rs, _ := joinTestRoom(t)
+
+	alicePS, err := rs.Join(domain.NewParticipant("p1", "alice", "room1"), &fakeSignalingSession{})
+	if err != nil {
+		t.Fatalf("alice join: %v", err)
+	}
+
+	// Alice starts sharing BEFORE bob is in the room.
+	rs.SetSharingActive("p1", true)
+	screenTrack := newFakeScreenTrack(t, "alice-screen-video")
+	alicePS.Participant.AddTrack(screenTrack)
+
+	bobPS, err := rs.Join(domain.NewParticipant("p2", "bob", "room1"), &fakeSignalingSession{})
+	if err != nil {
+		t.Fatalf("bob join: %v", err)
+	}
+
+	if hasForwardedTrack(bobPS, screenTrack.ID) {
+		t.Fatal("late joiner received an ongoing screen share without ever calling watch_share")
+	}
+
+	// The gate still opens on an explicit watch_share.
+	rs.WatchShare("p2", "alice")
+	if !hasForwardedTrack(bobPS, screenTrack.ID) {
+		t.Fatal("late joiner did not receive the screen track after watch_share")
+	}
+}
+
+// TestSetSharingActiveTruePushesToExistingWatchers: a subscriber may already be
+// registered as a watcher when the publisher (re)starts a share — via a
+// watch_share/screen_share_start race, or the reconnect-restore path. onNewTrack
+// only ever fires once per transceiver slot, so from the 2nd share of a call
+// onward SetSharingActive(true) is the only remaining delivery trigger.
+func TestSetSharingActiveTruePushesToExistingWatchers(t *testing.T) {
+	rs, _ := joinTestRoom(t)
+
+	alicePS, err := rs.Join(domain.NewParticipant("p1", "alice", "room1"), &fakeSignalingSession{})
+	if err != nil {
+		t.Fatalf("alice join: %v", err)
+	}
+	bobPS, err := rs.Join(domain.NewParticipant("p2", "bob", "room1"), &fakeSignalingSession{})
+	if err != nil {
+		t.Fatalf("bob join: %v", err)
+	}
+
+	screenTrack := newFakeScreenTrack(t, "alice-screen-video")
+	alicePS.Participant.AddTrack(screenTrack)
+
+	// Bob registers while sharing is still inactive: nothing is forwarded yet
+	// (sharingActive, not track existence, is the source of truth).
+	rs.WatchShare("p2", "alice")
+	if hasForwardedTrack(bobPS, screenTrack.ID) {
+		t.Fatal("setup: track forwarded while sharing was inactive")
+	}
+
+	rs.SetSharingActive("p1", true)
+
+	if !hasForwardedTrack(bobPS, screenTrack.ID) {
+		t.Fatal("already-registered watcher got nothing when the share became active")
+	}
+}
+
+// senderCountForTrack counts how many RTPSenders on the subscriber's PC carry
+// the given local track — sendersByTrackID keeps only the LAST sender, so a
+// duplicate pc.AddTrack is invisible there and only shows up here.
+func senderCountForTrack(ps *ParticipantSession, trackID string) int {
+	n := 0
+	for _, s := range ps.pc.GetSenders() {
+		if tr := s.Track(); tr != nil && tr.ID() == trackID {
+			n++
+		}
+	}
+	return n
+}
+
+// TestDuplicateWatchShareCreatesSingleSender: a repeated watch_share for the
+// same (subscriber, publisher) pair must not create a second RTPSender for the
+// same track. RemoveRemoteTrack can only detach the sender recorded in
+// sendersByTrackID, so an orphaned duplicate would forward RTP forever.
+func TestDuplicateWatchShareCreatesSingleSender(t *testing.T) {
+	rs, _ := joinTestRoom(t)
+
+	alicePS, err := rs.Join(domain.NewParticipant("p1", "alice", "room1"), &fakeSignalingSession{})
+	if err != nil {
+		t.Fatalf("alice join: %v", err)
+	}
+	bobPS, err := rs.Join(domain.NewParticipant("p2", "bob", "room1"), &fakeSignalingSession{})
+	if err != nil {
+		t.Fatalf("bob join: %v", err)
+	}
+
+	rs.SetSharingActive("p1", true)
+	screenTrack := newFakeScreenTrack(t, "alice-screen-video")
+	alicePS.Participant.AddTrack(screenTrack)
+
+	rs.WatchShare("p2", "alice")
+	rs.WatchShare("p2", "alice")
+
+	if got := senderCountForTrack(bobPS, screenTrack.ID); got != 1 {
+		t.Fatalf("sender count for screen track = %d, want 1 (duplicate watch_share created an orphan sender)", got)
+	}
+
+	// The single sender must still be removable — no leak past the gate.
+	rs.UnwatchShare("p2", "alice")
+	if got := senderCountForTrack(bobPS, screenTrack.ID); got != 0 {
+		t.Fatalf("sender count after unwatch_share = %d, want 0", got)
+	}
+}
+
 func TestLeaveCleansWatcherRecordsBothDirections(t *testing.T) {
 	rs, _ := joinTestRoom(t)
 

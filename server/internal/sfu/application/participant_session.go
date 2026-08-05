@@ -234,7 +234,28 @@ func (ps *ParticipantSession) flushPendingICE() {
 
 // AddRemoteTrack adds another participant's forwarding track to this subscriber's PC.
 // Triggers OnNegotiationNeeded → renegotiation automatically.
+//
+// Idempotent per track ID: a second call for a track this subscriber already
+// receives is a no-op. Without the guard pion would create a second, independent
+// RTPSender for the same LocalTrack while sendersByTrackID keeps only the last
+// one — RemoveRemoteTrack could then never detach the first, leaving RTP
+// flowing past the subscription gate forever.
 func (ps *ParticipantSession) AddRemoteTrack(t *domain.PublishedTrack) error {
+	// The check and the pc.AddTrack that satisfies it happen under one lock:
+	// with two lock sections, two concurrent callers (e.g. WatchShare racing
+	// SetSharingActive for the same publisher) would each see "not forwarded"
+	// and each create a sender. pc.AddTrack only fires OnNegotiationNeeded →
+	// a non-blocking channel send, so it is safe to call under sendersMu.
+	ps.sendersMu.Lock()
+	if _, alreadyForwarded := ps.sendersByTrackID[t.ID]; alreadyForwarded {
+		ps.sendersMu.Unlock()
+		ps.log.Debug("AddRemoteTrack: track already forwarded to subscriber, skipping",
+			"subscriber_user_id", ps.Participant.UserID,
+			"track_id", t.ID,
+		)
+		return nil
+	}
+
 	ps.log.Info("AddRemoteTrack: adding forwarded track to subscriber PC",
 		"subscriber_user_id", ps.Participant.UserID,
 		"publisher_stream_id", t.StreamID,
@@ -245,6 +266,7 @@ func (ps *ParticipantSession) AddRemoteTrack(t *domain.PublishedTrack) error {
 	)
 	sender, err := ps.pc.AddTrack(t.LocalTrack)
 	if err != nil {
+		ps.sendersMu.Unlock()
 		ps.log.Error("AddRemoteTrack: pc.AddTrack failed",
 			"subscriber_user_id", ps.Participant.UserID,
 			"track_id", t.ID,
@@ -253,7 +275,6 @@ func (ps *ParticipantSession) AddRemoteTrack(t *domain.PublishedTrack) error {
 		return err
 	}
 
-	ps.sendersMu.Lock()
 	ps.sendersByTrackID[t.ID] = sender
 	bindedSenders := len(ps.sendersByTrackID)
 	ps.sendersMu.Unlock()
@@ -450,6 +471,7 @@ func (ps *ParticipantSession) handleICECandidate(c *webrtc.ICECandidate) {
 
 func (ps *ParticipantSession) handleRemoteTrack(remote *webrtc.TrackRemote, receiver *webrtc.RTPReceiver) {
 	codec := remote.Codec()
+	role := ps.resolveTrackRole(receiver)
 	ps.log.Info("publisher track arrived",
 		"user_id", ps.Participant.UserID,
 		"kind", remote.Kind().String(),
@@ -460,10 +482,9 @@ func (ps *ParticipantSession) handleRemoteTrack(remote *webrtc.TrackRemote, rece
 		"codec_clock_rate", codec.ClockRate,
 		"codec_channels", codec.Channels,
 		"codec_fmtp", codec.SDPFmtpLine,
-		"role", ps.resolveTrackRole(receiver).String(),
+		"role", role.String(),
 	)
 
-	role := ps.resolveTrackRole(receiver)
 	streamID := ps.Participant.UserID
 	if role == domain.RoleScreen {
 		// Distinct StreamID lets subscribers tell a screen track apart from

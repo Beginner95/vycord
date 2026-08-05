@@ -76,6 +76,14 @@ func (rs *RoomSession) Join(
 
 	// Deliver all already-published tracks from existing participants
 	// (the stale session is already removed, so its dying tracks are skipped).
+	//
+	// Screen-role tracks are deliberately excluded here: they are gated by the
+	// watch subscription and must ONLY ever reach a subscriber through
+	// WatchShare (or the SetSharingActive(true) push to existing watchers). A
+	// new joiner has, by definition, not watched anything yet — delivering a
+	// publisher's screen slots at join time would bypass the gate entirely and
+	// (because the screen-audio dummy slot is live from join onward) silently
+	// subscribe every late joiner to every other participant's future share.
 	for _, existingSession := range rs.sessions {
 		existingTracks := existingSession.Participant.GetTracks()
 		rs.log.Info("existing participant tracks for new joiner",
@@ -85,6 +93,15 @@ func (rs *RoomSession) Join(
 			"track_count", len(existingTracks),
 		)
 		for _, track := range existingTracks {
+			if track.Role == domain.RoleScreen {
+				rs.log.Info("skipping screen track for new joiner (watch-gated)",
+					"room_id", rs.room.ID,
+					"new_user_id", participant.UserID,
+					"track_owner", existingSession.Participant.UserID,
+					"track_id", track.ID,
+				)
+				continue
+			}
 			rs.log.Info("delivering existing track to new participant",
 				"room_id", rs.room.ID,
 				"new_user_id", participant.UserID,
@@ -277,6 +294,17 @@ func (rs *RoomSession) WatchShare(subscriberParticipantID, targetUserID string) 
 		return
 	}
 
+	// Already watching: a duplicate watch_share (client retry, overlapping
+	// focus transitions) must be a no-op. Re-running the forwarding below
+	// would ask pion for a SECOND RTPSender bound to the same LocalTrack;
+	// UnwatchShare/RemoveRemoteTrack only ever drops the sender currently in
+	// sendersByTrackID, so the first one would keep pushing RTP forever with
+	// no way to remove it — an unbounded leak past the subscription gate.
+	if rs.watchers[publisherID][subscriberParticipantID] {
+		rs.mu.Unlock()
+		return
+	}
+
 	if rs.watchers[publisherID] == nil {
 		rs.watchers[publisherID] = make(map[string]bool)
 	}
@@ -326,6 +354,13 @@ func (rs *RoomSession) UnwatchShare(subscriberParticipantID, targetUserID string
 // subscribers' own unwatch_share arrives — so a later watch_share for the same
 // publisher starts from a clean slate instead of silently reusing a stale
 // subscription from a previous share session.
+//
+// On activation it pushes the publisher's current screen tracks to everyone
+// already registered as a watcher. Without this, a subscriber that registered
+// before the flag flipped (a watch_share/screen_share_start race, or the
+// reconnect-restore path) would never receive anything: onNewTrack fires only
+// once per transceiver slot, so from the 2nd share of a call onward there is no
+// other delivery trigger.
 func (rs *RoomSession) SetSharingActive(publisherParticipantID string, active bool) {
 	rs.mu.Lock()
 	ps, ok := rs.sessions[publisherParticipantID]
@@ -336,7 +371,31 @@ func (rs *RoomSession) SetSharingActive(publisherParticipantID string, active bo
 	ps.Participant.SetSharingActive(active)
 
 	if active {
+		screenTracks := ps.Participant.GetScreenTracks()
+		watchers := rs.watchers[publisherParticipantID]
+		subs := make([]*ParticipantSession, 0, len(watchers))
+		for subID := range watchers {
+			if sub, ok := rs.sessions[subID]; ok {
+				subs = append(subs, sub)
+			}
+		}
 		rs.mu.Unlock()
+
+		// AddRemoteTrack is idempotent per track ID, so a watcher that already
+		// received this track (e.g. via WatchShare moments earlier) is a no-op
+		// rather than a duplicate sender.
+		for _, sub := range subs {
+			for _, tr := range screenTracks {
+				if err := sub.AddRemoteTrack(tr); err != nil {
+					rs.log.Warn("screen_share_start: failed to forward screen track to existing watcher",
+						"publisher_participant_id", publisherParticipantID,
+						"subscriber_user_id", sub.Participant.UserID,
+						"track_id", tr.ID,
+						"error", err,
+					)
+				}
+			}
+		}
 		return
 	}
 
