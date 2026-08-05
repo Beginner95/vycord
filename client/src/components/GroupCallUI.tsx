@@ -327,6 +327,8 @@ function RemoteParticipantTile({
     onToggleVolumePopover();
   };
 
+  const showWatchOverlay = isSharing && !isFocused;
+
   if (layout === 'thumbnail') {
     return (
       <div
@@ -334,8 +336,16 @@ function RemoteParticipantTile({
         onClick={onFocus}
         title={displayName}
       >
-        <video ref={videoRefSetter} autoPlay playsInline />
-        {!participant.stream && <div className="thumbnail-placeholder">📷</div>}
+        <video ref={videoRefSetter} autoPlay playsInline style={showWatchOverlay ? { display: 'none' } : undefined} />
+        {!participant.stream && !showWatchOverlay && <div className="thumbnail-placeholder">📷</div>}
+        {showWatchOverlay && (
+          <div className="watch-share-overlay">
+            <span className="watch-share-icon">🖥</span>
+            <button className="watch-share-btn" onClick={(e) => { e.stopPropagation(); onFocus(); }}>
+              {t('call.watchShare')}
+            </button>
+          </div>
+        )}
         {isSharing && <div className="thumbnail-badge">🖥</div>}
         <button
           ref={volumeBtnRef}
@@ -363,8 +373,16 @@ function RemoteParticipantTile({
 
   return (
     <div className={`video-tile ${!participant.stream ? 'video-off' : ''} ${speaking ? 'speaking' : ''}`}>
-      <video ref={videoRefSetter} autoPlay playsInline />
-      {!participant.stream && <div className="video-off-placeholder">📷</div>}
+      <video ref={videoRefSetter} autoPlay playsInline style={showWatchOverlay ? { display: 'none' } : undefined} />
+      {!participant.stream && !showWatchOverlay && <div className="video-off-placeholder">📷</div>}
+      {showWatchOverlay && (
+        <div className="watch-share-overlay">
+          <span className="watch-share-icon">🖥</span>
+          <button className="watch-share-btn" onClick={(e) => { e.stopPropagation(); onFocus(); }}>
+            {t('call.watchShare')}
+          </button>
+        </div>
+      )}
       {isSharing && <div className="screen-share-badge">🖥 {t('call.sharingBadge')}</div>}
       <button className="focus-btn" onClick={onFocus} title={t('call.focusParticipant')}>⛶</button>
       <button
@@ -742,17 +760,30 @@ export function GroupCallUI() {
     return () => { unsubStart(); unsubStop(); unsubMicMuted(); unsubMicUnmuted(); unsubQuality(); };
   }, [isInGroupCall, user?.id]);
 
-  // Attach stream to the focused main video whenever focus or stream changes
+  // Attach stream to the focused main video whenever focus or stream changes.
+  // Two cases: focusing a screen-sharer plays their dedicated screen stream
+  // (video AND audio — this is now the only place screen-share audio plays);
+  // focusing anyone else keeps the old behavior (camera/mic stream, muted here
+  // because audio for regular participants plays via their thumbnail element).
   useEffect(() => {
     const el = focusedVideoRef.current;
     if (!el || !focusedUserId) return;
+    if (screenSharers.has(focusedUserId)) {
+      const screenStream = remoteScreenStreams.get(focusedUserId);
+      if (screenStream && el.srcObject !== screenStream) {
+        el.srcObject = screenStream;
+        el.muted = false;
+        el.play().catch(() => {});
+      }
+      return;
+    }
     const participant = participants.find((pt) => pt.userId === focusedUserId);
     if (participant?.stream && el.srcObject !== participant.stream) {
       el.srcObject = participant.stream;
-      el.muted = true; // audio comes from thumbnail elements
+      el.muted = true; // audio comes from the thumbnail element for camera focus
       el.play().catch(() => {});
     }
-  }, [focusedUserId, participants]);
+  }, [focusedUserId, participants, screenSharers, remoteScreenStreams]);
 
   // Keep the SFU subscription in sync with which screen share (if any) is
   // currently focused. Only one share can be watched at a time — switching
@@ -1052,7 +1083,6 @@ export function GroupCallUI() {
                   ref={focusedVideoRef}
                   autoPlay
                   playsInline
-                  muted
                   className="screen-share-main-video"
                 />
                 <div className="screen-share-main-label">
