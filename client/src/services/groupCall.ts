@@ -506,6 +506,19 @@ class GroupCallService {
     return !t.enabled; // true = video off
   }
 
+  // Subscribes to targetUserId's screen-share video/audio, if they're
+  // currently sharing. No-op if the SFU connection isn't open (e.g. mid-reconnect —
+  // the reconnect path resubscribes on its own, see reconnect()).
+  watchShare(targetUserId: string): void {
+    if (this.ws?.readyState !== WebSocket.OPEN) return;
+    this.ws.send(JSON.stringify({ type: 'watch_share', payload: { target_user_id: targetUserId } }));
+  }
+
+  unwatchShare(targetUserId: string): void {
+    if (this.ws?.readyState !== WebSocket.OPEN) return;
+    this.ws.send(JSON.stringify({ type: 'unwatch_share', payload: { target_user_id: targetUserId } }));
+  }
+
   // ── Screen sharing ─────────────────────────────────────────────────────────
 
   // Starts screen sharing by replacing the video sender's track with a screen capture track.
