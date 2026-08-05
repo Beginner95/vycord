@@ -327,6 +327,8 @@ function RemoteParticipantTile({
     onToggleVolumePopover();
   };
 
+  const showWatchOverlay = isSharing && !isFocused;
+
   if (layout === 'thumbnail') {
     return (
       <div
@@ -334,8 +336,16 @@ function RemoteParticipantTile({
         onClick={onFocus}
         title={displayName}
       >
-        <video ref={videoRefSetter} autoPlay playsInline />
-        {!participant.stream && <div className="thumbnail-placeholder">📷</div>}
+        <video ref={videoRefSetter} autoPlay playsInline style={showWatchOverlay ? { display: 'none' } : undefined} />
+        {!participant.stream && !showWatchOverlay && <div className="thumbnail-placeholder">📷</div>}
+        {showWatchOverlay && (
+          <div className="watch-share-overlay">
+            <span className="watch-share-icon">🖥</span>
+            <button className="watch-share-btn" onClick={(e) => { e.stopPropagation(); onFocus(); }}>
+              {t('call.watchShare')}
+            </button>
+          </div>
+        )}
         {isSharing && <div className="thumbnail-badge">🖥</div>}
         <button
           ref={volumeBtnRef}
@@ -363,8 +373,16 @@ function RemoteParticipantTile({
 
   return (
     <div className={`video-tile ${!participant.stream ? 'video-off' : ''} ${speaking ? 'speaking' : ''}`}>
-      <video ref={videoRefSetter} autoPlay playsInline />
-      {!participant.stream && <div className="video-off-placeholder">📷</div>}
+      <video ref={videoRefSetter} autoPlay playsInline style={showWatchOverlay ? { display: 'none' } : undefined} />
+      {!participant.stream && !showWatchOverlay && <div className="video-off-placeholder">📷</div>}
+      {showWatchOverlay && (
+        <div className="watch-share-overlay">
+          <span className="watch-share-icon">🖥</span>
+          <button className="watch-share-btn" onClick={(e) => { e.stopPropagation(); onFocus(); }}>
+            {t('call.watchShare')}
+          </button>
+        </div>
+      )}
       {isSharing && <div className="screen-share-badge">🖥 {t('call.sharingBadge')}</div>}
       <button className="focus-btn" onClick={onFocus} title={t('call.focusParticipant')}>⛶</button>
       <button
@@ -415,6 +433,14 @@ export function GroupCallUI() {
   const [selectedSourceId, setSelectedSourceId] = useState<string | null>(null);
   // Set of remote user IDs currently sharing their screen
   const [screenSharers, setScreenSharers] = useState<Set<string>>(new Set());
+  // Controls ONLY the "someone is sharing" banner's visibility. It must never be
+  // conflated with screenSharers: clearing that set removes the Watch overlay
+  // from every sharing tile and empties the focused view, with no way back until
+  // the sharer restarts. Reset whenever a new share starts (below).
+  const [bannerDismissed, setBannerDismissed] = useState(false);
+  // userId -> their screen-share MediaStream (video + audio), populated only
+  // while we're actively watching them (see onRemoteScreenStream below).
+  const [remoteScreenStreams, setRemoteScreenStreams] = useState<Map<string, MediaStream>>(new Map());
   // When set, shows the focused layout (large video + thumbnails strip)
   const [focusedUserId, setFocusedUserId] = useState<string | null>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
@@ -425,6 +451,16 @@ export function GroupCallUI() {
   const screenShareMainRef = useRef<HTMLDivElement>(null);
   // Stable ref to participants for use in WS event callbacks (avoids stale closure)
   const participantsRef = useRef<RemoteParticipant[]>([]);
+  // Tracks which remote user's screen share (if any) we're currently subscribed
+  // to via watchShare/unwatchShare. Declared here (rather than beside the sync
+  // effect below) so onReconnected — set up inside the earlier groupCallService.init
+  // useEffect — can also read/write it without a stale closure.
+  const prevWatchedRef = useRef<string | null>(null);
+  // Snapshot of prevWatchedRef.current taken at the start of onReconnecting,
+  // before setFocusedUserId(null) triggers the sync effect below and clobbers
+  // prevWatchedRef.current back to null. onReconnected reads this (not
+  // prevWatchedRef) to decide whether to resubscribe after the outage.
+  const watchedBeforeReconnectRef = useRef<string | null>(null);
 
   useEffect(() => {
     participantsRef.current = participants;
@@ -482,6 +518,13 @@ export function GroupCallUI() {
           attachStreamToElement(videoEl, stream, userId, (participantVolumesRef.current[userId] ?? 100) / 100);
         }
       },
+      onRemoteScreenStream: (userId, stream) => {
+        setRemoteScreenStreams((prev) => {
+          const next = new Map(prev);
+          next.set(userId, stream);
+          return next;
+        });
+      },
       onPeerJoined: (userId, source) => {
         setParticipants((prev) => {
           if (prev.find((p) => p.userId === userId)) return prev;
@@ -504,6 +547,11 @@ export function GroupCallUI() {
         // calling onPeerLeft, so by the time we get here it is always a real departure.
         audioService.playUserLeft();
         setParticipants((prev) => prev.filter((p) => p.userId !== userId));
+        setRemoteScreenStreams((prev) => {
+          const next = new Map(prev);
+          next.delete(userId);
+          return next;
+        });
         setRemoteMicMuted((prev) => {
           const next = new Map(prev);
           next.delete(userId);
@@ -516,11 +564,26 @@ export function GroupCallUI() {
         });
       },
       onReconnecting: () => {
+        // Snapshot what we were watching BEFORE clearing focusedUserId below —
+        // that state update triggers the watch/unwatch sync effect, which would
+        // otherwise clobber prevWatchedRef.current back to null before
+        // onReconnected ever gets a chance to read it.
+        //
+        // Plain assignment (no `?? ` fallback): onReconnected below now restores
+        // real focusedUserId/screenSharers state instead of bookkeeping a second
+        // ref, so the sync effect reconciles prevWatchedRef with reality after
+        // every reconnect cycle. prevWatchedRef is therefore always current by
+        // the time the next onReconnecting runs, and a fallback here would only
+        // reintroduce the staleness this design removes (e.g. incorrectly
+        // resubscribing after a real, explicit unfocus).
+        watchedBeforeReconnectRef.current = prevWatchedRef.current;
         setIsReconnecting(true);
         // Participants are re-announced via 'joined'/onPeerJoined after
         // rejoin; clear now so users who left during the outage don't linger.
         setParticipants([]);
+        setRemoteScreenStreams(new Map());
         setScreenSharers(new Set());
+        setBannerDismissed(false);
         setRemoteMicMuted(new Map());
         setParticipantVolumes({});
         setVolumePopoverUserId(null);
@@ -530,6 +593,17 @@ export function GroupCallUI() {
       },
       onReconnected: () => {
         setIsReconnecting(false);
+        // Restore real focus/watch state (rather than calling watchShare directly
+        // and tracking it in a second ref) so the sync effect below — the single
+        // place that sends watch_share/unwatch_share — naturally reconciles
+        // prevWatchedRef with reality on its next run, exactly like any other
+        // focus transition. This keeps one source of truth instead of two refs
+        // that can drift apart across reconnect cycles.
+        const target = watchedBeforeReconnectRef.current;
+        if (target) {
+          setScreenSharers((prev) => new Set(prev).add(target));
+          setFocusedUserId(target);
+        }
       },
       onCallEnded: () => {
         const channelId = groupCallService.currentRoomIdState;
@@ -537,6 +611,7 @@ export function GroupCallUI() {
         setIsReconnecting(false);
         setIsInGroupCall(false);
         setParticipants([]);
+        setRemoteScreenStreams(new Map());
         setLocalQuality(undefined);
         setIsMuted(false);
         setIsMicAvailable(true);
@@ -544,6 +619,7 @@ export function GroupCallUI() {
         setIsScreenSharing(false);
         setShowSourcePicker(false);
         setScreenSharers(new Set());
+        setBannerDismissed(false);
         setRemoteMicMuted(new Map());
         setParticipantVolumes({});
         setVolumePopoverUserId(null);
@@ -557,8 +633,10 @@ export function GroupCallUI() {
         console.error('[GroupCall] Error:', msg);
         setIsInGroupCall(false);
         setParticipants([]);
+        setRemoteScreenStreams(new Map());
         setIsMicAvailable(true);
         setScreenSharers(new Set());
+        setBannerDismissed(false);
         setRemoteMicMuted(new Map());
         setParticipantVolumes({});
         setVolumePopoverUserId(null);
@@ -569,6 +647,13 @@ export function GroupCallUI() {
       onScreenShareEnded: () => {
         setIsScreenSharing(false);
         wsService.send('screen_share_stopped', {});
+      },
+      onScreenShareRestored: () => {
+        // Our reconnect made everyone else drop us from their screenSharers set
+        // (their own onReconnecting/participant_left cleanup, or simply never
+        // having seen the original broadcast). Re-announce so their Watch
+        // overlay/banner comes back for the share that is still running.
+        wsService.send('screen_share_started', {});
       },
       onLocalQuality: (metrics) => {
         setLocalQuality(metrics);
@@ -637,6 +722,8 @@ export function GroupCallUI() {
       if (p.user_id === user?.id) return; // ignore own events
       // Only care about current call participants
       if (!participantsRef.current.some((pt) => pt.userId === p.user_id)) return;
+      // A dismissed banner must not stay dismissed for a later, different share.
+      setBannerDismissed(false);
       setScreenSharers((prev) => new Set([...prev, p.user_id]));
     });
 
@@ -647,6 +734,12 @@ export function GroupCallUI() {
         next.delete(p.user_id);
         return next;
       });
+      setRemoteScreenStreams((prev) => {
+        const next = new Map(prev);
+        next.delete(p.user_id);
+        return next;
+      });
+      groupCallService.unwatchShare(p.user_id);
       // If this participant was focused, exit focus view and fullscreen
       setFocusedUserId((prev) => {
         if (prev === p.user_id) {
@@ -684,17 +777,49 @@ export function GroupCallUI() {
     return () => { unsubStart(); unsubStop(); unsubMicMuted(); unsubMicUnmuted(); unsubQuality(); };
   }, [isInGroupCall, user?.id]);
 
-  // Attach stream to the focused main video whenever focus or stream changes
+  // Attach stream to the focused main video whenever focus or stream changes.
+  // Two cases: focusing a screen-sharer plays their dedicated screen stream
+  // (video AND audio — this is now the only place screen-share audio plays);
+  // focusing anyone else keeps the old behavior (camera/mic stream, muted here
+  // because audio for regular participants plays via their thumbnail element).
   useEffect(() => {
     const el = focusedVideoRef.current;
     if (!el || !focusedUserId) return;
+    if (screenSharers.has(focusedUserId)) {
+      const screenStream = remoteScreenStreams.get(focusedUserId);
+      if (screenStream && el.srcObject !== screenStream) {
+        el.srcObject = screenStream;
+        el.muted = false;
+        el.play().catch(() => {});
+      } else if (!screenStream) {
+        // Focus switched to a sharer whose stream hasn't arrived yet — mute so
+        // the PREVIOUS sharer's audio (still in srcObject, still unmuted) stops
+        // immediately instead of playing on until the new stream lands.
+        el.muted = true;
+      }
+      return;
+    }
     const participant = participants.find((pt) => pt.userId === focusedUserId);
     if (participant?.stream && el.srcObject !== participant.stream) {
       el.srcObject = participant.stream;
-      el.muted = true; // audio comes from thumbnail elements
+      el.muted = true; // audio comes from the thumbnail element for camera focus
       el.play().catch(() => {});
+    } else if (!participant?.stream) {
+      el.muted = true;
     }
-  }, [focusedUserId, participants]);
+  }, [focusedUserId, participants, screenSharers, remoteScreenStreams]);
+
+  // Keep the SFU subscription in sync with which screen share (if any) is
+  // currently focused. Only one share can be watched at a time — switching
+  // focus unwatches the previous target and watches the new one.
+  useEffect(() => {
+    const nextWatched = focusedUserId && screenSharers.has(focusedUserId) ? focusedUserId : null;
+    const prevWatched = prevWatchedRef.current;
+    if (prevWatched === nextWatched) return;
+    if (prevWatched) groupCallService.unwatchShare(prevWatched);
+    if (nextWatched) groupCallService.watchShare(nextWatched);
+    prevWatchedRef.current = nextWatched;
+  }, [focusedUserId, screenSharers]);
 
   // Clear focus when focused participant leaves the call
   useEffect(() => {
@@ -952,7 +1077,7 @@ export function GroupCallUI() {
       <div className="call-body">
         <div className="call-video-area">
           {/* Banner: shown when someone is sharing but user hasn't opened focus view */}
-          {firstSharer && !focusedUserId && (
+          {firstSharer && !focusedUserId && !bannerDismissed && (
             <div className="screen-share-banner">
               <span className="screen-share-banner-icon">🖥</span>
               <span className="screen-share-banner-text">
@@ -966,7 +1091,7 @@ export function GroupCallUI() {
               </button>
               <button
                 className="screen-share-banner-dismiss"
-                onClick={() => setScreenSharers(new Set())}
+                onClick={() => setBannerDismissed(true)}
                 title={t('call.dismiss')}
               >
                 ✕
@@ -982,7 +1107,6 @@ export function GroupCallUI() {
                   ref={focusedVideoRef}
                   autoPlay
                   playsInline
-                  muted
                   className="screen-share-main-video"
                 />
                 <div className="screen-share-main-label">

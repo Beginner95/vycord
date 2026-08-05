@@ -100,6 +100,7 @@ export const en: Dictionary = {
     volumeLabel: 'Volume: {{value}}%',
     focusParticipant: 'Focus on this participant',
     sharingBadge: 'Sharing',
+    watchShare: 'Watch',
     youSuffix: '(You)',
 
     // Header and banners
