@@ -105,6 +105,7 @@ export const ru = {
     volumeLabel: 'Громкость: {{value}}%',
     focusParticipant: 'Показать участника крупно',
     sharingBadge: 'Демонстрация',
+    watchShare: 'Смотреть',
     youSuffix: '(Вы)',
 
     // Заголовок и баннеры
