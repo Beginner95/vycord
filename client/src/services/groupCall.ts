@@ -147,15 +147,13 @@ class GroupCallService {
   // Placeholder video track for the screen-video slot — mirrors dummyVideoTrack
   // below, but for the dedicated screen slot (not the camera slot).
   private dummyScreenVideoTrack: MediaStreamTrack | null = null;
-  // TODO(Task 8): Remove old screenSender when updating startScreenShare/stopScreenShare
-  // and related methods to use screenVideoSender/screenAudioSender separately.
+  // Still written/read by the reconnect path (partialTeardown/applyScreenRestore),
+  // which reattaches a restored screen track to the video transceiver directly
+  // rather than through screenVideoSender — see Task 13 for retiring this.
   private screenSender: RTCRtpSender | null = null;
-  // Detaches the desktop-audio source node mixed into the outgoing audio
-  // track via noiseCancellationService.attachExtraAudio — see startScreenShare.
-  private screenAudioDetach: (() => void) | null = null;
   // Detaches the AEC3 AudioWorkletNode/worker used to strip call-audio echo
-  // out of the captured system audio before it reaches screenAudioDetach's
-  // attachExtraAudio mix — see startScreenShare/stopScreenShare.
+  // out of the captured system audio before it is sent via screenAudioSender —
+  // see startScreenShare/stopScreenShare.
   private screenAecDetach: (() => void) | null = null;
   // Placeholder video track sent when no camera is available — see createDummyVideoTrack.
   private dummyVideoTrack: MediaStreamTrack | null = null;
@@ -739,20 +737,19 @@ class GroupCallService {
 
     this._isScreenSharing = false;
 
-    // Restore the camera track. If the camera was unavailable at join time,
-    // cameraTrack will be null and the sender will stop sending video — correct.
-    const cameraTrack = this.localStream?.getVideoTracks()[0] ?? null;
-    if (this.screenSender) {
-      await this.screenSender.replaceTrack(cameraTrack).catch((err) => {
+    if (this.screenVideoSender) {
+      await this.screenVideoSender.replaceTrack(null).catch((err) => {
         gcLog(this.currentUserId, 'stopScreenShare replaceTrack error', { error: String(err) });
       });
       // Lift the screen-share bitrate cap and degradation preference off the
-      // sender — the camera (or dummy) track should run on browser defaults.
-      await this.applyScreenShareEncoding(this.screenSender, null);
+      // sender.
+      await this.applyScreenShareEncoding(this.screenVideoSender, null);
     }
-
-    this.screenAudioDetach?.();
-    this.screenAudioDetach = null;
+    if (this.screenAudioSender) {
+      await this.screenAudioSender.replaceTrack(null).catch((err) => {
+        gcLog(this.currentUserId, 'stopScreenShare audio replaceTrack error', { error: String(err) });
+      });
+    }
 
     this.screenAecDetach?.();
     this.screenAecDetach = null;
@@ -760,11 +757,14 @@ class GroupCallService {
 
     this.screenStream?.getTracks().forEach((t) => t.stop());
     this.screenStream = null;
-    this.screenSender = null;
 
-    // Same reasoning as in startScreenShare: switching back to the camera track
-    // is another replaceTrack with no renegotiation, so push a keyframe explicitly.
-    this.requestKeyframeWithRetry();
+    if (this.ws?.readyState === WebSocket.OPEN) {
+      this.ws.send(JSON.stringify({ type: 'screen_share_stop', payload: {} }));
+    }
+
+    // The camera slot was never touched by screen sharing (dedicated senders
+    // now), so no keyframe push is needed there. The screen-video slot going
+    // to a null track needs no keyframe either — there's nothing left to decode.
 
     gcLog(this.currentUserId, 'screen share stopped');
   }
@@ -1607,17 +1607,18 @@ class GroupCallService {
     this.pc?.close();
     this.pc = null;
 
-    this.screenAudioDetach?.();
-    this.screenAudioDetach = null;
-
     this.screenAecDetach?.();
     this.screenAecDetach = null;
     echoCancellationService.teardownReferenceBus();
 
     this.screenStream?.getTracks().forEach((t) => t.stop());
     this.screenStream = null;
-    this.screenSender = null;
+    this.screenVideoSender = null;
+    this.screenAudioSender = null;
     this._isScreenSharing = false;
+
+    this.dummyScreenVideoTrack?.stop();
+    this.dummyScreenVideoTrack = null;
 
     if (this.localStream) {
       // Демонтаж NC-цепочки: стопает raw-треки микрофона, закрывает AudioContext
