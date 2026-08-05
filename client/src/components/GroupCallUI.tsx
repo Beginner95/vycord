@@ -782,6 +782,8 @@ export function GroupCallUI() {
       el.srcObject = participant.stream;
       el.muted = true; // audio comes from the thumbnail element for camera focus
       el.play().catch(() => {});
+    } else if (!participant?.stream) {
+      el.muted = true;
     }
   }, [focusedUserId, participants, screenSharers, remoteScreenStreams]);
 
