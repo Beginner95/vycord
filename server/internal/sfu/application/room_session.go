@@ -21,6 +21,10 @@ type RoomSession struct {
 
 	mu       sync.RWMutex
 	sessions map[string]*ParticipantSession // participantID → session
+	// watchers maps a publisher's participantID to the set of subscriber
+	// participantIDs currently watching their screen share. Only screen-role
+	// tracks are gated by this — camera/mic keep broadcasting to everyone.
+	watchers map[string]map[string]bool
 }
 
 func NewRoomSession(room *domain.Room, peerFactory *sfuwebrtc.PeerFactory, log *slog.Logger) *RoomSession {
@@ -29,6 +33,7 @@ func NewRoomSession(room *domain.Room, peerFactory *sfuwebrtc.PeerFactory, log *
 		peerFactory: peerFactory,
 		log:         log,
 		sessions:    make(map[string]*ParticipantSession),
+		watchers:    make(map[string]map[string]bool),
 	}
 }
 
@@ -175,6 +180,13 @@ func (rs *RoomSession) finishLeave(ps *ParticipantSession) {
 	ps.Close()
 	rs.room.RemoveParticipant(ps.Participant.ID)
 
+	rs.mu.Lock()
+	delete(rs.watchers, ps.Participant.ID)
+	for _, subs := range rs.watchers {
+		delete(subs, ps.Participant.ID)
+	}
+	rs.mu.Unlock()
+
 	rs.log.Info("participant left room",
 		"room_id", rs.room.ID,
 		"user_id", ps.Participant.UserID,
@@ -247,6 +259,118 @@ func (rs *RoomSession) ExistingParticipants() []string {
 	return ids
 }
 
+// WatchShare registers subscriberParticipantID as watching targetUserID's
+// screen share. If a share is currently active, the subscriber immediately
+// receives the current screen tracks — this is the primary delivery path from
+// the 2nd share of a call onward, since onNewTrack's routing only ever fires
+// once per screen slot (see the architecture note in the design doc).
+func (rs *RoomSession) WatchShare(subscriberParticipantID, targetUserID string) {
+	rs.mu.Lock()
+	subscriberPS, subOK := rs.sessions[subscriberParticipantID]
+	publisherID, publisher, pubOK := rs.findByUserIDLocked(targetUserID)
+	if !subOK || !pubOK {
+		rs.mu.Unlock()
+		rs.log.Warn("watch_share: subscriber or target not found",
+			"subscriber_participant_id", subscriberParticipantID,
+			"target_user_id", targetUserID,
+		)
+		return
+	}
+
+	if rs.watchers[publisherID] == nil {
+		rs.watchers[publisherID] = make(map[string]bool)
+	}
+	rs.watchers[publisherID][subscriberParticipantID] = true
+
+	var screenTracks []*domain.PublishedTrack
+	if publisher.IsSharingActive() {
+		screenTracks = publisher.GetScreenTracks()
+	}
+	rs.mu.Unlock()
+
+	for _, tr := range screenTracks {
+		if err := subscriberPS.AddRemoteTrack(tr); err != nil {
+			rs.log.Warn("watch_share: failed to forward existing screen track",
+				"subscriber_participant_id", subscriberParticipantID,
+				"target_user_id", targetUserID,
+				"track_id", tr.ID,
+				"error", err,
+			)
+		}
+	}
+}
+
+// UnwatchShare removes subscriberParticipantID from targetUserID's watcher set
+// and removes any screen tracks currently forwarded to the subscriber.
+func (rs *RoomSession) UnwatchShare(subscriberParticipantID, targetUserID string) {
+	rs.mu.Lock()
+	subscriberPS, subOK := rs.sessions[subscriberParticipantID]
+	publisherID, publisher, pubOK := rs.findByUserIDLocked(targetUserID)
+	if !subOK || !pubOK {
+		rs.mu.Unlock()
+		return
+	}
+	if watchers, ok := rs.watchers[publisherID]; ok {
+		delete(watchers, subscriberParticipantID)
+	}
+	rs.mu.Unlock()
+
+	for _, tr := range publisher.GetScreenTracks() {
+		subscriberPS.RemoveRemoteTrack(tr.ID)
+	}
+}
+
+// SetSharingActive records whether publisherParticipantID is currently screen
+// sharing. On deactivation it forcibly drops forwarding for every current
+// watcher and clears the watcher set entirely — regardless of whether the
+// subscribers' own unwatch_share arrives — so a later watch_share for the same
+// publisher starts from a clean slate instead of silently reusing a stale
+// subscription from a previous share session.
+func (rs *RoomSession) SetSharingActive(publisherParticipantID string, active bool) {
+	rs.mu.Lock()
+	ps, ok := rs.sessions[publisherParticipantID]
+	if !ok {
+		rs.mu.Unlock()
+		return
+	}
+	ps.Participant.SetSharingActive(active)
+
+	if active {
+		rs.mu.Unlock()
+		return
+	}
+
+	watchers := rs.watchers[publisherParticipantID]
+	delete(rs.watchers, publisherParticipantID)
+	screenTracks := ps.Participant.GetScreenTracks()
+	subs := make([]*ParticipantSession, 0, len(watchers))
+	for subID := range watchers {
+		if sub, ok := rs.sessions[subID]; ok {
+			subs = append(subs, sub)
+		}
+	}
+	rs.mu.Unlock()
+
+	for _, sub := range subs {
+		for _, tr := range screenTracks {
+			sub.RemoveRemoteTrack(tr.ID)
+		}
+	}
+}
+
+// findByUserIDLocked looks up a session by the participant's UserID (as
+// opposed to the internal participantID keying rs.sessions). Callers targeting
+// another participant only know them by UserID (that's all the client ever
+// exposes). Must be called with rs.mu held (read or write).
+func (rs *RoomSession) findByUserIDLocked(userID string) (participantID string, participant *domain.Participant, ok bool) {
+	for id, s := range rs.sessions {
+		if s.Participant.UserID == userID {
+			return id, s.Participant, true
+		}
+	}
+	return "", nil, false
+}
+
 func (rs *RoomSession) Done() <-chan struct{} {
 	return rs.room.Done()
 }
@@ -291,10 +415,41 @@ func (rs *RoomSession) onNewTrack(
 		)
 	}
 
-	// Route track to all other participants. Each AddRemoteTrack triggers
-	// OnNegotiationNeeded which enqueues a renegotiation for that subscriber.
+	// Route track to subscribers. Camera/mic broadcast to everyone, as before.
+	// Screen-role tracks are gated: only participants already watching this
+	// publisher (via WatchShare) get them. This branch only matters for the
+	// very first share of a call — OnTrack fires once per transceiver slot,
+	// so subsequent share sessions are delivered entirely through WatchShare/
+	// SetSharingActive instead (see the architecture note in the design doc).
 	rs.mu.RLock()
 	defer rs.mu.RUnlock()
+
+	if track.Role == domain.RoleScreen {
+		routed := 0
+		for subscriberID := range rs.watchers[publisher.ID] {
+			ps, ok := rs.sessions[subscriberID]
+			if !ok {
+				continue
+			}
+			if err := ps.AddRemoteTrack(track); err != nil {
+				rs.log.Warn("failed to route screen track to watcher",
+					"publisher_id", publisher.UserID,
+					"subscriber_id", ps.Participant.UserID,
+					"track_id", track.ID,
+					"error", err,
+				)
+				continue
+			}
+			routed++
+		}
+		rs.log.Info("screen track routing complete",
+			"room_id", rs.room.ID,
+			"publisher_id", publisher.UserID,
+			"track_kind", track.Kind.String(),
+			"routed_to", routed,
+		)
+		return
+	}
 
 	routed := 0
 	for id, ps := range rs.sessions {

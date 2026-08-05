@@ -158,3 +158,184 @@ func TestEvictedSessionNotifiedSessionReplaced(t *testing.T) {
 		t.Fatal("evicted session did not receive session_replaced")
 	}
 }
+
+// newFakeScreenTrack builds a minimal RoleScreen PublishedTrack without going
+// through a real RTP session — sufficient for exercising routing/subscription
+// logic, which never inspects RTP content itself.
+func newFakeScreenTrack(t *testing.T, id string) *domain.PublishedTrack {
+	t.Helper()
+	local, err := webrtc.NewTrackLocalStaticRTP(
+		webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypeVP8, ClockRate: 90000},
+		id,
+		"alice:screen",
+	)
+	if err != nil {
+		t.Fatalf("NewTrackLocalStaticRTP: %v", err)
+	}
+	return &domain.PublishedTrack{
+		ID:         id,
+		StreamID:   "alice:screen",
+		Kind:       domain.TrackKindVideo,
+		Role:       domain.RoleScreen,
+		LocalTrack: local,
+	}
+}
+
+func hasForwardedTrack(ps *ParticipantSession, trackID string) bool {
+	ps.sendersMu.Lock()
+	defer ps.sendersMu.Unlock()
+	_, ok := ps.sendersByTrackID[trackID]
+	return ok
+}
+
+func joinTestRoom(t *testing.T) (*RoomSession, *domain.Room) {
+	t.Helper()
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	pf, err := sfuwebrtc.NewPeerFactory([]string{}, "")
+	if err != nil {
+		t.Fatalf("NewPeerFactory: %v", err)
+	}
+	room := domain.NewRoom("room1", func(domain.Event) {})
+	return NewRoomSession(room, pf, log), room
+}
+
+func TestWatchShareForwardsCurrentScreenTrack(t *testing.T) {
+	rs, _ := joinTestRoom(t)
+
+	alicePS, err := rs.Join(domain.NewParticipant("p1", "alice", "room1"), &fakeSignalingSession{})
+	if err != nil {
+		t.Fatalf("alice join: %v", err)
+	}
+	bobPS, err := rs.Join(domain.NewParticipant("p2", "bob", "room1"), &fakeSignalingSession{})
+	if err != nil {
+		t.Fatalf("bob join: %v", err)
+	}
+
+	rs.SetSharingActive("p1", true)
+	screenTrack := newFakeScreenTrack(t, "alice-screen-video")
+	alicePS.Participant.AddTrack(screenTrack)
+
+	rs.WatchShare("p2", "alice")
+
+	if !hasForwardedTrack(bobPS, screenTrack.ID) {
+		t.Fatal("bob did not receive alice's screen track after watch_share")
+	}
+}
+
+func TestScreenTrackNotForwardedWithoutWatch(t *testing.T) {
+	rs, _ := joinTestRoom(t)
+
+	alicePS, err := rs.Join(domain.NewParticipant("p1", "alice", "room1"), &fakeSignalingSession{})
+	if err != nil {
+		t.Fatalf("alice join: %v", err)
+	}
+	bobPS, err := rs.Join(domain.NewParticipant("p2", "bob", "room1"), &fakeSignalingSession{})
+	if err != nil {
+		t.Fatalf("bob join: %v", err)
+	}
+
+	rs.SetSharingActive("p1", true)
+	screenTrack := newFakeScreenTrack(t, "alice-screen-video")
+	alicePS.Participant.AddTrack(screenTrack)
+
+	// Bob never calls WatchShare.
+	if hasForwardedTrack(bobPS, screenTrack.ID) {
+		t.Fatal("bob received alice's screen track without ever calling watch_share")
+	}
+}
+
+func TestSetSharingActiveFalseStopsForwardingAndClearsWatchers(t *testing.T) {
+	rs, _ := joinTestRoom(t)
+
+	alicePS, err := rs.Join(domain.NewParticipant("p1", "alice", "room1"), &fakeSignalingSession{})
+	if err != nil {
+		t.Fatalf("alice join: %v", err)
+	}
+	bobPS, err := rs.Join(domain.NewParticipant("p2", "bob", "room1"), &fakeSignalingSession{})
+	if err != nil {
+		t.Fatalf("bob join: %v", err)
+	}
+
+	rs.SetSharingActive("p1", true)
+	screenTrack := newFakeScreenTrack(t, "alice-screen-video")
+	alicePS.Participant.AddTrack(screenTrack)
+	rs.WatchShare("p2", "alice")
+	if !hasForwardedTrack(bobPS, screenTrack.ID) {
+		t.Fatal("setup: bob should have received the track before stop")
+	}
+
+	rs.SetSharingActive("p1", false)
+
+	if hasForwardedTrack(bobPS, screenTrack.ID) {
+		t.Fatal("screen track still forwarded to bob after screen_share_stop")
+	}
+
+	// A later watch_share for the same (now inactive) publisher must not
+	// resurrect the stale track — sharingActive gates delivery, not the mere
+	// existence of a PublishedTrack (which, once created, never goes away).
+	rs.WatchShare("p2", "alice")
+	if hasForwardedTrack(bobPS, screenTrack.ID) {
+		t.Fatal("stale screen track was forwarded even though sharing is inactive")
+	}
+}
+
+func TestUnwatchShareStopsForwarding(t *testing.T) {
+	rs, _ := joinTestRoom(t)
+
+	alicePS, err := rs.Join(domain.NewParticipant("p1", "alice", "room1"), &fakeSignalingSession{})
+	if err != nil {
+		t.Fatalf("alice join: %v", err)
+	}
+	bobPS, err := rs.Join(domain.NewParticipant("p2", "bob", "room1"), &fakeSignalingSession{})
+	if err != nil {
+		t.Fatalf("bob join: %v", err)
+	}
+
+	rs.SetSharingActive("p1", true)
+	screenTrack := newFakeScreenTrack(t, "alice-screen-video")
+	alicePS.Participant.AddTrack(screenTrack)
+	rs.WatchShare("p2", "alice")
+	if !hasForwardedTrack(bobPS, screenTrack.ID) {
+		t.Fatal("setup: bob should have received the track")
+	}
+
+	rs.UnwatchShare("p2", "alice")
+
+	if hasForwardedTrack(bobPS, screenTrack.ID) {
+		t.Fatal("screen track still forwarded to bob after unwatch_share")
+	}
+}
+
+func TestLeaveCleansWatcherRecordsBothDirections(t *testing.T) {
+	rs, _ := joinTestRoom(t)
+
+	alicePS, err := rs.Join(domain.NewParticipant("p1", "alice", "room1"), &fakeSignalingSession{})
+	if err != nil {
+		t.Fatalf("alice join: %v", err)
+	}
+	if _, err := rs.Join(domain.NewParticipant("p2", "bob", "room1"), &fakeSignalingSession{}); err != nil {
+		t.Fatalf("bob join: %v", err)
+	}
+
+	rs.SetSharingActive("p1", true)
+	alicePS.Participant.AddTrack(newFakeScreenTrack(t, "alice-screen-video"))
+	rs.WatchShare("p2", "alice")
+
+	// Bob (subscriber) leaves — his id must be gone from alice's watcher set.
+	rs.Leave("p2")
+	rs.mu.RLock()
+	_, stillWatching := rs.watchers["p1"]["p2"]
+	rs.mu.RUnlock()
+	if stillWatching {
+		t.Fatal("bob's id remained in alice's watcher set after bob left")
+	}
+
+	// Alice (publisher) leaves — her key must be gone from watchers entirely.
+	rs.Leave("p1")
+	rs.mu.RLock()
+	_, publisherKeyExists := rs.watchers["p1"]
+	rs.mu.RUnlock()
+	if publisherKeyExists {
+		t.Fatal("alice's watchers entry remained after alice left")
+	}
+}
