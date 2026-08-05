@@ -546,16 +546,14 @@ export function GroupCallUI() {
         // otherwise clobber prevWatchedRef.current back to null before
         // onReconnected ever gets a chance to read it.
         //
-        // prevWatchedRef.current is only non-null when focus/watch intent
-        // actually changed since the last reconnect cycle (the sync effect is
-        // the sole writer, and round 1's fix deliberately leaves it null after
-        // a resubscribe — see onReconnected below). So on a second
-        // onReconnecting with no focus change in between (flappy network,
-        // back-to-back disconnects), prevWatchedRef.current would already be
-        // null and would wipe out the still-good target from the previous
-        // cycle. Fall back to the existing snapshot in that case; only
-        // overwrite it when there's a real, current value to record.
-        watchedBeforeReconnectRef.current = prevWatchedRef.current ?? watchedBeforeReconnectRef.current;
+        // Plain assignment (no `?? ` fallback): onReconnected below now restores
+        // real focusedUserId/screenSharers state instead of bookkeeping a second
+        // ref, so the sync effect reconciles prevWatchedRef with reality after
+        // every reconnect cycle. prevWatchedRef is therefore always current by
+        // the time the next onReconnecting runs, and a fallback here would only
+        // reintroduce the staleness this design removes (e.g. incorrectly
+        // resubscribing after a real, explicit unfocus).
+        watchedBeforeReconnectRef.current = prevWatchedRef.current;
         setIsReconnecting(true);
         // Participants are re-announced via 'joined'/onPeerJoined after
         // rejoin; clear now so users who left during the outage don't linger.
@@ -571,22 +569,17 @@ export function GroupCallUI() {
       },
       onReconnected: () => {
         setIsReconnecting(false);
-        // partialTeardown() tore down the old PC/session; the SFU's watcher
-        // state for our old participantID is gone. Re-subscribe if we were
-        // watching a share when the connection dropped.
-        if (watchedBeforeReconnectRef.current) {
-          groupCallService.watchShare(watchedBeforeReconnectRef.current);
+        // Restore real focus/watch state (rather than calling watchShare directly
+        // and tracking it in a second ref) so the sync effect below — the single
+        // place that sends watch_share/unwatch_share — naturally reconciles
+        // prevWatchedRef with reality on its next run, exactly like any other
+        // focus transition. This keeps one source of truth instead of two refs
+        // that can drift apart across reconnect cycles.
+        const target = watchedBeforeReconnectRef.current;
+        if (target) {
+          setScreenSharers((prev) => new Set(prev).add(target));
+          setFocusedUserId(target);
         }
-        // prevWatchedRef intentionally NOT updated here — it stays whatever the
-        // onReconnecting-triggered unwatch left it (effectively null). Mirroring
-        // the resubscribed target back in would desync it from the focus-gated
-        // sync effect below (which derives its own state from focusedUserId, not
-        // this ref) and cause a false unwatchShare the next time screenSharers
-        // changes for an unrelated reason (e.g. some other participant starts or
-        // stops their own share). Any resulting redundant watchShare on the next
-        // real focus change is a safe no-op server-side; the share actually
-        // stopping (SetSharingActive(false)) unconditionally clears all of its
-        // watchers regardless of this ref.
       },
       onCallEnded: () => {
         const channelId = groupCallService.currentRoomIdState;
