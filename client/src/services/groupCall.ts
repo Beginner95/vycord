@@ -147,10 +147,6 @@ class GroupCallService {
   // Placeholder video track for the screen-video slot — mirrors dummyVideoTrack
   // below, but for the dedicated screen slot (not the camera slot).
   private dummyScreenVideoTrack: MediaStreamTrack | null = null;
-  // Still written/read by the reconnect path (partialTeardown/applyScreenRestore),
-  // which reattaches a restored screen track to the video transceiver directly
-  // rather than through screenVideoSender — see Task 13 for retiring this.
-  private screenSender: RTCRtpSender | null = null;
   // Detaches the AEC3 AudioWorkletNode/worker used to strip call-audio echo
   // out of the captured system audio before it is sent via screenAudioSender —
   // see startScreenShare/stopScreenShare.
@@ -361,10 +357,13 @@ class GroupCallService {
     this.stopQualitySampler();
     this.pc?.close();
     this.pc = null;
-    // The new PC creates its own dummy track in createPeerConnection.
+    // The new PC creates its own dummy tracks in createPeerConnection.
     this.dummyVideoTrack?.stop();
     this.dummyVideoTrack = null;
-    this.screenSender = null; // belonged to the old PC
+    this.dummyScreenVideoTrack?.stop();
+    this.dummyScreenVideoTrack = null;
+    this.screenVideoSender = null; // belonged to the old PC
+    this.screenAudioSender = null; // belonged to the old PC
     this.remoteStreams.clear();
     this.remoteScreenStreams.clear();
     this.pendingCandidates = [];
@@ -458,25 +457,28 @@ class GroupCallService {
     this.applyScreenRestore();
   }
 
-  // Re-attaches the pending screen track to the new PC's video sender. Also
-  // called after each answer in handleOffer: if 'joined' resolved before the
-  // first offer, the PC doesn't exist yet when restoreScreenShare runs.
+  // Re-attaches the pending screen video track (and, if present, the screen
+  // audio track already flowing through this.screenStream) to the new PC's
+  // dedicated screen senders. Also called after each answer in handleOffer: if
+  // 'joined' resolved before the first offer, the PC doesn't exist yet when
+  // restoreScreenShare runs.
   private applyScreenRestore(): void {
     const track = this.pendingScreenRestore;
-    if (!track || !this.pc) return;
-    const videoTransceiver = this.pc.getTransceivers().find(
-      (t) => t.receiver.track.kind === 'video',
-    );
-    if (!videoTransceiver) return; // a later offer will bring the m-line
+    if (!track || !this.screenVideoSender) return;
     this.pendingScreenRestore = null;
-    if (videoTransceiver.direction === 'recvonly') {
-      videoTransceiver.direction = 'sendrecv';
-    }
-    videoTransceiver.sender.replaceTrack(track).then(() => {
-      this.screenSender = videoTransceiver.sender;
+
+    const audioTrack = this.screenStream?.getAudioTracks()[0] ?? null;
+
+    Promise.all([
+      this.screenVideoSender.replaceTrack(track),
+      audioTrack && this.screenAudioSender ? this.screenAudioSender.replaceTrack(audioTrack) : Promise.resolve(),
+    ]).then(() => {
       // Same reasoning as startScreenShare: replaceTrack doesn't renegotiate,
       // the SFU needs an explicit keyframe push.
       this.requestKeyframeWithRetry();
+      if (this.ws?.readyState === WebSocket.OPEN) {
+        this.ws.send(JSON.stringify({ type: 'screen_share_start', payload: {} }));
+      }
       gcLog(this.currentUserId, 'reconnect: screen share restored');
     }).catch((err) => {
       gcLog(this.currentUserId, 'reconnect: screen restore failed', { error: String(err) });
