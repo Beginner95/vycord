@@ -567,14 +567,16 @@ export function GroupCallUI() {
         if (watchedBeforeReconnectRef.current) {
           groupCallService.watchShare(watchedBeforeReconnectRef.current);
         }
-        // focusedUserId is still null post-reconnect (nothing restores focus
-        // automatically), so the sync effect won't observe this resubscribe.
-        // Mirror it into prevWatchedRef so a later focus change onto someone
-        // else correctly unwatches this target instead of leaking the
-        // subscription (prevWatchedRef would otherwise still read null, which
-        // the sync effect's `if (prevWatched)` guard treats as "nothing to
-        // unwatch").
-        prevWatchedRef.current = watchedBeforeReconnectRef.current;
+        // prevWatchedRef intentionally NOT updated here — it stays whatever the
+        // onReconnecting-triggered unwatch left it (effectively null). Mirroring
+        // the resubscribed target back in would desync it from the focus-gated
+        // sync effect below (which derives its own state from focusedUserId, not
+        // this ref) and cause a false unwatchShare the next time screenSharers
+        // changes for an unrelated reason (e.g. some other participant starts or
+        // stops their own share). Any resulting redundant watchShare on the next
+        // real focus change is a safe no-op server-side; the share actually
+        // stopping (SetSharingActive(false)) unconditionally clears all of its
+        // watchers regardless of this ref.
       },
       onCallEnded: () => {
         const channelId = groupCallService.currentRoomIdState;
