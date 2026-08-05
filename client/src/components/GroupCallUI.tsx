@@ -415,6 +415,9 @@ export function GroupCallUI() {
   const [selectedSourceId, setSelectedSourceId] = useState<string | null>(null);
   // Set of remote user IDs currently sharing their screen
   const [screenSharers, setScreenSharers] = useState<Set<string>>(new Set());
+  // userId -> their screen-share MediaStream (video + audio), populated only
+  // while we're actively watching them (see onRemoteScreenStream below).
+  const [remoteScreenStreams, setRemoteScreenStreams] = useState<Map<string, MediaStream>>(new Map());
   // When set, shows the focused layout (large video + thumbnails strip)
   const [focusedUserId, setFocusedUserId] = useState<string | null>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
@@ -425,10 +428,25 @@ export function GroupCallUI() {
   const screenShareMainRef = useRef<HTMLDivElement>(null);
   // Stable ref to participants for use in WS event callbacks (avoids stale closure)
   const participantsRef = useRef<RemoteParticipant[]>([]);
+  // Tracks which remote user's screen share (if any) we're currently subscribed
+  // to via watchShare/unwatchShare. Declared here (rather than beside the sync
+  // effect below) so onReconnected — set up inside the earlier groupCallService.init
+  // useEffect — can also read/write it without a stale closure.
+  const prevWatchedRef = useRef<string | null>(null);
+  // Stable ref to remoteScreenStreams for consumers that need the current map
+  // without a stale closure (e.g. the focused-share render path added in the
+  // follow-up task). remoteScreenStreams itself isn't read anywhere yet in this
+  // change — this mirror is what keeps it a live, read binding rather than a
+  // write-only one.
+  const remoteScreenStreamsRef = useRef<Map<string, MediaStream>>(new Map());
 
   useEffect(() => {
     participantsRef.current = participants;
   }, [participants]);
+
+  useEffect(() => {
+    remoteScreenStreamsRef.current = remoteScreenStreams;
+  }, [remoteScreenStreams]);
 
   const [remoteMicMuted, setRemoteMicMuted] = useState<Map<string, boolean>>(new Map());
 
@@ -482,6 +500,13 @@ export function GroupCallUI() {
           attachStreamToElement(videoEl, stream, userId, (participantVolumesRef.current[userId] ?? 100) / 100);
         }
       },
+      onRemoteScreenStream: (userId, stream) => {
+        setRemoteScreenStreams((prev) => {
+          const next = new Map(prev);
+          next.set(userId, stream);
+          return next;
+        });
+      },
       onPeerJoined: (userId, source) => {
         setParticipants((prev) => {
           if (prev.find((p) => p.userId === userId)) return prev;
@@ -504,6 +529,11 @@ export function GroupCallUI() {
         // calling onPeerLeft, so by the time we get here it is always a real departure.
         audioService.playUserLeft();
         setParticipants((prev) => prev.filter((p) => p.userId !== userId));
+        setRemoteScreenStreams((prev) => {
+          const next = new Map(prev);
+          next.delete(userId);
+          return next;
+        });
         setRemoteMicMuted((prev) => {
           const next = new Map(prev);
           next.delete(userId);
@@ -520,6 +550,7 @@ export function GroupCallUI() {
         // Participants are re-announced via 'joined'/onPeerJoined after
         // rejoin; clear now so users who left during the outage don't linger.
         setParticipants([]);
+        setRemoteScreenStreams(new Map());
         setScreenSharers(new Set());
         setRemoteMicMuted(new Map());
         setParticipantVolumes({});
@@ -530,6 +561,12 @@ export function GroupCallUI() {
       },
       onReconnected: () => {
         setIsReconnecting(false);
+        // partialTeardown() tore down the old PC/session; the SFU's watcher
+        // state for our old participantID is gone. Re-subscribe if we were
+        // watching a share when the connection dropped.
+        if (prevWatchedRef.current) {
+          groupCallService.watchShare(prevWatchedRef.current);
+        }
       },
       onCallEnded: () => {
         const channelId = groupCallService.currentRoomIdState;
@@ -537,6 +574,7 @@ export function GroupCallUI() {
         setIsReconnecting(false);
         setIsInGroupCall(false);
         setParticipants([]);
+        setRemoteScreenStreams(new Map());
         setLocalQuality(undefined);
         setIsMuted(false);
         setIsMicAvailable(true);
@@ -557,6 +595,7 @@ export function GroupCallUI() {
         console.error('[GroupCall] Error:', msg);
         setIsInGroupCall(false);
         setParticipants([]);
+        setRemoteScreenStreams(new Map());
         setIsMicAvailable(true);
         setScreenSharers(new Set());
         setRemoteMicMuted(new Map());
@@ -647,6 +686,12 @@ export function GroupCallUI() {
         next.delete(p.user_id);
         return next;
       });
+      setRemoteScreenStreams((prev) => {
+        const next = new Map(prev);
+        next.delete(p.user_id);
+        return next;
+      });
+      groupCallService.unwatchShare(p.user_id);
       // If this participant was focused, exit focus view and fullscreen
       setFocusedUserId((prev) => {
         if (prev === p.user_id) {
@@ -695,6 +740,18 @@ export function GroupCallUI() {
       el.play().catch(() => {});
     }
   }, [focusedUserId, participants]);
+
+  // Keep the SFU subscription in sync with which screen share (if any) is
+  // currently focused. Only one share can be watched at a time — switching
+  // focus unwatches the previous target and watches the new one.
+  useEffect(() => {
+    const nextWatched = focusedUserId && screenSharers.has(focusedUserId) ? focusedUserId : null;
+    const prevWatched = prevWatchedRef.current;
+    if (prevWatched === nextWatched) return;
+    if (prevWatched) groupCallService.unwatchShare(prevWatched);
+    if (nextWatched) groupCallService.watchShare(nextWatched);
+    prevWatchedRef.current = nextWatched;
+  }, [focusedUserId, screenSharers]);
 
   // Clear focus when focused participant leaves the call
   useEffect(() => {
