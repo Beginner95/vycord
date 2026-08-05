@@ -174,6 +174,20 @@ func (h *Handler) routeMessage(
 	case "request_keyframe":
 		h.handleRequestKeyframe(ps, userID)
 
+	case "watch_share":
+		h.handleWatchShare(rs, ps, msg, userID)
+
+	case "unwatch_share":
+		h.handleUnwatchShare(rs, ps, msg, userID)
+
+	case "screen_share_start":
+		rs.SetSharingActive(ps.Participant.ID, true)
+		h.log.Info("screen share started", "user_id", userID)
+
+	case "screen_share_stop":
+		rs.SetSharingActive(ps.Participant.ID, false)
+		h.log.Info("screen share stopped", "user_id", userID)
+
 	case "leave":
 		// The deferred Leave() in ServeHTTP handles cleanup;
 		// closing the connection triggers readPump to return.
@@ -227,6 +241,24 @@ func (h *Handler) handleICECandidate(
 func (h *Handler) handleRequestKeyframe(ps *application.ParticipantSession, userID string) {
 	h.log.Info("keyframe requested by client", "user_id", userID)
 	ps.RequestKeyframe()
+}
+
+func (h *Handler) handleWatchShare(rs *application.RoomSession, ps *application.ParticipantSession, msg *Message, userID string) {
+	var p WatchSharePayload
+	if err := json.Unmarshal(msg.Payload, &p); err != nil || p.TargetUserID == "" {
+		h.log.Warn("invalid watch_share payload", "user_id", userID, "error", err)
+		return
+	}
+	rs.WatchShare(ps.Participant.ID, p.TargetUserID)
+}
+
+func (h *Handler) handleUnwatchShare(rs *application.RoomSession, ps *application.ParticipantSession, msg *Message, userID string) {
+	var p UnwatchSharePayload
+	if err := json.Unmarshal(msg.Payload, &p); err != nil || p.TargetUserID == "" {
+		h.log.Warn("invalid unwatch_share payload", "user_id", userID, "error", err)
+		return
+	}
+	rs.UnwatchShare(ps.Participant.ID, p.TargetUserID)
 }
 
 func (h *Handler) notifyOthers(rs *application.RoomSession, excludeParticipantID, userID string) {

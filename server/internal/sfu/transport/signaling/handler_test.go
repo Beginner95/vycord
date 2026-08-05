@@ -173,3 +173,45 @@ func TestServeHTTPRejectsMismatchedRoomID(t *testing.T) {
 		t.Fatalf("status = %d, want 401", got)
 	}
 }
+
+// TestWatchShareUnknownTargetDoesNotCrashConnection: sending watch_share for a
+// user who isn't in the room (typo, race with them leaving) must be a no-op —
+// the connection must stay open and usable afterwards.
+func TestWatchShareUnknownTargetDoesNotCrashConnection(t *testing.T) {
+	srv := newTestServer(t)
+	roomID := uuid.NewString()
+	tok := signRoomToken(t, uuid.NewString(), roomID, time.Now().Add(time.Hour))
+	url := "ws" + strings.TrimPrefix(srv.URL, "http") + "/ws?room_id=" + roomID + "&token=" + tok
+
+	conn, _, err := websocket.DefaultDialer.Dial(url, nil)
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer conn.Close()
+
+	if err := conn.SetReadDeadline(time.Now().Add(5 * time.Second)); err != nil {
+		t.Fatalf("set read deadline: %v", err)
+	}
+	for {
+		var msg Message
+		if err := conn.ReadJSON(&msg); err != nil {
+			t.Fatalf("waiting for joined: %v", err)
+		}
+		if msg.Type == "joined" {
+			break
+		}
+	}
+
+	if err := conn.WriteJSON(Message{
+		Type:    "watch_share",
+		Payload: MustMarshal(WatchSharePayload{TargetUserID: "does-not-exist"}),
+	}); err != nil {
+		t.Fatalf("write watch_share: %v", err)
+	}
+
+	// The connection must still be alive — request_keyframe is a harmless,
+	// pre-existing message type we can use as a liveness probe.
+	if err := conn.WriteJSON(Message{Type: "request_keyframe", Payload: MustMarshal(struct{}{})}); err != nil {
+		t.Fatalf("connection died after unknown watch_share target: %v", err)
+	}
+}
