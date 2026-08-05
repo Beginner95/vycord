@@ -135,6 +135,16 @@ class GroupCallService {
   private localStream: MediaStream | null = null;
 
   private screenStream: MediaStream | null = null;
+  // Dedicated senders for the screen-share slots pre-provisioned in
+  // createPeerConnection — separate from the camera/mic senders, so the SFU
+  // can gate them independently of camera/mic (see WatchShare on the server).
+  private screenVideoSender: RTCRtpSender | null = null;
+  private screenAudioSender: RTCRtpSender | null = null;
+  // Placeholder video track for the screen-video slot — mirrors dummyVideoTrack
+  // below, but for the dedicated screen slot (not the camera slot).
+  private dummyScreenVideoTrack: MediaStreamTrack | null = null;
+  // TODO(Task 8): Remove old screenSender when updating startScreenShare/stopScreenShare
+  // and related methods to use screenVideoSender/screenAudioSender separately.
   private screenSender: RTCRtpSender | null = null;
   // Detaches the desktop-audio source node mixed into the outgoing audio
   // track via noiseCancellationService.attachExtraAudio — see startScreenShare.
@@ -798,6 +808,19 @@ class GroupCallService {
     track.enabled = false;
     this.dummyVideoTrack = track;
     return track;
+  }
+
+  // Creates a silent placeholder track for the screen-audio sender slot, so its
+  // SSRC is already established in the very first SDP (mirrors
+  // createDummyVideoTrack's reasoning). Unlike video, a Web Audio track can't
+  // emit literally zero frames — audio nodes always run continuous blocks — so
+  // this dummy does send a low-volume, always-silent RTP stream from join
+  // onward. That's fine: the server treats "is sharing active" as an explicit
+  // flag (screen_share_start/stop), never as "does this slot carry RTP".
+  private createDummyAudioTrack(): MediaStreamTrack {
+    const ctx = new AudioContext();
+    const destination = ctx.createMediaStreamDestination();
+    return destination.stream.getAudioTracks()[0];
   }
 
   private async acquireMedia(): Promise<MediaStream | null> {
