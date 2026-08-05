@@ -598,20 +598,9 @@ class GroupCallService {
       actual:    { width: actual.width,  height: actual.height,  frameRate: actual.frameRate },
     });
 
-    // Find the video transceiver by receiver kind — works even if sender.track is null
-    // (audio-only join where the client never added a local camera track).
-    const videoTransceiver = this.pc.getTransceivers().find(
-      (t) => t.receiver.track.kind === 'video',
-    );
-    if (!videoTransceiver) {
+    if (!this.screenVideoSender) {
       stream.getTracks().forEach((t) => t.stop());
-      throw new Error('No video transceiver in peer connection');
-    }
-
-    // If the transceiver was recvonly (camera stream never started), switch to sendrecv
-    // so the SFU knows to expect video from this participant.
-    if (videoTransceiver.direction === 'recvonly') {
-      videoTransceiver.direction = 'sendrecv';
+      throw new Error('No dedicated screen-video sender on peer connection');
     }
 
     // When the user stops sharing via the OS UI (e.g. Chrome's "Stop sharing" bar),
@@ -622,13 +611,12 @@ class GroupCallService {
       this.callbacks?.onScreenShareEnded?.();
     };
 
-    await videoTransceiver.sender.replaceTrack(screenTrack);
+    await this.screenVideoSender.replaceTrack(screenTrack);
     screenTrack.enabled = true;
 
-    await this.applyScreenShareEncoding(videoTransceiver.sender, preset.maxBitrate);
+    await this.applyScreenShareEncoding(this.screenVideoSender, preset.maxBitrate);
 
     this.screenStream = stream;
-    this.screenSender = videoTransceiver.sender;
     this._isScreenSharing = true;
 
     // Mix captured system/desktop audio (if any) into the existing outgoing
@@ -642,41 +630,35 @@ class GroupCallService {
     // returns null on any init failure — falls back to the raw track exactly
     // like before this was added.
     const systemAudioTrack = stream.getAudioTracks()[0];
-    if (systemAudioTrack && this.localStream) {
+    if (systemAudioTrack && this.screenAudioSender) {
       echoCancellationService.ensureReferenceBus();
-      for (const [streamId, remoteStream] of this.remoteStreams) {
+      for (const [userId, remoteStream] of this.remoteStreams) {
         const remoteAudioTrack = remoteStream.getAudioTracks()[0];
-        if (remoteAudioTrack) echoCancellationService.addReferenceTrack(streamId, remoteAudioTrack);
+        if (remoteAudioTrack) echoCancellationService.addReferenceTrack(userId, remoteAudioTrack);
       }
       const aecHandle = await echoCancellationService.attachEchoCancellation(systemAudioTrack);
 
       // stopScreenShare()/teardown() may have run to completion while the AEC
       // init above was in flight (e.g. the OS "Stop sharing" bar firing
       // screenTrack.onended → stopScreenShare, or a rapid second start/stop
-      // from the UI). If so, this invocation is stale: wiring its AEC handle
-      // in and mixing audio now would resurrect system audio into the call
-      // after the user already stopped sharing (screenAudioDetach/screenAecDetach
-      // were already reset to null and the reference bus already torn down by
-      // the stop/teardown that raced ahead of us). Discard it instead.
+      // from the UI). If so, this invocation is stale: replacing the sender's
+      // track now would resurrect system audio after the user already stopped
+      // sharing. Discard it instead.
       if (!this._isScreenSharing || this.screenStream !== stream) {
         aecHandle?.detach();
         gcLog(this.currentUserId, 'screen share audio', {
           captured: true,
-          mixed: false,
+          sent: false,
           echoCancelled: false,
           discardedStale: true,
         });
       } else {
         this.screenAecDetach = aecHandle?.detach ?? null;
-        const audioForMix = aecHandle?.track ?? systemAudioTrack;
-
-        this.screenAudioDetach = noiseCancellationService.attachExtraAudio(
-          this.localStream.id,
-          new MediaStream([audioForMix]),
-        );
+        const audioForSend = aecHandle?.track ?? systemAudioTrack;
+        await this.screenAudioSender.replaceTrack(audioForSend);
         gcLog(this.currentUserId, 'screen share audio', {
           captured: true,
-          mixed: this.screenAudioDetach !== null,
+          sent: true,
           echoCancelled: aecHandle !== null,
         });
       }
@@ -692,6 +674,10 @@ class GroupCallService {
     // Retry because OnTrack on the SFU side may not have fired yet (first RTP
     // packet hasn't arrived); retries at 200ms and 800ms cover that window.
     this.requestKeyframeWithRetry();
+
+    if (this.ws?.readyState === WebSocket.OPEN) {
+      this.ws.send(JSON.stringify({ type: 'screen_share_start', payload: {} }));
+    }
 
     gcLog(this.currentUserId, 'screen share started', { sourceId: sourceId?.slice(0, 16) ?? 'getDisplayMedia', quality });
   }
