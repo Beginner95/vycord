@@ -118,6 +118,12 @@ export interface GroupCallCallbacks {
   onError: (error: string) => void;
   // Called when the OS screen-capture source is closed by the user (e.g. stop button in Chrome bar).
   onScreenShareEnded?: () => void;
+  // Fired after auto-reconnect re-attached OUR OWN outgoing screen share to the
+  // new PeerConnection. The SFU-level screen_share_start sent alongside it only
+  // flips the server's sharingActive flag; other participants' UI state comes
+  // from the app-level 'screen_share_started' broadcast, which they dropped
+  // when our session went away — so the UI layer must re-announce it here.
+  onScreenShareRestored?: () => void;
   // Fired when the call dropped due to a network change and auto-reconnect started.
   onReconnecting?: () => void;
   // Fired when auto-reconnect restored the call.
@@ -147,6 +153,13 @@ class GroupCallService {
   // Placeholder video track for the screen-video slot — mirrors dummyVideoTrack
   // below, but for the dedicated screen slot (not the camera slot).
   private dummyScreenVideoTrack: MediaStreamTrack | null = null;
+  // Placeholder audio track for the screen-audio slot, plus the AudioContext
+  // that produces it. The context MUST be kept and closed explicitly: every
+  // createPeerConnection() builds a new one, and a long Electron session with
+  // several auto-reconnects would otherwise accumulate contexts until Chromium's
+  // per-renderer cap makes `new AudioContext()` throw, breaking every later join.
+  private dummyScreenAudioTrack: MediaStreamTrack | null = null;
+  private dummyScreenAudioContext: AudioContext | null = null;
   // Detaches the AEC3 AudioWorkletNode/worker used to strip call-audio echo
   // out of the captured system audio before it is sent via screenAudioSender —
   // see startScreenShare/stopScreenShare.
@@ -362,6 +375,7 @@ class GroupCallService {
     this.dummyVideoTrack = null;
     this.dummyScreenVideoTrack?.stop();
     this.dummyScreenVideoTrack = null;
+    this.releaseDummyScreenAudio();
     this.screenVideoSender = null; // belonged to the old PC
     this.screenAudioSender = null; // belonged to the old PC
     this.remoteStreams.clear();
@@ -479,6 +493,9 @@ class GroupCallService {
       if (this.ws?.readyState === WebSocket.OPEN) {
         this.ws.send(JSON.stringify({ type: 'screen_share_start', payload: {} }));
       }
+      // Re-announce over the app WS too: our outage cleared everyone else's
+      // screenSharers state, and screen_share_start above never leaves the SFU.
+      this.callbacks?.onScreenShareRestored?.();
       gcLog(this.currentUserId, 'reconnect: screen share restored');
     }).catch((err) => {
       gcLog(this.currentUserId, 'reconnect: screen restore failed', { error: String(err) });
@@ -517,6 +534,12 @@ class GroupCallService {
   }
 
   unwatchShare(targetUserId: string): void {
+    // Drop the cached screen stream unconditionally (even if the socket is
+    // already gone): the SFU detaches its senders, so this object is stale. A
+    // later re-subscribe must start from a fresh MediaStream — otherwise the
+    // UI's `el.srcObject !== screenStream` guard can mistake the stale object
+    // for "already attached" and never re-attach the new tracks.
+    this.remoteScreenStreams.delete(targetUserId);
     if (this.ws?.readyState !== WebSocket.OPEN) return;
     this.ws.send(JSON.stringify({ type: 'unwatch_share', payload: { target_user_id: targetUserId } }));
   }
@@ -827,9 +850,23 @@ class GroupCallService {
   // onward. That's fine: the server treats "is sharing active" as an explicit
   // flag (screen_share_start/stop), never as "does this slot carry RTP".
   private createDummyAudioTrack(): MediaStreamTrack {
+    // Defensive: never let a previous PC's context survive into a new one.
+    this.releaseDummyScreenAudio();
     const ctx = new AudioContext();
+    this.dummyScreenAudioContext = ctx;
     const destination = ctx.createMediaStreamDestination();
-    return destination.stream.getAudioTracks()[0];
+    const track = destination.stream.getAudioTracks()[0];
+    this.dummyScreenAudioTrack = track;
+    return track;
+  }
+
+  // Stops the screen-audio placeholder track and closes its AudioContext.
+  // close() is a Promise — fire-and-forget, teardown must not block on it.
+  private releaseDummyScreenAudio(): void {
+    this.dummyScreenAudioTrack?.stop();
+    this.dummyScreenAudioTrack = null;
+    this.dummyScreenAudioContext?.close().catch(() => {});
+    this.dummyScreenAudioContext = null;
   }
 
   private async acquireMedia(): Promise<MediaStream | null> {
@@ -1011,50 +1048,97 @@ class GroupCallService {
       audioCodecs: audioCaps?.codecs.map((c) => `${c.mimeType} ${c.sdpFmtpLine ?? ''}`.trimEnd()),
     });
 
+    // Slot order is a hard contract with the SFU, which pre-creates exactly four
+    // recvonly transceivers in this order (see NewParticipantSession):
+    //   [0] audio — microphone
+    //   [1] video — camera
+    //   [2] video — screen share
+    //   [3] audio — screen share
+    // Chrome answers positionally, m-line by m-line, so every branch below MUST
+    // create exactly these four transceivers in exactly this order. A mismatch
+    // is silent: e.g. a missing mic slot makes the server bind our screen-share
+    // audio to its mic slot (RoleCameraOrMic), which broadcasts it to everyone
+    // regardless of who is watching the share.
     const addedTracks: Array<Record<string, unknown>> = [];
+    const logAddedTrack = (track: MediaStreamTrack) => {
+      addedTracks.push({
+        kind: track.kind,
+        id: track.id.slice(0, 8),
+        enabled: track.enabled,
+        muted: track.muted,
+        readyState: track.readyState,
+        label: track.label,
+      });
+    };
+
     if (this.localStream) {
-      for (const track of this.localStream.getTracks()) {
-        // Pass the stream so Chrome writes a=msid:<streamId> <trackId> in the answer SDP.
-        // Without the stream argument the SDP contains "a=msid:- <trackId>": some pion
-        // versions see the dash as an empty streamID and may not fire OnTrack reliably.
-        pc.addTrack(track, this.localStream);
-        addedTracks.push({
-          kind: track.kind,
-          id: track.id.slice(0, 8),
-          enabled: track.enabled,
-          muted: track.muted,
-          readyState: track.readyState,
-          label: track.label,
-        });
+      // Audio and video are added separately (rather than iterating getTracks())
+      // so slot order never depends on the stream's internal track ordering.
+      const localAudioTracks = this.localStream.getAudioTracks();
+      const localVideoTracks = this.localStream.getVideoTracks();
+
+      // [0] mic-audio. Pass the stream so Chrome writes a=msid:<streamId> <trackId>
+      // in the answer SDP. Without the stream argument the SDP contains
+      // "a=msid:- <trackId>": some pion versions see the dash as an empty
+      // streamID and may not fire OnTrack reliably.
+      if (localAudioTracks.length > 0) {
+        for (const track of localAudioTracks) {
+          pc.addTrack(track, this.localStream);
+          logAddedTrack(track);
+        }
+      } else {
+        // Mic denied/unavailable while a camera exists (acquireMedia's
+        // video-only fallback). The slot must still be reserved, otherwise the
+        // only audio transceiver on this PC would be the screen-audio one and
+        // the server would bind it to its mic slot. Trackless is correct here:
+        // there is genuinely nothing to send, same as the no-media branch below.
+        pc.addTransceiver('audio', { direction: 'sendrecv' });
       }
-      // If localStream has no video track (no camera), add a dummy video track so the
-      // answer SDP carries a video a=ssrc line — see createDummyVideoTrack for why a
-      // trackless addTransceiver does not achieve this.
-      if (!this.localStream.getVideoTracks().length) {
+
+      // [1] camera-video. If there is no camera, a dummy track (not a trackless
+      // transceiver) is required so the answer SDP carries a video a=ssrc line —
+      // see createDummyVideoTrack for why.
+      if (localVideoTracks.length > 0) {
+        for (const track of localVideoTracks) {
+          pc.addTrack(track, this.localStream);
+          logAddedTrack(track);
+        }
+      } else {
         this.dummyVideoTrack = this.createDummyVideoTrack();
         pc.addTrack(this.dummyVideoTrack, this.localStream);
       }
     } else {
       // No local media at all. Audio stays a trackless transceiver (nothing to send
       // without a mic), but video still needs a dummy track for screen sharing.
-      pc.addTransceiver('audio', { direction: 'sendrecv' });
+      pc.addTransceiver('audio', { direction: 'sendrecv' }); // [0]
       this.dummyVideoTrack = this.createDummyVideoTrack();
-      pc.addTrack(this.dummyVideoTrack, new MediaStream([this.dummyVideoTrack]));
+      pc.addTrack(this.dummyVideoTrack, new MediaStream([this.dummyVideoTrack])); // [1]
     }
 
-    // Dedicated screen-share slots — added in this fixed order (video then
-    // audio) on EVERY join, matching the SFU's fixed transceiver order
-    // ([mic-audio, camera-video, screen-video, screen-audio]) so Chrome binds
-    // them to the right m-lines. Placeholder (dummy) tracks establish the SSRC
-    // now so starting/stopping a share later is a plain replaceTrack with no
-    // renegotiation — same reasoning as the camera dummy track above.
+    // [2] screen-video, [3] screen-audio — dedicated slots, added on EVERY join.
+    // Placeholder (dummy) tracks establish the SSRC now so starting/stopping a
+    // share later is a plain replaceTrack with no renegotiation — same reasoning
+    // as the camera dummy track above.
+    //
+    // addTransceiver(track) rather than addTrack(track): addTrack may REUSE an
+    // existing transceiver of the same kind whose sender has no track (per the
+    // WebRTC spec's addTrack algorithm), which would silently swallow the
+    // screen-audio dummy into the trackless mic slot created above and collapse
+    // the four slots into three. addTransceiver with an explicit track always
+    // creates a new transceiver, so the order above can never be cannibalised.
     this.dummyScreenVideoTrack = this.createDummyVideoTrack();
     const screenVideoStream = new MediaStream([this.dummyScreenVideoTrack]);
-    this.screenVideoSender = pc.addTrack(this.dummyScreenVideoTrack, screenVideoStream);
+    this.screenVideoSender = pc.addTransceiver(this.dummyScreenVideoTrack, {
+      direction: 'sendrecv',
+      streams: [screenVideoStream],
+    }).sender;
 
     const dummyScreenAudioTrack = this.createDummyAudioTrack();
     const screenAudioStream = new MediaStream([dummyScreenAudioTrack]);
-    this.screenAudioSender = pc.addTrack(dummyScreenAudioTrack, screenAudioStream);
+    this.screenAudioSender = pc.addTransceiver(dummyScreenAudioTrack, {
+      direction: 'sendrecv',
+      streams: [screenAudioStream],
+    }).sender;
 
     gcLog(this.currentUserId, 'PC created', {
       localTracksAdded: addedTracks,
@@ -1634,6 +1718,7 @@ class GroupCallService {
 
     this.dummyScreenVideoTrack?.stop();
     this.dummyScreenVideoTrack = null;
+    this.releaseDummyScreenAudio();
 
     if (this.localStream) {
       // Демонтаж NC-цепочки: стопает raw-треки микрофона, закрывает AudioContext

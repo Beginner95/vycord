@@ -433,6 +433,11 @@ export function GroupCallUI() {
   const [selectedSourceId, setSelectedSourceId] = useState<string | null>(null);
   // Set of remote user IDs currently sharing their screen
   const [screenSharers, setScreenSharers] = useState<Set<string>>(new Set());
+  // Controls ONLY the "someone is sharing" banner's visibility. It must never be
+  // conflated with screenSharers: clearing that set removes the Watch overlay
+  // from every sharing tile and empties the focused view, with no way back until
+  // the sharer restarts. Reset whenever a new share starts (below).
+  const [bannerDismissed, setBannerDismissed] = useState(false);
   // userId -> their screen-share MediaStream (video + audio), populated only
   // while we're actively watching them (see onRemoteScreenStream below).
   const [remoteScreenStreams, setRemoteScreenStreams] = useState<Map<string, MediaStream>>(new Map());
@@ -578,6 +583,7 @@ export function GroupCallUI() {
         setParticipants([]);
         setRemoteScreenStreams(new Map());
         setScreenSharers(new Set());
+        setBannerDismissed(false);
         setRemoteMicMuted(new Map());
         setParticipantVolumes({});
         setVolumePopoverUserId(null);
@@ -613,6 +619,7 @@ export function GroupCallUI() {
         setIsScreenSharing(false);
         setShowSourcePicker(false);
         setScreenSharers(new Set());
+        setBannerDismissed(false);
         setRemoteMicMuted(new Map());
         setParticipantVolumes({});
         setVolumePopoverUserId(null);
@@ -629,6 +636,7 @@ export function GroupCallUI() {
         setRemoteScreenStreams(new Map());
         setIsMicAvailable(true);
         setScreenSharers(new Set());
+        setBannerDismissed(false);
         setRemoteMicMuted(new Map());
         setParticipantVolumes({});
         setVolumePopoverUserId(null);
@@ -639,6 +647,13 @@ export function GroupCallUI() {
       onScreenShareEnded: () => {
         setIsScreenSharing(false);
         wsService.send('screen_share_stopped', {});
+      },
+      onScreenShareRestored: () => {
+        // Our reconnect made everyone else drop us from their screenSharers set
+        // (their own onReconnecting/participant_left cleanup, or simply never
+        // having seen the original broadcast). Re-announce so their Watch
+        // overlay/banner comes back for the share that is still running.
+        wsService.send('screen_share_started', {});
       },
       onLocalQuality: (metrics) => {
         setLocalQuality(metrics);
@@ -707,6 +722,8 @@ export function GroupCallUI() {
       if (p.user_id === user?.id) return; // ignore own events
       // Only care about current call participants
       if (!participantsRef.current.some((pt) => pt.userId === p.user_id)) return;
+      // A dismissed banner must not stay dismissed for a later, different share.
+      setBannerDismissed(false);
       setScreenSharers((prev) => new Set([...prev, p.user_id]));
     });
 
@@ -774,6 +791,11 @@ export function GroupCallUI() {
         el.srcObject = screenStream;
         el.muted = false;
         el.play().catch(() => {});
+      } else if (!screenStream) {
+        // Focus switched to a sharer whose stream hasn't arrived yet — mute so
+        // the PREVIOUS sharer's audio (still in srcObject, still unmuted) stops
+        // immediately instead of playing on until the new stream lands.
+        el.muted = true;
       }
       return;
     }
@@ -1055,7 +1077,7 @@ export function GroupCallUI() {
       <div className="call-body">
         <div className="call-video-area">
           {/* Banner: shown when someone is sharing but user hasn't opened focus view */}
-          {firstSharer && !focusedUserId && (
+          {firstSharer && !focusedUserId && !bannerDismissed && (
             <div className="screen-share-banner">
               <span className="screen-share-banner-icon">🖥</span>
               <span className="screen-share-banner-text">
@@ -1069,7 +1091,7 @@ export function GroupCallUI() {
               </button>
               <button
                 className="screen-share-banner-dismiss"
-                onClick={() => setScreenSharers(new Set())}
+                onClick={() => setBannerDismissed(true)}
                 title={t('call.dismiss')}
               >
                 ✕
