@@ -59,9 +59,9 @@ interface AudioChain {
   source: MediaStreamAudioSourceNode;
   destination: MediaStreamAudioDestinationNode;
   /** Постоянный узел между веткой микрофона (worklet/bypass) и destination.
-   *  Мьют микрофона (setMicMuted) управляет только этим gain — звук шаринга
-   *  экрана, подмешанный через attachExtraAudio напрямую в destination, не
-   *  завязан на него и не глушится мьютом. */
+   *  Мьют микрофона (setMicMuted) управляет только этим gain; звук шаринга
+   *  экрана теперь идёт отдельным треком через SFU и не проходит через
+   *  эту Web Audio цепочку. */
   micGain: GainNode;
   /** Исходный getUserMedia-стрим: его аудиотреки стопаются в releaseChain,
    *  иначе микрофон остаётся захваченным после звонка. */
@@ -261,33 +261,15 @@ class NoiseCancellationService {
   }
 
   /**
-   * Мьютит/анмьютит ветку микрофона независимо от любого звука, подмешанного
-   * через attachExtraAudio (тот подключён напрямую к destination, в обход
-   * micGain). Возвращает false, если цепочки для streamId нет (например, Web
-   * Audio не поддерживается) — тогда вызывающий код должен сам замьютить
-   * трек через track.enabled, как это делалось до появления этого метода.
+   * Мьютит/анмьютит ветку микрофона. Возвращает false, если цепочки для
+   * streamId нет (например, Web Audio не поддерживается) — тогда вызывающий
+   * код должен сам замьютить трек через track.enabled.
    */
   setMicMuted(streamId: string, muted: boolean): boolean {
     const chain = this.chains.get(streamId);
     if (!chain) return false;
     chain.micGain.gain.value = muted ? 0 : 1;
     return true;
-  }
-
-  /**
-   * Подмешивает произвольный MediaStream (например, звук шаринга экрана)
-   * напрямую в исходящий трек звонка, в обход micGain и NC-worklet'а — этот
-   * звук не должен ни глушиться мьютом микрофона, ни обрабатываться
-   * шумоподавлением, рассчитанным на голос. Возвращает функцию отключения
-   * узла, либо null, если цепочки для streamId нет (например, звонок начат
-   * без микрофона) — тогда вызывающий код должен продолжить без подмешивания.
-   */
-  attachExtraAudio(streamId: string, stream: MediaStream): (() => void) | null {
-    const chain = this.chains.get(streamId);
-    if (!chain) return null;
-    const source = chain.context.createMediaStreamSource(stream);
-    source.connect(chain.destination);
-    return () => { source.disconnect(); };
   }
 
   /**
