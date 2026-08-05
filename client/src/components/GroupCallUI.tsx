@@ -433,20 +433,15 @@ export function GroupCallUI() {
   // effect below) so onReconnected — set up inside the earlier groupCallService.init
   // useEffect — can also read/write it without a stale closure.
   const prevWatchedRef = useRef<string | null>(null);
-  // Stable ref to remoteScreenStreams for consumers that need the current map
-  // without a stale closure (e.g. the focused-share render path added in the
-  // follow-up task). remoteScreenStreams itself isn't read anywhere yet in this
-  // change — this mirror is what keeps it a live, read binding rather than a
-  // write-only one.
-  const remoteScreenStreamsRef = useRef<Map<string, MediaStream>>(new Map());
+  // Snapshot of prevWatchedRef.current taken at the start of onReconnecting,
+  // before setFocusedUserId(null) triggers the sync effect below and clobbers
+  // prevWatchedRef.current back to null. onReconnected reads this (not
+  // prevWatchedRef) to decide whether to resubscribe after the outage.
+  const watchedBeforeReconnectRef = useRef<string | null>(null);
 
   useEffect(() => {
     participantsRef.current = participants;
   }, [participants]);
-
-  useEffect(() => {
-    remoteScreenStreamsRef.current = remoteScreenStreams;
-  }, [remoteScreenStreams]);
 
   const [remoteMicMuted, setRemoteMicMuted] = useState<Map<string, boolean>>(new Map());
 
@@ -546,6 +541,11 @@ export function GroupCallUI() {
         });
       },
       onReconnecting: () => {
+        // Snapshot what we were watching BEFORE clearing focusedUserId below —
+        // that state update triggers the watch/unwatch sync effect, which would
+        // otherwise clobber prevWatchedRef.current back to null before
+        // onReconnected ever gets a chance to read it.
+        watchedBeforeReconnectRef.current = prevWatchedRef.current;
         setIsReconnecting(true);
         // Participants are re-announced via 'joined'/onPeerJoined after
         // rejoin; clear now so users who left during the outage don't linger.
@@ -564,9 +564,17 @@ export function GroupCallUI() {
         // partialTeardown() tore down the old PC/session; the SFU's watcher
         // state for our old participantID is gone. Re-subscribe if we were
         // watching a share when the connection dropped.
-        if (prevWatchedRef.current) {
-          groupCallService.watchShare(prevWatchedRef.current);
+        if (watchedBeforeReconnectRef.current) {
+          groupCallService.watchShare(watchedBeforeReconnectRef.current);
         }
+        // focusedUserId is still null post-reconnect (nothing restores focus
+        // automatically), so the sync effect won't observe this resubscribe.
+        // Mirror it into prevWatchedRef so a later focus change onto someone
+        // else correctly unwatches this target instead of leaking the
+        // subscription (prevWatchedRef would otherwise still read null, which
+        // the sync effect's `if (prevWatched)` guard treats as "nothing to
+        // unwatch").
+        prevWatchedRef.current = watchedBeforeReconnectRef.current;
       },
       onCallEnded: () => {
         const channelId = groupCallService.currentRoomIdState;
