@@ -545,7 +545,17 @@ export function GroupCallUI() {
         // that state update triggers the watch/unwatch sync effect, which would
         // otherwise clobber prevWatchedRef.current back to null before
         // onReconnected ever gets a chance to read it.
-        watchedBeforeReconnectRef.current = prevWatchedRef.current;
+        //
+        // prevWatchedRef.current is only non-null when focus/watch intent
+        // actually changed since the last reconnect cycle (the sync effect is
+        // the sole writer, and round 1's fix deliberately leaves it null after
+        // a resubscribe — see onReconnected below). So on a second
+        // onReconnecting with no focus change in between (flappy network,
+        // back-to-back disconnects), prevWatchedRef.current would already be
+        // null and would wipe out the still-good target from the previous
+        // cycle. Fall back to the existing snapshot in that case; only
+        // overwrite it when there's a real, current value to record.
+        watchedBeforeReconnectRef.current = prevWatchedRef.current ?? watchedBeforeReconnectRef.current;
         setIsReconnecting(true);
         // Participants are re-announced via 'joined'/onPeerJoined after
         // rejoin; clear now so users who left during the outage don't linger.
