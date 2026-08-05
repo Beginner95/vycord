@@ -806,7 +806,6 @@ class GroupCallService {
     canvas.getContext('2d')?.fillRect(0, 0, 16, 16);
     const track = canvas.captureStream(0).getVideoTracks()[0];
     track.enabled = false;
-    this.dummyVideoTrack = track;
     return track;
   }
 
@@ -1022,15 +1021,31 @@ class GroupCallService {
       // answer SDP carries a video a=ssrc line — see createDummyVideoTrack for why a
       // trackless addTransceiver does not achieve this.
       if (!this.localStream.getVideoTracks().length) {
-        pc.addTrack(this.createDummyVideoTrack(), this.localStream);
+        this.dummyVideoTrack = this.createDummyVideoTrack();
+        pc.addTrack(this.dummyVideoTrack, this.localStream);
       }
     } else {
       // No local media at all. Audio stays a trackless transceiver (nothing to send
       // without a mic), but video still needs a dummy track for screen sharing.
       pc.addTransceiver('audio', { direction: 'sendrecv' });
-      const dummy = this.createDummyVideoTrack();
-      pc.addTrack(dummy, new MediaStream([dummy]));
+      this.dummyVideoTrack = this.createDummyVideoTrack();
+      pc.addTrack(this.dummyVideoTrack, new MediaStream([this.dummyVideoTrack]));
     }
+
+    // Dedicated screen-share slots — added in this fixed order (video then
+    // audio) on EVERY join, matching the SFU's fixed transceiver order
+    // ([mic-audio, camera-video, screen-video, screen-audio]) so Chrome binds
+    // them to the right m-lines. Placeholder (dummy) tracks establish the SSRC
+    // now so starting/stopping a share later is a plain replaceTrack with no
+    // renegotiation — same reasoning as the camera dummy track above.
+    this.dummyScreenVideoTrack = this.createDummyVideoTrack();
+    const screenVideoStream = new MediaStream([this.dummyScreenVideoTrack]);
+    this.screenVideoSender = pc.addTrack(this.dummyScreenVideoTrack, screenVideoStream);
+
+    const dummyScreenAudioTrack = this.createDummyAudioTrack();
+    const screenAudioStream = new MediaStream([dummyScreenAudioTrack]);
+    this.screenAudioSender = pc.addTrack(dummyScreenAudioTrack, screenAudioStream);
+
     gcLog(this.currentUserId, 'PC created', {
       localTracksAdded: addedTracks,
       transceivers: pc.getTransceivers().map((t) => ({
