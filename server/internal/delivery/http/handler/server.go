@@ -34,8 +34,21 @@ func NewServerHandler(serverUseCase domain.ServerUseCase, inviteUseCase domain.I
 
 // broadcast адресует реалтайм-событие сервера: приватному — только его
 // участникам (GetServerAudience), публичному — как раньше, всем подключённым.
+//
+// GetServerAudience возвращает (nil, nil) для публичного сервера — это не
+// ошибка, это осознанный сигнал "рассылать всем". Ошибка (err != nil)
+// означает, что мы не смогли ни подтвердить публичность, ни получить список
+// участников — в этом случае событие НЕ рассылается вообще (fail-closed):
+// откат на BroadcastMessage при ошибке был бы утечкой приватных данных
+// (например, при временном сбое БД во время рассылки обновления приватного
+// сервера) всем подключённым клиентам, а не только его участникам.
 func (h *ServerHandler) broadcast(serverID uuid.UUID, msg *ws.Message) {
-	if audience, err := h.serverUseCase.GetServerAudience(serverID); err == nil && audience != nil {
+	audience, err := h.serverUseCase.GetServerAudience(serverID)
+	if err != nil {
+		h.log.Error("failed to resolve server audience, dropping broadcast", "server_id", serverID, "message_type", msg.Type, "error", err)
+		return
+	}
+	if audience != nil {
 		h.hub.SendToUsers(audience, msg)
 		return
 	}
@@ -230,9 +243,14 @@ func (h *ServerHandler) DeleteServer(w http.ResponseWriter, r *http.Request) {
 
 	payload, _ := json.Marshal(deleteServerPayload{ID: serverID})
 	msg := &ws.Message{Type: "server_delete", Payload: payload}
-	if audErr == nil && audience != nil {
+	switch {
+	case audErr != nil:
+		// Та же fail-closed логика, что в broadcast(): не смогли определить
+		// аудиторию — не рассылаем вообще, а не глобально всем подключённым.
+		h.log.Error("failed to resolve server audience, dropping server_delete broadcast", "server_id", serverID, "error", audErr)
+	case audience != nil:
 		h.hub.SendToUsers(audience, msg)
-	} else {
+	default:
 		h.hub.BroadcastMessage(msg)
 	}
 

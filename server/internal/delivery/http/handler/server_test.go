@@ -2,12 +2,15 @@ package handler
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -151,14 +154,70 @@ func (m *mockInviteUseCaseForServer) JoinViaInvite(code string, userID uuid.UUID
 
 // --- Харнесс ---
 
-func newTestServerHandler(t *testing.T) (*ServerHandler, *mockServerUseCase, *mockInviteUseCaseForServer) {
+func newTestServerHandler(t *testing.T) (*ServerHandler, *mockServerUseCase, *mockInviteUseCaseForServer, *ws.Hub) {
 	t.Helper()
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	uc := &mockServerUseCase{}
 	inviteUC := &mockInviteUseCaseForServer{}
 	hub := ws.NewHub(log)
 	go hub.Run()
-	return NewServerHandler(uc, inviteUC, hub, log), uc, inviteUC
+	return NewServerHandler(uc, inviteUC, hub, log), uc, inviteUC, hub
+}
+
+// registerFakeClient registers a client directly on the hub (no real WS
+// upgrade needed — mirrors the pattern used by ws package tests such as
+// TestSendToUsers_DeliversOnlyToListedClients) so tests can observe exactly
+// which users a broadcast actually reaches.
+func registerFakeClient(t *testing.T, hub *ws.Hub, userID uuid.UUID) *ws.Client {
+	t.Helper()
+	client := &ws.Client{UserID: userID, Send: make(chan []byte, 8)}
+	hub.RegisterClient(client)
+	assert.Eventually(t, func() bool { return hub.IsOnline(userID) }, time.Second, 10*time.Millisecond)
+	return client
+}
+
+// readChanUntilType drains msg.Send, skipping unrelated messages (e.g. the
+// online_users snapshot RegisterClient broadcasts on every connect/disconnect
+// churn), until one of type wantType arrives or timeout elapses.
+func readChanUntilType(t *testing.T, ch <-chan []byte, wantType string, timeout time.Duration) []byte {
+	t.Helper()
+	deadline := time.After(timeout)
+	for {
+		select {
+		case data := <-ch:
+			var msg ws.Message
+			if err := json.Unmarshal(data, &msg); err != nil {
+				continue
+			}
+			if msg.Type == wantType {
+				return data
+			}
+		case <-deadline:
+			t.Fatalf("did not receive %q message before timeout", wantType)
+			return nil
+		}
+	}
+}
+
+// assertChanHasNoMessageOfType fails if a message of wantType arrives on ch
+// within timeout. Other message types (e.g. online_users) are ignored.
+func assertChanHasNoMessageOfType(t *testing.T, ch <-chan []byte, wantType string, timeout time.Duration) {
+	t.Helper()
+	deadline := time.After(timeout)
+	for {
+		select {
+		case data := <-ch:
+			var msg ws.Message
+			if err := json.Unmarshal(data, &msg); err != nil {
+				continue
+			}
+			if msg.Type == wantType {
+				t.Fatalf("client unexpectedly received %q message: %s", wantType, data)
+			}
+		case <-deadline:
+			return
+		}
+	}
 }
 
 func serverRequest(method, path string, userID uuid.UUID, body string) *http.Request {
@@ -174,7 +233,7 @@ func serverRequest(method, path string, userID uuid.UUID, body string) *http.Req
 // --- Тесты ---
 
 func TestCreateServer_Public_DoesNotAutoCreateInvite(t *testing.T) {
-	h, uc, inviteUC := newTestServerHandler(t)
+	h, uc, inviteUC, _ := newTestServerHandler(t)
 	userID, serverID := uuid.New(), uuid.New()
 
 	uc.On("CreateServer", "Мой сервер", userID, false).Return(&domain.Server{ID: serverID, Name: "Мой сервер"}, nil)
@@ -188,7 +247,7 @@ func TestCreateServer_Public_DoesNotAutoCreateInvite(t *testing.T) {
 }
 
 func TestCreateServer_Private_AutoCreatesInvite(t *testing.T) {
-	h, uc, inviteUC := newTestServerHandler(t)
+	h, uc, inviteUC, _ := newTestServerHandler(t)
 	userID, serverID := uuid.New(), uuid.New()
 
 	uc.On("CreateServer", "Закрытый клуб", userID, true).Return(&domain.Server{ID: serverID, Name: "Закрытый клуб", IsPrivate: true}, nil)
@@ -202,22 +261,48 @@ func TestCreateServer_Private_AutoCreatesInvite(t *testing.T) {
 	inviteUC.AssertCalled(t, "CreateInvite", serverID, userID)
 }
 
-func TestGetServer_NotFound_Returns404(t *testing.T) {
-	h, uc, _ := newTestServerHandler(t)
-	userID, serverID := uuid.New(), uuid.New()
+func TestGetServer_AnyError_Returns404WithGenericBody(t *testing.T) {
+	// Anti-enumeration invariant (#1 in the brief): GetServer must return an
+	// IDENTICAL generic 404 body no matter what the usecase error actually
+	// is. writeUseCaseError (the generic mapper) ALSO maps ErrServerNotFound
+	// to 404 with the same code, so asserting only the status code for a
+	// single error value can't distinguish "GetServer always returns a fixed
+	// generic body" from "GetServer happens to route this one error through
+	// some other mapper that also produces 404". Running the same assertion
+	// over several distinct errors — including one (ErrForbidden) that
+	// writeUseCaseError maps to 403, not 404 — proves GetServer ignores the
+	// error's identity entirely.
+	const wantBody = `{"code":"server_not_found","error":"server not found"}` + "\n"
 
-	uc.On("GetServer", serverID, userID).Return(nil, domain.ErrServerNotFound)
+	cases := []struct {
+		name string
+		err  error
+	}{
+		{"not found", domain.ErrServerNotFound},
+		{"forbidden", domain.ErrForbidden},
+		{"generic/internal", assert.AnError},
+	}
 
-	req := serverRequest(http.MethodGet, "/api/v1/servers/"+serverID.String(), userID, "")
-	req.SetPathValue("id", serverID.String())
-	rec := httptest.NewRecorder()
-	h.GetServer(rec, req)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			h, uc, _, _ := newTestServerHandler(t)
+			userID, serverID := uuid.New(), uuid.New()
 
-	assert.Equal(t, http.StatusNotFound, rec.Code)
+			uc.On("GetServer", serverID, userID).Return(nil, tc.err)
+
+			req := serverRequest(http.MethodGet, "/api/v1/servers/"+serverID.String(), userID, "")
+			req.SetPathValue("id", serverID.String())
+			rec := httptest.NewRecorder()
+			h.GetServer(rec, req)
+
+			assert.Equal(t, http.StatusNotFound, rec.Code)
+			assert.Equal(t, wantBody, rec.Body.String())
+		})
+	}
 }
 
 func TestJoinServer_PrivateServer_Returns404(t *testing.T) {
-	h, uc, _ := newTestServerHandler(t)
+	h, uc, _, _ := newTestServerHandler(t)
 	userID, serverID := uuid.New(), uuid.New()
 
 	uc.On("JoinServer", serverID, userID).Return(domain.ErrServerNotFound)
@@ -234,11 +319,16 @@ func TestJoinServer_AlreadyMember_Returns500WithMessage(t *testing.T) {
 	// Регрессионный тест: AppPage.tsx на клиенте распознаёт "уже участник"/
 	// "владелец" по тексту ошибки — этот путь НЕ должен провалиться через
 	// writeUseCaseError (который заменил бы текст на generic "internal server
-	// error" и сломал бы клиентскую проверку).
-	h, uc, _ := newTestServerHandler(t)
+	// error" и сломал бы клиентскую проверку). Стаб — реалистичная ошибка с
+	// узнаваемым текстом, а не generic assert.AnError: если бы assert.AnError
+	// использовался, тест не отличил бы "текст ошибки долетел до клиента как
+	// есть" от "текст ошибки был подменён на generic 'internal server
+	// error'" — оба случая дают 500, но только первый сохраняет то, на что
+	// завязан клиентский string-match.
+	h, uc, _, _ := newTestServerHandler(t)
 	userID, serverID := uuid.New(), uuid.New()
 
-	uc.On("JoinServer", serverID, userID).Return(assert.AnError)
+	uc.On("JoinServer", serverID, userID).Return(fmt.Errorf("user is already a member of this server"))
 
 	req := serverRequest(http.MethodPost, "/api/v1/servers/"+serverID.String()+"/join", userID, "")
 	req.SetPathValue("id", serverID.String())
@@ -246,10 +336,11 @@ func TestJoinServer_AlreadyMember_Returns500WithMessage(t *testing.T) {
 	h.JoinServer(rec, req)
 
 	assert.Equal(t, http.StatusInternalServerError, rec.Code)
+	assert.Contains(t, rec.Body.String(), "already")
 }
 
 func TestUpdateServer_OmittedIsPrivate_PassesNilThrough(t *testing.T) {
-	h, uc, _ := newTestServerHandler(t)
+	h, uc, _, _ := newTestServerHandler(t)
 	userID, serverID := uuid.New(), uuid.New()
 
 	uc.On("UpdateServer", serverID, userID, "new name", (*bool)(nil)).
@@ -266,7 +357,7 @@ func TestUpdateServer_OmittedIsPrivate_PassesNilThrough(t *testing.T) {
 }
 
 func TestUpdateServer_ExplicitIsPrivateTrue_PassesPointer(t *testing.T) {
-	h, uc, _ := newTestServerHandler(t)
+	h, uc, _, _ := newTestServerHandler(t)
 	userID, serverID := uuid.New(), uuid.New()
 
 	isPrivate := true
@@ -283,8 +374,19 @@ func TestUpdateServer_ExplicitIsPrivateTrue_PassesPointer(t *testing.T) {
 }
 
 func TestBroadcast_PrivateServer_UsesSendToUsers(t *testing.T) {
-	h, uc, _ := newTestServerHandler(t)
+	// Asserting only that GetServerAudience was *called* is not enough:
+	// broadcast() calls GetServerAudience unconditionally for both public
+	// AND private servers, so that assertion alone passes even if the
+	// implementation ignored the result and always fell through to
+	// BroadcastMessage. Register real clients on the hub and observe which
+	// one actually receives the message — mirrors the pattern used by
+	// websocket_test.go's TestVoiceCallRing_PrivateChannel_OnlyAudienceReceives.
+	h, uc, _, hub := newTestServerHandler(t)
 	userID, serverID := uuid.New(), uuid.New()
+	outsiderID := uuid.New()
+
+	insider := registerFakeClient(t, hub, userID)
+	outsider := registerFakeClient(t, hub, outsiderID)
 
 	uc.On("UpdateServer", serverID, userID, "renamed", (*bool)(nil)).
 		Return(&domain.Server{ID: serverID, Name: "renamed", IsPrivate: true}, nil)
@@ -296,11 +398,45 @@ func TestBroadcast_PrivateServer_UsesSendToUsers(t *testing.T) {
 	h.UpdateServer(rec, req)
 
 	assert.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
-	uc.AssertCalled(t, "GetServerAudience", serverID)
+
+	msg := readChanUntilType(t, insider.Send, "server_update", time.Second)
+	assert.Contains(t, string(msg), "renamed")
+
+	assertChanHasNoMessageOfType(t, outsider.Send, "server_update", 300*time.Millisecond)
+}
+
+func TestBroadcast_AudienceLookupError_FailsClosed(t *testing.T) {
+	// Companion to the broadcast() fail-open fix: when GetServerAudience
+	// returns a non-nil error (e.g. a transient DB failure resolving a
+	// private server's members), the event must be dropped entirely —
+	// NEITHER SendToUsers NOR the BroadcastMessage fallback may fire. Falling
+	// through to BroadcastMessage on error would leak the private server's
+	// update to every connected client regardless of membership.
+	h, uc, _, hub := newTestServerHandler(t)
+	userID, serverID := uuid.New(), uuid.New()
+	otherID := uuid.New()
+
+	client1 := registerFakeClient(t, hub, userID)
+	client2 := registerFakeClient(t, hub, otherID)
+
+	uc.On("UpdateServer", serverID, userID, "renamed", (*bool)(nil)).
+		Return(&domain.Server{ID: serverID, Name: "renamed", IsPrivate: true}, nil)
+	uc.On("GetServerAudience", serverID).Return(nil, assert.AnError)
+
+	req := serverRequest(http.MethodPatch, "/api/v1/servers/"+serverID.String(), userID, `{"name":"renamed"}`)
+	req.SetPathValue("id", serverID.String())
+	rec := httptest.NewRecorder()
+	h.UpdateServer(rec, req)
+
+	assert.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+
+	for _, c := range []*ws.Client{client1, client2} {
+		assertChanHasNoMessageOfType(t, c.Send, "server_update", 300*time.Millisecond)
+	}
 }
 
 func TestCreateChannel_NoLongerAcceptsIsPrivate(t *testing.T) {
-	h, uc, _ := newTestServerHandler(t)
+	h, uc, _, _ := newTestServerHandler(t)
 	userID, serverID, channelID := uuid.New(), uuid.New(), uuid.New()
 
 	uc.On("CreateChannel", serverID, userID, "general", domain.ChannelTypeText).
@@ -318,7 +454,7 @@ func TestCreateChannel_NoLongerAcceptsIsPrivate(t *testing.T) {
 }
 
 func TestUpdateChannel_Success(t *testing.T) {
-	h, uc, _ := newTestServerHandler(t)
+	h, uc, _, _ := newTestServerHandler(t)
 	userID, serverID, channelID := uuid.New(), uuid.New(), uuid.New()
 
 	uc.On("UpdateChannel", serverID, channelID, userID, "new name").
