@@ -34,24 +34,25 @@ type ChannelAccessChecker interface {
 
 type ServerUseCase interface {
 	ChannelAccessChecker
-	CreateServer(name string, ownerID uuid.UUID) (*Server, error)
-	GetServer(id uuid.UUID) (*Server, error)
+	CreateServer(name string, ownerID uuid.UUID, isPrivate bool) (*Server, error)
+	GetServer(id, userID uuid.UUID) (*Server, error)
 	GetUserServers(userID uuid.UUID) ([]*Server, error)
 	JoinServer(serverID, userID uuid.UUID) error
 	LeaveServer(serverID, userID uuid.UUID) error
 	SearchServers(query string, limit int) ([]*Server, error)
-	CreateChannel(serverID, userID uuid.UUID, name string, channelType ChannelType, isPrivate bool) (*Channel, error)
+	CreateChannel(serverID, userID uuid.UUID, name string, channelType ChannelType) (*Channel, error)
 	GetChannels(serverID, userID uuid.UUID) ([]*Channel, error)
 	GetMembers(serverID, userID uuid.UUID) ([]*MemberWithUser, error)
-	UpdateServer(serverID, userID uuid.UUID, name string) (*Server, error)
+	UpdateServer(serverID, userID uuid.UUID, name string, isPrivate *bool) (*Server, error)
 	DeleteServer(serverID, userID uuid.UUID) error
-	UpdateChannel(serverID, channelID, userID uuid.UUID, name string, isPrivate bool) (*Channel, error)
+	UpdateChannel(serverID, channelID, userID uuid.UUID, name string) (*Channel, error)
 	DeleteChannel(serverID, channelID, userID uuid.UUID) error
 	UpdateServerIcon(serverID, userID uuid.UUID, data []byte) (*Server, error)
 	RemoveServerIcon(serverID, userID uuid.UUID) (*Server, error)
-	InviteToChannel(serverID, channelID, inviterID, targetUserID uuid.UUID) error
-	RemoveFromChannel(serverID, channelID, removerID, targetUserID uuid.UUID) error
-	GetChannelMembers(serverID, channelID, userID uuid.UUID) ([]*ChannelMemberWithUser, error)
+	// GetServerAudience возвращает ID пользователей, которым можно адресовать
+	// реалтайм-события сервера (server_update/channel_create и т.п.). nil
+	// означает «сервер публичный, шли всем подключённым».
+	GetServerAudience(serverID uuid.UUID) ([]uuid.UUID, error)
 }
 
 type MessageUseCase interface {
@@ -89,4 +90,19 @@ type RoleUseCase interface {
 	DeleteRole(serverID, roleID, actorID uuid.UUID) error
 	AssignRole(serverID, targetUserID, roleID, actorID uuid.UUID) error
 	UnassignRole(serverID, targetUserID, roleID, actorID uuid.UUID) error
+}
+
+type InviteUseCase interface {
+	// CreateInvite требует PermCreateInvite у userID на serverID.
+	CreateInvite(serverID, userID uuid.UUID) (*Invite, error)
+	// ListInvites: обладатель PermManageServer видит все инвайты сервера,
+	// обладатель только PermCreateInvite — только свои.
+	ListInvites(serverID, userID uuid.UUID) ([]*Invite, error)
+	// RevokeInvite: удалить может автор инвайта или обладатель PermManageServer.
+	RevokeInvite(serverID uuid.UUID, code string, userID uuid.UUID) error
+	// PreviewInvite не требует членства — только валидный код.
+	PreviewInvite(code string) (*InvitePreview, error)
+	// JoinViaInvite идемпотентен: уже вступившему (или владельцу) возвращает
+	// сервер без повторного добавления и без инкремента счётчика использований.
+	JoinViaInvite(code string, userID uuid.UUID) (*Server, error)
 }
