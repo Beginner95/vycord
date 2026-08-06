@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"log/slog"
 	"net/http"
@@ -117,6 +118,36 @@ func TestInviteHandler_RevokeInvite_Success(t *testing.T) {
 	h.RevokeInvite(rec, inviteRequest(http.MethodDelete, "/api/v1/servers/"+serverID.String()+"/invites/abc123", serverID, "abc123", userID))
 
 	assert.Equal(t, http.StatusNoContent, rec.Code)
+}
+
+func TestInviteHandler_CreateInvite_ServerNotFound(t *testing.T) {
+	h, uc := newTestInviteHandler(t)
+	serverID, userID := uuid.New(), uuid.New()
+
+	uc.On("CreateInvite", serverID, userID).Return(nil, domain.ErrServerNotFound)
+
+	rec := httptest.NewRecorder()
+	h.CreateInvite(rec, inviteRequest(http.MethodPost, "/api/v1/servers/"+serverID.String()+"/invites", serverID, "", userID))
+
+	assert.Equal(t, http.StatusNotFound, rec.Code)
+}
+
+func TestInviteHandler_CreateInvite_GenericErrorHidesDetails(t *testing.T) {
+	h, uc := newTestInviteHandler(t)
+	serverID, userID := uuid.New(), uuid.New()
+
+	uc.On("CreateInvite", serverID, userID).Return(nil, assert.AnError)
+
+	rec := httptest.NewRecorder()
+	h.CreateInvite(rec, inviteRequest(http.MethodPost, "/api/v1/servers/"+serverID.String()+"/invites", serverID, "", userID))
+
+	assert.Equal(t, http.StatusInternalServerError, rec.Code)
+	assert.NotContains(t, rec.Body.String(), assert.AnError.Error())
+
+	var body map[string]string
+	err := json.Unmarshal(rec.Body.Bytes(), &body)
+	assert.NoError(t, err)
+	assert.Equal(t, "internal server error", body["error"])
 }
 
 func TestInviteHandler_ListInvites_Success(t *testing.T) {
