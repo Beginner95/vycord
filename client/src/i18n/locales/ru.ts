@@ -254,6 +254,30 @@ export const ru = {
     online: 'В сети',
     offline: 'Не в сети',
     callUser: 'Позвонить {{name}}',
+
+    // Приватность
+    privateLabel: 'Приватный сервер',
+    privateHint: 'Новых участников можно позвать только по инвайт-ссылке — «Пригласить» в меню сервера.',
+    inviteMenu: 'Пригласить',
+
+    // Инвайты
+    invites: {
+      title: 'Инвайт-ссылки',
+      create: 'Создать ссылку',
+      empty: 'Пока нет ни одной ссылки',
+      copy: 'Копировать',
+      copied: 'Скопировано',
+      revoke: 'Отозвать',
+      usesCount: 'использований: {{count}}',
+    },
+
+    // Вступление по коду
+    joinByCode: {
+      label: 'Есть код приглашения?',
+      placeholder: 'Код приглашения',
+      preview: 'Проверить',
+      memberCount: 'участников: {{count}}',
+    },
   },
   channel: {
     noServerHint: 'Выберите сервер или создайте новый, чтобы начать',
@@ -273,12 +297,6 @@ export const ru = {
     createChannelMenu: 'Создать канал',
     createButton: 'Создать',
     typeLabel: 'Тип канала',
-    privateLabel: 'Приватный канал',
-    privateDisabledHint: 'Изменить может только владелец канала, владелец сервера или администратор',
-    manageAccessMenu: 'Управление доступом',
-    manageAccessTitle: 'Управление доступом к каналу',
-    grantAccess: 'Предоставить доступ',
-    removeAccess: 'Забрать доступ',
   },
   update: {
     downloading: 'Скачивание обновления {{version}}... установится автоматически',
@@ -339,11 +357,10 @@ export const ru = {
     channel_name_too_long: 'Название канала не длиннее 100 символов',
     cannot_delete_last_channel: 'Нельзя удалить последний канал сервера',
     channel_forbidden: 'У вас нет доступа к этому каналу',
-    channel_not_private: 'Канал не приватный',
     channel_not_voice: 'Канал не голосовой',
-    target_not_server_member: 'Этот пользователь не состоит на сервере',
-    cannot_remove_channel_owner: 'Нельзя убрать владельца канала из списка приглашённых',
     voice_token_failed: 'Не удалось авторизовать подключение к голосовому каналу',
+    invite_not_found: 'Приглашение не найдено или больше не действует',
+    invite_forbidden: 'У вас нет прав управлять приглашениями этого сервера',
     message_not_found: 'Сообщение не найдено',
     message_content_required: 'Сообщение не может быть пустым',
     search_query_length: 'Поисковый запрос: от 2 до 100 символов',
