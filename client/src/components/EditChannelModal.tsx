@@ -1,38 +1,32 @@
 import { useState } from 'react';
-import type { Channel, PermissionSet } from '@/types';
+import type { Channel } from '@/types';
 import { apiService, apiErrorText } from '@/services/api';
 import { useServerStore } from '@/stores/serverStore';
-import { canManageChannelPrivacy } from '@/utils/permissions';
 import { useT } from '@/i18n';
 
 interface EditChannelModalProps {
   serverId: string;
   channel: Channel;
-  userId: string | undefined;
-  permissions: PermissionSet | undefined;
   onClose: () => void;
 }
 
-export function EditChannelModal({ serverId, channel, userId, permissions, onClose }: EditChannelModalProps) {
+export function EditChannelModal({ serverId, channel, onClose }: EditChannelModalProps) {
   const t = useT();
   const [name, setName] = useState(channel.name);
-  const [isPrivate, setIsPrivate] = useState(channel.is_private);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
-  const canEditPrivacy = canManageChannelPrivacy(permissions, channel, userId);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const trimmed = name.trim();
-    if (!trimmed) return;
-    if (trimmed === channel.name && isPrivate === channel.is_private) {
+    if (!trimmed || trimmed === channel.name) {
       onClose();
       return;
     }
     setSaving(true);
     try {
-      const updated = (await apiService.updateChannel(serverId, channel.id, trimmed, isPrivate)) as Channel;
-      useServerStore.getState().patchChannel(channel.id, { name: updated.name, is_private: updated.is_private });
+      const updated = (await apiService.updateChannel(serverId, channel.id, trimmed)) as Channel;
+      useServerStore.getState().patchChannel(channel.id, { name: updated.name });
       onClose();
     } catch (err) {
       setError(apiErrorText(err, t));
@@ -57,17 +51,6 @@ export function EditChannelModal({ serverId, channel, userId, permissions, onClo
               autoFocus
               required
             />
-          </div>
-          <div className="form-group form-checkbox">
-            <label title={canEditPrivacy ? undefined : t('channel.privateDisabledHint')}>
-              <input
-                type="checkbox"
-                checked={isPrivate}
-                disabled={!canEditPrivacy}
-                onChange={(e) => setIsPrivate(e.target.checked)}
-              />
-              {t('channel.privateLabel')}
-            </label>
           </div>
           {error && <p className="modal-error">{error}</p>}
           <div className="modal-actions">
