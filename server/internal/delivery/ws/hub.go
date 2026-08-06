@@ -241,9 +241,15 @@ func (h *Hub) SetVoiceAudienceResolver(resolver func(channelID uuid.UUID) ([]uui
 // BroadcastVoiceParticipants notifies clients about the current participant
 // list for a voice channel. When a voiceAudienceResolver is set and returns
 // a non-nil audience for channelID (a private channel), delivery is
-// restricted to those user IDs; otherwise every connected client gets it —
-// the pre-existing behavior, exercised by both explicit join/leave events
-// and Run()'s automatic disconnect cleanup.
+// restricted to those user IDs; a nil resolver, or a resolver returning a
+// nil audience with no error, means the channel is public and every
+// connected client gets it — the pre-existing behavior, exercised by both
+// explicit join/leave events and Run()'s automatic disconnect cleanup. A
+// resolver ERROR drops the event instead of falling back to "show it": the
+// roster (channel_id + participant user IDs) could belong to a private
+// channel, so broadcasting it on a transient lookup failure would leak it to
+// every connected client, matching filterVoiceStateForUser's fail-closed
+// behavior.
 func (h *Hub) BroadcastVoiceParticipants(channelID uuid.UUID, participants []uuid.UUID) {
 	ids := make([]string, len(participants))
 	for i, id := range participants {
@@ -264,8 +270,10 @@ func (h *Hub) BroadcastVoiceParticipants(channelID uuid.UUID, participants []uui
 	if resolver != nil {
 		audience, err := resolver(channelID)
 		if err != nil {
-			h.log.Warn("failed to resolve voice audience, broadcasting to everyone", "channel_id", channelID, "error", err)
-		} else if audience != nil {
+			h.log.Warn("failed to resolve voice audience, dropping event", "channel_id", channelID, "error", err)
+			return
+		}
+		if audience != nil {
 			h.SendToUsers(audience, msg)
 			return
 		}

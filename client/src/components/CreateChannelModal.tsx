@@ -14,7 +14,6 @@ export function CreateChannelModal({ serverId, defaultType, onClose }: CreateCha
   const t = useT();
   const [name, setName] = useState('');
   const [type, setType] = useState<ChannelType>(defaultType);
-  const [isPrivate, setIsPrivate] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -24,7 +23,7 @@ export function CreateChannelModal({ serverId, defaultType, onClose }: CreateCha
     if (!trimmed) return;
     setSaving(true);
     try {
-      const channel = (await apiService.createChannel(serverId, trimmed, type, isPrivate)) as Channel;
+      const channel = (await apiService.createChannel(serverId, trimmed, type)) as Channel;
       useServerStore.getState().addChannel(channel);
       onClose();
     } catch (err) {
@@ -63,12 +62,6 @@ export function CreateChannelModal({ serverId, defaultType, onClose }: CreateCha
                 {t('channel.voiceChannels')}
               </label>
             </div>
-          </div>
-          <div className="form-group form-checkbox">
-            <label>
-              <input type="checkbox" checked={isPrivate} onChange={(e) => setIsPrivate(e.target.checked)} />
-              {t('channel.privateLabel')}
-            </label>
           </div>
           {error && <p className="modal-error">{error}</p>}
           <div className="modal-actions">

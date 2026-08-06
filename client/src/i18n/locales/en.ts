@@ -249,6 +249,30 @@ export const en: Dictionary = {
     online: 'Online',
     offline: 'Offline',
     callUser: 'Call {{name}}',
+
+    // Privacy
+    privateLabel: 'Private server',
+    privateHint: 'New members can only join via an invite link — "Invite" in the server menu.',
+    inviteMenu: 'Invite',
+
+    // Invites
+    invites: {
+      title: 'Invite links',
+      create: 'Create link',
+      empty: 'No links yet',
+      copy: 'Copy',
+      copied: 'Copied',
+      revoke: 'Revoke',
+      usesCount: 'uses: {{count}}',
+    },
+
+    // Join by code
+    joinByCode: {
+      label: 'Have an invite code?',
+      placeholder: 'Invite code',
+      preview: 'Check',
+      memberCount: 'members: {{count}}',
+    },
   },
   channel: {
     noServerHint: 'Select or create a server to get started',
@@ -268,12 +292,6 @@ export const en: Dictionary = {
     createChannelMenu: 'Create channel',
     createButton: 'Create',
     typeLabel: 'Channel Type',
-    privateLabel: 'Private channel',
-    privateDisabledHint: 'Only the channel owner, server owner, or an administrator can change this',
-    manageAccessMenu: 'Manage access',
-    manageAccessTitle: 'Manage channel access',
-    grantAccess: 'Grant access',
-    removeAccess: 'Remove access',
   },
   update: {
     downloading: 'Downloading update {{version}}… it will install automatically',
@@ -334,11 +352,10 @@ export const en: Dictionary = {
     channel_name_too_long: 'Channel name must be 100 characters or fewer',
     cannot_delete_last_channel: 'Cannot delete the last channel of a server',
     channel_forbidden: 'You do not have access to this channel',
-    channel_not_private: 'Channel is not private',
     channel_not_voice: 'Channel is not a voice channel',
-    target_not_server_member: 'That user is not a member of this server',
-    cannot_remove_channel_owner: 'Cannot remove the channel owner from the invite list',
     voice_token_failed: 'Failed to authorize voice channel access',
+    invite_not_found: 'Invite not found or no longer valid',
+    invite_forbidden: 'You do not have permission to manage this server\'s invites',
     message_not_found: 'Message not found',
     message_content_required: 'Message cannot be empty',
     search_query_length: 'Search query must be 2 to 100 characters',

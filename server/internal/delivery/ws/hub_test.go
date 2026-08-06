@@ -488,3 +488,40 @@ func TestBroadcastVoiceParticipants_NilResolverBroadcastsToAll(t *testing.T) {
 		}
 	}
 }
+
+func TestBroadcastVoiceParticipants_ResolverError_FailsClosed(t *testing.T) {
+	h := newTestHub()
+	go h.Run()
+
+	channelID := uuid.New()
+	userA := uuid.New()
+	userB := uuid.New()
+	clientA := &Client{UserID: userA, Send: make(chan []byte, 8)}
+	clientB := &Client{UserID: userB, Send: make(chan []byte, 8)}
+	h.RegisterClient(clientA)
+	h.RegisterClient(clientB)
+	assert.Eventually(t, func() bool { return h.IsOnline(userA) && h.IsOnline(userB) },
+		time.Second, 10*time.Millisecond)
+
+	h.SetVoiceAudienceResolver(func(cID uuid.UUID) ([]uuid.UUID, error) {
+		return nil, errors.New("resolver boom")
+	})
+
+	h.BroadcastVoiceParticipants(channelID, []uuid.UUID{userA})
+
+	select {
+	case msg := <-clientA.Send:
+		if strings.Contains(string(msg), `"voice_participants"`) {
+			t.Fatalf("client A received voice_participants despite resolver error: %s", msg)
+		}
+	case <-time.After(200 * time.Millisecond):
+	}
+
+	select {
+	case msg := <-clientB.Send:
+		if strings.Contains(string(msg), `"voice_participants"`) {
+			t.Fatalf("client B received voice_participants despite resolver error: %s", msg)
+		}
+	case <-time.After(200 * time.Millisecond):
+	}
+}

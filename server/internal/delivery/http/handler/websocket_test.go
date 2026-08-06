@@ -2,6 +2,7 @@ package handler
 
 import (
 	"encoding/json"
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
@@ -476,7 +477,7 @@ func TestVoiceCallRing_PrivateChannel_OnlyAudienceReceives(t *testing.T) {
 		"token-outsider": {ID: outsider, Username: "outsider", Email: "o@e.st", Status: domain.StatusOffline},
 	})
 	access := &mockChannelAccess{}
-	access.On("CheckChannelAccess", channelID, caller).Return(&domain.Channel{IsPrivate: true}, nil)
+	access.On("CheckChannelAccess", channelID, caller).Return(&domain.Channel{}, nil)
 	access.On("GetChannelAudience", channelID).Return([]uuid.UUID{caller, insider}, nil)
 	h.channelAccess = access
 
@@ -506,6 +507,49 @@ func TestVoiceCallRing_PrivateChannel_OnlyAudienceReceives(t *testing.T) {
 	assertNoMessageOfType(t, connOutsider, "voice_call_ring", 300*time.Millisecond)
 }
 
+// A transient audience-lookup error must drop the event rather than fall
+// back to broadcasting it to everyone — the channel could be private, so
+// broadcasting on error would leak the ring to non-members.
+func TestVoiceCallRing_AudienceLookupError_FailsClosed(t *testing.T) {
+	caller := uuid.New()
+	insider := uuid.New()
+	outsider := uuid.New()
+	channelID := uuid.New()
+
+	h, hub := newMultiUserTestHandler(t, map[string]*domain.User{
+		"token-caller":   {ID: caller, Username: "caller", Email: "c@e.st", Status: domain.StatusOffline},
+		"token-insider":  {ID: insider, Username: "insider", Email: "i@e.st", Status: domain.StatusOffline},
+		"token-outsider": {ID: outsider, Username: "outsider", Email: "o@e.st", Status: domain.StatusOffline},
+	})
+	access := &mockChannelAccess{}
+	access.On("CheckChannelAccess", channelID, caller).Return(&domain.Channel{}, nil)
+	access.On("GetChannelAudience", channelID).Return([]uuid.UUID(nil), errors.New("audience lookup boom"))
+	h.channelAccess = access
+
+	srv := httptest.NewServer(http.HandlerFunc(h.HandleWebSocket))
+	defer srv.Close()
+
+	connCaller := dialWSWithToken(t, srv, "token-caller")
+	defer connCaller.Close()
+	connInsider := dialWSWithToken(t, srv, "token-insider")
+	defer connInsider.Close()
+	connOutsider := dialWSWithToken(t, srv, "token-outsider")
+	defer connOutsider.Close()
+
+	assert.Eventually(t, func() bool {
+		return hub.IsOnline(caller) && hub.IsOnline(insider) && hub.IsOnline(outsider)
+	}, time.Second, 10*time.Millisecond)
+
+	sendJSON(t, connCaller, "voice_call_ring", map[string]string{
+		"channel_id":   channelID.String(),
+		"channel_name": "secret-channel",
+		"caller_id":    caller.String(),
+	})
+
+	assertNoMessageOfType(t, connInsider, "voice_call_ring", 300*time.Millisecond)
+	assertNoMessageOfType(t, connOutsider, "voice_call_ring", 300*time.Millisecond)
+}
+
 func TestVoiceCallCancel_PrivateChannel_OnlyAudienceReceives(t *testing.T) {
 	caller := uuid.New()
 	insider := uuid.New()
@@ -518,7 +562,7 @@ func TestVoiceCallCancel_PrivateChannel_OnlyAudienceReceives(t *testing.T) {
 		"token-outsider": {ID: outsider, Username: "outsider", Email: "o@e.st", Status: domain.StatusOffline},
 	})
 	access := &mockChannelAccess{}
-	access.On("CheckChannelAccess", channelID, caller).Return(&domain.Channel{IsPrivate: true}, nil)
+	access.On("CheckChannelAccess", channelID, caller).Return(&domain.Channel{}, nil)
 	access.On("GetChannelAudience", channelID).Return([]uuid.UUID{caller, insider}, nil)
 	h.channelAccess = access
 

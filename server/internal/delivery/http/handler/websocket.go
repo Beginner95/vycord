@@ -578,8 +578,9 @@ func (h *WebSocketHandler) handleVoiceCallCancel(client *ws.Client, msg *ws.Mess
 // private channel's identity to every connected client. The sender's own access
 // is verified first (a client must not be able to ring for a channel it cannot
 // see), then delivery is narrowed to the channel audience for private channels;
-// public channels keep the pre-existing broadcast-to-everyone behavior, matching
-// Hub.BroadcastVoiceParticipants.
+// public channels keep the pre-existing broadcast-to-everyone behavior. An
+// audience-resolution error drops the event instead of broadcasting it, since
+// the channel could be private, matching Hub.BroadcastVoiceParticipants.
 func (h *WebSocketHandler) relayVoiceCallSignal(client *ws.Client, msg *ws.Message, msgType string) {
 	var payload struct {
 		ChannelID string `json:"channel_id"`
@@ -603,9 +604,11 @@ func (h *WebSocketHandler) relayVoiceCallSignal(client *ws.Client, msg *ws.Messa
 
 	audience, err := h.channelAccess.GetChannelAudience(channelID)
 	if err != nil {
-		h.log.Warn("failed to resolve channel audience, broadcasting to everyone",
+		h.log.Warn("failed to resolve channel audience, dropping event",
 			"msg_type", msgType, "channel_id", channelID, "error", err)
-	} else if audience != nil {
+		return
+	}
+	if audience != nil {
 		h.hub.SendToUsers(audience, out)
 		return
 	}
