@@ -23,8 +23,10 @@ type UserUseCase interface {
 // (WS-хаб, выдача voice-токенов для SFU).
 type ChannelAccessChecker interface {
 	// CheckChannelAccess возвращает канал, если userID может его видеть и
-	// использовать: публичный канал требует членства в сервере
-	// (PermViewChannels), приватный — дополнительно Channel.CanAccess.
+	// использовать: доступ определяется членством в сервере канала и
+	// правом PermViewChannels. Приватность сервера здесь не проверяется —
+	// не-участник приватного сервера уже получает нулевой набор прав от
+	// PermissionUseCase.Resolve, так что отдельная проверка не нужна.
 	CheckChannelAccess(channelID, userID uuid.UUID) (*Channel, error)
 	// GetChannelAudience возвращает ID пользователей, которым можно
 	// адресовать реалтайм-события приватного канала (войс-ростер и т.п.).
@@ -72,8 +74,9 @@ type TURNUseCase interface {
 
 type VoiceTokenUseCase interface {
 	// IssueToken mints a short-lived JWT scoped to a single SFU room after
-	// verifying userID may access channelID (server membership, and — for
-	// private channels — CanAccess). Requires channelID to be a voice channel.
+	// verifying userID may access channelID (server membership plus
+	// PermViewChannels; a private server's non-members already resolve to
+	// zero permissions upstream). Requires channelID to be a voice channel.
 	IssueToken(channelID, userID uuid.UUID) (string, error)
 }
 
