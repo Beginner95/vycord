@@ -88,5 +88,5 @@ func TestPermissionBitValues(t *testing.T) {
 	assert.Equal(t, domain.Permission(16), domain.PermViewChannels)
 	assert.Equal(t, domain.Permission(32), domain.PermSendMessages)
 	assert.Equal(t, domain.Permission(64), domain.PermMentionEveryone)
-	assert.Equal(t, domain.Permission(127), domain.PermAll)
+	assert.Equal(t, domain.Permission(255), domain.PermAll)
 }
