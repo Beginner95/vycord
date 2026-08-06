@@ -476,7 +476,7 @@ func TestVoiceCallRing_PrivateChannel_OnlyAudienceReceives(t *testing.T) {
 		"token-outsider": {ID: outsider, Username: "outsider", Email: "o@e.st", Status: domain.StatusOffline},
 	})
 	access := &mockChannelAccess{}
-	access.On("CheckChannelAccess", channelID, caller).Return(&domain.Channel{IsPrivate: true}, nil)
+	access.On("CheckChannelAccess", channelID, caller).Return(&domain.Channel{}, nil)
 	access.On("GetChannelAudience", channelID).Return([]uuid.UUID{caller, insider}, nil)
 	h.channelAccess = access
 
@@ -518,7 +518,7 @@ func TestVoiceCallCancel_PrivateChannel_OnlyAudienceReceives(t *testing.T) {
 		"token-outsider": {ID: outsider, Username: "outsider", Email: "o@e.st", Status: domain.StatusOffline},
 	})
 	access := &mockChannelAccess{}
-	access.On("CheckChannelAccess", channelID, caller).Return(&domain.Channel{IsPrivate: true}, nil)
+	access.On("CheckChannelAccess", channelID, caller).Return(&domain.Channel{}, nil)
 	access.On("GetChannelAudience", channelID).Return([]uuid.UUID{caller, insider}, nil)
 	h.channelAccess = access
 
