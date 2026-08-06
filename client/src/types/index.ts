@@ -15,6 +15,7 @@ export interface Server {
   name: string;
   icon_url?: string;
   owner_id: string;
+  is_private: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -25,20 +26,27 @@ export interface Channel {
   name: string;
   type: ChannelType;
   position: number;
-  is_private: boolean;
-  owner_id: string;
   created_at: string;
   updated_at: string;
 }
 
 export type ChannelType = 'text' | 'voice';
 
-export interface ChannelMember {
-  user_id: string;
-  username: string;
-  avatar_url?: string;
-  invited_by: string;
-  invited_at: string;
+export interface Invite {
+  code: string;
+  server_id: string;
+  created_by: string;
+  created_at: string;
+  expires_at?: string;
+  max_uses?: number;
+  uses: number;
+}
+
+export interface InvitePreview {
+  server_id: string;
+  server_name: string;
+  icon_url?: string;
+  member_count: number;
 }
 
 export interface Message {
