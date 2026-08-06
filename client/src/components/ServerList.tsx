@@ -1,9 +1,10 @@
 import { useState } from 'react';
-import type { Server, User } from '@/types';
+import type { Server, User, InvitePreview } from '@/types';
 import { apiService, apiErrorText } from '@/services/api';
 import { useServerStore } from '@/stores/serverStore';
 import { ContextMenu } from '@/components/ContextMenu';
 import { EditServerModal } from '@/components/EditServerModal';
+import { ManageInvitesModal } from '@/components/ManageInvitesModal';
 import { can, PERMISSIONS } from '@/utils/permissions';
 import { useT } from '@/i18n';
 import './ServerList.css';
@@ -15,6 +16,7 @@ interface ServerListProps {
   onSelectServer: (server: Server) => void;
   onCreateServer: () => void;
   onJoinServer: (server: Server) => void;
+  onServerJoined: (server: Server) => void;
   onServerDeleted: (serverId: string) => void;
 }
 
@@ -25,6 +27,7 @@ export function ServerList({
   onSelectServer,
   onCreateServer,
   onJoinServer,
+  onServerJoined,
   onServerDeleted,
 }: ServerListProps) {
   const t = useT();
@@ -34,7 +37,13 @@ export function ServerList({
   const [searchLoading, setSearchLoading] = useState(false);
   const [menu, setMenu] = useState<{ x: number; y: number; server: Server } | null>(null);
   const [editingServerId, setEditingServerId] = useState<string | null>(null);
+  const [invitingServerId, setInvitingServerId] = useState<string | null>(null);
   const editingServer = servers.find((s) => s.id === editingServerId) ?? null;
+
+  const [inviteCodeInput, setInviteCodeInput] = useState('');
+  const [invitePreview, setInvitePreview] = useState<InvitePreview | null>(null);
+  const [inviteError, setInviteError] = useState('');
+  const [inviteBusy, setInviteBusy] = useState(false);
 
   const handleSearch = async () => {
     if (!searchQuery.trim()) return;
@@ -46,6 +55,40 @@ export function ServerList({
       setSearchResults([]);
     } finally {
       setSearchLoading(false);
+    }
+  };
+
+  const handlePreviewInvite = async () => {
+    const code = inviteCodeInput.trim();
+    if (!code) return;
+    setInviteBusy(true);
+    setInviteError('');
+    setInvitePreview(null);
+    try {
+      const preview = await apiService.previewInvite(code);
+      setInvitePreview(preview);
+    } catch (err) {
+      setInviteError(apiErrorText(err, t));
+    } finally {
+      setInviteBusy(false);
+    }
+  };
+
+  const handleJoinByInvite = async () => {
+    const code = inviteCodeInput.trim();
+    if (!code) return;
+    setInviteBusy(true);
+    setInviteError('');
+    try {
+      const server = await apiService.joinViaInvite(code);
+      setSearchOpen(false);
+      setInviteCodeInput('');
+      setInvitePreview(null);
+      onServerJoined(server);
+    } catch (err) {
+      setInviteError(apiErrorText(err, t));
+    } finally {
+      setInviteBusy(false);
     }
   };
 
@@ -82,7 +125,9 @@ export function ServerList({
             onClick={() => onSelectServer(server)}
             onContextMenu={(e) => {
               const perms = useServerStore.getState().permissions.get(server.id);
-              if (!can(perms, PERMISSIONS.MANAGE_SERVER) && server.owner_id !== user?.id) return;
+              const canManage = can(perms, PERMISSIONS.MANAGE_SERVER) || server.owner_id === user?.id;
+              const canInvite = can(perms, PERMISSIONS.CREATE_INVITE);
+              if (!canManage && !canInvite) return;
               e.preventDefault();
               setMenu({ x: e.clientX, y: e.clientY, server });
             }}
@@ -140,28 +185,74 @@ export function ServerList({
             {searchQuery && searchResults.length === 0 && !searchLoading && (
               <p className="search-empty">{t('server.noneFound')}</p>
             )}
+
+            <hr />
+
+            <div className="form-group">
+              <label htmlFor="invite-code-input">{t('server.joinByCode.label')}</label>
+              <div className="search-bar">
+                <input
+                  id="invite-code-input"
+                  type="text"
+                  value={inviteCodeInput}
+                  onChange={(e) => { setInviteCodeInput(e.target.value); setInvitePreview(null); setInviteError(''); }}
+                  onKeyDown={(e) => e.key === 'Enter' && handlePreviewInvite()}
+                  placeholder={t('server.joinByCode.placeholder')}
+                />
+                <button onClick={handlePreviewInvite} disabled={inviteBusy || !inviteCodeInput.trim()}>
+                  {t('server.joinByCode.preview')}
+                </button>
+              </div>
+            </div>
+
+            {inviteError && <p className="modal-error">{inviteError}</p>}
+
+            {invitePreview && (
+              <div className="search-result-item">
+                <span>
+                  {invitePreview.server_name} · {t('server.joinByCode.memberCount', { count: String(invitePreview.member_count) })}
+                </span>
+                <button onClick={handleJoinByInvite} disabled={inviteBusy}>
+                  {t('server.join')}
+                </button>
+              </div>
+            )}
           </div>
         </div>
       )}
 
-      {menu && (
-        <ContextMenu
-          x={menu.x}
-          y={menu.y}
-          onClose={() => setMenu(null)}
-          items={[
-            { label: t('server.editMenu'), onClick: () => setEditingServerId(menu.server.id) },
-            // Удаление сервера — привилегия владения и на бэкенде (DeleteServer
-            // проверяет только owner_id), роль с MANAGE_SERVER снести сервер не может.
-            ...(menu.server.owner_id === user?.id
-              ? [{ label: t('server.deleteMenu'), danger: true, onClick: () => handleDeleteServer(menu.server) }]
-              : []),
-          ]}
-        />
-      )}
+      {menu && (() => {
+        const menuPerms = useServerStore.getState().permissions.get(menu.server.id);
+        const canManageMenu = can(menuPerms, PERMISSIONS.MANAGE_SERVER) || menu.server.owner_id === user?.id;
+        const canInviteMenu = can(menuPerms, PERMISSIONS.CREATE_INVITE);
+        return (
+          <ContextMenu
+            x={menu.x}
+            y={menu.y}
+            onClose={() => setMenu(null)}
+            items={[
+              ...(canInviteMenu
+                ? [{ label: t('server.inviteMenu'), onClick: () => setInvitingServerId(menu.server.id) }]
+                : []),
+              ...(canManageMenu
+                ? [{ label: t('server.editMenu'), onClick: () => setEditingServerId(menu.server.id) }]
+                : []),
+              // Удаление сервера — привилегия владения и на бэкенде (DeleteServer
+              // проверяет только owner_id), роль с MANAGE_SERVER снести сервер не может.
+              ...(menu.server.owner_id === user?.id
+                ? [{ label: t('server.deleteMenu'), danger: true, onClick: () => handleDeleteServer(menu.server) }]
+                : []),
+            ]}
+          />
+        );
+      })()}
 
       {editingServer && (
         <EditServerModal server={editingServer} onClose={() => setEditingServerId(null)} />
+      )}
+
+      {invitingServerId && (
+        <ManageInvitesModal serverId={invitingServerId} onClose={() => setInvitingServerId(null)} />
       )}
     </>
   );
