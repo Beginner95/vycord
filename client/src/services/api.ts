@@ -1,5 +1,5 @@
 import { useAuthStore } from '@/stores/authStore';
-import type { Server, User, Role, PermissionsResponse, ChannelMember } from '@/types';
+import type { Server, User, Role, PermissionsResponse, Invite, InvitePreview } from '@/types';
 import { hasKey, type TFunc, type TKey } from '@/i18n';
 
 export const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8080';
@@ -159,10 +159,10 @@ class ApiService {
   }
 
   // Servers
-  async createServer(name: string) {
+  async createServer(name: string, isPrivate = false) {
     return this.request('/api/v1/servers', {
       method: 'POST',
-      body: JSON.stringify({ name }),
+      body: JSON.stringify({ name, is_private: isPrivate }),
     });
   }
 
@@ -190,10 +190,12 @@ class ApiService {
     });
   }
 
-  async updateServer(id: string, name: string) {
+  // isPrivate не передан (undefined) → JSON.stringify опускает ключ целиком —
+  // бэкенд трактует отсутствие ключа как «не менять приватность» (см. UpdateServerRequest).
+  async updateServer(id: string, name: string, isPrivate?: boolean) {
     return this.request(`/api/v1/servers/${id}`, {
       method: 'PATCH',
-      body: JSON.stringify({ name }),
+      body: JSON.stringify({ name, is_private: isPrivate }),
     });
   }
 
@@ -265,10 +267,10 @@ class ApiService {
   }
 
   // Channels
-  async createChannel(serverId: string, name: string, type: 'text' | 'voice' = 'text', isPrivate = false) {
+  async createChannel(serverId: string, name: string, type: 'text' | 'voice' = 'text') {
     return this.request(`/api/v1/servers/${serverId}/channels`, {
       method: 'POST',
-      body: JSON.stringify({ name, type, is_private: isPrivate }),
+      body: JSON.stringify({ name, type }),
     });
   }
 
@@ -280,28 +282,32 @@ class ApiService {
     return this.request(`/api/v1/servers/${serverId}/members`);
   }
 
-  async updateChannel(serverId: string, channelId: string, name: string, isPrivate: boolean) {
+  async updateChannel(serverId: string, channelId: string, name: string) {
     return this.request(`/api/v1/servers/${serverId}/channels/${channelId}`, {
       method: 'PATCH',
-      body: JSON.stringify({ name, is_private: isPrivate }),
+      body: JSON.stringify({ name }),
     });
   }
 
-  async getChannelMembers(serverId: string, channelId: string): Promise<ChannelMember[]> {
-    return this.request(`/api/v1/servers/${serverId}/channels/${channelId}/members`);
+  // Invites
+  async createInvite(serverId: string): Promise<Invite> {
+    return this.request(`/api/v1/servers/${serverId}/invites`, { method: 'POST' });
   }
 
-  async inviteToChannel(serverId: string, channelId: string, userId: string): Promise<void> {
-    return this.request(`/api/v1/servers/${serverId}/channels/${channelId}/members`, {
-      method: 'POST',
-      body: JSON.stringify({ user_id: userId }),
-    });
+  async listInvites(serverId: string): Promise<Invite[]> {
+    return this.request(`/api/v1/servers/${serverId}/invites`);
   }
 
-  async removeFromChannel(serverId: string, channelId: string, userId: string): Promise<void> {
-    return this.request(`/api/v1/servers/${serverId}/channels/${channelId}/members/${userId}`, {
-      method: 'DELETE',
-    });
+  async revokeInvite(serverId: string, code: string): Promise<void> {
+    return this.request(`/api/v1/servers/${serverId}/invites/${code}`, { method: 'DELETE' });
+  }
+
+  async previewInvite(code: string): Promise<InvitePreview> {
+    return this.request(`/api/v1/invites/${code}`);
+  }
+
+  async joinViaInvite(code: string): Promise<Server> {
+    return this.request(`/api/v1/invites/${code}/join`, { method: 'POST' });
   }
 
   async getVoiceToken(channelId: string): Promise<{ token: string }> {
