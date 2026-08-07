@@ -10,7 +10,7 @@
 
 .channel-access-row {
   display: flex;
-  align-items: center;
+  flex-direction: column;
   gap: 8px;
   padding: 10px 12px;
   background: var(--bg-secondary);
@@ -23,18 +23,36 @@
   border-color: var(--border-color);
 }
 
-.channel-access-row > span {
-  flex: 1;
+.channel-access-info {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
   min-width: 0;
+}
+
+.channel-access-code {
   font-family: "SFMono-Regular", ui-monospace, "Menlo", "Consolas", monospace;
   font-size: 13px;
+  font-weight: 600;
   color: var(--text-primary);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.channel-access-row button {
+.channel-access-uses {
+  flex-shrink: 0;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.channel-access-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.channel-access-actions button {
   flex-shrink: 0;
   padding: 5px 12px;
   border: 1.5px solid var(--border-color);
@@ -47,19 +65,34 @@
   transition: all var(--transition);
 }
 
-.channel-access-row button:hover {
+.channel-access-actions button:hover {
   background: var(--bg-hover);
   color: var(--text-primary);
   border-color: var(--text-muted);
 }
 
-.channel-access-row button.danger {
+.channel-access-actions button.copied {
+  color: var(--green-600);
+  border-color: var(--green-500);
+}
+
+.channel-access-actions button.copied:hover {
+  background: var(--green-50);
+  border-color: var(--green-500);
+}
+
+.channel-access-actions button.danger {
   color: var(--red-500);
   border-color: var(--red-500);
 }
 
-.channel-access-row button.danger:hover {
+.channel-access-actions button.danger:hover {
   background: var(--red-50);
   color: var(--red-500);
   border-color: var(--red-500);
+}
+
+.manage-invites-actions {
+  justify-content: flex-end;
+  gap: 10px;
 }

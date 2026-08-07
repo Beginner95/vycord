@@ -63,15 +63,10 @@ export function ManageInvitesModal({ serverId, onClose }: ManageInvitesModalProp
   };
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
-      <div className="modal" onClick={(e) => e.stopPropagation()}>
+    <div className="modal-overlay">
+      <div className="modal manage-invites-modal" onClick={(e) => e.stopPropagation()}>
         <h2>{t('server.invites.title')}</h2>
         {error && <p className="modal-error">{error}</p>}
-        <div className="modal-actions">
-          <button type="button" className="primary" onClick={handleCreate} disabled={creating}>
-            {creating ? t('common.saving') : t('server.invites.create')}
-          </button>
-        </div>
         {loading ? (
           <p>{t('common.loading')}</p>
         ) : invites.length === 0 ? (
@@ -80,22 +75,34 @@ export function ManageInvitesModal({ serverId, onClose }: ManageInvitesModalProp
           <ul className="channel-access-list">
             {invites.map((invite) => (
               <li key={invite.code} className="channel-access-row">
-                <span>
-                  {invite.code} · {t('server.invites.usesCount', { count: String(invite.uses) })}
-                </span>
-                <button type="button" onClick={() => handleCopy(invite.code)}>
-                  {copiedCode === invite.code ? t('server.invites.copied') : t('server.invites.copy')}
-                </button>
-                <button type="button" className="danger" onClick={() => handleRevoke(invite.code)}>
-                  {t('server.invites.revoke')}
-                </button>
+                <div className="channel-access-info">
+                  <span className="channel-access-code">{invite.code}</span>
+                  <span className="channel-access-uses">
+                    {t('server.invites.usesCount', { count: String(invite.uses) })}
+                  </span>
+                </div>
+                <div className="channel-access-actions">
+                  <button
+                    type="button"
+                    className={copiedCode === invite.code ? 'copied' : ''}
+                    onClick={() => handleCopy(invite.code)}
+                  >
+                    {copiedCode === invite.code ? t('server.invites.copied') : t('server.invites.copy')}
+                  </button>
+                  <button type="button" className="danger" onClick={() => handleRevoke(invite.code)}>
+                    {t('server.invites.revoke')}
+                  </button>
+                </div>
               </li>
             ))}
           </ul>
         )}
-        <div className="modal-actions">
+        <div className="modal-actions manage-invites-actions">
           <button type="button" onClick={onClose}>
             {t('common.close')}
+          </button>
+          <button type="button" className="primary" onClick={handleCreate} disabled={creating}>
+            {creating ? t('common.saving') : t('server.invites.create')}
           </button>
         </div>
       </div>
