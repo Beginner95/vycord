@@ -66,6 +66,15 @@ export function ManageInvitesModal({ serverId, onClose }: ManageInvitesModalProp
     <div className="modal-overlay">
       <div className="modal manage-invites-modal" onClick={(e) => e.stopPropagation()}>
         <h2>{t('server.invites.title')}</h2>
+        <button
+          type="button"
+          className="manage-invites-close"
+          title={t('common.close')}
+          aria-label={t('common.close')}
+          onClick={onClose}
+        >
+          ✕
+        </button>
         {error && <p className="modal-error">{error}</p>}
         {loading ? (
           <p>{t('common.loading')}</p>
@@ -114,9 +123,6 @@ export function ManageInvitesModal({ serverId, onClose }: ManageInvitesModalProp
           </ul>
         )}
         <div className="modal-actions manage-invites-actions">
-          <button type="button" onClick={onClose}>
-            {t('common.close')}
-          </button>
           <button type="button" className="primary" onClick={handleCreate} disabled={creating}>
             {creating ? t('common.saving') : t('server.invites.create')}
           </button>

@@ -1,3 +1,37 @@
+.manage-invites-modal {
+  position: relative;
+}
+
+.manage-invites-modal h2 {
+  padding-right: 40px;
+}
+
+.manage-invites-close {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 1.5px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background: none;
+  color: var(--text-muted);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  transition: all var(--transition);
+}
+
+.manage-invites-close:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+  border-color: var(--text-muted);
+}
+
 .channel-access-list {
   list-style: none;
   display: flex;
@@ -10,9 +44,9 @@
 
 .channel-access-row {
   display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 10px 12px;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
   background: var(--bg-secondary);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-md);
@@ -26,7 +60,8 @@
 .channel-access-info {
   display: flex;
   align-items: baseline;
-  gap: 10px;
+  gap: 8px;
+  flex: 1;
   min-width: 0;
 }
 
@@ -48,8 +83,9 @@
 
 .channel-access-actions {
   display: flex;
-  justify-content: flex-end;
-  gap: 8px;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
 }
 
 .channel-access-actions button {
