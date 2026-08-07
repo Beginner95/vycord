@@ -10,8 +10,9 @@ type Participant struct {
 	UserID string
 	RoomID string
 
-	mu     sync.RWMutex
-	tracks map[string]*PublishedTrack
+	mu            sync.RWMutex
+	tracks        map[string]*PublishedTrack
+	sharingActive bool
 }
 
 func NewParticipant(id, userID, roomID string) *Participant {
@@ -41,6 +42,37 @@ func (p *Participant) GetTracks() []*PublishedTrack {
 	out := make([]*PublishedTrack, 0, len(p.tracks))
 	for _, t := range p.tracks {
 		out = append(out, t)
+	}
+	return out
+}
+
+// SetSharingActive records whether this participant is currently screen-sharing.
+// This is the single source of truth for "is sharing right now" — a
+// PublishedTrack, once created, stays registered for the rest of the call even
+// after sharing stops (OnTrack fires only once per slot), so its mere
+// existence must never be used to infer current activity.
+func (p *Participant) SetSharingActive(active bool) {
+	p.mu.Lock()
+	p.sharingActive = active
+	p.mu.Unlock()
+}
+
+func (p *Participant) IsSharingActive() bool {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return p.sharingActive
+}
+
+// GetScreenTracks returns this participant's screen-share tracks (video and/or
+// audio), if any have ever been published this call.
+func (p *Participant) GetScreenTracks() []*PublishedTrack {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	out := make([]*PublishedTrack, 0)
+	for _, t := range p.tracks {
+		if t.Role == RoleScreen {
+			out = append(out, t)
+		}
 	}
 	return out
 }

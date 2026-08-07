@@ -27,27 +27,29 @@ var upgrader = websocket.Upgrader{
 }
 
 type WebSocketHandler struct {
-	hub         *ws.Hub
-	authUseCase domain.AuthUseCase
-	callUseCase domain.CallUseCase
-	userUseCase domain.UserUseCase
-	log         *slog.Logger
+	hub           *ws.Hub
+	authUseCase   domain.AuthUseCase
+	callUseCase   domain.CallUseCase
+	userUseCase   domain.UserUseCase
+	channelAccess domain.ChannelAccessChecker
+	log           *slog.Logger
 
 	writeWait  time.Duration
 	pongWait   time.Duration
 	pingPeriod time.Duration
 }
 
-func NewWebSocketHandler(hub *ws.Hub, authUseCase domain.AuthUseCase, callUseCase domain.CallUseCase, userUseCase domain.UserUseCase, log *slog.Logger) *WebSocketHandler {
+func NewWebSocketHandler(hub *ws.Hub, authUseCase domain.AuthUseCase, callUseCase domain.CallUseCase, userUseCase domain.UserUseCase, channelAccess domain.ChannelAccessChecker, log *slog.Logger) *WebSocketHandler {
 	return &WebSocketHandler{
-		hub:         hub,
-		authUseCase: authUseCase,
-		callUseCase: callUseCase,
-		userUseCase: userUseCase,
-		log:         log,
-		writeWait:   defaultWriteWait,
-		pongWait:    defaultPongWait,
-		pingPeriod:  defaultPingPeriod,
+		hub:           hub,
+		authUseCase:   authUseCase,
+		callUseCase:   callUseCase,
+		userUseCase:   userUseCase,
+		channelAccess: channelAccess,
+		log:           log,
+		writeWait:     defaultWriteWait,
+		pongWait:      defaultPongWait,
+		pingPeriod:    defaultPingPeriod,
 	}
 }
 
@@ -221,6 +223,15 @@ func (h *WebSocketHandler) handleJoinChannel(client *ws.Client, msg *ws.Message)
 	if err != nil {
 		return
 	}
+	if _, err := h.channelAccess.CheckChannelAccess(channelID, client.UserID); err != nil {
+		h.log.Warn("join_channel denied", "user_id", client.UserID, "channel_id", channelID, "error", err)
+		// Clear whatever channel the client was viewing before: access may have
+		// just been revoked for the channel they are still "in" on the hub, and
+		// leaving CurrentChannelID stale would keep SendToChannel delivering
+		// that channel's events to them until they reconnect.
+		h.hub.SetClientChannel(client.UserID, nil)
+		return
+	}
 	h.hub.SetClientChannel(client.UserID, &channelID)
 }
 
@@ -233,6 +244,10 @@ func (h *WebSocketHandler) handleVoiceJoined(client *ws.Client, msg *ws.Message)
 	}
 	channelID, err := uuid.Parse(payload.ChannelID)
 	if err != nil {
+		return
+	}
+	if _, err := h.channelAccess.CheckChannelAccess(channelID, client.UserID); err != nil {
+		h.log.Warn("voice_joined denied", "user_id", client.UserID, "channel_id", channelID, "error", err)
 		return
 	}
 
@@ -551,29 +566,53 @@ func (h *WebSocketHandler) handleWebRTCICECandidate(client *ws.Client, msg *ws.M
 }
 
 func (h *WebSocketHandler) handleVoiceCallRing(client *ws.Client, msg *ws.Message) {
-	var payload struct {
-		ChannelID string `json:"channel_id"`
-	}
-	if err := json.Unmarshal(msg.Payload, &payload); err == nil {
-		h.log.Info("voice call ring broadcast",
-			"from_user_id", client.UserID,
-			"channel_id", payload.ChannelID,
-		)
-	}
-	h.hub.BroadcastMessage(&ws.Message{Type: "voice_call_ring", Payload: msg.Payload})
+	h.relayVoiceCallSignal(client, msg, "voice_call_ring")
 }
 
 func (h *WebSocketHandler) handleVoiceCallCancel(client *ws.Client, msg *ws.Message) {
+	h.relayVoiceCallSignal(client, msg, "voice_call_cancel")
+}
+
+// relayVoiceCallSignal forwards a channel-scoped ring/cancel notification. The
+// payload carries the channel's name, so a blind BroadcastMessage would leak a
+// private channel's identity to every connected client. The sender's own access
+// is verified first (a client must not be able to ring for a channel it cannot
+// see), then delivery is narrowed to the channel audience for private channels;
+// public channels keep the pre-existing broadcast-to-everyone behavior. An
+// audience-resolution error drops the event instead of broadcasting it, since
+// the channel could be private, matching Hub.BroadcastVoiceParticipants.
+func (h *WebSocketHandler) relayVoiceCallSignal(client *ws.Client, msg *ws.Message, msgType string) {
 	var payload struct {
 		ChannelID string `json:"channel_id"`
 	}
-	if err := json.Unmarshal(msg.Payload, &payload); err == nil {
-		h.log.Info("voice call cancel broadcast",
-			"from_user_id", client.UserID,
-			"channel_id", payload.ChannelID,
-		)
+	if err := json.Unmarshal(msg.Payload, &payload); err != nil {
+		return
 	}
-	h.hub.BroadcastMessage(&ws.Message{Type: "voice_call_cancel", Payload: msg.Payload})
+	channelID, err := uuid.Parse(payload.ChannelID)
+	if err != nil {
+		return
+	}
+
+	if _, err := h.channelAccess.CheckChannelAccess(channelID, client.UserID); err != nil {
+		h.log.Warn(msgType+" denied", "user_id", client.UserID, "channel_id", channelID, "error", err)
+		return
+	}
+
+	h.log.Info(msgType+" relayed", "from_user_id", client.UserID, "channel_id", channelID)
+
+	out := &ws.Message{Type: msgType, Payload: msg.Payload}
+
+	audience, err := h.channelAccess.GetChannelAudience(channelID)
+	if err != nil {
+		h.log.Warn("failed to resolve channel audience, dropping event",
+			"msg_type", msgType, "channel_id", channelID, "error", err)
+		return
+	}
+	if audience != nil {
+		h.hub.SendToUsers(audience, out)
+		return
+	}
+	h.hub.BroadcastMessage(out)
 }
 
 func (h *WebSocketHandler) handleScreenShareStarted(client *ws.Client) {

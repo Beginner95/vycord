@@ -1,9 +1,10 @@
 import { useState, useEffect, useMemo } from 'react';
-import type { Server, Channel, User, MemberWithUser } from '@/types';
+import type { Server, Channel, ChannelType, User, MemberWithUser } from '@/types';
 import { Settings } from '@/components/Settings';
 import { Avatar } from '@/components/Avatar';
 import { ContextMenu } from '@/components/ContextMenu';
 import { EditChannelModal } from '@/components/EditChannelModal';
+import { CreateChannelModal } from '@/components/CreateChannelModal';
 import { apiService, apiErrorText } from '@/services/api';
 import { useServerStore } from '@/stores/serverStore';
 import { noiseCancellationService } from '@/services/noiseCancellation';
@@ -41,6 +42,7 @@ export function ChannelSidebar({
   const [ncEnabled, setNcEnabled] = useState(false);
   const [channelMenu, setChannelMenu] = useState<{ x: number; y: number; channel: Channel } | null>(null);
   const [editingChannel, setEditingChannel] = useState<Channel | null>(null);
+  const [creatingChannelType, setCreatingChannelType] = useState<ChannelType | null>(null);
 
   const permissions = useServerStore((s) => (server ? s.permissions.get(server.id) : undefined));
   const canManageChannels = can(permissions, PERMISSIONS.MANAGE_CHANNELS);
@@ -111,10 +113,20 @@ export function ChannelSidebar({
       </div>
 
       <div className="channel-list">
-        {textChannels.length > 0 && (
+        {(textChannels.length > 0 || canManageChannels) && (
           <>
             <div className="channel-category">
               <span>{t('channel.textChannels')}</span>
+              {canManageChannels && (
+                <button
+                  type="button"
+                  className="channel-category-add"
+                  title={t('channel.createChannelMenu')}
+                  onClick={() => setCreatingChannelType('text')}
+                >
+                  +
+                </button>
+              )}
             </div>
             {textChannels.map((channel) => (
               <div
@@ -133,10 +145,20 @@ export function ChannelSidebar({
           </>
         )}
 
-        {voiceChannels.length > 0 && (
+        {(voiceChannels.length > 0 || canManageChannels) && (
           <>
             <div className="channel-category">
               <span>{t('channel.voiceChannels')}</span>
+              {canManageChannels && (
+                <button
+                  type="button"
+                  className="channel-category-add"
+                  title={t('channel.createChannelMenu')}
+                  onClick={() => setCreatingChannelType('voice')}
+                >
+                  +
+                </button>
+              )}
             </div>
             {voiceChannels.map((channel) => {
               const participantIds = voiceParticipants?.get(channel.id) ?? [];
@@ -214,14 +236,18 @@ export function ChannelSidebar({
           y={channelMenu.y}
           onClose={() => setChannelMenu(null)}
           items={[
-            { label: t('channel.editMenu'), onClick: () => setEditingChannel(channelMenu.channel) },
-            {
-              label: t('channel.deleteMenu'),
-              danger: true,
-              disabled: channels.length <= 1,
-              disabledReason: t('channel.deleteLastDisabled'),
-              onClick: () => handleDeleteChannel(channelMenu.channel),
-            },
+            ...(canManageChannels
+              ? [{ label: t('channel.editMenu'), onClick: () => setEditingChannel(channelMenu.channel) }]
+              : []),
+            ...(canManageChannels
+              ? [{
+                  label: t('channel.deleteMenu'),
+                  danger: true,
+                  disabled: channels.length <= 1,
+                  disabledReason: t('channel.deleteLastDisabled'),
+                  onClick: () => handleDeleteChannel(channelMenu.channel),
+                }]
+              : []),
           ]}
         />
       )}
@@ -231,6 +257,14 @@ export function ChannelSidebar({
           serverId={server.id}
           channel={editingChannel}
           onClose={() => setEditingChannel(null)}
+        />
+      )}
+
+      {creatingChannelType && server && (
+        <CreateChannelModal
+          serverId={server.id}
+          defaultType={creatingChannelType}
+          onClose={() => setCreatingChannelType(null)}
         />
       )}
     </nav>

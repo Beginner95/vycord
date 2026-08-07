@@ -18,6 +18,11 @@ type Hub struct {
 	clientVoiceChannel map[uuid.UUID]uuid.UUID              // userID → channelID
 	mu                 sync.RWMutex
 	log                *slog.Logger
+	// voiceAudienceResolver, when set, restricts BroadcastVoiceParticipants
+	// to the returned user IDs for private voice channels (nil result =
+	// broadcast to everyone). Injected from main.go after the usecase layer
+	// is constructed — this package has no DB/domain dependency itself.
+	voiceAudienceResolver func(channelID uuid.UUID) ([]uuid.UUID, error)
 }
 
 type Message struct {
@@ -64,8 +69,13 @@ func (h *Hub) Run() {
 			h.clients[client.UserID] = client
 			currentIDs := h.getOnlineUserIDsLocked()
 			voiceState := h.voiceStateLocked()
+			// Read the resolver under the lock we already hold; it must be
+			// CALLED outside h.mu (it goes to the DB and may re-enter the hub).
+			resolver := h.voiceAudienceResolver
 			h.mu.Unlock()
 			h.log.Info("client connected", "user_id", client.UserID, "total", len(h.clients))
+
+			voiceState = filterVoiceStateForUser(h.log, resolver, client.UserID, voiceState)
 
 			// Send online users list and current voice-channel roster to the newly connected client
 			h.sendOnlineUsersToClient(client, currentIDs)
@@ -152,6 +162,51 @@ func (h *Hub) sendOnlineUsersToClient(client *Client, userIDs []string) {
 	}
 }
 
+// filterVoiceStateForUser drops from a voice-state snapshot every channel that
+// userID may not see. The connect-time snapshot is the one place where the whole
+// global roster is handed to a single client, so a private channel that leaks
+// here defeats the per-event narrowing done by BroadcastVoiceParticipants.
+//
+// Must be called WITHOUT h.mu held: resolver hits the database.
+//
+// A nil resolver means no privacy model is configured (bare NewHub, as in tests)
+// and the snapshot passes through untouched. Unlike BroadcastVoiceParticipants,
+// a resolver ERROR excludes the channel instead of falling back to "show it":
+// this builds a fresh per-user payload, so omitting a channel merely delays its
+// appearance until the next voice_participants event, whereas including it
+// would leak a roster the user might not be entitled to.
+func filterVoiceStateForUser(
+	log *slog.Logger,
+	resolver func(channelID uuid.UUID) ([]uuid.UUID, error),
+	userID uuid.UUID,
+	state map[uuid.UUID][]uuid.UUID,
+) map[uuid.UUID][]uuid.UUID {
+	if resolver == nil || len(state) == 0 {
+		return state
+	}
+
+	filtered := make(map[uuid.UUID][]uuid.UUID, len(state))
+	for channelID, participants := range state {
+		audience, err := resolver(channelID)
+		if err != nil {
+			log.Warn("failed to resolve voice audience, excluding channel from snapshot",
+				"channel_id", channelID, "user_id", userID, "error", err)
+			continue
+		}
+		if audience == nil {
+			filtered[channelID] = participants // public channel
+			continue
+		}
+		for _, id := range audience {
+			if id == userID {
+				filtered[channelID] = participants
+				break
+			}
+		}
+	}
+	return filtered
+}
+
 func (h *Hub) sendVoiceStateToClient(client *Client, state map[uuid.UUID][]uuid.UUID) {
 	channels := make(map[string][]string, len(state))
 	for channelID, userIDs := range state {
@@ -173,20 +228,78 @@ func (h *Hub) sendVoiceStateToClient(client *Client, state map[uuid.UUID][]uuid.
 	}
 }
 
-// BroadcastVoiceParticipants notifies all connected clients about the current
-// participant list for a voice channel.
+// SetVoiceAudienceResolver installs a callback used by BroadcastVoiceParticipants
+// to restrict delivery for private voice channels. nil (the zero value, as in
+// any Hub built by a bare NewHub) keeps the pre-existing "broadcast to
+// everyone" behavior.
+func (h *Hub) SetVoiceAudienceResolver(resolver func(channelID uuid.UUID) ([]uuid.UUID, error)) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.voiceAudienceResolver = resolver
+}
+
+// BroadcastVoiceParticipants notifies clients about the current participant
+// list for a voice channel. When a voiceAudienceResolver is set and returns
+// a non-nil audience for channelID (a private channel), delivery is
+// restricted to those user IDs; a nil resolver, or a resolver returning a
+// nil audience with no error, means the channel is public and every
+// connected client gets it — the pre-existing behavior, exercised by both
+// explicit join/leave events and Run()'s automatic disconnect cleanup. A
+// resolver ERROR drops the event instead of falling back to "show it": the
+// roster (channel_id + participant user IDs) could belong to a private
+// channel, so broadcasting it on a transient lookup failure would leak it to
+// every connected client, matching filterVoiceStateForUser's fail-closed
+// behavior.
 func (h *Hub) BroadcastVoiceParticipants(channelID uuid.UUID, participants []uuid.UUID) {
 	ids := make([]string, len(participants))
 	for i, id := range participants {
 		ids[i] = id.String()
 	}
-	h.BroadcastMessage(&Message{
+	msg := &Message{
 		Type: "voice_participants",
 		Payload: mustMarshal(map[string]interface{}{
 			"channel_id": channelID.String(),
 			"user_ids":   ids,
 		}),
-	})
+	}
+
+	h.mu.RLock()
+	resolver := h.voiceAudienceResolver
+	h.mu.RUnlock()
+
+	if resolver != nil {
+		audience, err := resolver(channelID)
+		if err != nil {
+			h.log.Warn("failed to resolve voice audience, dropping event", "channel_id", channelID, "error", err)
+			return
+		}
+		if audience != nil {
+			h.SendToUsers(audience, msg)
+			return
+		}
+	}
+	h.BroadcastMessage(msg)
+}
+
+// SendToUsers delivers message to each connected client whose UserID is in
+// userIDs — used for private-channel realtime events that must not reach
+// every connected client the way BroadcastMessage does.
+func (h *Hub) SendToUsers(userIDs []uuid.UUID, message *Message) {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+
+	data := mustMarshal(message)
+	for _, userID := range userIDs {
+		client, ok := h.clients[userID]
+		if !ok {
+			continue
+		}
+		select {
+		case client.Send <- data:
+		default:
+			h.log.Warn("SendToUsers: send channel full, dropping message", "user_id", userID, "msg_type", message.Type)
+		}
+	}
 }
 
 // BroadcastUserUpdate notifies all connected clients that userID's profile

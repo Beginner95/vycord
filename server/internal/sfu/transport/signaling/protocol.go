@@ -22,6 +22,18 @@ type ICECandidatePayload struct {
 	UsernameFragment *string `json:"usernameFragment"`
 }
 
+// WatchSharePayload requests that this participant start receiving
+// target_user_id's screen-share video/audio (if currently active).
+type WatchSharePayload struct {
+	TargetUserID string `json:"target_user_id"`
+}
+
+// UnwatchSharePayload requests that this participant stop receiving
+// target_user_id's screen-share video/audio.
+type UnwatchSharePayload struct {
+	TargetUserID string `json:"target_user_id"`
+}
+
 // --- Server → Client ---
 
 type JoinedPayload struct {

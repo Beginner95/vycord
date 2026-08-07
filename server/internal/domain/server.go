@@ -11,6 +11,7 @@ type Server struct {
 	Name      string    `json:"name"`
 	IconURL   *string   `json:"icon_url,omitempty"`
 	OwnerID   uuid.UUID `json:"owner_id"`
+	IsPrivate bool      `json:"is_private"`
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
 }
@@ -60,6 +61,8 @@ type ServerRepository interface {
 	GetByMember(userID uuid.UUID) ([]*Server, error)
 	Update(id uuid.UUID, updates map[string]interface{}) error
 	Delete(id uuid.UUID) error
+	// Search ищет только публичные серверы — приватные не участвуют в
+	// discovery ни для кого, включая собственных участников (см. дизайн-спеку).
 	Search(query string, limit, offset int) ([]*Server, error)
 	AddMember(serverID, userID uuid.UUID) error
 	RemoveMember(serverID, userID uuid.UUID) error

@@ -18,20 +18,46 @@ import (
 
 type ServerHandler struct {
 	serverUseCase domain.ServerUseCase
+	inviteUseCase domain.InviteUseCase
 	hub           *ws.Hub
 	log           *slog.Logger
 }
 
-func NewServerHandler(serverUseCase domain.ServerUseCase, hub *ws.Hub, log *slog.Logger) *ServerHandler {
+func NewServerHandler(serverUseCase domain.ServerUseCase, inviteUseCase domain.InviteUseCase, hub *ws.Hub, log *slog.Logger) *ServerHandler {
 	return &ServerHandler{
 		serverUseCase: serverUseCase,
+		inviteUseCase: inviteUseCase,
 		hub:           hub,
 		log:           log,
 	}
 }
 
+// broadcast адресует реалтайм-событие сервера: приватному — только его
+// участникам (GetServerAudience), публичному — как раньше, всем подключённым.
+//
+// GetServerAudience возвращает (nil, nil) для публичного сервера — это не
+// ошибка, это осознанный сигнал "рассылать всем". Ошибка (err != nil)
+// означает, что мы не смогли ни подтвердить публичность, ни получить список
+// участников — в этом случае событие НЕ рассылается вообще (fail-closed):
+// откат на BroadcastMessage при ошибке был бы утечкой приватных данных
+// (например, при временном сбое БД во время рассылки обновления приватного
+// сервера) всем подключённым клиентам, а не только его участникам.
+func (h *ServerHandler) broadcast(serverID uuid.UUID, msg *ws.Message) {
+	audience, err := h.serverUseCase.GetServerAudience(serverID)
+	if err != nil {
+		h.log.Error("failed to resolve server audience, dropping broadcast", "server_id", serverID, "message_type", msg.Type, "error", err)
+		return
+	}
+	if audience != nil {
+		h.hub.SendToUsers(audience, msg)
+		return
+	}
+	h.hub.BroadcastMessage(msg)
+}
+
 type CreateServerRequest struct {
-	Name string `json:"name"`
+	Name      string `json:"name"`
+	IsPrivate bool   `json:"is_private"`
 }
 
 func (h *ServerHandler) CreateServer(w http.ResponseWriter, r *http.Request) {
@@ -50,16 +76,28 @@ func (h *ServerHandler) CreateServer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	server, err := h.serverUseCase.CreateServer(req.Name, userID)
+	server, err := h.serverUseCase.CreateServer(req.Name, userID, req.IsPrivate)
 	if err != nil {
 		h.writeUseCaseError(w, r, err)
 		return
+	}
+
+	if req.IsPrivate {
+		// Приватный сервер без единой инвайт-ссылки никто, кроме владельца,
+		// открыть не может — авто-инвайт даёт стартовый способ позвать первых
+		// участников сразу после создания. Best-effort: ошибка здесь не
+		// должна откатывать уже созданный сервер, только логируется.
+		if _, err := h.inviteUseCase.CreateInvite(server.ID, userID); err != nil {
+			h.log.Error("failed to create initial invite for private server", "server_id", server.ID, "error", err)
+		}
 	}
 
 	h.sendJSON(w, http.StatusCreated, server)
 }
 
 func (h *ServerHandler) GetServer(w http.ResponseWriter, r *http.Request) {
+	userID := r.Context().Value("user_id").(uuid.UUID)
+
 	idStr := r.PathValue("id")
 	serverID, err := uuid.Parse(idStr)
 	if err != nil {
@@ -67,7 +105,7 @@ func (h *ServerHandler) GetServer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	server, err := h.serverUseCase.GetServer(serverID)
+	server, err := h.serverUseCase.GetServer(serverID, userID)
 	if err != nil {
 		h.sendError(w, http.StatusNotFound, httperr.CodeServerNotFound, "server not found")
 		return
@@ -103,6 +141,13 @@ func (h *ServerHandler) JoinServer(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.serverUseCase.JoinServer(serverID, userID); err != nil {
+		// Приватный сервер отвечает тем же 404, что и GetServer — анти-энумерация.
+		// Остальные ошибки (уже участник/владелец) намеренно остаются как есть:
+		// клиент (AppPage.tsx handleJoinServer) распознаёт их по тексту сообщения.
+		if errors.Is(err, domain.ErrServerNotFound) {
+			h.sendError(w, http.StatusNotFound, httperr.CodeServerNotFound, "server not found")
+			return
+		}
 		h.sendError(w, http.StatusInternalServerError, httperr.CodeInternalError, err.Error())
 		return
 	}
@@ -128,8 +173,12 @@ func (h *ServerHandler) LeaveServer(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// UpdateServerRequest: IsPrivate — указатель, тем же приёмом, что раньше
+// защищал приватность канала от PATCH без этого ключа (см. историю VYC-59) —
+// отсутствие ключа обязано оставить приватность нетронутой, а не сбросить в false.
 type UpdateServerRequest struct {
-	Name string `json:"name"`
+	Name      string `json:"name"`
+	IsPrivate *bool  `json:"is_private"`
 }
 
 func (h *ServerHandler) UpdateServer(w http.ResponseWriter, r *http.Request) {
@@ -157,14 +206,14 @@ func (h *ServerHandler) UpdateServer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	server, err := h.serverUseCase.UpdateServer(serverID, userID, req.Name)
+	server, err := h.serverUseCase.UpdateServer(serverID, userID, req.Name, req.IsPrivate)
 	if err != nil {
 		h.writeUseCaseError(w, r, err)
 		return
 	}
 
 	payload, _ := json.Marshal(server)
-	h.hub.BroadcastMessage(&ws.Message{Type: "server_update", Payload: payload})
+	h.broadcast(serverID, &ws.Message{Type: "server_update", Payload: payload})
 
 	h.sendJSON(w, http.StatusOK, server)
 }
@@ -183,13 +232,27 @@ func (h *ServerHandler) DeleteServer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// GetServerAudience должен быть посчитан до удаления — после DeleteServer
+	// сервера уже не будет в БД, чтобы определить его приватность и участников.
+	audience, audErr := h.serverUseCase.GetServerAudience(serverID)
+
 	if err := h.serverUseCase.DeleteServer(serverID, userID); err != nil {
 		h.writeUseCaseError(w, r, err)
 		return
 	}
 
 	payload, _ := json.Marshal(deleteServerPayload{ID: serverID})
-	h.hub.BroadcastMessage(&ws.Message{Type: "server_delete", Payload: payload})
+	msg := &ws.Message{Type: "server_delete", Payload: payload}
+	switch {
+	case audErr != nil:
+		// Та же fail-closed логика, что в broadcast(): не смогли определить
+		// аудиторию — не рассылаем вообще, а не глобально всем подключённым.
+		h.log.Error("failed to resolve server audience, dropping server_delete broadcast", "server_id", serverID, "error", audErr)
+	case audience != nil:
+		h.hub.SendToUsers(audience, msg)
+	default:
+		h.hub.BroadcastMessage(msg)
+	}
 
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -229,6 +292,9 @@ func (h *ServerHandler) CreateChannel(w http.ResponseWriter, r *http.Request) {
 		h.writeUseCaseError(w, r, err)
 		return
 	}
+
+	payload, _ := json.Marshal(channel)
+	h.broadcast(serverID, &ws.Message{Type: "channel_create", Payload: payload})
 
 	h.sendJSON(w, http.StatusCreated, channel)
 }
@@ -296,7 +362,7 @@ func (h *ServerHandler) UpdateChannel(w http.ResponseWriter, r *http.Request) {
 	}
 
 	payload, _ := json.Marshal(channel)
-	h.hub.BroadcastMessage(&ws.Message{Type: "channel_update", Payload: payload})
+	h.broadcast(serverID, &ws.Message{Type: "channel_update", Payload: payload})
 
 	h.sendJSON(w, http.StatusOK, channel)
 }
@@ -326,7 +392,7 @@ func (h *ServerHandler) DeleteChannel(w http.ResponseWriter, r *http.Request) {
 	}
 
 	payload, _ := json.Marshal(deleteChannelPayload{ID: channelID, ServerID: serverID})
-	h.hub.BroadcastMessage(&ws.Message{Type: "channel_delete", Payload: payload})
+	h.broadcast(serverID, &ws.Message{Type: "channel_delete", Payload: payload})
 
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -436,7 +502,7 @@ func (h *ServerHandler) UploadServerIcon(w http.ResponseWriter, r *http.Request)
 	}
 
 	payload, _ := json.Marshal(server)
-	h.hub.BroadcastMessage(&ws.Message{Type: "server_update", Payload: payload})
+	h.broadcast(serverID, &ws.Message{Type: "server_update", Payload: payload})
 
 	h.sendJSON(w, http.StatusOK, server)
 }
@@ -459,7 +525,7 @@ func (h *ServerHandler) RemoveServerIcon(w http.ResponseWriter, r *http.Request)
 	}
 
 	payload, _ := json.Marshal(server)
-	h.hub.BroadcastMessage(&ws.Message{Type: "server_update", Payload: payload})
+	h.broadcast(serverID, &ws.Message{Type: "server_update", Payload: payload})
 
 	h.sendJSON(w, http.StatusOK, server)
 }
@@ -478,6 +544,8 @@ func (h *ServerHandler) writeUseCaseError(w http.ResponseWriter, r *http.Request
 		h.sendError(w, http.StatusBadRequest, httperr.CodeLastChannel, "cannot delete the last channel of a server")
 	case errors.Is(err, domain.ErrForbidden):
 		h.sendError(w, http.StatusForbidden, httperr.CodeForbidden, "access denied")
+	case errors.Is(err, domain.ErrChannelForbidden):
+		h.sendError(w, http.StatusForbidden, httperr.CodeChannelForbidden, "channel access denied")
 	case errors.Is(err, domain.ErrUnsupportedAvatarFormat):
 		h.sendError(w, http.StatusBadRequest, httperr.CodeUnsupportedImageType, "unsupported format: only PNG and JPEG are allowed")
 	case errors.Is(err, domain.ErrInvalidAvatarImage):

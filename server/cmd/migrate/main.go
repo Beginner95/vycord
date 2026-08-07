@@ -191,8 +191,18 @@ func main() {
 				log.Fatalf("Failed to read migration file: %v", err)
 			}
 
-			content := strings.ReplaceAll(string(sql), "-- +migrate Up\n", "")
-			content = strings.ReplaceAll(content, "-- +migrate Down\n", "")
+			sqlContent := string(sql)
+
+			// Extract only the "-- +migrate Down" section, mirroring the
+			// extraction done for "up" above. Without this, both the Up and
+			// Down sections of the file were concatenated and executed
+			// together, which for files that DROP then CREATE the same
+			// object (or vice versa) silently undid the revert.
+			downIdx := strings.Index(sqlContent, "-- +migrate Down")
+			if downIdx == -1 {
+				log.Fatalf("Migration %d: missing '-- +migrate Down' directive", m.version)
+			}
+			content := sqlContent[downIdx+len("-- +migrate Down"):]
 
 			tx, err := conn.Begin(ctx)
 			if err != nil {

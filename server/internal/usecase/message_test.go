@@ -704,3 +704,4 @@ func TestUpdateMessage_MentionNonMember_InvalidMention(t *testing.T) {
 	assert.ErrorIs(t, err, domain.ErrInvalidMention)
 	msgRepo.AssertNotCalled(t, "Update", mock.Anything, mock.Anything)
 }
+

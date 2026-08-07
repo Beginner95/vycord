@@ -10,6 +10,7 @@ export const PERMISSIONS = {
   VIEW_CHANNELS: 1n << 4n,
   SEND_MESSAGES: 1n << 5n,
   MENTION_EVERYONE: 1n << 6n,
+  CREATE_INVITE: 1n << 7n,
 } as const;
 
 export const EMPTY_PERMISSIONS: PermissionSet = {

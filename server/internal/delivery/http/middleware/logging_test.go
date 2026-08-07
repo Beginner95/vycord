@@ -6,7 +6,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/gorilla/websocket"
 )
@@ -83,8 +85,12 @@ func TestLogging_IncludesRequestIDFromContext(t *testing.T) {
 // httptest.NewRecorder, which never supports hijacking) so the hijack path
 // is genuinely exercised over a real network connection.
 func TestLogging_AllowsWebSocketUpgrade(t *testing.T) {
-	var buf bytes.Buffer
-	log := slog.New(slog.NewTextHandler(&buf, nil))
+	// The access-log line is written by the server's handler goroutine after
+	// ServeHTTP returns, while this test goroutine reads it: the buffer needs
+	// its own lock (plain bytes.Buffer trips -race here), and the read has to
+	// wait for the line instead of assuming it is already there.
+	buf := &syncBuffer{}
+	log := slog.New(slog.NewTextHandler(buf, nil))
 
 	upgrader := websocket.Upgrader{}
 	wsHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -117,7 +123,38 @@ func TestLogging_AllowsWebSocketUpgrade(t *testing.T) {
 	if resp.StatusCode != http.StatusSwitchingProtocols {
 		t.Fatalf("expected actual HTTP response status 101, got: %d", resp.StatusCode)
 	}
-	if !strings.Contains(buf.String(), "status=200") {
+	if !buf.waitFor("status=200", 2*time.Second) {
 		t.Fatalf("expected logged status=200 (hijack bypasses WriteHeader), got: %s", buf.String())
 	}
+}
+
+// syncBuffer is a bytes.Buffer safe for concurrent Write/String, for tests
+// where the log line is produced on the server's goroutine.
+type syncBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (b *syncBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p)
+}
+
+func (b *syncBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
+}
+
+// waitFor polls until want shows up in the buffer or timeout elapses.
+func (b *syncBuffer) waitFor(want string, timeout time.Duration) bool {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if strings.Contains(b.String(), want) {
+			return true
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	return false
 }

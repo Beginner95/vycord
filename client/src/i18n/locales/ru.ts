@@ -105,6 +105,7 @@ export const ru = {
     volumeLabel: 'Громкость: {{value}}%',
     focusParticipant: 'Показать участника крупно',
     sharingBadge: 'Демонстрация',
+    watchShare: 'Смотреть',
     youSuffix: '(Вы)',
 
     // Заголовок и баннеры
@@ -235,6 +236,7 @@ export const ru = {
     searching: 'Поиск...',
     join: 'Присоединиться',
     noneFound: 'Серверы не найдены',
+    orSeparator: 'или',
 
     // Контекстное меню
     editMenu: 'Редактировать',
@@ -253,6 +255,30 @@ export const ru = {
     online: 'В сети',
     offline: 'Не в сети',
     callUser: 'Позвонить {{name}}',
+
+    // Приватность
+    privateLabel: 'Приватный сервер',
+    privateHint: 'Новых участников можно позвать только по инвайт-ссылке — «Пригласить» в меню сервера.',
+    inviteMenu: 'Пригласить',
+
+    // Инвайты
+    invites: {
+      title: 'Инвайт-ссылки',
+      create: 'Создать ссылку',
+      empty: 'Пока нет ни одной ссылки',
+      copy: 'Копировать',
+      copied: 'Скопировано',
+      revoke: 'Отозвать',
+      usesCount: 'использований: {{count}}',
+    },
+
+    // Вступление по коду
+    joinByCode: {
+      label: 'Есть код приглашения?',
+      placeholder: 'Код приглашения',
+      preview: 'Проверить',
+      memberCount: 'участников: {{count}}',
+    },
   },
   channel: {
     noServerHint: 'Выберите сервер или создайте новый, чтобы начать',
@@ -268,6 +294,10 @@ export const ru = {
     // Модалка редактирования
     editTitle: 'Редактировать канал',
     nameLabel: 'Название канала',
+    createTitle: 'Создать канал',
+    createChannelMenu: 'Создать канал',
+    createButton: 'Создать',
+    typeLabel: 'Тип канала',
   },
   update: {
     downloading: 'Скачивание обновления {{version}}... установится автоматически',
@@ -327,6 +357,11 @@ export const ru = {
     channel_name_required: 'Введите название канала',
     channel_name_too_long: 'Название канала не длиннее 100 символов',
     cannot_delete_last_channel: 'Нельзя удалить последний канал сервера',
+    channel_forbidden: 'У вас нет доступа к этому каналу',
+    channel_not_voice: 'Канал не голосовой',
+    voice_token_failed: 'Не удалось авторизовать подключение к голосовому каналу',
+    invite_not_found: 'Приглашение не найдено или больше не действует',
+    invite_forbidden: 'У вас нет прав управлять приглашениями этого сервера',
     message_not_found: 'Сообщение не найдено',
     message_content_required: 'Сообщение не может быть пустым',
     search_query_length: 'Поисковый запрос: от 2 до 100 символов',

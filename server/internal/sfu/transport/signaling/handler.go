@@ -43,10 +43,22 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "missing room_id", http.StatusBadRequest)
 		return
 	}
+	parsedRoomID, err := uuid.Parse(roomID)
+	if err != nil {
+		http.Error(w, "invalid room_id", http.StatusBadRequest)
+		return
+	}
 
-	uid, err := authtoken.ValidateToken(h.jwtSecret, token)
+	uid, tokenRoomID, err := authtoken.ValidateRoomToken(h.jwtSecret, token)
 	if err != nil {
 		h.log.Warn("rejected connection: invalid token", "room_id", roomID, "error", err)
+		http.Error(w, "invalid token", http.StatusUnauthorized)
+		return
+	}
+	// Сравниваем разобранные UUID, а не строки: одинаковый идентификатор в
+	// другом регистре — это тот же самый room, отказывать по нему нельзя.
+	if tokenRoomID != parsedRoomID {
+		h.log.Warn("rejected connection: token not scoped to this room", "room_id", roomID, "token_room_id", tokenRoomID)
 		http.Error(w, "invalid token", http.StatusUnauthorized)
 		return
 	}
@@ -162,6 +174,20 @@ func (h *Handler) routeMessage(
 	case "request_keyframe":
 		h.handleRequestKeyframe(ps, userID)
 
+	case "watch_share":
+		h.handleWatchShare(rs, ps, msg, userID)
+
+	case "unwatch_share":
+		h.handleUnwatchShare(rs, ps, msg, userID)
+
+	case "screen_share_start":
+		rs.SetSharingActive(ps.Participant.ID, true)
+		h.log.Info("screen share started", "user_id", userID)
+
+	case "screen_share_stop":
+		rs.SetSharingActive(ps.Participant.ID, false)
+		h.log.Info("screen share stopped", "user_id", userID)
+
 	case "leave":
 		// The deferred Leave() in ServeHTTP handles cleanup;
 		// closing the connection triggers readPump to return.
@@ -215,6 +241,24 @@ func (h *Handler) handleICECandidate(
 func (h *Handler) handleRequestKeyframe(ps *application.ParticipantSession, userID string) {
 	h.log.Info("keyframe requested by client", "user_id", userID)
 	ps.RequestKeyframe()
+}
+
+func (h *Handler) handleWatchShare(rs *application.RoomSession, ps *application.ParticipantSession, msg *Message, userID string) {
+	var p WatchSharePayload
+	if err := json.Unmarshal(msg.Payload, &p); err != nil || p.TargetUserID == "" {
+		h.log.Warn("invalid watch_share payload", "user_id", userID, "error", err)
+		return
+	}
+	rs.WatchShare(ps.Participant.ID, p.TargetUserID)
+}
+
+func (h *Handler) handleUnwatchShare(rs *application.RoomSession, ps *application.ParticipantSession, msg *Message, userID string) {
+	var p UnwatchSharePayload
+	if err := json.Unmarshal(msg.Payload, &p); err != nil || p.TargetUserID == "" {
+		h.log.Warn("invalid unwatch_share payload", "user_id", userID, "error", err)
+		return
+	}
+	rs.UnwatchShare(ps.Participant.ID, p.TargetUserID)
 }
 
 func (h *Handler) notifyOthers(rs *application.RoomSession, excludeParticipantID, userID string) {

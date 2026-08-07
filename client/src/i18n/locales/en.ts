@@ -100,6 +100,7 @@ export const en: Dictionary = {
     volumeLabel: 'Volume: {{value}}%',
     focusParticipant: 'Focus on this participant',
     sharingBadge: 'Sharing',
+    watchShare: 'Watch',
     youSuffix: '(You)',
 
     // Header and banners
@@ -230,6 +231,7 @@ export const en: Dictionary = {
     searching: 'Searching...',
     join: 'Join',
     noneFound: 'No servers found',
+    orSeparator: 'or',
 
     // Context menu
     editMenu: 'Edit',
@@ -248,6 +250,30 @@ export const en: Dictionary = {
     online: 'Online',
     offline: 'Offline',
     callUser: 'Call {{name}}',
+
+    // Privacy
+    privateLabel: 'Private server',
+    privateHint: 'New members can only join via an invite link — "Invite" in the server menu.',
+    inviteMenu: 'Invite',
+
+    // Invites
+    invites: {
+      title: 'Invite links',
+      create: 'Create link',
+      empty: 'No links yet',
+      copy: 'Copy',
+      copied: 'Copied',
+      revoke: 'Revoke',
+      usesCount: 'uses: {{count}}',
+    },
+
+    // Join by code
+    joinByCode: {
+      label: 'Have an invite code?',
+      placeholder: 'Invite code',
+      preview: 'Check',
+      memberCount: 'members: {{count}}',
+    },
   },
   channel: {
     noServerHint: 'Select or create a server to get started',
@@ -263,6 +289,10 @@ export const en: Dictionary = {
     // Edit modal
     editTitle: 'Edit channel',
     nameLabel: 'Channel Name',
+    createTitle: 'Create channel',
+    createChannelMenu: 'Create channel',
+    createButton: 'Create',
+    typeLabel: 'Channel Type',
   },
   update: {
     downloading: 'Downloading update {{version}}… it will install automatically',
@@ -322,6 +352,11 @@ export const en: Dictionary = {
     channel_name_required: 'Enter a channel name',
     channel_name_too_long: 'Channel name must be 100 characters or fewer',
     cannot_delete_last_channel: 'Cannot delete the last channel of a server',
+    channel_forbidden: 'You do not have access to this channel',
+    channel_not_voice: 'Channel is not a voice channel',
+    voice_token_failed: 'Failed to authorize voice channel access',
+    invite_not_found: 'Invite not found or no longer valid',
+    invite_forbidden: 'You do not have permission to manage this server\'s invites',
     message_not_found: 'Message not found',
     message_content_required: 'Message cannot be empty',
     search_query_length: 'Search query must be 2 to 100 characters',

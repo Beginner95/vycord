@@ -22,6 +22,23 @@ func (k TrackKind) String() string {
 	return "video"
 }
 
+// TrackRole distinguishes a participant's camera/microphone tracks (always
+// broadcast to every other participant) from their screen-share tracks
+// (forwarded only to subscribers who explicitly watch, see RoomSession.WatchShare).
+type TrackRole int
+
+const (
+	RoleCameraOrMic TrackRole = iota
+	RoleScreen
+)
+
+func (r TrackRole) String() string {
+	if r == RoleScreen {
+		return "screen"
+	}
+	return "camera_or_mic"
+}
+
 // PublishedTrack is the server-side forwarding track for one publisher's stream.
 // StreamID equals the publisher's UserID so subscribers can identify the source
 // via RTCTrackEvent.streams[0].id.
@@ -29,6 +46,7 @@ type PublishedTrack struct {
 	ID         string
 	StreamID   string
 	Kind       TrackKind
+	Role       TrackRole
 	MimeType   string // e.g. "video/VP8", "video/H264" — used for keyframe-detection diagnostics.
 	LocalTrack *webrtc.TrackLocalStaticRTP
 
@@ -48,7 +66,7 @@ type PublishedTrack struct {
 	keyframeLoopActive atomic.Bool
 }
 
-func NewPublishedTrack(remote *webrtc.TrackRemote, streamID string) (*PublishedTrack, error) {
+func NewPublishedTrack(remote *webrtc.TrackRemote, streamID string, role TrackRole) (*PublishedTrack, error) {
 	local, err := webrtc.NewTrackLocalStaticRTP(
 		remote.Codec().RTPCodecCapability,
 		remote.ID(),
@@ -67,6 +85,7 @@ func NewPublishedTrack(remote *webrtc.TrackRemote, streamID string) (*PublishedT
 		ID:         remote.ID(),
 		StreamID:   streamID,
 		Kind:       kind,
+		Role:       role,
 		MimeType:   remote.Codec().MimeType,
 		LocalTrack: local,
 	}, nil

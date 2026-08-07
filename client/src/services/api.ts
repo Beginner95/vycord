@@ -1,5 +1,5 @@
 import { useAuthStore } from '@/stores/authStore';
-import type { Server, User, Role, PermissionsResponse } from '@/types';
+import type { Server, User, Role, PermissionsResponse, Invite, InvitePreview } from '@/types';
 import { hasKey, type TFunc, type TKey } from '@/i18n';
 
 export const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8080';
@@ -159,10 +159,10 @@ class ApiService {
   }
 
   // Servers
-  async createServer(name: string) {
+  async createServer(name: string, isPrivate = false) {
     return this.request('/api/v1/servers', {
       method: 'POST',
-      body: JSON.stringify({ name }),
+      body: JSON.stringify({ name, is_private: isPrivate }),
     });
   }
 
@@ -190,10 +190,12 @@ class ApiService {
     });
   }
 
-  async updateServer(id: string, name: string) {
+  // isPrivate не передан (undefined) → JSON.stringify опускает ключ целиком —
+  // бэкенд трактует отсутствие ключа как «не менять приватность» (см. UpdateServerRequest).
+  async updateServer(id: string, name: string, isPrivate?: boolean) {
     return this.request(`/api/v1/servers/${id}`, {
       method: 'PATCH',
-      body: JSON.stringify({ name }),
+      body: JSON.stringify({ name, is_private: isPrivate }),
     });
   }
 
@@ -285,6 +287,31 @@ class ApiService {
       method: 'PATCH',
       body: JSON.stringify({ name }),
     });
+  }
+
+  // Invites
+  async createInvite(serverId: string): Promise<Invite> {
+    return this.request(`/api/v1/servers/${serverId}/invites`, { method: 'POST' });
+  }
+
+  async listInvites(serverId: string): Promise<Invite[]> {
+    return this.request(`/api/v1/servers/${serverId}/invites`);
+  }
+
+  async revokeInvite(serverId: string, code: string): Promise<void> {
+    return this.request(`/api/v1/servers/${serverId}/invites/${code}`, { method: 'DELETE' });
+  }
+
+  async previewInvite(code: string): Promise<InvitePreview> {
+    return this.request(`/api/v1/invites/${code}`);
+  }
+
+  async joinViaInvite(code: string): Promise<Server> {
+    return this.request(`/api/v1/invites/${code}/join`, { method: 'POST' });
+  }
+
+  async getVoiceToken(channelId: string): Promise<{ token: string }> {
+    return this.request(`/api/v1/channels/${channelId}/voice-token`, { method: 'POST' });
   }
 
   async deleteChannel(serverId: string, channelId: string) {

@@ -77,6 +77,7 @@ export function AppPage() {
   const { setMessages } = useMessageStore();
   const [showCreateServer, setShowCreateServer] = useState(false);
   const [newServerName, setNewServerName] = useState('');
+  const [newServerIsPrivate, setNewServerIsPrivate] = useState(false);
   const [createServerError, setCreateServerError] = useState('');
   const [mobilePanel, setMobilePanel] = useState<MobilePanel>('servers');
   const [callNotif, setCallNotif] = useState<CallNotif | null>(null);
@@ -196,11 +197,19 @@ export function AppPage() {
   useEffect(() => {
     const unsubServerUpdate = wsService.on('server_update', (payload) => {
       const p = payload as Server;
-      useServerStore.getState().patchServer(p.id, { name: p.name, icon_url: p.icon_url });
+      useServerStore.getState().patchServer(p.id, { name: p.name, icon_url: p.icon_url, is_private: p.is_private });
     });
     const unsubChannelUpdate = wsService.on('channel_update', (payload) => {
       const p = payload as Channel;
       useServerStore.getState().patchChannel(p.id, { name: p.name });
+    });
+    const unsubChannelCreate = wsService.on('channel_create', (payload) => {
+      const p = payload as Channel;
+      // channel_create для публичного канала рассылается всем подключённым
+      // клиентам, поэтому фильтруем по текущему серверу: иначе канал чужого
+      // сервера всплывает в открытом сайдбаре до перехода туда-обратно.
+      if (p.server_id !== useServerStore.getState().currentServer?.id) return;
+      useServerStore.getState().addChannel(p);
     });
     const unsubServerDelete = wsService.on('server_delete', (payload) => {
       const { id } = payload as { id: string };
@@ -215,6 +224,7 @@ export function AppPage() {
     return () => {
       unsubServerUpdate();
       unsubChannelUpdate();
+      unsubChannelCreate();
       unsubServerDelete();
       unsubChannelDelete();
     };
@@ -300,6 +310,11 @@ export function AppPage() {
       setServers(data);
       if (data.length === 0) return;
 
+      // Загружаем права для всех серверов сразу, чтобы контекстное меню
+      // («Пригласить», редактирование) работало без предварительного входа
+      // в сервер после обновления страницы.
+      data.forEach((s) => loadServerPermissions(s.id));
+
       const lastServerId = me?.last_server_id;
       const lastChannelId = me?.last_channel_id;
 
@@ -353,7 +368,15 @@ export function AppPage() {
         return;
       }
     }
-    // Add to sidebar if not already there
+    handleServerJoined(server);
+  };
+
+  // handleServerJoined добавляет сервер в сайдбар и открывает его, не вызывая
+  // apiService.joinServer — используется после вступления по инвайт-коду
+  // (ManageInvitesModal/ServerList join-by-code), где вступление уже
+  // произошло на бэкенде. Повторный joinServer для приватного сервера
+  // получил бы 404 (прямое вступление запрещено — см. дизайн-спеку).
+  const handleServerJoined = (server: Server) => {
     const current = useServerStore.getState().servers;
     if (!current.find((s) => s.id === server.id)) {
       setServers([...current, server]);
@@ -425,9 +448,10 @@ export function AppPage() {
     setCreateServerError('');
 
     try {
-      const server = await apiService.createServer(newServerName.trim()) as Server;
+      const server = await apiService.createServer(newServerName.trim(), newServerIsPrivate) as Server;
       setServers([...servers, server]);
       setNewServerName('');
+      setNewServerIsPrivate(false);
       setShowCreateServer(false);
       handleSelectServer(server);
     } catch (err) {
@@ -446,6 +470,7 @@ export function AppPage() {
           onSelectServer={handleSelectServer}
           onCreateServer={() => { setShowCreateServer(true); setCreateServerError(''); }}
           onJoinServer={handleJoinServer}
+          onServerJoined={handleServerJoined}
           onServerDeleted={handleServerRemoved}
         />
 
@@ -489,6 +514,16 @@ export function AppPage() {
                   autoFocus
                   required
                 />
+              </div>
+              <div className="form-group form-checkbox">
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={newServerIsPrivate}
+                    onChange={(e) => setNewServerIsPrivate(e.target.checked)}
+                  />
+                  {t('server.privateLabel')}
+                </label>
               </div>
               {createServerError && <p className="modal-error">{createServerError}</p>}
               <div className="modal-actions">

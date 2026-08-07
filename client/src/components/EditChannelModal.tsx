@@ -18,13 +18,14 @@ export function EditChannelModal({ serverId, channel, onClose }: EditChannelModa
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!name.trim() || name.trim() === channel.name) {
+    const trimmed = name.trim();
+    if (!trimmed || trimmed === channel.name) {
       onClose();
       return;
     }
     setSaving(true);
     try {
-      const updated = (await apiService.updateChannel(serverId, channel.id, name.trim())) as Channel;
+      const updated = (await apiService.updateChannel(serverId, channel.id, trimmed)) as Channel;
       useServerStore.getState().patchChannel(channel.id, { name: updated.name });
       onClose();
     } catch (err) {

@@ -75,6 +75,7 @@ func main() {
 	messageRepo := postgres.NewMessageRepository(db)
 	callRepo := postgres.NewCallRepository(db)
 	roleRepo := postgres.NewRoleRepository(db)
+	inviteRepo := postgres.NewInviteRepository(db)
 
 	// Initialize file storage
 	storage, err := filestorage.NewLocal(cfg.UploadDir, "/uploads")
@@ -87,25 +88,30 @@ func main() {
 	authUseCase := usecase.NewAuthUseCase(userRepo, cfg.JWTSecret, cfg.JWTExpiration)
 	userUseCase := usecase.NewUserUseCase(userRepo, storage)
 	permissionUseCase := usecase.NewPermissionUseCase(serverRepo, roleRepo)
+	inviteUseCase := usecase.NewInviteUseCase(inviteRepo, serverRepo, permissionUseCase)
 	roleUseCase := usecase.NewRoleUseCase(serverRepo, roleRepo, permissionUseCase)
 	serverUseCase := usecase.NewServerUseCase(serverRepo, channelRepo, userRepo, roleRepo, storage, permissionUseCase)
+	voiceTokenUseCase := usecase.NewVoiceTokenUseCase(serverUseCase, cfg.JWTSecret)
 	messageUseCase := usecase.NewMessageUseCase(messageRepo, channelRepo, serverRepo, permissionUseCase)
 	callUseCase := usecase.NewCallUseCase(callRepo)
 	turnUseCase := usecase.NewTURNUseCase(cfg.TURNSecret, cfg.TURNURLs, cfg.TURNTTL)
 
 	// Initialize hub for WebSocket connections
 	hub := ws.NewHub(log)
+	hub.SetVoiceAudienceResolver(serverUseCase.GetChannelAudience)
 	go hub.Run()
 
 	// Initialize handlers
 	authHandler := handler.NewAuthHandler(authUseCase, log)
 	userHandler := handler.NewUserHandler(userUseCase, hub, log)
-	serverHandler := handler.NewServerHandler(serverUseCase, hub, log)
+	serverHandler := handler.NewServerHandler(serverUseCase, inviteUseCase, hub, log)
+	inviteHandler := handler.NewInviteHandler(inviteUseCase, log)
 	messageHandler := handler.NewMessageHandler(messageUseCase, hub, log)
 	onlineUsersHandler := handler.NewOnlineUsersHandler(hub, userRepo, log)
-	wsHandler := handler.NewWebSocketHandler(hub, authUseCase, callUseCase, userUseCase, log)
+	wsHandler := handler.NewWebSocketHandler(hub, authUseCase, callUseCase, userUseCase, serverUseCase, log)
 	turnHandler := handler.NewTURNHandler(turnUseCase, log)
 	roleHandler := handler.NewRoleHandler(roleUseCase, permissionUseCase, log)
+	voiceTokenHandler := handler.NewVoiceTokenHandler(voiceTokenUseCase, log)
 
 	// Setup router
 	router := http.NewServeMux()
@@ -144,6 +150,13 @@ func main() {
 	router.HandleFunc("PATCH /api/v1/servers/{server_id}/channels/{channel_id}", authMid.RequireAuth(serverHandler.UpdateChannel))
 	router.HandleFunc("DELETE /api/v1/servers/{server_id}/channels/{channel_id}", authMid.RequireAuth(serverHandler.DeleteChannel))
 
+	// Invite routes
+	router.HandleFunc("POST /api/v1/servers/{server_id}/invites", authMid.RequireAuth(inviteHandler.CreateInvite))
+	router.HandleFunc("GET /api/v1/servers/{server_id}/invites", authMid.RequireAuth(inviteHandler.ListInvites))
+	router.HandleFunc("DELETE /api/v1/servers/{server_id}/invites/{code}", authMid.RequireAuth(inviteHandler.RevokeInvite))
+	router.HandleFunc("GET /api/v1/invites/{code}", authMid.RequireAuth(inviteHandler.PreviewInvite))
+	router.HandleFunc("POST /api/v1/invites/{code}/join", authMid.RequireAuth(inviteHandler.JoinViaInvite))
+
 	// Server member routes
 	router.HandleFunc("GET /api/v1/servers/{server_id}/members", authMid.RequireAuth(serverHandler.GetMembers))
 
@@ -163,6 +176,9 @@ func main() {
 	router.HandleFunc("GET /api/v1/channels/{channel_id}/messages/around/{message_id}", authMid.RequireAuth(messageHandler.GetMessagesAround))
 	router.HandleFunc("PATCH /api/v1/channels/{channel_id}/messages/{message_id}", authMid.RequireAuth(messageHandler.UpdateMessage))
 	router.HandleFunc("DELETE /api/v1/channels/{channel_id}/messages/{message_id}", authMid.RequireAuth(messageHandler.DeleteMessage))
+
+	// Voice token — short-lived, room-scoped JWT for the SFU (see private channels design doc)
+	router.HandleFunc("POST /api/v1/channels/{channel_id}/voice-token", authMid.RequireAuth(voiceTokenHandler.IssueToken))
 
 	// TURN credentials for WebRTC (ephemeral, per-user)
 	router.HandleFunc("GET /api/v1/turn/credentials", authMid.RequireAuth(turnHandler.GetCredentials))

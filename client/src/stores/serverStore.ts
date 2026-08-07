@@ -19,6 +19,7 @@ interface ServerState {
   removeServer: (id: string) => void;
   patchChannel: (id: string, patch: Partial<Channel>) => void;
   removeChannel: (id: string) => void;
+  addChannel: (channel: Channel) => void;
 }
 
 export const useServerStore = create<ServerState>((set) => ({
@@ -68,4 +69,8 @@ export const useServerStore = create<ServerState>((set) => ({
     set((state) => ({
       channels: state.channels.filter((c) => c.id !== id),
     })),
+  addChannel: (channel) =>
+    set((state) =>
+      state.channels.some((c) => c.id === channel.id) ? state : { channels: [...state.channels, channel] }
+    ),
 }));

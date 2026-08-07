@@ -17,6 +17,7 @@ interface EditServerModalProps {
 export function EditServerModal({ server, onClose }: EditServerModalProps) {
   const t = useT();
   const [name, setName] = useState(server.name);
+  const [isPrivate, setIsPrivate] = useState(server.is_private);
   const [cropFile, setCropFile] = useState<File | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [removingIcon, setRemovingIcon] = useState(false);
@@ -59,14 +60,16 @@ export function EditServerModal({ server, onClose }: EditServerModalProps) {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!name.trim() || name.trim() === server.name) {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    if (trimmed === server.name && isPrivate === server.is_private) {
       onClose();
       return;
     }
     setSaving(true);
     try {
-      const updated = (await apiService.updateServer(server.id, name.trim())) as Server;
-      useServerStore.getState().patchServer(server.id, { name: updated.name });
+      const updated = (await apiService.updateServer(server.id, trimmed, isPrivate)) as Server;
+      useServerStore.getState().patchServer(server.id, { name: updated.name, is_private: updated.is_private });
       onClose();
     } catch (err) {
       setError(apiErrorText(err, t));
@@ -127,6 +130,13 @@ export function EditServerModal({ server, onClose }: EditServerModalProps) {
                 autoFocus
                 required
               />
+            </div>
+            <div className="form-group form-checkbox">
+              <label>
+                <input type="checkbox" checked={isPrivate} onChange={(e) => setIsPrivate(e.target.checked)} />
+                {t('server.privateLabel')}
+              </label>
+              {isPrivate && <p className="modal-hint">{t('server.privateHint')}</p>}
             </div>
             {error && <p className="modal-error">{error}</p>}
             <div className="modal-actions">

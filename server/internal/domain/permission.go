@@ -27,12 +27,17 @@ const (
 	PermSendMessages Permission = 1 << 5
 	// PermMentionEveryone — упоминание @everyone в сообщении.
 	PermMentionEveryone Permission = 1 << 6
+	// PermCreateInvite — создание инвайт-ссылок на сервер (аналог Discord
+	// CREATE_INSTANT_INVITE). Не путать с приватностью сервера: приватность
+	// решает, обнаруживаем ли сервер и нужен ли инвайт вообще; это право
+	// решает, кто может тот инвайт выпустить.
+	PermCreateInvite Permission = 1 << 7
 
 	// PermAll — объединение всех известных прав. Всё, что вне этой маски,
 	// считается невалидным: иначе «застолблённые» неизвестные биты внезапно
 	// обрели бы смысл при добавлении нового права.
 	PermAll = PermAdministrator | PermManageServer | PermManageRoles |
-		PermManageChannels | PermViewChannels | PermSendMessages | PermMentionEveryone
+		PermManageChannels | PermViewChannels | PermSendMessages | PermMentionEveryone | PermCreateInvite
 )
 
 // IsValid сообщает, что маска не содержит битов вне PermAll.

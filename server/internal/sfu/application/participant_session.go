@@ -118,9 +118,26 @@ func NewParticipantSession(
 	pc.OnTrack(ps.handleRemoteTrack)
 	pc.OnConnectionStateChange(ps.handleConnectionState)
 
-	// Add recvonly transceivers so these appear in the first SDP offer the server creates.
-	// Without them, the client has no hint to send audio/video.
-	for _, kind := range []webrtc.RTPCodecType{webrtc.RTPCodecTypeAudio, webrtc.RTPCodecTypeVideo} {
+	// Add recvonly transceivers so these appear in the first SDP offer the server
+	// creates. Without them, the client has no hint to send audio/video.
+	//
+	// Fixed, deterministic order — resolveTrackRole (below) and the client's
+	// createPeerConnection() both depend on this exact sequence:
+	//   [0] audio — microphone
+	//   [1] video — camera
+	//   [2] video — screen-share video (dummy track until sharing starts)
+	//   [3] audio — screen-share audio (dummy track until sharing starts)
+	// Both screen slots are pre-provisioned at join time (never added later) so
+	// that starting/stopping a share is a plain replaceTrack on the client,
+	// with no renegotiation required — the same trick already used for the
+	// camera/no-camera dummy track.
+	transceiverKinds := []webrtc.RTPCodecType{
+		webrtc.RTPCodecTypeAudio,
+		webrtc.RTPCodecTypeVideo,
+		webrtc.RTPCodecTypeVideo,
+		webrtc.RTPCodecTypeAudio,
+	}
+	for _, kind := range transceiverKinds {
 		if _, err := pc.AddTransceiverFromKind(kind, webrtc.RTPTransceiverInit{
 			Direction: webrtc.RTPTransceiverDirectionRecvonly,
 		}); err != nil {
@@ -133,6 +150,23 @@ func NewParticipantSession(
 	}
 
 	return ps
+}
+
+// resolveTrackRole identifies which of the 4 pre-created transceiver slots a
+// publisher's incoming track belongs to, based on its fixed creation position
+// (see the comment in NewParticipantSession). Index 2 (screen-video) and index
+// 3 (screen-audio) are RoleScreen; everything else is RoleCameraOrMic.
+func (ps *ParticipantSession) resolveTrackRole(receiver *webrtc.RTPReceiver) domain.TrackRole {
+	for i, t := range ps.pc.GetTransceivers() {
+		if t.Receiver() != receiver {
+			continue
+		}
+		if i == 2 || i == 3 {
+			return domain.RoleScreen
+		}
+		return domain.RoleCameraOrMic
+	}
+	return domain.RoleCameraOrMic
 }
 
 // Start launches the negotiation loop and sends the initial offer to the client.
@@ -200,7 +234,28 @@ func (ps *ParticipantSession) flushPendingICE() {
 
 // AddRemoteTrack adds another participant's forwarding track to this subscriber's PC.
 // Triggers OnNegotiationNeeded → renegotiation automatically.
+//
+// Idempotent per track ID: a second call for a track this subscriber already
+// receives is a no-op. Without the guard pion would create a second, independent
+// RTPSender for the same LocalTrack while sendersByTrackID keeps only the last
+// one — RemoveRemoteTrack could then never detach the first, leaving RTP
+// flowing past the subscription gate forever.
 func (ps *ParticipantSession) AddRemoteTrack(t *domain.PublishedTrack) error {
+	// The check and the pc.AddTrack that satisfies it happen under one lock:
+	// with two lock sections, two concurrent callers (e.g. WatchShare racing
+	// SetSharingActive for the same publisher) would each see "not forwarded"
+	// and each create a sender. pc.AddTrack only fires OnNegotiationNeeded →
+	// a non-blocking channel send, so it is safe to call under sendersMu.
+	ps.sendersMu.Lock()
+	if _, alreadyForwarded := ps.sendersByTrackID[t.ID]; alreadyForwarded {
+		ps.sendersMu.Unlock()
+		ps.log.Debug("AddRemoteTrack: track already forwarded to subscriber, skipping",
+			"subscriber_user_id", ps.Participant.UserID,
+			"track_id", t.ID,
+		)
+		return nil
+	}
+
 	ps.log.Info("AddRemoteTrack: adding forwarded track to subscriber PC",
 		"subscriber_user_id", ps.Participant.UserID,
 		"publisher_stream_id", t.StreamID,
@@ -211,6 +266,7 @@ func (ps *ParticipantSession) AddRemoteTrack(t *domain.PublishedTrack) error {
 	)
 	sender, err := ps.pc.AddTrack(t.LocalTrack)
 	if err != nil {
+		ps.sendersMu.Unlock()
 		ps.log.Error("AddRemoteTrack: pc.AddTrack failed",
 			"subscriber_user_id", ps.Participant.UserID,
 			"track_id", t.ID,
@@ -219,7 +275,6 @@ func (ps *ParticipantSession) AddRemoteTrack(t *domain.PublishedTrack) error {
 		return err
 	}
 
-	ps.sendersMu.Lock()
 	ps.sendersByTrackID[t.ID] = sender
 	bindedSenders := len(ps.sendersByTrackID)
 	ps.sendersMu.Unlock()
@@ -414,8 +469,9 @@ func (ps *ParticipantSession) handleICECandidate(c *webrtc.ICECandidate) {
 	}
 }
 
-func (ps *ParticipantSession) handleRemoteTrack(remote *webrtc.TrackRemote, _ *webrtc.RTPReceiver) {
+func (ps *ParticipantSession) handleRemoteTrack(remote *webrtc.TrackRemote, receiver *webrtc.RTPReceiver) {
 	codec := remote.Codec()
+	role := ps.resolveTrackRole(receiver)
 	ps.log.Info("publisher track arrived",
 		"user_id", ps.Participant.UserID,
 		"kind", remote.Kind().String(),
@@ -426,9 +482,17 @@ func (ps *ParticipantSession) handleRemoteTrack(remote *webrtc.TrackRemote, _ *w
 		"codec_clock_rate", codec.ClockRate,
 		"codec_channels", codec.Channels,
 		"codec_fmtp", codec.SDPFmtpLine,
+		"role", role.String(),
 	)
 
-	track, err := domain.NewPublishedTrack(remote, ps.Participant.UserID)
+	streamID := ps.Participant.UserID
+	if role == domain.RoleScreen {
+		// Distinct StreamID lets subscribers tell a screen track apart from
+		// camera/mic on the wire (both share the publisher's UserID otherwise) —
+		// see RTCTrackEvent.streams[0].id on the client.
+		streamID += ":screen"
+	}
+	track, err := domain.NewPublishedTrack(remote, streamID, role)
 	if err != nil {
 		ps.log.Error("failed to wrap published track", "error", err)
 		return

@@ -31,7 +31,9 @@ func NewMessageUseCase(
 
 // requirePermission проверяет, что канал существует и у пользователя есть право
 // perm на его сервере. Возвращает сам канал — вызывающему нужен serverID
-// без повторного запроса.
+// без повторного запроса. Приватность канала не проверяется — её больше не
+// существует, вся приватность теперь на уровне сервера и уже обеспечена тем,
+// что perms.Resolve отдаёт не-участнику нулевой набор прав.
 func (uc *messageUseCase) requirePermission(channelID, userID uuid.UUID, perm domain.Permission) (*domain.Channel, error) {
 	ch, err := uc.channelRepo.GetByID(channelID)
 	if err != nil {
@@ -45,6 +47,7 @@ func (uc *messageUseCase) requirePermission(channelID, userID uuid.UUID, perm do
 	if !ps.Has(perm) {
 		return nil, domain.ErrForbidden
 	}
+
 	return ch, nil
 }
 
