@@ -1,0 +1,65 @@
+.channel-access-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 16px;
+  max-height: 260px;
+  overflow-y: auto;
+}
+
+.channel-access-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  transition: border-color var(--transition);
+}
+
+.channel-access-row:hover {
+  border-color: var(--border-color);
+}
+
+.channel-access-row > span {
+  flex: 1;
+  min-width: 0;
+  font-family: "SFMono-Regular", ui-monospace, "Menlo", "Consolas", monospace;
+  font-size: 13px;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.channel-access-row button {
+  flex-shrink: 0;
+  padding: 5px 12px;
+  border: 1.5px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background: var(--bg-primary);
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all var(--transition);
+}
+
+.channel-access-row button:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+  border-color: var(--text-muted);
+}
+
+.channel-access-row button.danger {
+  color: var(--red-500);
+  border-color: var(--red-500);
+}
+
+.channel-access-row button.danger:hover {
+  background: var(--red-50);
+  color: var(--red-500);
+  border-color: var(--red-500);
+}

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import type { Invite } from '@/types';
 import { apiService, apiErrorText } from '@/services/api';
 import { useT } from '@/i18n';
+import './ManageInvitesModal.css';
 
 interface ManageInvitesModalProps {
   serverId: string;
