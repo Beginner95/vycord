@@ -152,9 +152,18 @@ export function ServerList({
       </aside>
 
       {searchOpen && (
-        <div className="modal-overlay" onClick={() => setSearchOpen(false)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-overlay">
+          <div className="modal explore-server-modal" onClick={(e) => e.stopPropagation()}>
             <h2>{t('server.explore')}</h2>
+            <button
+              type="button"
+              className="explore-server-close"
+              title={t('common.close')}
+              aria-label={t('common.close')}
+              onClick={() => setSearchOpen(false)}
+            >
+              ✕
+            </button>
             <div className="search-bar">
               <input
                 type="text"
@@ -186,7 +195,9 @@ export function ServerList({
               <p className="search-empty">{t('server.noneFound')}</p>
             )}
 
-            <hr />
+            <div className="explore-server-divider">
+              <span>{t('server.orSeparator')}</span>
+            </div>
 
             <div className="form-group">
               <label htmlFor="invite-code-input">{t('server.joinByCode.label')}</label>

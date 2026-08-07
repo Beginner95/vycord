@@ -51,6 +51,34 @@
   letter-spacing: 0.05em;
 }
 
+.channel-category-add {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 1;
+  transition: all var(--transition);
+}
+
+.channel-category-add:hover {
+  background: var(--bg-hover);
+  color: var(--brand-color);
+}
+
+.channel-category-add:active {
+  transform: scale(0.92);
+}
+
 .channel {
   padding: 7px 10px;
   margin: 2px 0;

@@ -236,6 +236,7 @@ export const ru = {
     searching: 'Поиск...',
     join: 'Присоединиться',
     noneFound: 'Серверы не найдены',
+    orSeparator: 'или',
 
     // Контекстное меню
     editMenu: 'Редактировать',

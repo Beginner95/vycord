@@ -84,6 +84,61 @@
   background: var(--bg-primary);
 }
 
+/* ── Custom checkbox (e.g. "private server" toggle) ── */
+.modal .form-group.form-checkbox label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 0;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-primary);
+  cursor: pointer;
+  user-select: none;
+}
+
+.modal .form-checkbox input[type="checkbox"] {
+  width: 20px;
+  height: 20px;
+  min-width: 20px;
+  padding: 0;
+  margin: 0;
+  border: 1.5px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  background: var(--bg-primary);
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+  flex-shrink: 0;
+  transition: all var(--transition);
+}
+
+.modal .form-checkbox input[type="checkbox"]:hover {
+  border-color: var(--brand-400);
+}
+
+.modal .form-checkbox input[type="checkbox"]:checked {
+  background: var(--brand-color);
+  border-color: var(--brand-color);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='20 6 9 17 4 12'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: 12px;
+}
+
+.modal .form-checkbox input[type="checkbox"]:checked:hover {
+  background-color: var(--brand-hover);
+  border-color: var(--brand-hover);
+}
+
+.modal .modal-hint {
+  margin-top: 8px;
+  margin-bottom: 0;
+  font-size: 13px;
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+
 .modal-actions {
   display: flex;
   justify-content: flex-end;

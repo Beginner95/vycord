@@ -231,6 +231,7 @@ export const en: Dictionary = {
     searching: 'Searching...',
     join: 'Join',
     noneFound: 'No servers found',
+    orSeparator: 'or',
 
     // Context menu
     editMenu: 'Edit',
