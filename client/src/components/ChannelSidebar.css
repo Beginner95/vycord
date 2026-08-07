@@ -66,13 +66,8 @@
   font-weight: 600;
   line-height: 1;
   cursor: pointer;
-  opacity: 0;
-  transition: all var(--transition);
-}
-
-.channel-category:hover .channel-category-add,
-.channel-category-add:focus-visible {
   opacity: 1;
+  transition: all var(--transition);
 }
 
 .channel-category-add:hover {
