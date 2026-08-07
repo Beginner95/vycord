@@ -53,14 +53,17 @@
 }
 
 .channel-access-actions button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
   flex-shrink: 0;
-  padding: 5px 12px;
+  padding: 0;
   border: 1.5px solid var(--border-color);
   border-radius: var(--radius-md);
   background: var(--bg-primary);
   color: var(--text-secondary);
-  font-size: 12px;
-  font-weight: 600;
   cursor: pointer;
   transition: all var(--transition);
 }
