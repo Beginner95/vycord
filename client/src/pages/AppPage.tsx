@@ -310,6 +310,11 @@ export function AppPage() {
       setServers(data);
       if (data.length === 0) return;
 
+      // Загружаем права для всех серверов сразу, чтобы контекстное меню
+      // («Пригласить», редактирование) работало без предварительного входа
+      // в сервер после обновления страницы.
+      data.forEach((s) => loadServerPermissions(s.id));
+
       const lastServerId = me?.last_server_id;
       const lastChannelId = me?.last_channel_id;
 
