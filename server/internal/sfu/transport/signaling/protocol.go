@@ -34,6 +34,15 @@ type UnwatchSharePayload struct {
 	TargetUserID string `json:"target_user_id"`
 }
 
+// ScreenShareStartPayload is sent by a participant right before their screen
+// video RTP starts flowing. TrackID is the wire ID of the screen video track the
+// SFU will publish — the SFU uses it to classify the track as RoleScreen by id
+// (not by m-line position, which is unreliable: some clients negotiate the
+// screen video onto the same m-line as the camera).
+type ScreenShareStartPayload struct {
+	TrackID string `json:"track_id"`
+}
+
 // --- Server → Client ---
 
 type JoinedPayload struct {

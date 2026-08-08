@@ -184,8 +184,16 @@ func (h *Handler) routeMessage(
 		h.handleUnwatchShare(rs, ps, msg, userID)
 
 	case "screen_share_start":
+		var p ScreenShareStartPayload
+		if err := json.Unmarshal(msg.Payload, &p); err != nil {
+			p = ScreenShareStartPayload{}
+		}
+		ps.Participant.SetScreenTrackID(p.TrackID)
 		rs.SetSharingActive(ps.Participant.ID, true)
-		h.log.Info("screen share started", "user_id", userID)
+		h.log.Info("screen share started",
+			"user_id", userID,
+			"screen_track_id", p.TrackID,
+		)
 
 	case "screen_share_stop":
 		rs.SetSharingActive(ps.Participant.ID, false)

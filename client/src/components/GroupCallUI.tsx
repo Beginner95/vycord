@@ -805,15 +805,6 @@ export function GroupCallUI() {
     // be missed), so requiring it here too could wrongly fall through to the
     // sharer's webcam even though the screen stream already arrived.
     const screenStream = remoteScreenStreams.get(focusedUserId);
-    console.log(`[GC] focused effect uid=${focusedUserId.slice(0, 8)}`, {
-      hasScreenStream: !!screenStream,
-      screenStreamTracks: screenStream ? screenStream.getTracks().map((t) => `${t.kind}:${t.id.slice(0, 8)}:enabled=${t.enabled}`) : [],
-      isScreenSharer: screenSharers.has(focusedUserId),
-      srcObjectMatch: el.srcObject === screenStream,
-      elMuted: el.muted,
-      elPaused: el.paused,
-      elReadyState: el.readyState,
-    });
     if (screenStream) {
       if (el.srcObject !== screenStream) {
         el.srcObject = screenStream;

@@ -34,3 +34,29 @@ func TestParticipantGetScreenTracksFiltersByRole(t *testing.T) {
 		}
 	}
 }
+
+func TestParticipantScreenTrackID(t *testing.T) {
+	p := NewParticipant("p1", "alice", "room1")
+
+	// Empty id never matches.
+	if p.IsScreenTrackID("") {
+		t.Fatal("IsScreenTrackID('') should be false when no track id recorded")
+	}
+	if p.IsScreenTrackID("track-123") {
+		t.Fatal("IsScreenTrackID should be false before SetScreenTrackID")
+	}
+
+	p.SetScreenTrackID("track-123")
+	if !p.IsScreenTrackID("track-123") {
+		t.Fatal("IsScreenTrackID should be true after SetScreenTrackID with matching id")
+	}
+	if p.IsScreenTrackID("other-track") {
+		t.Fatal("IsScreenTrackID should be false for a non-matching id")
+	}
+
+	// A new (empty) screen_share_start clears the designation.
+	p.SetScreenTrackID("")
+	if p.IsScreenTrackID("track-123") {
+		t.Fatal("IsScreenTrackID should be false after the id is cleared")
+	}
+}

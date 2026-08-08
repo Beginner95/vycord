@@ -13,6 +13,11 @@ type Participant struct {
 	mu            sync.RWMutex
 	tracks        map[string]*PublishedTrack
 	sharingActive bool
+	// screenTrackID is the wire ID of the video track the client designates as
+	// the screen share (sent in screen_share_start). It lets the SFU classify a
+	// track as RoleScreen by id instead of by transceiver/m-line position, which
+	// is unreliable when a client negotiates the screen video onto the camera m-line.
+	screenTrackID string
 }
 
 func NewParticipant(id, userID, roomID string) *Participant {
@@ -61,6 +66,23 @@ func (p *Participant) IsSharingActive() bool {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
 	return p.sharingActive
+}
+
+// SetScreenTrackID records the wire ID of the participant's screen-share video
+// track. A published track whose ID matches is classified as RoleScreen,
+// regardless of which transceiver/m-line it arrived on.
+func (p *Participant) SetScreenTrackID(trackID string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.screenTrackID = trackID
+}
+
+// IsScreenTrackID reports whether the given wire track id is the one the client
+// designated as its current screen share.
+func (p *Participant) IsScreenTrackID(trackID string) bool {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return p.screenTrackID != "" && p.screenTrackID == trackID
 }
 
 // GetScreenTracks returns this participant's screen-share tracks (video and/or

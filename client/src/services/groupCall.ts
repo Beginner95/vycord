@@ -499,7 +499,7 @@ class GroupCallService {
       // the SFU needs an explicit keyframe push.
       this.requestKeyframeWithRetry();
       if (this.ws?.readyState === WebSocket.OPEN) {
-        this.ws.send(JSON.stringify({ type: 'screen_share_start', payload: {} }));
+        this.ws.send(JSON.stringify({ type: 'screen_share_start', payload: { track_id: track.id } }));
       }
       // Re-announce over the app WS too: our outage cleared everyone else's
       // screenSharers state, and screen_share_start above never leaves the SFU.
@@ -537,11 +537,7 @@ class GroupCallService {
   // currently sharing. No-op if the SFU connection isn't open (e.g. mid-reconnect —
   // the reconnect path resubscribes on its own, see reconnect()).
   watchShare(targetUserId: string): void {
-    if (this.ws?.readyState !== WebSocket.OPEN) {
-      gcLog(this.currentUserId, 'watch_share NOT sent (SFU ws not open)', { targetUserId: targetUserId.slice(0, 8), wsState: this.ws?.readyState });
-      return;
-    }
-    gcLog(this.currentUserId, 'watch_share sent', { targetUserId: targetUserId.slice(0, 8) });
+    if (this.ws?.readyState !== WebSocket.OPEN) return;
     this.ws.send(JSON.stringify({ type: 'watch_share', payload: { target_user_id: targetUserId } }));
   }
 
@@ -630,6 +626,14 @@ class GroupCallService {
     if (!screenTrack) {
       stream.getTracks().forEach((t) => t.stop());
       throw new Error('Screen stream has no video track');
+    }
+
+    // Tell the SFU the wire ID of the upcoming screen video track BEFORE it starts
+    // flowing (replaceTrack below makes RTP begin). The server marks this track id
+    // as RoleScreen, so even a client that negotiates the screen video onto the
+    // camera m-line is still recognized as a screen share by the viewer.
+    if (this.ws?.readyState === WebSocket.OPEN) {
+      this.ws.send(JSON.stringify({ type: 'screen_share_start', payload: { track_id: screenTrack.id } }));
     }
 
     // Chrome treats screen-capture tracks as 'detail' content by default and,
@@ -722,10 +726,6 @@ class GroupCallService {
     // Retry because OnTrack on the SFU side may not have fired yet (first RTP
     // packet hasn't arrived); retries at 200ms and 800ms cover that window.
     this.requestKeyframeWithRetry();
-
-    if (this.ws?.readyState === WebSocket.OPEN) {
-      this.ws.send(JSON.stringify({ type: 'screen_share_start', payload: {} }));
-    }
 
     gcLog(this.currentUserId, 'screen share started', { sourceId: sourceId?.slice(0, 16) ?? 'getDisplayMedia', quality });
   }
