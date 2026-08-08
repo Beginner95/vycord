@@ -486,6 +486,7 @@ export function AppPage() {
           onClick={toggleLeftSidebar}
           aria-label={leftSidebarHidden ? t('sidebar.show') : t('sidebar.hide')}
           title={leftSidebarHidden ? t('sidebar.show') : t('sidebar.hide')}
+          aria-pressed={leftSidebarHidden}
         >
           {leftSidebarHidden ? '▶' : '◀'}
         </button>
