@@ -283,6 +283,10 @@ export const ru = {
       memberCount: 'участников: {{count}}',
     },
   },
+  sidebar: {
+    hide: 'Скрыть сайдбар',
+    show: 'Показать сайдбар',
+  },
   channel: {
     noServerHint: 'Выберите сервер или создайте новый, чтобы начать',
     textChannels: 'Текстовые каналы',
