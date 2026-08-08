@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, Tray, Menu, session, desktopCapturer, systemPreferences } from 'electron';
+import { app, BrowserWindow, ipcMain, Tray, Menu, session, desktopCapturer, systemPreferences, shell } from 'electron';
 import * as path from 'path';
 import { initAutoUpdater } from './updater';
 import { TRAY_LABELS, isTrayLocale, type TrayLocale } from './tray-labels';
@@ -43,6 +43,22 @@ function createWindow(): BrowserWindow {
   } else {
     mainWindow.loadFile(path.resolve(projectRoot, 'dist/index.html'));
   }
+
+  const openExternal = (url: string) => {
+    if (/^(https?|mailto):/i.test(url)) shell.openExternal(url);
+  };
+
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    openExternal(url);
+    return { action: 'deny' };
+  });
+
+  mainWindow.webContents.on('will-navigate', (event, url) => {
+    if (url !== mainWindow!.webContents.getURL()) {
+      event.preventDefault();
+      openExternal(url);
+    }
+  });
 
   mainWindow.on('closed', () => {
     mainWindow = null;
