@@ -157,14 +157,24 @@ func NewParticipantSession(
 // (see the comment in NewParticipantSession). Index 2 (screen-video) and index
 // 3 (screen-audio) are RoleScreen; everything else is RoleCameraOrMic.
 func (ps *ParticipantSession) resolveTrackRole(receiver *webrtc.RTPReceiver) domain.TrackRole {
-	for i, t := range ps.pc.GetTransceivers() {
+	transceivers := ps.pc.GetTransceivers()
+	for i, t := range transceivers {
 		if t.Receiver() != receiver {
 			continue
 		}
+		role := domain.RoleCameraOrMic
 		if i == 2 || i == 3 {
-			return domain.RoleScreen
+			role = domain.RoleScreen
 		}
-		return domain.RoleCameraOrMic
+		ps.log.Info("resolveTrackRole matched",
+			"user_id", ps.Participant.UserID,
+			"transceiver_index", i,
+			"role", role.String(),
+			"mid", t.Mid(),
+			"direction", t.Direction().String(),
+			"transceiver_count", len(transceivers),
+		)
+		return role
 	}
 	return domain.RoleCameraOrMic
 }
