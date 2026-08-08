@@ -278,6 +278,10 @@ export const en: Dictionary = {
       memberCount: 'members: {{count}}',
     },
   },
+  sidebar: {
+    hide: 'Hide sidebar',
+    show: 'Show sidebar',
+  },
   channel: {
     noServerHint: 'Select or create a server to get started',
     textChannels: 'Text Channels',
