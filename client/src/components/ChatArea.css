@@ -486,6 +486,18 @@
   color: var(--text-muted);
 }
 
+/* ── Lists (глобальный reset обнуляет padding/margin у ul/ol) ── */
+.message-text ol,
+.message-text ul {
+  margin: 4px 0 4px;
+  padding-left: 1.4em;
+}
+
+.message-text li {
+  margin: 0;
+  padding: 0;
+}
+
 /* ── Mentions ── */
 .mention {
   color: var(--brand-600);

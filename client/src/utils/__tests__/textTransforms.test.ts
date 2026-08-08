@@ -32,6 +32,9 @@ describe('toggleNumbered', () => {
   it('добавляет "1. " (выделение смещается на внутренний текст)', () => {
     expect(toggleNumbered('a\nb', 0, 1)).toEqual({ value: '1. a\nb', start: 3, end: 4, allPrefixed: false });
   });
+  it('нумерует несколько выбранных строк последовательно 1., 2., 3.', () => {
+    expect(toggleNumbered('a\nb', 0, 3)).toEqual({ value: '1. a\n2. b', start: 3, end: 9, allPrefixed: false });
+  });
   it('убирает номера со всех выбранных строк', () => {
     expect(toggleNumbered('1. a\n2. b', 0, 9)).toEqual({ value: 'a\nb', start: 0, end: 3, allPrefixed: true });
   });

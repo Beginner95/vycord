@@ -20,7 +20,7 @@ function toggleLines(
   end: number,
   isPrefixed: (line: string) => boolean,
   removePrefix: (line: string) => string,
-  addPrefix: (line: string) => string,
+  addPrefix: (line: string, index: number) => string,
 ): LineToggle {
   const startIdx = lineStartIndex(value, start);
   const selEnd = end > start && value[end - 1] === '\n' ? end - 1 : end;
@@ -28,8 +28,8 @@ function toggleLines(
   const block = value.slice(startIdx, endIdx);
   const lines = block.split('\n');
   const allPrefixed = lines.every(isPrefixed);
-  const finalLines = lines.map((line) =>
-    allPrefixed ? removePrefix(line) : isPrefixed(line) ? line : addPrefix(line),
+  const finalLines = lines.map((line, i) =>
+    allPrefixed ? removePrefix(line) : isPrefixed(line) ? line : addPrefix(line, i),
   );
   const newValue = value.slice(0, startIdx) + finalLines.join('\n') + value.slice(endIdx);
   const shiftFor = (pos: number) => {
@@ -77,5 +77,5 @@ export const toggleNumbered = (value: string, start: number, end: number) =>
     end,
     (l) => /^\d+\.\s/.test(l),
     (l) => l.replace(/^\d+\.\s/, ''),
-    (l) => `1. ${l}`,
+    (l, i) => `${i + 1}. ${l}`,
   );
