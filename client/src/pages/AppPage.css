@@ -12,6 +12,12 @@
   overflow: hidden;
 }
 
+/* During a group call the call UI (GroupCallUI, flex:1) replaces ChatArea in the
+   content slot, so hide the channel chat area while a call is active. */
+.app-layout[data-in-call="true"] .chat-area {
+  display: none;
+}
+
 /* ── Modal ── */
 .modal-overlay {
   position: fixed;
@@ -327,7 +333,8 @@
   .app-layout .server-list,
   .app-layout .channel-sidebar,
   .app-layout .chat-area,
-  .app-layout .user-list {
+  .app-layout .user-list,
+  .app-layout .group-call-overlay {
     display: none;
     width: 100vw;
     min-width: 100vw;
@@ -338,4 +345,9 @@
   .app-layout[data-mobile-panel="channels"] .channel-sidebar { display: flex; }
   .app-layout[data-mobile-panel="chat"] .chat-area { display: flex; }
   .app-layout[data-mobile-panel="members"] .user-list { display: flex; }
+
+  /* In a call the call UI lives in the chat panel on mobile. */
+  .app-layout[data-in-call="true"][data-mobile-panel="chat"] .group-call-overlay {
+    display: flex;
+  }
 }

@@ -82,6 +82,8 @@ export function AppPage() {
   const [mobilePanel, setMobilePanel] = useState<MobilePanel>('servers');
   const [callNotif, setCallNotif] = useState<CallNotif | null>(null);
   const [voiceParticipants, setVoiceParticipants] = useState<Map<string, string[]>>(new Map());
+  const [inGroupCall, setInGroupCall] = useState(false);
+  const [showCallMembers, setShowCallMembers] = useState(false);
   const stopRingtoneRef = useRef<(() => void) | null>(null);
   const callNotifRef = useRef<CallNotif | null>(null);
   const handledRemovalsRef = useRef<Set<string>>(new Set());
@@ -252,6 +254,11 @@ export function AppPage() {
   const callLeaveGroupCall = () => {
     const w = window as unknown as Record<string, unknown>;
     (w.leaveGroupCall as (() => void) | undefined)?.();
+  };
+
+  const handleInCallChange = (active: boolean) => {
+    setInGroupCall(active);
+    setShowCallMembers(false);
   };
 
   const handleServerRemoved = (removedServerId: string) => {
@@ -462,7 +469,7 @@ export function AppPage() {
   return (
     <div className="app-page">
       <TitleBar />
-      <div className="app-layout" data-mobile-panel={mobilePanel}>
+      <div className="app-layout" data-mobile-panel={mobilePanel} data-in-call={inGroupCall ? 'true' : 'false'}>
         <ServerList
           servers={servers}
           currentServer={currentServer}
@@ -494,7 +501,15 @@ export function AppPage() {
           onShowMembers={() => setMobilePanel('members')}
         />
 
-        <UserList onMobileBack={() => setMobilePanel('chat')} />
+        <GroupCallUI
+          onInCallChange={handleInCallChange}
+          showMembers={showCallMembers}
+          onToggleMembers={() => setShowCallMembers((v) => !v)}
+        />
+
+        {(!inGroupCall || showCallMembers) && (
+          <UserList onMobileBack={() => setMobilePanel('chat')} />
+        )}
       </div>
 
       {showCreateServer && (
@@ -571,7 +586,6 @@ export function AppPage() {
         </div>
       )}
       <CallUI />
-      <GroupCallUI />
     </div>
   );
 }

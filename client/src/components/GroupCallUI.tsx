@@ -409,7 +409,17 @@ function RemoteParticipantTile({
   );
 }
 
-export function GroupCallUI() {
+interface GroupCallUIProps {
+  onInCallChange?: (active: boolean) => void;
+  showMembers?: boolean;
+  onToggleMembers?: () => void;
+}
+
+export function GroupCallUI({
+  onInCallChange = () => {},
+  showMembers = false,
+  onToggleMembers = () => {},
+}: GroupCallUIProps) {
   const t = useT();
   const tp = useTp();
   const { formatTime } = useDateFormat();
@@ -624,6 +634,7 @@ export function GroupCallUI() {
         if (channelId) wsService.send('voice_left', { channel_id: channelId });
         setIsReconnecting(false);
         setIsInGroupCall(false);
+        onInCallChange(false);
         setParticipants([]);
         setRemoteScreenStreams(new Map());
         setLocalQuality(undefined);
@@ -646,6 +657,7 @@ export function GroupCallUI() {
         setIsReconnecting(false);
         console.error('[GroupCall] Error:', msg);
         setIsInGroupCall(false);
+        onInCallChange(false);
         setParticipants([]);
         setRemoteScreenStreams(new Map());
         setIsMicAvailable(true);
@@ -940,6 +952,7 @@ export function GroupCallUI() {
       audioService.playUserJoined();
     }
     setIsInGroupCall(true);
+    onInCallChange(true);
     setShowChat(false);
     const micAvailable = groupCallService.isMicrophoneAvailable;
     setIsMicAvailable(micAvailable);
@@ -966,6 +979,7 @@ export function GroupCallUI() {
     }
     groupCallService.leaveGroupCall();
     setIsInGroupCall(false);
+    onInCallChange(false);
     setIsReconnecting(false);
     setParticipants([]);
     setIsScreenSharing(false);
@@ -1134,6 +1148,13 @@ export function GroupCallUI() {
             <span className="header-screen-share-indicator">🖥 {t('call.screenSharingActive')}</span>
           )}
           <span className="participant-count">{tp('call.participants', totalParticipants)}</span>
+          <button
+            className={`call-members-toggle ${showMembers ? 'active' : ''}`}
+            onClick={onToggleMembers}
+            title={tp('call.participants', totalParticipants)}
+          >
+            👥 {tp('call.participants', totalParticipants)}
+          </button>
         </div>
       </div>
 
