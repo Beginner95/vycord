@@ -605,6 +605,20 @@ export function GroupCallUI() {
           setFocusedUserId(target);
         }
       },
+      onSharingPeers: (ids) => {
+        // Authoritative "who is sharing right now" snapshot from the SFU's
+        // 'joined' notification (initial join AND reconnects). Union with what we
+        // already know — a reconnect's onReconnected may have just restored a
+        // watched user, and onSharingPeers must not erase that. This is what fixes
+        // the Watch button never appearing for a viewer who joins (or reconnects)
+        // while a share is already active: the app-WS screen_share_started
+        // broadcast is fire-and-forget and late joiners miss it.
+        setScreenSharers((prev) => {
+          const next = new Set(prev);
+          for (const uid of ids) next.add(uid);
+          return next;
+        });
+      },
       onCallEnded: () => {
         const channelId = groupCallService.currentRoomIdState;
         if (channelId) wsService.send('voice_left', { channel_id: channelId });

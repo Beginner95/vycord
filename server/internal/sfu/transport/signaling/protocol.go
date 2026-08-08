@@ -39,6 +39,11 @@ type UnwatchSharePayload struct {
 type JoinedPayload struct {
 	RoomID        string   `json:"room_id"`
 	ExistingPeers []string `json:"existing_peers"`
+	// SharingPeers lists the existing participants who are screen-sharing right
+	// now. Lets a joining viewer surface the Watch button for an already-active
+	// share, which the app-WS 'screen_share_started' broadcast alone never
+	// delivers to late joiners.
+	SharingPeers []string `json:"sharing_peers"`
 }
 
 type OfferPayload struct {

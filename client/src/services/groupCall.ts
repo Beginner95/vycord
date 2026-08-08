@@ -78,6 +78,10 @@ interface SignalingMessage {
 interface JoinedPayload {
   room_id: string;
   existing_peers: string[];
+  // userIds of peers already sharing their screen when we (re)joined. The app-WS
+  // 'screen_share_started' broadcast is fire-and-forget and late joiners miss it,
+  // so this snapshot is the only way a viewer learns about an already-active share.
+  sharing_peers?: string[];
 }
 
 interface OfferPayload {
@@ -128,6 +132,10 @@ export interface GroupCallCallbacks {
   onReconnecting?: () => void;
   // Fired when auto-reconnect restored the call.
   onReconnected?: () => void;
+  // Called on 'joined' with the userIds of peers who are screen-sharing right now
+  // (authoritative snapshot from the SFU — the app-WS broadcast is missed by
+  // late joiners/reconnects). Replaces any previously-known share state.
+  onSharingPeers?: (userIds: string[]) => void;
   // Fired periodically with the local user's uplink connection-quality sample.
   onLocalQuality?: (metrics: ConnectionQualityMetrics) => void;
 }
@@ -986,6 +994,12 @@ class GroupCallService {
           // rendering that would create a ghost self-tile.
           const peers = (joined.existing_peers ?? []).filter((uid) => uid !== userId);
           peers.forEach((uid) => this.callbacks?.onPeerJoined(uid, 'snapshot'));
+          // Let the UI learn about already-active screen shares from the SFU
+          // snapshot (filter out a stale self entry the same way as existing_peers).
+          // network reconnects re-fire 'joined', which re-delivers the authoritative
+          // share state — rebuilding the Watch button the broadcast miss erased.
+          const sharingPeers = (joined.sharing_peers ?? []).filter((uid) => uid !== userId);
+          if (sharingPeers.length > 0) this.callbacks?.onSharingPeers?.(sharingPeers);
           socket.onmessage = (ev) => {
             if (this.ws !== socket) return;
             const m = JSON.parse(ev.data as string) as SignalingMessage;

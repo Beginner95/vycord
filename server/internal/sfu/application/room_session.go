@@ -276,6 +276,25 @@ func (rs *RoomSession) ExistingParticipants() []string {
 	return ids
 }
 
+// ExistingSharingPeers returns the user IDs of every participant whose
+// sharingActive flag is set — i.e. who is screen-sharing RIGHT NOW. This is the
+// authoritative snapshot of active shares (as opposed to the existence of a
+// screen track, which persists for the rest of the call even after sharing
+// stops). It is included in the 'joined' notification so a participant who joins
+// or reconnects mid-share can surface the Watch button instead of relying on the
+// fire-and-forget app-WS 'screen_share_started' broadcast, which late joiners always miss.
+func (rs *RoomSession) ExistingSharingPeers() []string {
+	rs.mu.RLock()
+	defer rs.mu.RUnlock()
+	out := make([]string, 0)
+	for _, ps := range rs.sessions {
+		if ps.Participant.IsSharingActive() {
+			out = append(out, ps.Participant.UserID)
+		}
+	}
+	return out
+}
+
 // WatchShare registers subscriberParticipantID as watching targetUserID's
 // screen share. If a share is currently active, the subscriber immediately
 // receives the current screen tracks — this is the primary delivery path from
