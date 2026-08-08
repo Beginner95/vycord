@@ -18,7 +18,7 @@
     "build": "npm run build:vite && npm run build:electron-main",
     "dist": "npm run build && electron-builder",
     "preview": "vite preview",
-    "test": "vitest run",
+    "test": "vitest run --passWithNoTests",
     "test:watch": "vitest",
     "test:e2e": "bash e2e/run.sh",
     "smoke:aec3": "node scripts/smoke-test-aec3.mjs",
