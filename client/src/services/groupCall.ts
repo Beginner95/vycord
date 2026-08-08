@@ -168,6 +168,11 @@ class GroupCallService {
   // per-renderer cap makes `new AudioContext()` throw, breaking every later join.
   private dummyScreenAudioTrack: MediaStreamTrack | null = null;
   private dummyScreenAudioContext: AudioContext | null = null;
+  // Silent placeholder track for the mic slot when no microphone is present, so
+  // the slot is non-empty and the screen-audio addTrack below can't reuse (and
+  // thereby collapse) it. Managed like dummyScreenAudioTrack.
+  private dummyMicAudioTrack: MediaStreamTrack | null = null;
+  private dummyMicAudioContext: AudioContext | null = null;
   // Detaches the AEC3 AudioWorkletNode/worker used to strip call-audio echo
   // out of the captured system audio before it is sent via screenAudioSender —
   // see startScreenShare/stopScreenShare.
@@ -872,13 +877,33 @@ class GroupCallService {
     return track;
   }
 
-  // Stops the screen-audio placeholder track and closes its AudioContext.
+  // Stopping the screen-audio placeholder track and closing its AudioContext.
   // close() is a Promise — fire-and-forget, teardown must not block on it.
   private releaseDummyScreenAudio(): void {
     this.dummyScreenAudioTrack?.stop();
     this.dummyScreenAudioTrack = null;
     this.dummyScreenAudioContext?.close().catch(() => {});
     this.dummyScreenAudioContext = null;
+  }
+
+  // Creates a running-silent audio track to fill the mic slot when the user has
+  // no microphone. Distinct from the screen-audio dummy so the two slots never
+  // share a track object.
+  private createMicDummyAudioTrack(): MediaStreamTrack {
+    this.releaseMicDummyAudio();
+    const ctx = new AudioContext();
+    this.dummyMicAudioContext = ctx;
+    const destination = ctx.createMediaStreamDestination();
+    const track = destination.stream.getAudioTracks()[0];
+    this.dummyMicAudioTrack = track;
+    return track;
+  }
+
+  private releaseMicDummyAudio(): void {
+    this.dummyMicAudioTrack?.stop();
+    this.dummyMicAudioTrack = null;
+    this.dummyMicAudioContext?.close().catch(() => {});
+    this.dummyMicAudioContext = null;
   }
 
   private async acquireMedia(): Promise<MediaStream | null> {
@@ -1108,9 +1133,10 @@ class GroupCallService {
         // Mic denied/unavailable while a camera exists (acquireMedia's
         // video-only fallback). The slot must still be reserved, otherwise the
         // only audio transceiver on this PC would be the screen-audio one and
-        // the server would bind it to its mic slot. Trackless is correct here:
-        // there is genuinely nothing to send, same as the no-media branch below.
-        pc.addTransceiver('audio', { direction: 'sendrecv' });
+        // the server would bind it to its mic slot. A silent track (not a
+        // trackless transceiver) keeps the slot non-empty so the screen-audio
+        // addTrack below creates its own transceiver instead of reusing this one.
+        pc.addTrack(this.createMicDummyAudioTrack(), new MediaStream([this.dummyMicAudioTrack!]));
       }
 
       // [1] camera-video. If there is no camera, a dummy track (not a trackless
@@ -1126,9 +1152,10 @@ class GroupCallService {
         pc.addTrack(this.dummyVideoTrack, this.localStream);
       }
     } else {
-      // No local media at all. Audio stays a trackless transceiver (nothing to send
-      // without a mic), but video still needs a dummy track for screen sharing.
-      pc.addTransceiver('audio', { direction: 'sendrecv' }); // [0]
+      // No local media at all. Audio gets a silent dummy track (non-empty, so the
+      // screen-audio addTrack below can't reuse it); video still needs a dummy
+      // track for screen sharing.
+      pc.addTrack(this.createMicDummyAudioTrack(), new MediaStream([this.dummyMicAudioTrack!])); // [0]
       this.dummyVideoTrack = this.createDummyVideoTrack();
       pc.addTrack(this.dummyVideoTrack, new MediaStream([this.dummyVideoTrack])); // [1]
     }
@@ -1138,25 +1165,21 @@ class GroupCallService {
     // share later is a plain replaceTrack with no renegotiation — same reasoning
     // as the camera dummy track above.
     //
-    // addTransceiver(track) rather than addTrack(track): addTrack may REUSE an
-    // existing transceiver of the same kind whose sender has no track (per the
-    // WebRTC spec's addTrack algorithm), which would silently swallow the
-    // screen-audio dummy into the trackless mic slot created above and collapse
-    // the four slots into three. addTransceiver with an explicit track always
-    // creates a new transceiver, so the order above can never be cannibalised.
+    // Use addTrack (NOT addTransceiver-with-sendrecv): client measurements show
+    // addTransceiver(track, {direction:'sendrecv'}) leaves the sender ORPHANED
+    // (mid=null, currentDirection=null) against the server's recvonly offer
+    // m-line, so the screen slot never transmits. addTrack binds to its m-line
+    // exactly like the mic/camera senders. Reuse is avoided because every
+    // preceding sender of the same kind already carries a track (mic/camera are
+    // non-empty here), so addTrack creates a genuinely new transceiver instead of
+    // cannibalising an earlier slot.
     this.dummyScreenVideoTrack = this.createDummyVideoTrack();
     const screenVideoStream = new MediaStream([this.dummyScreenVideoTrack]);
-    this.screenVideoSender = pc.addTransceiver(this.dummyScreenVideoTrack, {
-      direction: 'sendrecv',
-      streams: [screenVideoStream],
-    }).sender;
+    this.screenVideoSender = pc.addTrack(this.dummyScreenVideoTrack, screenVideoStream);
 
     const dummyScreenAudioTrack = this.createDummyAudioTrack();
     const screenAudioStream = new MediaStream([dummyScreenAudioTrack]);
-    this.screenAudioSender = pc.addTransceiver(dummyScreenAudioTrack, {
-      direction: 'sendrecv',
-      streams: [screenAudioStream],
-    }).sender;
+    this.screenAudioSender = pc.addTrack(dummyScreenAudioTrack, screenAudioStream);
 
     gcLog(this.currentUserId, 'PC created', {
       localTracksAdded: addedTracks,
@@ -1737,6 +1760,7 @@ class GroupCallService {
     this.dummyScreenVideoTrack?.stop();
     this.dummyScreenVideoTrack = null;
     this.releaseDummyScreenAudio();
+    this.releaseMicDummyAudio();
 
     if (this.localStream) {
       // Демонтаж NC-цепочки: стопает raw-треки микрофона, закрывает AudioContext
