@@ -1,5 +1,9 @@
-import { useState, useEffect, useRef, type FormEvent, type KeyboardEvent, type ChangeEvent } from 'react';
+import { useState, useEffect, useRef, type FormEvent, type KeyboardEvent, type ChangeEvent, type ClipboardEvent } from 'react';
+import type { RefObject } from 'react';
 import { useMessageStore } from '@/stores/messageStore';
+import { LinkDialog } from '@/components/LinkDialog';
+import { toggleQuote, toggleBullet, toggleNumbered, toggleWrap, type LineToggle } from '@/utils/textTransforms';
+import { isUnsafeUrl } from '@/utils/markdown';
 import type { Message } from '@/types';
 import { apiService, apiErrorText } from '@/services/api';
 import { wsService } from '@/services/websocket';
@@ -36,40 +40,6 @@ function lineRangeForSelection(value: string, start: number, end: number) {
   const endIdx = value.indexOf('\n', searchFrom);
   const lineEnd = endIdx === -1 ? value.length : endIdx;
   return { lineStart, lineEnd };
-}
-
-function toggleQuoteLinesInRange(value: string, start: number, end: number) {
-  const { lineStart, lineEnd } = lineRangeForSelection(value, start, end);
-  const block = value.slice(lineStart, lineEnd);
-  const lines = block.split('\n');
-  const allQuoted = lines.every((line) => line.startsWith(QUOTE_PREFIX));
-  const newLines = lines.map((line) => {
-    if (allQuoted) return line.slice(QUOTE_PREFIX.length);
-    return line.startsWith(QUOTE_PREFIX) ? line : `${QUOTE_PREFIX}${line}`;
-  });
-  const newBlock = newLines.join('\n');
-  const newValue = value.slice(0, lineStart) + newBlock + value.slice(lineEnd);
-  const delta = newBlock.length - block.length;
-
-  // How far a position within [lineStart, lineEnd] shifts after the toggle: the
-  // sum of the per-line length deltas for every line up to and including the
-  // line the position sits on. A line's prefix is always inserted/removed at
-  // that line's own start, which is at-or-before any position within it, so
-  // that line's full delta always applies — this is the same reasoning the
-  // old single-line `toggleQuotePrefix` relied on (`pos = caret + delta`),
-  // generalized to a block that can contain several lines with different
-  // per-line deltas (e.g. a mixed selection where some lines were already
-  // quoted and others weren't, in add-mode).
-  const shiftFor = (pos: number) => {
-    const lineIndex = (value.slice(lineStart, pos).match(/\n/g) ?? []).length;
-    let shift = 0;
-    for (let i = 0; i <= lineIndex && i < lines.length; i++) {
-      shift += newLines[i].length - lines[i].length;
-    }
-    return shift;
-  };
-
-  return { newValue, delta, allQuoted, shiftFor };
 }
 
 function renderMessageContent(content: string, members: MemberWithUser[], t: TFunc, currentUserId?: string) {
@@ -376,16 +346,50 @@ export function ChatArea({ channel, user, onMobileBack, onShowMembers }: ChatAre
     updateQuoteButtonActive(e.target.value, e.target.selectionStart ?? undefined);
   };
 
+  const applyRangeToggle = (
+    value: string,
+    setValue: (v: string) => void,
+    ref: RefObject<HTMLTextAreaElement | null>,
+    fn: (v: string, s: number, e: number) => LineToggle,
+  ) => {
+    const el = ref.current;
+    if (!el) return;
+    const s = el.selectionStart ?? value.length;
+    const e = el.selectionEnd ?? value.length;
+    const r = fn(value, s, e);
+    setValue(r.value);
+    requestAnimationFrame(() => {
+      el.focus();
+      el.setSelectionRange(r.start, r.end);
+    });
+  };
+
+  const wrapSelection = (
+    value: string,
+    setValue: (v: string) => void,
+    ref: RefObject<HTMLTextAreaElement | null>,
+    marker: string,
+  ) => {
+    const el = ref.current;
+    if (!el) return;
+    const s = el.selectionStart ?? value.length;
+    const e = el.selectionEnd ?? value.length;
+    const r = toggleWrap(value, s, e, marker);
+    setValue(r.value);
+    requestAnimationFrame(() => {
+      el.focus();
+      el.setSelectionRange(r.start, r.end);
+    });
+  };
+
   const toggleQuotePrefixRange = (start: number, end: number) => {
     const el = inputRef.current;
-    const { newValue, allQuoted, shiftFor } = toggleQuoteLinesInRange(input, start, end);
-    const newStart = start + shiftFor(start);
-    const newEnd = end + shiftFor(end);
-    setInput(newValue);
-    setCaretInQuoteLine(!allQuoted);
+    const r = toggleQuote(input, start, end);
+    setInput(r.value);
+    setCaretInQuoteLine(!r.allPrefixed);
     requestAnimationFrame(() => {
       el?.focus();
-      el?.setSelectionRange(newStart, newEnd);
+      el?.setSelectionRange(r.start, r.end);
     });
   };
 
@@ -394,6 +398,56 @@ export function ChatArea({ channel, user, onMobileBack, onShowMembers }: ChatAre
     const start = el?.selectionStart ?? input.length;
     const end = el?.selectionEnd ?? input.length;
     toggleQuotePrefixRange(start, end);
+  };
+
+  const composeWrap = (marker: string) => wrapSelection(input, setInput, inputRef, marker);
+  const composeBullet = () => applyRangeToggle(input, setInput, inputRef, toggleBullet);
+  const composeNumbered = () => applyRangeToggle(input, setInput, inputRef, toggleNumbered);
+
+  const editWrap = (marker: string) => wrapSelection(editValue, setEditValue, editInputRef, marker);
+  const editBullet = () => applyRangeToggle(editValue, setEditValue, editInputRef, toggleBullet);
+  const editNumbered = () => applyRangeToggle(editValue, setEditValue, editInputRef, toggleNumbered);
+
+  const [linkTarget, setLinkTarget] = useState<'compose' | 'edit' | null>(null);
+  const openLinkFor = (target: 'compose' | 'edit') => setLinkTarget(target);
+
+  const insertLink = (label: string, url: string) => {
+    const isEdit = linkTarget === 'edit';
+    const value = isEdit ? editValue : input;
+    const ref = isEdit ? editInputRef : inputRef;
+    const setValue = isEdit ? setEditValue : setInput;
+    const el = ref.current;
+    if (!el) return;
+    const text = label || url;
+    const token = `[${text}](${url})`;
+    const start = el.selectionStart ?? value.length;
+    const end = el.selectionEnd ?? value.length;
+    const next = value.slice(0, start) + token + value.slice(end);
+    setValue(next);
+    setLinkTarget(null);
+    requestAnimationFrame(() => {
+      el.focus();
+      el.setSelectionRange(start + token.length, start + token.length);
+    });
+  };
+
+  const handleComposePaste = (e: ClipboardEvent<HTMLTextAreaElement>) => {
+    const el = e.currentTarget;
+    const start = el.selectionStart ?? 0;
+    const end = el.selectionEnd ?? 0;
+    const text = e.clipboardData?.getData('text/plain') ?? '';
+    const sel = el.value.slice(start, end);
+    if (start !== end && sel.trim() && text.trim() && !isUnsafeUrl(text.trim())) {
+      e.preventDefault();
+      const token = `[${sel.trim()}](${text.trim()})`;
+      const next = el.value.slice(0, start) + token + el.value.slice(end);
+      setInput(next);
+      requestAnimationFrame(() => {
+        el.focus();
+        el.setSelectionRange(start + token.length, start + token.length);
+      });
+    }
+    setCaretInQuoteLine(false);
   };
 
   const composeSelectionToolbar = useFloatingSelectionToolbar({
@@ -475,13 +529,11 @@ export function ChatArea({ channel, user, onMobileBack, onShowMembers }: ChatAre
 
   const toggleEditQuotePrefixRange = (start: number, end: number) => {
     const el = editInputRef.current;
-    const { newValue, shiftFor } = toggleQuoteLinesInRange(editValue, start, end);
-    const newStart = start + shiftFor(start);
-    const newEnd = end + shiftFor(end);
-    setEditValue(newValue);
+    const r = toggleQuote(editValue, start, end);
+    setEditValue(r.value);
     requestAnimationFrame(() => {
       el?.focus();
-      el?.setSelectionRange(newStart, newEnd);
+      el?.setSelectionRange(r.start, r.end);
     });
   };
 
@@ -673,6 +725,20 @@ export function ChatArea({ channel, user, onMobileBack, onShowMembers }: ChatAre
                           rows={1}
                           autoFocus
                         />
+                        <div className="chat-input-toolbar">
+                          <button type="button" className="toolbar-btn" aria-label={t('chat.bold')} title={t('chat.bold')} onClick={() => editWrap('**')}><strong className="toolbar-txt">B</strong></button>
+                          <button type="button" className="toolbar-btn" aria-label={t('chat.italic')} title={t('chat.italic')} onClick={() => editWrap('*')}><em className="toolbar-txt">I</em></button>
+                          <button type="button" className="toolbar-btn" aria-label={t('chat.underline')} title={t('chat.underline')} onClick={() => editWrap('__')}><u className="toolbar-txt">U</u></button>
+                          <button type="button" className="toolbar-btn" aria-label={t('chat.link')} title={t('chat.link')} onClick={() => openLinkFor('edit')}>
+                            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+                          </button>
+                          <button type="button" className="toolbar-btn" aria-label={t('chat.numberedList')} title={t('chat.numberedList')} onClick={editNumbered}>
+                            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 6h12"/><path d="M4 12h12"/><path d="M4 18h12"/><path d="M15 7.5l2.5-2.5 1.5 1.5L17.5 9z"/><path d="M15 14l2.5-2.5 1.5 1.5L17.5 15.5z"/><path d="M15 20.5l2.5-2.5 1.5 1.5L17.5 22z"/></svg>
+                          </button>
+                          <button type="button" className="toolbar-btn" aria-label={t('chat.bulletedList')} title={t('chat.bulletedList')} onClick={editBullet}>
+                            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 6h11M9 12h11M9 18h11"/><path d="M4 6h.01M4 12h.01M4 18h.01"/></svg>
+                          </button>
+                        </div>
                         {editMention.mentionQuery !== null && editMention.mentionEntries.length > 0 && (
                           <ul className="mention-dropdown">
                             {editMention.mentionEntries.map((entry, i) => (
@@ -735,12 +801,31 @@ export function ChatArea({ channel, user, onMobileBack, onShowMembers }: ChatAre
         <div className="chat-input-toolbar">
           <button
             type="button"
-            className={`quote-toggle-btn${caretInQuoteLine ? ' active' : ''}`}
+            className={`toolbar-btn${caretInQuoteLine ? ' active' : ''}`}
             aria-pressed={caretInQuoteLine}
+            aria-label={t('chat.quote')}
+            title={t('chat.quote')}
             onClick={toggleQuotePrefix}
           >
             <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 21c3 0 7-1 7-8V5c0-1.25-.756-2.017-2-2H4c-1.25 0-2 .75-2 1.972V11c0 1.25.75 2 2 2 1 0 1 0 1 1v1c0 1-1 2-2 2s-1 .008-1 1.031V20c0 1 0 1 1 1z"/><path d="M15 21c3 0 7-1 7-8V5c0-1.25-.757-2.017-2-2h-4c-1.25 0-2 .75-2 1.972V11c0 1.25.75 2 2 2h.75c0 2.25.25 4-2.75 4v3c0 1 0 1 1 1z"/></svg>
-            <span>{t('chat.quote')}</span>
+          </button>
+          <button type="button" className="toolbar-btn" aria-label={t('chat.bold')} title={t('chat.bold')} onClick={() => composeWrap('**')}>
+            <strong className="toolbar-txt">B</strong>
+          </button>
+          <button type="button" className="toolbar-btn" aria-label={t('chat.italic')} title={t('chat.italic')} onClick={() => composeWrap('*')}>
+            <em className="toolbar-txt">I</em>
+          </button>
+          <button type="button" className="toolbar-btn" aria-label={t('chat.underline')} title={t('chat.underline')} onClick={() => composeWrap('__')}>
+            <u className="toolbar-txt">U</u>
+          </button>
+          <button type="button" className="toolbar-btn" aria-label={t('chat.link')} title={t('chat.link')} onClick={() => openLinkFor('compose')}>
+            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+          </button>
+          <button type="button" className="toolbar-btn" aria-label={t('chat.numberedList')} title={t('chat.numberedList')} onClick={composeNumbered}>
+            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 6h12"/><path d="M4 12h12"/><path d="M4 18h12"/><path d="M15 7.5l2.5-2.5 1.5 1.5L17.5 9z"/><path d="M15 14l2.5-2.5 1.5 1.5L17.5 15.5z"/><path d="M15 20.5l2.5-2.5 1.5 1.5L17.5 22z"/></svg>
+          </button>
+          <button type="button" className="toolbar-btn" aria-label={t('chat.bulletedList')} title={t('chat.bulletedList')} onClick={composeBullet}>
+            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 6h11M9 12h11M9 18h11"/><path d="M4 6h.01M4 12h.01M4 18h.01"/></svg>
           </button>
         </div>
         <form onSubmit={handleSubmit}>
@@ -749,6 +834,7 @@ export function ChatArea({ channel, user, onMobileBack, onShowMembers }: ChatAre
             value={input}
             onChange={handleComposeChange}
             onKeyDown={handleComposeKeyDown}
+            onPaste={handleComposePaste}
             onSelect={() => updateQuoteButtonActive()}
             onClick={() => updateQuoteButtonActive()}
             onKeyUp={() => updateQuoteButtonActive()}
@@ -809,6 +895,11 @@ export function ChatArea({ channel, user, onMobileBack, onShowMembers }: ChatAre
           <span>{t('chat.jumpToLatest')}</span>
         </button>
       )}
+      <LinkDialog
+        open={linkTarget !== null}
+        onClose={() => setLinkTarget(null)}
+        onInsert={insertLink}
+      />
     </main>
   );
 }
