@@ -85,6 +85,66 @@
 }
 
 /* ── Custom checkbox (e.g. "private server" toggle) ── */
+.modal .channel-type-options {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.modal .channel-type-options label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: var(--radius-md);
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-primary);
+  cursor: pointer;
+  user-select: none;
+  transition: background var(--transition);
+}
+
+.modal .channel-type-options label:hover {
+  background: var(--bg-hover);
+}
+
+.modal .channel-type-options input[type="radio"] {
+  width: 18px;
+  height: 18px;
+  min-width: 18px;
+  padding: 0;
+  margin: 0;
+  border: 1.5px solid var(--border-color);
+  border-radius: 50%;
+  background: var(--bg-primary);
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: all var(--transition);
+}
+
+.modal .channel-type-options input[type="radio"]:hover {
+  border-color: var(--brand-400);
+}
+
+.modal .channel-type-options input[type="radio"]:checked {
+  border-color: var(--brand-color);
+}
+
+.modal .channel-type-options input[type="radio"]:checked::after {
+  content: '';
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--brand-color);
+  animation: scaleIn 0.15s var(--ease-out);
+}
+
 .modal .form-group.form-checkbox label {
   display: flex;
   align-items: center;
