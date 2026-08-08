@@ -82,8 +82,10 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	// Get existing peers before joining (for the joined notification).
 	existingPeers := []string{}
+	sharingPeers := []string{}
 	if rs, ok := h.manager.GetRoom(roomID); ok {
 		existingPeers = rs.ExistingParticipants()
+		sharingPeers = rs.ExistingSharingPeers()
 	}
 
 	rs, ps, err := h.manager.Join(roomID, participantID, userID, sigSession)
@@ -124,6 +126,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	_ = sigSession.Notify("joined", JoinedPayload{
 		RoomID:        roomID,
 		ExistingPeers: existingPeers,
+		SharingPeers:  sharingPeers,
 	})
 
 	// Notify existing participants.
@@ -181,8 +184,16 @@ func (h *Handler) routeMessage(
 		h.handleUnwatchShare(rs, ps, msg, userID)
 
 	case "screen_share_start":
+		var p ScreenShareStartPayload
+		if err := json.Unmarshal(msg.Payload, &p); err != nil {
+			p = ScreenShareStartPayload{}
+		}
+		ps.Participant.SetScreenTrackID(p.TrackID)
 		rs.SetSharingActive(ps.Participant.ID, true)
-		h.log.Info("screen share started", "user_id", userID)
+		h.log.Info("screen share started",
+			"user_id", userID,
+			"screen_track_id", p.TrackID,
+		)
 
 	case "screen_share_stop":
 		rs.SetSharingActive(ps.Participant.ID, false)

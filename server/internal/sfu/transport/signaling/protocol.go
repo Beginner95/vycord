@@ -34,11 +34,25 @@ type UnwatchSharePayload struct {
 	TargetUserID string `json:"target_user_id"`
 }
 
+// ScreenShareStartPayload is sent by a participant right before their screen
+// video RTP starts flowing. TrackID is the wire ID of the screen video track the
+// SFU will publish — the SFU uses it to classify the track as RoleScreen by id
+// (not by m-line position, which is unreliable: some clients negotiate the
+// screen video onto the same m-line as the camera).
+type ScreenShareStartPayload struct {
+	TrackID string `json:"track_id"`
+}
+
 // --- Server → Client ---
 
 type JoinedPayload struct {
 	RoomID        string   `json:"room_id"`
 	ExistingPeers []string `json:"existing_peers"`
+	// SharingPeers lists the existing participants who are screen-sharing right
+	// now. Lets a joining viewer surface the Watch button for an already-active
+	// share, which the app-WS 'screen_share_started' broadcast alone never
+	// delivers to late joiners.
+	SharingPeers []string `json:"sharing_peers"`
 }
 
 type OfferPayload struct {

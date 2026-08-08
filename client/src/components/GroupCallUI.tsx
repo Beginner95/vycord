@@ -605,6 +605,20 @@ export function GroupCallUI() {
           setFocusedUserId(target);
         }
       },
+      onSharingPeers: (ids) => {
+        // Authoritative "who is sharing right now" snapshot from the SFU's
+        // 'joined' notification (initial join AND reconnects). Union with what we
+        // already know — a reconnect's onReconnected may have just restored a
+        // watched user, and onSharingPeers must not erase that. This is what fixes
+        // the Watch button never appearing for a viewer who joins (or reconnects)
+        // while a share is already active: the app-WS screen_share_started
+        // broadcast is fire-and-forget and late joiners miss it.
+        setScreenSharers((prev) => {
+          const next = new Set(prev);
+          for (const uid of ids) next.add(uid);
+          return next;
+        });
+      },
       onCallEnded: () => {
         const channelId = groupCallService.currentRoomIdState;
         if (channelId) wsService.send('voice_left', { channel_id: channelId });
@@ -785,18 +799,40 @@ export function GroupCallUI() {
   useEffect(() => {
     const el = focusedVideoRef.current;
     if (!el || !focusedUserId) return;
-    if (screenSharers.has(focusedUserId)) {
-      const screenStream = remoteScreenStreams.get(focusedUserId);
-      if (screenStream && el.srcObject !== screenStream) {
+    // Prefer the dedicated screen-share stream whenever one is present for the
+    // focused user — regardless of the screenSharers set. screenSharers is fed by
+    // a separate app-WS broadcast and can lag/desync (or a late-join broadcast can
+    // be missed), so requiring it here too could wrongly fall through to the
+    // sharer's webcam even though the screen stream already arrived.
+    const screenStream = remoteScreenStreams.get(focusedUserId);
+    if (screenStream) {
+      if (el.srcObject !== screenStream) {
         el.srcObject = screenStream;
-        el.muted = false;
-        el.play().catch(() => {});
-      } else if (!screenStream) {
-        // Focus switched to a sharer whose stream hasn't arrived yet — mute so
-        // the PREVIOUS sharer's audio (still in srcObject, still unmuted) stops
-        // immediately instead of playing on until the new stream lands.
+        // Autoplay-policy workaround, mirroring attachStreamToElement: this is the
+        // first (and only) time the screen stream ever plays — it never sits on a
+        // thumbnail, whose earlier attachStreamToElement play would have unlocked
+        // autoplay for it. By the time focus-click → watch_share → renegotiation →
+        // ontrack completes, the "Смотреть" user activation has usually expired, so
+        // an unmuted el.play() here gets rejected → element stays paused → black
+        // screen. Play muted (always allowed), then unmute — allowing playback of a
+        // playing element cannot be blocked, and this is how screen audio starts.
         el.muted = true;
+        el.play()
+          .then(() => {
+            el.muted = false;
+          })
+          .catch(() => {
+            el.muted = false;
+          });
       }
+      return;
+    }
+    if (screenSharers.has(focusedUserId)) {
+      // Known sharer whose stream hasn't arrived yet — keep muted and wait (the
+      // retry effect below keeps watch_share alive). Never fall back to the
+      // webcam here, otherwise the viewer sees the sharer's camera with no
+      // share video/audio.
+      el.muted = true;
       return;
     }
     const participant = participants.find((pt) => pt.userId === focusedUserId);
@@ -820,6 +856,32 @@ export function GroupCallUI() {
     if (nextWatched) groupCallService.watchShare(nextWatched);
     prevWatchedRef.current = nextWatched;
   }, [focusedUserId, screenSharers]);
+
+  // Self-heal the watch subscription for a focused sharer whose screen stream
+  // hasn't arrived yet. The SFU forwards existing screen tracks at watch_share
+  // time only if the publisher's sharing flag AND screen tracks are already
+  // registered; if watch_share landed in the pre-registration window the SFU
+  // delivered nothing. Retrying is idempotent on the server (a duplicate
+  // watch_share for a registered watcher is a no-op), so we safely bridge that
+  // window until the focused screen stream shows up. Stops once the stream lands
+  // or the sharer is no longer in screenSharers.
+  useEffect(() => {
+    if (!focusedUserId) return;
+    if (!screenSharers.has(focusedUserId)) return;
+    if (remoteScreenStreams.has(focusedUserId)) return;
+    const timer = setInterval(() => {
+      if (!screenSharers.has(focusedUserId)) {
+        clearInterval(timer);
+        return;
+      }
+      if (remoteScreenStreams.get(focusedUserId)) {
+        clearInterval(timer);
+        return;
+      }
+      groupCallService.watchShare(focusedUserId);
+    }, 800);
+    return () => clearInterval(timer);
+  }, [focusedUserId, screenSharers, remoteScreenStreams]);
 
   // Clear focus when focused participant leaves the call
   useEffect(() => {

@@ -78,6 +78,10 @@ interface SignalingMessage {
 interface JoinedPayload {
   room_id: string;
   existing_peers: string[];
+  // userIds of peers already sharing their screen when we (re)joined. The app-WS
+  // 'screen_share_started' broadcast is fire-and-forget and late joiners miss it,
+  // so this snapshot is the only way a viewer learns about an already-active share.
+  sharing_peers?: string[];
 }
 
 interface OfferPayload {
@@ -128,6 +132,10 @@ export interface GroupCallCallbacks {
   onReconnecting?: () => void;
   // Fired when auto-reconnect restored the call.
   onReconnected?: () => void;
+  // Called on 'joined' with the userIds of peers who are screen-sharing right now
+  // (authoritative snapshot from the SFU — the app-WS broadcast is missed by
+  // late joiners/reconnects). Replaces any previously-known share state.
+  onSharingPeers?: (userIds: string[]) => void;
   // Fired periodically with the local user's uplink connection-quality sample.
   onLocalQuality?: (metrics: ConnectionQualityMetrics) => void;
 }
@@ -160,6 +168,11 @@ class GroupCallService {
   // per-renderer cap makes `new AudioContext()` throw, breaking every later join.
   private dummyScreenAudioTrack: MediaStreamTrack | null = null;
   private dummyScreenAudioContext: AudioContext | null = null;
+  // Silent placeholder track for the mic slot when no microphone is present, so
+  // the slot is non-empty and the screen-audio addTrack below can't reuse (and
+  // thereby collapse) it. Managed like dummyScreenAudioTrack.
+  private dummyMicAudioTrack: MediaStreamTrack | null = null;
+  private dummyMicAudioContext: AudioContext | null = null;
   // Detaches the AEC3 AudioWorkletNode/worker used to strip call-audio echo
   // out of the captured system audio before it is sent via screenAudioSender —
   // see startScreenShare/stopScreenShare.
@@ -491,7 +504,7 @@ class GroupCallService {
       // the SFU needs an explicit keyframe push.
       this.requestKeyframeWithRetry();
       if (this.ws?.readyState === WebSocket.OPEN) {
-        this.ws.send(JSON.stringify({ type: 'screen_share_start', payload: {} }));
+        this.ws.send(JSON.stringify({ type: 'screen_share_start', payload: { track_id: track.id } }));
       }
       // Re-announce over the app WS too: our outage cleared everyone else's
       // screenSharers state, and screen_share_start above never leaves the SFU.
@@ -620,6 +633,14 @@ class GroupCallService {
       throw new Error('Screen stream has no video track');
     }
 
+    // Tell the SFU the wire ID of the upcoming screen video track BEFORE it starts
+    // flowing (replaceTrack below makes RTP begin). The server marks this track id
+    // as RoleScreen, so even a client that negotiates the screen video onto the
+    // camera m-line is still recognized as a screen share by the viewer.
+    if (this.ws?.readyState === WebSocket.OPEN) {
+      this.ws.send(JSON.stringify({ type: 'screen_share_start', payload: { track_id: screenTrack.id } }));
+    }
+
     // Chrome treats screen-capture tracks as 'detail' content by default and,
     // when constrained by bandwidth or CPU, keeps resolution while dropping
     // framerate — the share stays sharp but turns into a few-fps slideshow.
@@ -710,10 +731,6 @@ class GroupCallService {
     // Retry because OnTrack on the SFU side may not have fired yet (first RTP
     // packet hasn't arrived); retries at 200ms and 800ms cover that window.
     this.requestKeyframeWithRetry();
-
-    if (this.ws?.readyState === WebSocket.OPEN) {
-      this.ws.send(JSON.stringify({ type: 'screen_share_start', payload: {} }));
-    }
 
     gcLog(this.currentUserId, 'screen share started', { sourceId: sourceId?.slice(0, 16) ?? 'getDisplayMedia', quality });
   }
@@ -860,13 +877,33 @@ class GroupCallService {
     return track;
   }
 
-  // Stops the screen-audio placeholder track and closes its AudioContext.
+  // Stopping the screen-audio placeholder track and closing its AudioContext.
   // close() is a Promise — fire-and-forget, teardown must not block on it.
   private releaseDummyScreenAudio(): void {
     this.dummyScreenAudioTrack?.stop();
     this.dummyScreenAudioTrack = null;
     this.dummyScreenAudioContext?.close().catch(() => {});
     this.dummyScreenAudioContext = null;
+  }
+
+  // Creates a running-silent audio track to fill the mic slot when the user has
+  // no microphone. Distinct from the screen-audio dummy so the two slots never
+  // share a track object.
+  private createMicDummyAudioTrack(): MediaStreamTrack {
+    this.releaseMicDummyAudio();
+    const ctx = new AudioContext();
+    this.dummyMicAudioContext = ctx;
+    const destination = ctx.createMediaStreamDestination();
+    const track = destination.stream.getAudioTracks()[0];
+    this.dummyMicAudioTrack = track;
+    return track;
+  }
+
+  private releaseMicDummyAudio(): void {
+    this.dummyMicAudioTrack?.stop();
+    this.dummyMicAudioTrack = null;
+    this.dummyMicAudioContext?.close().catch(() => {});
+    this.dummyMicAudioContext = null;
   }
 
   private async acquireMedia(): Promise<MediaStream | null> {
@@ -986,6 +1023,12 @@ class GroupCallService {
           // rendering that would create a ghost self-tile.
           const peers = (joined.existing_peers ?? []).filter((uid) => uid !== userId);
           peers.forEach((uid) => this.callbacks?.onPeerJoined(uid, 'snapshot'));
+          // Let the UI learn about already-active screen shares from the SFU
+          // snapshot (filter out a stale self entry the same way as existing_peers).
+          // network reconnects re-fire 'joined', which re-delivers the authoritative
+          // share state — rebuilding the Watch button the broadcast miss erased.
+          const sharingPeers = (joined.sharing_peers ?? []).filter((uid) => uid !== userId);
+          if (sharingPeers.length > 0) this.callbacks?.onSharingPeers?.(sharingPeers);
           socket.onmessage = (ev) => {
             if (this.ws !== socket) return;
             const m = JSON.parse(ev.data as string) as SignalingMessage;
@@ -1090,9 +1133,10 @@ class GroupCallService {
         // Mic denied/unavailable while a camera exists (acquireMedia's
         // video-only fallback). The slot must still be reserved, otherwise the
         // only audio transceiver on this PC would be the screen-audio one and
-        // the server would bind it to its mic slot. Trackless is correct here:
-        // there is genuinely nothing to send, same as the no-media branch below.
-        pc.addTransceiver('audio', { direction: 'sendrecv' });
+        // the server would bind it to its mic slot. A silent track (not a
+        // trackless transceiver) keeps the slot non-empty so the screen-audio
+        // addTrack below creates its own transceiver instead of reusing this one.
+        pc.addTrack(this.createMicDummyAudioTrack(), new MediaStream([this.dummyMicAudioTrack!]));
       }
 
       // [1] camera-video. If there is no camera, a dummy track (not a trackless
@@ -1108,9 +1152,10 @@ class GroupCallService {
         pc.addTrack(this.dummyVideoTrack, this.localStream);
       }
     } else {
-      // No local media at all. Audio stays a trackless transceiver (nothing to send
-      // without a mic), but video still needs a dummy track for screen sharing.
-      pc.addTransceiver('audio', { direction: 'sendrecv' }); // [0]
+      // No local media at all. Audio gets a silent dummy track (non-empty, so the
+      // screen-audio addTrack below can't reuse it); video still needs a dummy
+      // track for screen sharing.
+      pc.addTrack(this.createMicDummyAudioTrack(), new MediaStream([this.dummyMicAudioTrack!])); // [0]
       this.dummyVideoTrack = this.createDummyVideoTrack();
       pc.addTrack(this.dummyVideoTrack, new MediaStream([this.dummyVideoTrack])); // [1]
     }
@@ -1120,25 +1165,21 @@ class GroupCallService {
     // share later is a plain replaceTrack with no renegotiation — same reasoning
     // as the camera dummy track above.
     //
-    // addTransceiver(track) rather than addTrack(track): addTrack may REUSE an
-    // existing transceiver of the same kind whose sender has no track (per the
-    // WebRTC spec's addTrack algorithm), which would silently swallow the
-    // screen-audio dummy into the trackless mic slot created above and collapse
-    // the four slots into three. addTransceiver with an explicit track always
-    // creates a new transceiver, so the order above can never be cannibalised.
+    // Use addTrack (NOT addTransceiver-with-sendrecv): client measurements show
+    // addTransceiver(track, {direction:'sendrecv'}) leaves the sender ORPHANED
+    // (mid=null, currentDirection=null) against the server's recvonly offer
+    // m-line, so the screen slot never transmits. addTrack binds to its m-line
+    // exactly like the mic/camera senders. Reuse is avoided because every
+    // preceding sender of the same kind already carries a track (mic/camera are
+    // non-empty here), so addTrack creates a genuinely new transceiver instead of
+    // cannibalising an earlier slot.
     this.dummyScreenVideoTrack = this.createDummyVideoTrack();
     const screenVideoStream = new MediaStream([this.dummyScreenVideoTrack]);
-    this.screenVideoSender = pc.addTransceiver(this.dummyScreenVideoTrack, {
-      direction: 'sendrecv',
-      streams: [screenVideoStream],
-    }).sender;
+    this.screenVideoSender = pc.addTrack(this.dummyScreenVideoTrack, screenVideoStream);
 
     const dummyScreenAudioTrack = this.createDummyAudioTrack();
     const screenAudioStream = new MediaStream([dummyScreenAudioTrack]);
-    this.screenAudioSender = pc.addTransceiver(dummyScreenAudioTrack, {
-      direction: 'sendrecv',
-      streams: [screenAudioStream],
-    }).sender;
+    this.screenAudioSender = pc.addTrack(dummyScreenAudioTrack, screenAudioStream);
 
     gcLog(this.currentUserId, 'PC created', {
       localTracksAdded: addedTracks,
@@ -1719,6 +1760,7 @@ class GroupCallService {
     this.dummyScreenVideoTrack?.stop();
     this.dummyScreenVideoTrack = null;
     this.releaseDummyScreenAudio();
+    this.releaseMicDummyAudio();
 
     if (this.localStream) {
       // Демонтаж NC-цепочки: стопает raw-треки микрофона, закрывает AudioContext
