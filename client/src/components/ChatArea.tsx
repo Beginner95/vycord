@@ -13,6 +13,8 @@ import { MessageSearch } from '@/components/MessageSearch';
 import { Avatar } from '@/components/Avatar';
 import type { Channel, User, MemberWithUser } from '@/types';
 import { useT, useDateFormat, type TFunc } from '@/i18n';
+import { Fragment, type ReactNode } from 'react';
+import { parseInline, blockify, normalizeLinkHref, type MdInlineNode } from '@/utils/markdown';
 import './ChatArea.css';
 
 interface ChatAreaProps {
@@ -99,27 +101,51 @@ function renderMessageContent(content: string, members: MemberWithUser[], t: TFu
   });
 }
 
-function renderMessageBody(content: string, members: MemberWithUser[], t: TFunc, currentUserId?: string) {
-  const lines = content.split('\n');
-  const groups: { quoted: boolean; lines: string[] }[] = [];
-
-  for (const line of lines) {
-    const quoted = line.startsWith(QUOTE_PREFIX);
-    const text = quoted ? line.slice(QUOTE_PREFIX.length) : line;
-    const last = groups[groups.length - 1];
-    if (last && last.quoted === quoted) {
-      last.lines.push(text);
-    } else {
-      groups.push({ quoted, lines: [text] });
+function renderInlineNodes(nodes: MdInlineNode[], members: MemberWithUser[], t: TFunc, currentUserId?: string): ReactNode {
+  return nodes.map((n, i) => {
+    switch (n.type) {
+      case 'text':
+        return <Fragment key={i}>{renderMessageContent(n.text, members, t, currentUserId)}</Fragment>;
+      case 'strong':
+        return <strong key={i}>{renderInlineNodes(n.children, members, t, currentUserId)}</strong>;
+      case 'em':
+        return <em key={i}>{renderInlineNodes(n.children, members, t, currentUserId)}</em>;
+      case 'u':
+        return <u key={i}>{renderInlineNodes(n.children, members, t, currentUserId)}</u>;
+      case 'link':
+        return (
+          <a key={i} href={normalizeLinkHref(n.url)} target="_blank" rel="noopener noreferrer">
+            {renderInlineNodes(n.label, members, t, currentUserId)}
+          </a>
+        );
     }
-  }
+  });
+}
 
-  return groups.map((group, i) => {
-    const text = group.lines.join('\n');
-    const rendered = renderMessageContent(text, members, t, currentUserId);
-    return group.quoted
-      ? <span key={i} className="message-quote">{rendered}</span>
-      : <span key={i}>{rendered}</span>;
+function renderMessageBody(content: string, members: MemberWithUser[], t: TFunc, currentUserId?: string) {
+  return blockify(content).map((b, i) => {
+    switch (b.kind) {
+      case 'plain':
+        return <span key={i}>{renderInlineNodes(parseInline(b.text), members, t, currentUserId)}</span>;
+      case 'quote':
+        return <span key={i} className="message-quote">{renderInlineNodes(parseInline(b.text), members, t, currentUserId)}</span>;
+      case 'ol':
+        return (
+          <ol key={i}>
+            {b.items.map((it, j) => (
+              <li key={j}>{renderInlineNodes(parseInline(it), members, t, currentUserId)}</li>
+            ))}
+          </ol>
+        );
+      case 'ul':
+        return (
+          <ul key={i}>
+            {b.items.map((it, j) => (
+              <li key={j}>{renderInlineNodes(parseInline(it), members, t, currentUserId)}</li>
+            ))}
+          </ul>
+        );
+    }
   });
 }
 
@@ -665,7 +691,7 @@ export function ChatArea({ channel, user, onMobileBack, onShowMembers }: ChatAre
                         )}
                       </div>
                     ) : (
-                      <p className="message-text">{renderMessageBody(msg.content, members, t, user?.id)}</p>
+                      <div className="message-text">{renderMessageBody(msg.content, members, t, user?.id)}</div>
                     )}
                   </div>
                   {!isCompact && isFromMe && (
