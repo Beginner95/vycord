@@ -126,13 +126,14 @@ function FloatingQuoteButton({ x, y, onConfirm }: { x: number; y: number; onConf
       type="button"
       className="floating-quote-btn"
       style={{ left: x, top: y }}
+      aria-label={t('chat.quote')}
+      title={t('chat.quote')}
       onMouseDown={(e) => {
         e.preventDefault();
         onConfirm();
       }}
     >
       <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 21c3 0 7-1 7-8V5c0-1.25-.756-2.017-2-2H4c-1.25 0-2 .75-2 1.972V11c0 1.25.75 2 2 2 1 0 1 0 1 1v1c0 1-1 2-2 2s-1 .008-1 1.031V20c0 1 0 1 1 1z"/><path d="M15 21c3 0 7-1 7-8V5c0-1.25-.757-2.017-2-2h-4c-1.25 0-2 .75-2 1.972V11c0 1.25.75 2 2 2h.75c0 2.25.25 4-2.75 4v3c0 1 0 1 1 1z"/></svg>
-      <span>{t('chat.quote')}</span>
     </button>
   );
 }
@@ -433,8 +434,8 @@ export function ChatArea({ channel, user, onMobileBack, onShowMembers }: ChatAre
 
   const handleComposePaste = (e: ClipboardEvent<HTMLTextAreaElement>) => {
     const el = e.currentTarget;
-    const start = el.selectionStart ?? 0;
-    const end = el.selectionEnd ?? 0;
+    const start = el.selectionStart ?? el.value.length;
+    const end = el.selectionEnd ?? el.value.length;
     const text = e.clipboardData?.getData('text/plain') ?? '';
     const sel = el.value.slice(start, end);
     if (start !== end && sel.trim() && text.trim() && !isUnsafeUrl(text.trim())) {
@@ -446,8 +447,8 @@ export function ChatArea({ channel, user, onMobileBack, onShowMembers }: ChatAre
         el.focus();
         el.setSelectionRange(start + token.length, start + token.length);
       });
+      setCaretInQuoteLine(false);
     }
-    setCaretInQuoteLine(false);
   };
 
   const composeSelectionToolbar = useFloatingSelectionToolbar({
