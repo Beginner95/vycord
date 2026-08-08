@@ -421,7 +421,7 @@ export function GroupCallUI() {
   const [isMuted, setIsMuted] = useState(false);
   const [isMicAvailable, setIsMicAvailable] = useState(true);
   const [isVideoOff, setIsVideoOff] = useState(true);
-  const [showChat, setShowChat] = useState(true);
+  const [showChat, setShowChat] = useState(false);
   const [chatInput, setChatInput] = useState('');
   const [userCache, setUserCache] = useState<Map<string, string>>(new Map());
   const [participants, setParticipants] = useState<RemoteParticipant[]>([]);
@@ -940,6 +940,7 @@ export function GroupCallUI() {
       audioService.playUserJoined();
     }
     setIsInGroupCall(true);
+    setShowChat(false);
     const micAvailable = groupCallService.isMicrophoneAvailable;
     setIsMicAvailable(micAvailable);
     if (!micAvailable) setIsMuted(true);
@@ -1323,7 +1324,7 @@ export function GroupCallUI() {
                 placeholder={t('chat.messagePlaceholder', { channel: currentChannel?.name ?? t('call.channelFallback') })}
                 maxLength={2000}
               />
-              <button type="submit" disabled={!chatInput.trim()}>{t('call.send')}</button>
+              <button type="submit" disabled={!chatInput.trim()} aria-label={t('call.send')}>➤</button>
             </form>
           </div>
         )}

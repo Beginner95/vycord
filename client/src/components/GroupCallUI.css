@@ -174,8 +174,8 @@
   color: white;
   border: none;
   border-radius: var(--radius-md);
-  padding: 7px 14px;
-  font-size: 13px;
+  padding: 7px 12px;
+  font-size: 14px;
   font-weight: 600;
   cursor: pointer;
   transition: background var(--transition);
