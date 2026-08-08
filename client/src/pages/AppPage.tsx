@@ -82,6 +82,17 @@ export function AppPage() {
   const [mobilePanel, setMobilePanel] = useState<MobilePanel>('servers');
   const [callNotif, setCallNotif] = useState<CallNotif | null>(null);
   const [voiceParticipants, setVoiceParticipants] = useState<Map<string, string[]>>(new Map());
+  const [leftSidebarHidden, setLeftSidebarHidden] = useState<boolean>(
+    () => window.localStorage.getItem('vycord.leftSidebarHidden') === '1'
+  );
+
+  const toggleLeftSidebar = () => {
+    setLeftSidebarHidden((v) => {
+      const next = !v;
+      window.localStorage.setItem('vycord.leftSidebarHidden', next ? '1' : '0');
+      return next;
+    });
+  };
   const [inGroupCall, setInGroupCall] = useState(false);
   const [showCallMembers, setShowCallMembers] = useState(false);
   const stopRingtoneRef = useRef<(() => void) | null>(null);
@@ -469,7 +480,15 @@ export function AppPage() {
   return (
     <div className="app-page">
       <TitleBar />
-      <div className="app-layout" data-mobile-panel={mobilePanel} data-in-call={inGroupCall ? 'true' : 'false'}>
+      <div className="app-layout" data-mobile-panel={mobilePanel} data-in-call={inGroupCall ? 'true' : 'false'} data-left-sidebar={leftSidebarHidden ? 'hidden' : 'shown'}>
+        <button
+          className="sidebar-gutter"
+          onClick={toggleLeftSidebar}
+          aria-label={leftSidebarHidden ? t('sidebar.show') : t('sidebar.hide')}
+          title={leftSidebarHidden ? t('sidebar.show') : t('sidebar.hide')}
+        >
+          {leftSidebarHidden ? '▶' : '◀'}
+        </button>
         <ServerList
           servers={servers}
           currentServer={currentServer}
