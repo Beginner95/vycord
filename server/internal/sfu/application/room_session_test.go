@@ -421,6 +421,41 @@ func TestDuplicateWatchShareCreatesSingleSender(t *testing.T) {
 	}
 }
 
+// TestExistingSharingPeersReportsOnlyActiveSharesProves the Snapshot for Joiners:
+// a participant who joins (or reconnects to) a call while someone is already
+// sharing must be told which peers are currently sharing, so the viewer can
+// surface the Watch button. The SFU's sharingActive flag is the authoritative
+// "is sharing right now" source (a PublishedTrack stays registered even after
+// sharing stops), so only participants with sharingActive=true may be reported.
+func TestExistingSharingPeersReportsOnlyActiveShares(t *testing.T) {
+	rs, _ := joinTestRoom(t)
+
+	alicePS, err := rs.Join(domain.NewParticipant("p1", "alice", "room1"), &fakeSignalingSession{})
+	if err != nil {
+		t.Fatalf("alice join: %v", err)
+	}
+	// Bob joins but never shares — the mere presence of a screen track must not
+	// make him appear as sharing.
+	if _, err := rs.Join(domain.NewParticipant("p2", "bob", "room1"), &fakeSignalingSession{}); err != nil {
+		t.Fatalf("bob join: %v", err)
+	}
+	if _, err := rs.Join(domain.NewParticipant("p3", "carol", "room1"), &fakeSignalingSession{}); err != nil {
+		t.Fatalf("carol join: %v", err)
+	}
+
+	// Alice is actively sharing; Bob has a screen track registered but is NOT
+	// actively sharing (simulates a stopped share whose slot stayed provisioned).
+	alicePS.Participant.AddTrack(newFakeScreenTrack(t, "alice-screen-video"))
+	rs.SetSharingActive("p1", true)
+	rs.SetSharingActive("p2", false)
+
+	snapshot := rs.ExistingSharingPeers()
+
+	if len(snapshot) != 1 || snapshot[0] != "alice" {
+		t.Fatalf("ExistingSharingPeers = %v, want exactly [alice]", snapshot)
+	}
+}
+
 func TestLeaveCleansWatcherRecordsBothDirections(t *testing.T) {
 	rs, _ := joinTestRoom(t)
 

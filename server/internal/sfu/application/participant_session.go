@@ -472,6 +472,12 @@ func (ps *ParticipantSession) handleICECandidate(c *webrtc.ICECandidate) {
 func (ps *ParticipantSession) handleRemoteTrack(remote *webrtc.TrackRemote, receiver *webrtc.RTPReceiver) {
 	codec := remote.Codec()
 	role := ps.resolveTrackRole(receiver)
+	// A client can negotiate its screen video onto the camera's m-line (positional
+	// role inference below then mislabels it as camera). Use the explicit screen
+	// track id from screen_share_start as the authoritative signal when present.
+	if ps.Participant.IsScreenTrackID(remote.ID()) {
+		role = domain.RoleScreen
+	}
 	ps.log.Info("publisher track arrived",
 		"user_id", ps.Participant.UserID,
 		"kind", remote.Kind().String(),
