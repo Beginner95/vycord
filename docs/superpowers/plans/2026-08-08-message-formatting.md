@@ -379,8 +379,8 @@ describe('toggleQuote', () => {
   it('добавляет > к выбранной строке (выделение смещается на внутренний текст)', () => {
     expect(toggleQuote('a\nb', 0, 1)).toEqual({ value: '> a\nb', start: 2, end: 3, allPrefixed: false });
   });
-  it('убирает > , если строка уже процитирована', () => {
-    expect(toggleQuote('> a', 0, 3)).toEqual({ value: 'a', start: 0, end: 0, allPrefixed: true });
+  it('убирает > , если строка уже процитирована (выделение остаётся на контенте)', () => {
+    expect(toggleQuote('> a', 0, 3)).toEqual({ value: 'a', start: 0, end: 1, allPrefixed: true });
   });
 });
 
