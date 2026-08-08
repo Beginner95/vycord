@@ -409,7 +409,17 @@ function RemoteParticipantTile({
   );
 }
 
-export function GroupCallUI() {
+interface GroupCallUIProps {
+  onInCallChange?: (active: boolean) => void;
+  showMembers?: boolean;
+  onToggleMembers?: () => void;
+}
+
+export function GroupCallUI({
+  onInCallChange = () => {},
+  showMembers = false,
+  onToggleMembers = () => {},
+}: GroupCallUIProps) {
   const t = useT();
   const tp = useTp();
   const { formatTime } = useDateFormat();
@@ -421,7 +431,7 @@ export function GroupCallUI() {
   const [isMuted, setIsMuted] = useState(false);
   const [isMicAvailable, setIsMicAvailable] = useState(true);
   const [isVideoOff, setIsVideoOff] = useState(true);
-  const [showChat, setShowChat] = useState(true);
+  const [showChat, setShowChat] = useState(false);
   const [chatInput, setChatInput] = useState('');
   const [userCache, setUserCache] = useState<Map<string, string>>(new Map());
   const [participants, setParticipants] = useState<RemoteParticipant[]>([]);
@@ -624,6 +634,7 @@ export function GroupCallUI() {
         if (channelId) wsService.send('voice_left', { channel_id: channelId });
         setIsReconnecting(false);
         setIsInGroupCall(false);
+        onInCallChange(false);
         setParticipants([]);
         setRemoteScreenStreams(new Map());
         setLocalQuality(undefined);
@@ -646,6 +657,7 @@ export function GroupCallUI() {
         setIsReconnecting(false);
         console.error('[GroupCall] Error:', msg);
         setIsInGroupCall(false);
+        onInCallChange(false);
         setParticipants([]);
         setRemoteScreenStreams(new Map());
         setIsMicAvailable(true);
@@ -940,6 +952,8 @@ export function GroupCallUI() {
       audioService.playUserJoined();
     }
     setIsInGroupCall(true);
+    onInCallChange(true);
+    setShowChat(false);
     const micAvailable = groupCallService.isMicrophoneAvailable;
     setIsMicAvailable(micAvailable);
     if (!micAvailable) setIsMuted(true);
@@ -965,6 +979,7 @@ export function GroupCallUI() {
     }
     groupCallService.leaveGroupCall();
     setIsInGroupCall(false);
+    onInCallChange(false);
     setIsReconnecting(false);
     setParticipants([]);
     setIsScreenSharing(false);
@@ -1133,6 +1148,13 @@ export function GroupCallUI() {
             <span className="header-screen-share-indicator">🖥 {t('call.screenSharingActive')}</span>
           )}
           <span className="participant-count">{tp('call.participants', totalParticipants)}</span>
+          <button
+            className={`call-members-toggle ${showMembers ? 'active' : ''}`}
+            onClick={onToggleMembers}
+            title={tp('call.participants', totalParticipants)}
+          >
+            👥 {tp('call.participants', totalParticipants)}
+          </button>
         </div>
       </div>
 
@@ -1323,7 +1345,7 @@ export function GroupCallUI() {
                 placeholder={t('chat.messagePlaceholder', { channel: currentChannel?.name ?? t('call.channelFallback') })}
                 maxLength={2000}
               />
-              <button type="submit" disabled={!chatInput.trim()}>{t('call.send')}</button>
+              <button type="submit" disabled={!chatInput.trim()} aria-label={t('call.send')}>➤</button>
             </form>
           </div>
         )}

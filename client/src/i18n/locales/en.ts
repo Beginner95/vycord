@@ -14,6 +14,9 @@ export const en: Dictionary = {
     removing: 'Removing...',
     back: 'Back',
     logout: 'Log out',
+    logoutConfirm: 'Are you sure you want to log out?',
+    yes: 'Yes',
+    no: 'No',
     minimize: 'Minimize',
     maximize: 'Maximize',
     imageOpenFailed: 'Failed to open the image',
@@ -274,6 +277,10 @@ export const en: Dictionary = {
       preview: 'Check',
       memberCount: 'members: {{count}}',
     },
+  },
+  sidebar: {
+    hide: 'Hide sidebar',
+    show: 'Show sidebar',
   },
   channel: {
     noServerHint: 'Select or create a server to get started',

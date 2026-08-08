@@ -1,14 +1,10 @@
-/* ── Group Call Overlay ── */
+/* ── Group Call (in-layout content) ── */
 .group-call-overlay {
-  position: fixed;
-  top: 40px;
-  right: 0;
-  bottom: 0;
-  left: 0;
-  z-index: 1000;
-  background: var(--bg-base);
+  flex: 1;
+  min-width: 0;
   display: flex;
   flex-direction: column;
+  background: var(--bg-base);
 }
 
 .gc-reconnecting-banner {
@@ -47,6 +43,34 @@
   padding: 5px 14px;
   border-radius: var(--radius-sm);
   font-weight: 500;
+}
+
+.group-call-header-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.call-members-toggle {
+  font-size: 13px;
+  color: var(--text-secondary);
+  background: var(--bg-secondary);
+  padding: 5px 14px;
+  border-radius: var(--radius-sm);
+  border: 1px solid transparent;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background var(--transition), color var(--transition);
+}
+
+.call-members-toggle:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.call-members-toggle.active {
+  background: var(--brand-color);
+  color: var(--text-inverse);
 }
 
 /* ── Call Body (video + chat) ── */
@@ -174,8 +198,8 @@
   color: white;
   border: none;
   border-radius: var(--radius-md);
-  padding: 7px 14px;
-  font-size: 13px;
+  padding: 7px 12px;
+  font-size: 14px;
   font-weight: 600;
   cursor: pointer;
   transition: background var(--transition);

@@ -23,10 +23,10 @@ test-coverage: ## Run tests with coverage
 	@cd server && go tool cover -html=coverage.out -o coverage.html
 
 migrate-up: ## Run all migrations up
-	@cd server && go run ./cmd/migrate "postgres://mydiscrod:mydiscrod_secret@localhost:5432/mydiscrod?sslmode=disable" up
+	@cd server && go run ./cmd/migrate "postgres://vycord:vycord_secret@localhost:5432/vycord?sslmode=disable" up
 
 migrate-down: ## Run all migrations down
-	@cd server && go run ./cmd/migrate "postgres://mydiscrod:mydiscrod_secret@localhost:5432/mydiscrod?sslmode=disable" down
+	@cd server && go run ./cmd/migrate "postgres://vycord:vycord_secret@localhost:5432/vycord?sslmode=disable" down
 
 migrate-create: ## Create a new migration (usage: make migrate-create NAME=xxx)
 	@echo "-- +migrate Up" > "server/migrations/$(NAME).up.sql"

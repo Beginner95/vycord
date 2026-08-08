@@ -43,6 +43,7 @@ export function ChannelSidebar({
   const [channelMenu, setChannelMenu] = useState<{ x: number; y: number; channel: Channel } | null>(null);
   const [editingChannel, setEditingChannel] = useState<Channel | null>(null);
   const [creatingChannelType, setCreatingChannelType] = useState<ChannelType | null>(null);
+  const [confirmLogout, setConfirmLogout] = useState(false);
 
   const permissions = useServerStore((s) => (server ? s.permissions.get(server.id) : undefined));
   const canManageChannels = can(permissions, PERMISSIONS.MANAGE_CHANNELS);
@@ -218,7 +219,7 @@ export function ChannelSidebar({
           <button onClick={() => setSettingsOpen(true)} title={t('settings.title')} className="settings-btn">
             ⚙
           </button>
-          <button onClick={onLogout} title={t('common.logout')} className="logout-btn">
+          <button onClick={() => setConfirmLogout(true)} title={t('common.logout')} className="logout-btn">
             <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
               <polyline points="16 17 21 12 16 7"/>
@@ -229,6 +230,20 @@ export function ChannelSidebar({
       </div>
 
       <Settings isOpen={settingsOpen} onClose={() => setSettingsOpen(false)} />
+
+      {confirmLogout && (
+        <div className="modal-overlay" onClick={() => setConfirmLogout(false)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <h2>{t('common.logoutConfirm')}</h2>
+            <div className="modal-actions">
+              <button onClick={() => setConfirmLogout(false)}>{t('common.no')}</button>
+              <button type="button" onClick={onLogout} className="primary">
+                {t('common.yes')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {channelMenu && (
         <ContextMenu

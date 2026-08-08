@@ -13,6 +13,9 @@ export const ru = {
     removing: 'Удаление...',
     back: 'Назад',
     logout: 'Выйти',
+    logoutConfirm: 'Вы точно хотите выйти из системы?',
+    yes: 'Да',
+    no: 'Нет',
     minimize: 'Свернуть',
     maximize: 'Развернуть',
     imageOpenFailed: 'Не удалось открыть изображение',
@@ -279,6 +282,10 @@ export const ru = {
       preview: 'Проверить',
       memberCount: 'участников: {{count}}',
     },
+  },
+  sidebar: {
+    hide: 'Скрыть сайдбар',
+    show: 'Показать сайдбар',
   },
   channel: {
     noServerHint: 'Выберите сервер или создайте новый, чтобы начать',

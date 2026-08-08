@@ -12,6 +12,39 @@
   overflow: hidden;
 }
 
+/* During a group call the call UI (GroupCallUI, flex:1) replaces ChatArea in the
+   content slot, so hide the channel chat area while a call is active. */
+.app-layout[data-in-call="true"] .chat-area {
+  display: none;
+}
+
+/* ── Left sidebar collapse toggle (desktop only) ── */
+.sidebar-gutter {
+  width: 16px;
+  min-width: 16px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-elevated);
+  border: none;
+  border-right: 1px solid var(--border-subtle);
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 11px;
+}
+
+.sidebar-gutter:hover {
+  color: var(--text-primary);
+}
+
+/* Desktop-only: collapse the left sidebar block. Scoped to min-width so the
+   fixed 'hidden' attribute never competes with the mobile panel rules. */
+@media (min-width: 769px) {
+  .app-layout[data-left-sidebar="hidden"] .server-list { display: none; }
+  .app-layout[data-left-sidebar="hidden"] .channel-sidebar { display: none; }
+}
+
 /* ── Modal ── */
 .modal-overlay {
   position: fixed;
@@ -85,6 +118,66 @@
 }
 
 /* ── Custom checkbox (e.g. "private server" toggle) ── */
+.modal .channel-type-options {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.modal .channel-type-options label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: var(--radius-md);
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-primary);
+  cursor: pointer;
+  user-select: none;
+  transition: background var(--transition);
+}
+
+.modal .channel-type-options label:hover {
+  background: var(--bg-hover);
+}
+
+.modal .channel-type-options input[type="radio"] {
+  width: 18px;
+  height: 18px;
+  min-width: 18px;
+  padding: 0;
+  margin: 0;
+  border: 1.5px solid var(--border-color);
+  border-radius: 50%;
+  background: var(--bg-primary);
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: all var(--transition);
+}
+
+.modal .channel-type-options input[type="radio"]:hover {
+  border-color: var(--brand-400);
+}
+
+.modal .channel-type-options input[type="radio"]:checked {
+  border-color: var(--brand-color);
+}
+
+.modal .channel-type-options input[type="radio"]:checked::after {
+  content: '';
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--brand-color);
+  animation: scaleIn 0.15s var(--ease-out);
+}
+
 .modal .form-group.form-checkbox label {
   display: flex;
   align-items: center;
@@ -267,7 +360,8 @@
   .app-layout .server-list,
   .app-layout .channel-sidebar,
   .app-layout .chat-area,
-  .app-layout .user-list {
+  .app-layout .user-list,
+  .app-layout .group-call-overlay {
     display: none;
     width: 100vw;
     min-width: 100vw;
@@ -278,4 +372,13 @@
   .app-layout[data-mobile-panel="channels"] .channel-sidebar { display: flex; }
   .app-layout[data-mobile-panel="chat"] .chat-area { display: flex; }
   .app-layout[data-mobile-panel="members"] .user-list { display: flex; }
+
+  /* In a call the call UI lives in the chat panel on mobile. */
+  .app-layout[data-in-call="true"][data-mobile-panel="chat"] .group-call-overlay {
+    display: flex;
+  }
+
+  .sidebar-gutter {
+    display: none;
+  }
 }
