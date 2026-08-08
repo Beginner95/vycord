@@ -537,7 +537,11 @@ class GroupCallService {
   // currently sharing. No-op if the SFU connection isn't open (e.g. mid-reconnect —
   // the reconnect path resubscribes on its own, see reconnect()).
   watchShare(targetUserId: string): void {
-    if (this.ws?.readyState !== WebSocket.OPEN) return;
+    if (this.ws?.readyState !== WebSocket.OPEN) {
+      gcLog(this.currentUserId, 'watch_share NOT sent (SFU ws not open)', { targetUserId: targetUserId.slice(0, 8), wsState: this.ws?.readyState });
+      return;
+    }
+    gcLog(this.currentUserId, 'watch_share sent', { targetUserId: targetUserId.slice(0, 8) });
     this.ws.send(JSON.stringify({ type: 'watch_share', payload: { target_user_id: targetUserId } }));
   }
 

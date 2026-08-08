@@ -332,8 +332,22 @@ func (rs *RoomSession) WatchShare(subscriberParticipantID, targetUserID string) 
 	var screenTracks []*domain.PublishedTrack
 	if publisher.IsSharingActive() {
 		screenTracks = publisher.GetScreenTracks()
+	} else {
+		rs.log.Warn("watch_share: publisher not actively sharing, no tracks to forward",
+			"subscriber_user_id", subscriberPS.Participant.UserID,
+			"target_user_id", targetUserID,
+		)
 	}
+	sharingActive := publisher.IsSharingActive()
+	screenCount := len(screenTracks)
 	rs.mu.Unlock()
+
+	rs.log.Info("watch_share: forwarding existing screen tracks",
+		"subscriber_user_id", subscriberPS.Participant.UserID,
+		"target_user_id", targetUserID,
+		"publisher_sharing_active", sharingActive,
+		"screen_track_count", screenCount,
+	)
 
 	for _, tr := range screenTracks {
 		if err := subscriberPS.AddRemoteTrack(tr); err != nil {
