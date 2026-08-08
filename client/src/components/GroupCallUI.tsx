@@ -808,8 +808,22 @@ export function GroupCallUI() {
     if (screenStream) {
       if (el.srcObject !== screenStream) {
         el.srcObject = screenStream;
-        el.muted = false;
-        el.play().catch(() => {});
+        // Autoplay-policy workaround, mirroring attachStreamToElement: this is the
+        // first (and only) time the screen stream ever plays — it never sits on a
+        // thumbnail, whose earlier attachStreamToElement play would have unlocked
+        // autoplay for it. By the time focus-click → watch_share → renegotiation →
+        // ontrack completes, the "Смотреть" user activation has usually expired, so
+        // an unmuted el.play() here gets rejected → element stays paused → black
+        // screen. Play muted (always allowed), then unmute — allowing playback of a
+        // playing element cannot be blocked, and this is how screen audio starts.
+        el.muted = true;
+        el.play()
+          .then(() => {
+            el.muted = false;
+          })
+          .catch(() => {
+            el.muted = false;
+          });
       }
       return;
     }
