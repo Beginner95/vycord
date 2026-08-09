@@ -547,7 +547,7 @@ func (h *ServerHandler) writeUseCaseError(w http.ResponseWriter, r *http.Request
 	case errors.Is(err, domain.ErrChannelForbidden):
 		h.sendError(w, http.StatusForbidden, httperr.CodeChannelForbidden, "channel access denied")
 	case errors.Is(err, domain.ErrUnsupportedAvatarFormat):
-		h.sendError(w, http.StatusBadRequest, httperr.CodeUnsupportedImageType, "unsupported format: only PNG and JPEG are allowed")
+		h.sendError(w, http.StatusBadRequest, httperr.CodeUnsupportedImageType, "unsupported format: only PNG, JPEG and GIF are allowed")
 	case errors.Is(err, domain.ErrInvalidAvatarImage):
 		h.sendError(w, http.StatusBadRequest, httperr.CodeInvalidImage, "invalid image file")
 	case errors.Is(err, domain.ErrInvalidAvatarDimensions):

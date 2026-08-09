@@ -124,7 +124,7 @@ func (h *StickerHandler) writeStickerError(w http.ResponseWriter, r *http.Reques
 	case errors.Is(err, domain.ErrStickerImageRequired):
 		h.sendError(w, http.StatusBadRequest, httperr.CodeStickerImageRequired, "sticker image is required")
 	case errors.Is(err, domain.ErrUnsupportedAvatarFormat):
-		h.sendError(w, http.StatusBadRequest, httperr.CodeUnsupportedImageType, "unsupported format: only PNG and JPEG are allowed")
+		h.sendError(w, http.StatusBadRequest, httperr.CodeUnsupportedImageType, "unsupported format: only PNG, JPEG and GIF are allowed")
 	case errors.Is(err, domain.ErrInvalidAvatarImage):
 		h.sendError(w, http.StatusBadRequest, httperr.CodeInvalidImage, "invalid image file")
 	case errors.Is(err, domain.ErrInvalidAvatarDimensions):

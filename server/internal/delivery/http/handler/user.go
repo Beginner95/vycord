@@ -185,7 +185,7 @@ func (h *UserHandler) RemoveAvatar(w http.ResponseWriter, r *http.Request) {
 func (h *UserHandler) writeUserError(w http.ResponseWriter, r *http.Request, err error) {
 	switch {
 	case errors.Is(err, domain.ErrUnsupportedAvatarFormat):
-		h.sendError(w, http.StatusBadRequest, httperr.CodeUnsupportedImageType, "unsupported format: only PNG and JPEG are allowed")
+		h.sendError(w, http.StatusBadRequest, httperr.CodeUnsupportedImageType, "unsupported format: only PNG, JPEG and GIF are allowed")
 	case errors.Is(err, domain.ErrInvalidAvatarImage):
 		h.sendError(w, http.StatusBadRequest, httperr.CodeInvalidImage, "invalid image file")
 	case errors.Is(err, domain.ErrInvalidAvatarDimensions):
