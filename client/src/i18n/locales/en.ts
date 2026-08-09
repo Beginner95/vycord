@@ -64,6 +64,8 @@ export const en: Dictionary = {
     searchHint: 'Search (Ctrl+Shift+F)',
     members: 'Members',
     edited: ' (edited)',
+    today: 'Today',
+    yesterday: 'Yesterday',
     messagePlaceholder: 'Message #{{channel}}',
     jumpToLatest: 'Jump to latest messages',
     searchPlaceholder: 'Search in #{{channel}}',

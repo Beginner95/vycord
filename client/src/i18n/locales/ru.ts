@@ -63,6 +63,8 @@ export const ru = {
     searchHint: 'Поиск (Ctrl+Shift+F)',
     members: 'Участники',
     edited: ' (изменено)',
+    today: 'Сегодня',
+    yesterday: 'Вчера',
     messagePlaceholder: 'Сообщение в #{{channel}}',
     jumpToLatest: 'К последним сообщениям',
     searchPlaceholder: 'Поиск в #{{channel}}',
