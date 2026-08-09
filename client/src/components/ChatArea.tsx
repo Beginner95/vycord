@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, type FormEvent, type KeyboardEvent, type C
 import type { RefObject } from 'react';
 import { useMessageStore } from '@/stores/messageStore';
 import { LinkDialog } from '@/components/LinkDialog';
+import { EmojiPicker } from '@/components/EmojiPicker';
 import { toggleQuote, toggleBullet, toggleNumbered, toggleWrap, type LineToggle } from '@/utils/textTransforms';
 import { isUnsafeUrl } from '@/utils/markdown';
 import type { Message } from '@/types';
@@ -137,6 +138,17 @@ function FloatingQuoteButton({ x, y, onConfirm }: { x: number; y: number; onConf
       <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 21c3 0 7-1 7-8V5c0-1.25-.756-2.017-2-2H4c-1.25 0-2 .75-2 1.972V11c0 1.25.75 2 2 2 1 0 1 0 1 1v1c0 1-1 2-2 2s-1 .008-1 1.031V20c0 1 0 1 1 1z"/><path d="M15 21c3 0 7-1 7-8V5c0-1.25-.757-2.017-2-2h-4c-1.25 0-2 .75-2 1.972V11c0 1.25.75 2 2 2h.75c0 2.25.25 4-2.75 4v3c0 1 0 1 1 1z"/></svg>
     </button>
   );
+}
+
+function insertEmojiAtCaret(el: HTMLTextAreaElement, setValue: (v: string) => void, emoji: string) {
+  const start = el.selectionStart ?? el.value.length;
+  const end = el.selectionEnd ?? el.value.length;
+  const next = el.value.slice(0, start) + emoji + el.value.slice(end);
+  setValue(next);
+  requestAnimationFrame(() => {
+    el.focus();
+    el.setSelectionRange(start + emoji.length, start + emoji.length);
+  });
 }
 
 export function ChatArea({ channel, user, onMobileBack, onShowMembers }: ChatAreaProps) {
@@ -412,6 +424,8 @@ export function ChatArea({ channel, user, onMobileBack, onShowMembers }: ChatAre
 
   const [linkTarget, setLinkTarget] = useState<'compose' | 'edit' | null>(null);
   const openLinkFor = (target: 'compose' | 'edit') => setLinkTarget(target);
+  const [emojiPickerOpen, setEmojiPickerOpen] = useState(false);
+  const [editEmojiPickerOpen, setEditEmojiPickerOpen] = useState(false);
 
   const insertLink = (label: string, url: string) => {
     const isEdit = linkTarget === 'edit';
@@ -748,6 +762,9 @@ export function ChatArea({ channel, user, onMobileBack, onShowMembers }: ChatAre
                           <button type="button" onMouseDown={(e) => e.preventDefault()} className="toolbar-btn" aria-label={t('chat.bulletedList')} title={t('chat.bulletedList')} onClick={editBullet}>
                             <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 6h11M9 12h11M9 18h11"/><path d="M4 6h.01M4 12h.01M4 18h.01"/></svg>
                           </button>
+                          <button type="button" onMouseDown={(e) => e.preventDefault()} className={`toolbar-btn${editEmojiPickerOpen ? ' active' : ''}`} aria-label={t('chat.emoji')} title={t('chat.emoji')} onClick={() => setEditEmojiPickerOpen((open) => !open)}>
+                            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/></svg>
+                          </button>
                         </div>
                         {editMention.mentionQuery !== null && editMention.mentionEntries.length > 0 && (
                           <ul className="mention-dropdown">
@@ -764,6 +781,12 @@ export function ChatArea({ channel, user, onMobileBack, onShowMembers }: ChatAre
                               </li>
                             ))}
                           </ul>
+                        )}
+                        {editEmojiPickerOpen && (
+                          <EmojiPicker
+                            onSelect={(e) => { insertEmojiAtCaret(editInputRef.current!, setEditValue, e); setEditEmojiPickerOpen(false); }}
+                            onClose={() => setEditEmojiPickerOpen(false)}
+                          />
                         )}
                       </div>
                     ) : msg.sticker_id && msg.sticker ? (
@@ -846,6 +869,9 @@ export function ChatArea({ channel, user, onMobileBack, onShowMembers }: ChatAre
           <button type="button" className="toolbar-btn" aria-label={t('chat.bulletedList')} title={t('chat.bulletedList')} onClick={composeBullet}>
             <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 6h11M9 12h11M9 18h11"/><path d="M4 6h.01M4 12h.01M4 18h.01"/></svg>
           </button>
+          <button type="button" className={`toolbar-btn${emojiPickerOpen ? ' active' : ''}`} aria-label={t('chat.emoji')} title={t('chat.emoji')} onClick={() => setEmojiPickerOpen((open) => !open)}>
+            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/></svg>
+          </button>
         </div>
         <form onSubmit={handleSubmit}>
           <textarea
@@ -878,6 +904,12 @@ export function ChatArea({ channel, user, onMobileBack, onShowMembers }: ChatAre
             </ul>
           )}
         </form>
+        {emojiPickerOpen && (
+          <EmojiPicker
+            onSelect={(e) => { insertEmojiAtCaret(inputRef.current!, setInput, e); setEmojiPickerOpen(false); }}
+            onClose={() => setEmojiPickerOpen(false)}
+          />
+        )}
       </div>
 
       {composeSelectionToolbar.visible && (

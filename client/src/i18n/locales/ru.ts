@@ -50,6 +50,8 @@ export const ru = {
     link: 'Вставить ссылку',
     numberedList: 'Нумерованный список',
     bulletedList: 'Маркированный список',
+    emoji: 'Эмодзи',
+    insertEmoji: 'Вставить эмодзи',
     linkText: 'Текст ссылки',
     linkUrl: 'URL',
     linkUrlInvalid: 'Введите корректную ссылку (http/https/www/mailto)',

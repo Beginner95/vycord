@@ -51,6 +51,8 @@ export const en: Dictionary = {
     link: 'Insert link',
     numberedList: 'Numbered list',
     bulletedList: 'Bulleted list',
+    emoji: 'Emoji',
+    insertEmoji: 'Insert emoji',
     linkText: 'Link text',
     linkUrl: 'URL',
     linkUrlInvalid: 'Enter a valid link (http/https/www/mailto)',
