@@ -22,8 +22,8 @@ import (
 
 type mockMessageUseCase struct{ mock.Mock }
 
-func (m *mockMessageUseCase) CreateMessage(channelID, userID uuid.UUID, content string) (*domain.Message, error) {
-	args := m.Called(channelID, userID, content)
+func (m *mockMessageUseCase) CreateMessage(channelID, userID uuid.UUID, content string, stickerID *uuid.UUID) (*domain.Message, error) {
+	args := m.Called(channelID, userID, content, stickerID)
 	msg, _ := args.Get(0).(*domain.Message)
 	return msg, args.Error(1)
 }
@@ -58,7 +58,7 @@ func TestMessageHandler_CreateMessage_LogsRequestIDOnInternalError(t *testing.T)
 	mockUC := new(mockMessageUseCase)
 	channelID := uuid.New()
 	userID := uuid.New()
-	mockUC.On("CreateMessage", channelID, userID, "hello").Return(nil, errors.New("db down"))
+	mockUC.On("CreateMessage", channelID, userID, "hello", (*uuid.UUID)(nil)).Return(nil, errors.New("db down"))
 
 	h := NewMessageHandler(mockUC, ws.NewHub(log), log)
 

@@ -49,12 +49,23 @@ export interface InvitePreview {
   member_count: number;
 }
 
+export interface Sticker {
+  id: string;
+  server_id: string;
+  name: string;
+  image_url: string;
+  created_by: string;
+  created_at: string;
+}
+
 export interface Message {
   id: string;
   channel_id: string;
   user_id: string;
   content: string;
   attachments?: string[];
+  sticker_id?: string;
+  sticker?: Sticker;
   created_at: string;
   updated_at: string;
 }

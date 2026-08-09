@@ -59,6 +59,15 @@ const (
 	CodeInvalidImage         = "invalid_image_file"
 	CodeInvalidImageSize     = "invalid_image_dimensions"
 
+	// Стикеры
+	CodeStickerTooLarge      = "sticker_file_too_large"
+	CodeStickerImageRequired = "sticker_image_required"
+	CodeStickerReadFailed    = "sticker_read_failed"
+	CodeStickerNotFound      = "sticker_not_found"
+	CodeStickerNameRequired  = "sticker_name_required"
+	CodeStickerNameTooLong   = "sticker_name_too_long"
+	CodeInvalidStickerID     = "invalid_sticker_id"
+
 	// Серверы
 	CodeServerNotFound     = "server_not_found"
 	CodeServerNameRequired = "server_name_required"
@@ -88,6 +97,7 @@ const (
 	// Сообщения
 	CodeMessageNotFound       = "message_not_found"
 	CodeMessageEmpty          = "message_content_required"
+	CodeStickerWithText       = "sticker_with_text"
 	CodeSearchQueryLength     = "search_query_length"
 	CodeInvalidMention        = "invalid_mention"
 	CodeMentionEveryoneDenied = "mention_everyone_denied"
