@@ -153,6 +153,17 @@ ipcMain.handle('window:close', () => {
   mainWindow?.close();
 });
 
+ipcMain.handle('window:toggle-fullscreen', () => {
+  const win = mainWindow;
+  if (!win) return null;
+  // The DOM Fullscreen API can silently fail on a frameless Electron window, so
+  // screen-share fullscreen is driven through the main process. setFullScreen is
+  // async (notably on macOS), so report the intended state back to the renderer.
+  const next = !win.isFullScreen();
+  win.setFullScreen(next);
+  return next;
+});
+
 ipcMain.handle('get-app-version', () => {
   return app.getVersion();
 });

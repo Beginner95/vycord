@@ -16,6 +16,7 @@ export interface ElectronAPI {
   minimizeWindow: () => Promise<void>;
   maximizeWindow: () => Promise<void>;
   closeWindow: () => Promise<void>;
+  toggleFullscreen: () => Promise<boolean | null>;
   getAppVersion: () => Promise<string>;
   platform: string;
   getScreenSources: () => Promise<ScreenSourcesResult>;

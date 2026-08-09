@@ -911,6 +911,14 @@ export function GroupCallUI({
   }, [participants, focusedUserId]);
 
   const handleFullscreen = useCallback(async () => {
+    const api = (window as Window & typeof globalThis).electronAPI;
+    // In Electron the DOM Fullscreen API can silently no-op on the frameless
+    // window, so drive fullscreen through the main process instead.
+    if (api?.toggleFullscreen) {
+      const next = await api.toggleFullscreen().catch(() => null);
+      if (typeof next === 'boolean') setIsFullscreen(next);
+      return;
+    }
     const container = screenShareMainRef.current;
     if (!container) return;
     if (document.fullscreenElement) {
@@ -1186,7 +1194,10 @@ export function GroupCallUI({
           {focusedUserId ? (
             /* ── Focused / screen-share view ── */
             <div className="screen-share-view">
-              <div className="screen-share-main" ref={screenShareMainRef}>
+              <div
+                className={`screen-share-main${isFullscreen ? ' is-fullscreen' : ''}`}
+                ref={screenShareMainRef}
+              >
                 <video
                   ref={focusedVideoRef}
                   autoPlay
