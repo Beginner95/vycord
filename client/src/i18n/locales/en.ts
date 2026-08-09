@@ -94,6 +94,10 @@ export const en: Dictionary = {
     stickerNamePlaceholder: 'Sticker name',
     deleteStickerConfirm: 'Delete this sticker?',
     stickers: 'Stickers',
+    stickerDropHint: 'Drop a file here or click to choose',
+    stickerFormats: 'PNG, JPG or GIF · max 2 MB',
+    stickerRemoveFile: 'Remove file',
+    stickerUpload: 'Upload sticker',
   },
   call: {
     participants: plural({
@@ -394,6 +398,7 @@ export const en: Dictionary = {
     role_not_found: 'Role not found',
     invalid_permissions: 'Invalid permission set',
     invalid_role_name: 'Invalid role name',
+    stickerInvalidFormat: 'Invalid file format',
     sticker_file_too_large: 'Sticker file is too large',
     sticker_image_required: 'Attach a sticker image',
     sticker_read_failed: 'Failed to read sticker file',

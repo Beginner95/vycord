@@ -97,6 +97,10 @@ export const ru = {
     stickerNamePlaceholder: 'Имя стикера',
     deleteStickerConfirm: 'Удалить этот стикер?',
     stickers: 'Стикеры',
+    stickerDropHint: 'Перетащите файл сюда или нажмите, чтобы выбрать',
+    stickerFormats: 'PNG, JPG или GIF · максимум 2 МБ',
+    stickerRemoveFile: 'Убрать файл',
+    stickerUpload: 'Загрузить стикер',
   },
   call: {
     participants: plural({
@@ -399,6 +403,7 @@ export const ru = {
     role_not_found: 'Роль не найдена',
     invalid_permissions: 'Некорректный набор прав',
     invalid_role_name: 'Некорректное название роли',
+    stickerInvalidFormat: 'Неверный формат файла',
     sticker_file_too_large: 'Файл стикера слишком большой',
     sticker_image_required: 'Прикрепите изображение стикера',
     sticker_read_failed: 'Не удалось прочитать файл стикера',
