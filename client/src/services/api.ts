@@ -1,5 +1,5 @@
 import { useAuthStore } from '@/stores/authStore';
-import type { Server, User, Role, PermissionsResponse, Invite, InvitePreview } from '@/types';
+import type { Server, User, Role, PermissionsResponse, Invite, InvitePreview, Sticker } from '@/types';
 import { hasKey, type TFunc, type TKey } from '@/i18n';
 
 export const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8080';
@@ -326,10 +326,10 @@ class ApiService {
   }
 
   // Messages
-  async createMessage(channelId: string, content: string) {
+  async createMessage(channelId: string, content: string, stickerId?: string) {
     return this.request(`/api/v1/channels/${channelId}/messages`, {
       method: 'POST',
-      body: JSON.stringify({ content }),
+      body: JSON.stringify({ content, sticker_id: stickerId }),
     });
   }
 
@@ -356,6 +356,27 @@ class ApiService {
 
   async deleteMessage(channelId: string, messageId: string) {
     return this.request(`/api/v1/channels/${channelId}/messages/${messageId}`, {
+      method: 'DELETE',
+    });
+  }
+
+  // Stickers
+  async listStickers(serverId: string) {
+    return this.request<Sticker[]>(`/api/v1/servers/${serverId}/stickers`);
+  }
+
+  async uploadSticker(serverId: string, name: string, blob: Blob) {
+    const formData = new FormData();
+    formData.append('image', blob, `sticker-${Date.now()}.png`);
+    formData.append('name', name);
+    return this.requestForm<Sticker>(`/api/v1/servers/${serverId}/stickers`, {
+      method: 'POST',
+      body: formData,
+    });
+  }
+
+  async deleteSticker(serverId: string, stickerId: string) {
+    return this.requestForm<void>(`/api/v1/servers/${serverId}/stickers/${stickerId}`, {
       method: 'DELETE',
     });
   }
