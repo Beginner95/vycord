@@ -900,6 +900,14 @@
   letter-spacing: 0.02em;
 }
 
+/* On small screens the sharer name + "Демонстрация" badge eats too much of the
+   limited viewing area — hide the overlay label, keep the fullscreen controls. */
+@media (max-width: 768px) {
+  .screen-share-main-label {
+    display: none;
+  }
+}
+
 /* Fullscreen: video fills the container */
 .screen-share-main:fullscreen {
   width: 100vw;
