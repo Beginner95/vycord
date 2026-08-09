@@ -15,8 +15,9 @@ import { can, PERMISSIONS } from '@/utils/permissions';
 import { useFloatingSelectionToolbar } from '@/hooks/useFloatingSelectionToolbar';
 import { MessageSearch } from '@/components/MessageSearch';
 import { Avatar } from '@/components/Avatar';
+import { DayDivider } from '@/components/DayDivider';
 import type { Channel, User, MemberWithUser } from '@/types';
-import { useT, useDateFormat, type TFunc } from '@/i18n';
+import { useT, useDateFormat, isSameCalendarDay, type TFunc } from '@/i18n';
 import { Fragment, type ReactNode } from 'react';
 import { parseInline, blockify, normalizeLinkHref, type MdInlineNode } from '@/utils/markdown';
 import './ChatArea.css';
@@ -140,7 +141,7 @@ function FloatingQuoteButton({ x, y, onConfirm }: { x: number; y: number; onConf
 
 export function ChatArea({ channel, user, onMobileBack, onShowMembers }: ChatAreaProps) {
   const t = useT();
-  const { formatTime } = useDateFormat();
+  const { formatTime, formatFullDate } = useDateFormat();
   const { messages, setMessages, addMessage, updateMessage, removeMessage } = useMessageStore();
   const { members, currentServer } = useServerStore();
   const [input, setInput] = useState('');
@@ -667,9 +668,14 @@ export function ChatArea({ channel, user, onMobileBack, onShowMembers }: ChatAre
           <>
             {messages.map((msg, idx) => {
               const prevMsg = messages[idx - 1];
+              const msgDate = new Date(msg.created_at);
+              const dayChanged =
+                !prevMsg ||
+                !isSameCalendarDay(msgDate, new Date(prevMsg.created_at));
               const isFromMe = msg.user_id === user?.id;
               const isCompact =
-                prevMsg &&
+                !!prevMsg &&
+                !dayChanged &&
                 prevMsg.user_id === msg.user_id &&
                 new Date(msg.created_at).getTime() - new Date(prevMsg.created_at).getTime() < 420000;
 
@@ -687,11 +693,12 @@ export function ChatArea({ channel, user, onMobileBack, onShowMembers }: ChatAre
               const isEditing = editingId === msg.id;
 
               return (
-                <div
-                  key={msg.id}
-                  data-message-id={msg.id}
-                  className={`message ${isCompact ? 'compact' : ''} ${isFromMe ? 'self' : 'other'}${highlightedId === msg.id ? ' jump-highlight' : ''}`}
-                >
+                <Fragment key={msg.id}>
+                  {dayChanged && <DayDivider label={formatFullDate(msgDate)} />}
+                  <div
+                    data-message-id={msg.id}
+                    className={`message ${isCompact ? 'compact' : ''} ${isFromMe ? 'self' : 'other'}${highlightedId === msg.id ? ' jump-highlight' : ''}`}
+                  >
                   {!isCompact && !isFromMe && (
                     <Avatar url={avatarUrl} username={displayName} className="message-avatar" />
                   )}
@@ -785,7 +792,8 @@ export function ChatArea({ channel, user, onMobileBack, onShowMembers }: ChatAre
                       </button>
                     </div>
                   )}
-                </div>
+                  </div>
+                </Fragment>
               );
             })}
             <div ref={messagesEndRef} />
