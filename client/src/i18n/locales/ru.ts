@@ -62,6 +62,7 @@ export const ru = {
     searchMessages: 'Поиск сообщений',
     searchHint: 'Поиск (Ctrl+Shift+F)',
     members: 'Участники',
+    stickerRemoved: 'Стикер удалён',
     edited: ' (изменено)',
     today: 'Сегодня',
     yesterday: 'Вчера',

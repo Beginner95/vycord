@@ -562,6 +562,7 @@ export function ChatArea({ channel, user, onMobileBack, onShowMembers }: ChatAre
   });
 
   const startEdit = (msg: Message) => {
+    if (msg.sticker_id) return;
     setEditingId(msg.id);
     setEditValue(msg.content);
     editMention.reset();
@@ -765,6 +766,12 @@ export function ChatArea({ channel, user, onMobileBack, onShowMembers }: ChatAre
                           </ul>
                         )}
                       </div>
+                    ) : msg.sticker_id && msg.sticker ? (
+                      <div className="message-sticker-wrap">
+                        <img className="message-sticker" src={msg.sticker.image_url} alt={msg.sticker.name} />
+                      </div>
+                    ) : msg.sticker_id ? (
+                      <div className="message-text">{t('chat.stickerRemoved')}</div>
                     ) : (
                       <div className="message-text">{renderMessageBody(msg.content, members, t, user?.id)}</div>
                     )}
@@ -774,6 +781,7 @@ export function ChatArea({ channel, user, onMobileBack, onShowMembers }: ChatAre
                   )}
                   {isFromMe && !isEditing && (
                     <div className="message-actions">
+                      {!msg.sticker_id && (
                       <button
                         type="button"
                         className="message-action-btn"
@@ -782,6 +790,7 @@ export function ChatArea({ channel, user, onMobileBack, onShowMembers }: ChatAre
                       >
                         <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg>
                       </button>
+                      )}
                       <button
                         type="button"
                         className="message-action-btn message-action-btn--danger"

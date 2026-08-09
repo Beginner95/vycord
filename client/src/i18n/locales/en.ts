@@ -63,6 +63,7 @@ export const en: Dictionary = {
     searchMessages: 'Search messages',
     searchHint: 'Search (Ctrl+Shift+F)',
     members: 'Members',
+    stickerRemoved: 'Sticker removed',
     edited: ' (edited)',
     today: 'Today',
     yesterday: 'Yesterday',
