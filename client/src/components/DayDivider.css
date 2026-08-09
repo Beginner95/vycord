@@ -1,0 +1,23 @@
+.date-divider {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  margin: 24px 0 6px;
+}
+
+.date-divider__line {
+  flex: 1;
+  height: 1px;
+  background: var(--border-subtle);
+}
+
+.date-divider__label {
+  flex-shrink: 0;
+  padding: 0 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-muted);
+  letter-spacing: 0.01em;
+  background: var(--bg-base);
+}
