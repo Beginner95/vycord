@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react';
 import type { Server } from '@/types';
-import { apiService, apiErrorText } from '@/services/api';
+import { apiService, apiErrorText, resolveUploadUrl } from '@/services/api';
 import { useServerStore } from '@/stores/serverStore';
 import { AvatarCropModal } from '@/components/AvatarCropModal';
 import { useT } from '@/i18n';
@@ -86,7 +86,7 @@ export function EditServerModal({ server, onClose }: EditServerModalProps) {
 
           <div className="edit-server-icon-block">
             {server.icon_url ? (
-              <img src={server.icon_url} alt={server.name} className="edit-server-icon-preview" />
+              <img src={resolveUploadUrl(server.icon_url)} alt={server.name} className="edit-server-icon-preview" />
             ) : (
               <div className="edit-server-icon-preview">{server.name.charAt(0).toUpperCase()}</div>
             )}

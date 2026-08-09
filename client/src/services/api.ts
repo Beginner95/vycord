@@ -4,6 +4,11 @@ import { hasKey, type TFunc, type TKey } from '@/i18n';
 
 export const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8080';
 
+export function resolveUploadUrl(url?: string): string | undefined {
+  if (!url) return url;
+  return url.startsWith('/') ? `${API_BASE_URL}${url}` : url;
+}
+
 export class ApiError extends Error {
   constructor(
     message: string,
