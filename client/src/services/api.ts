@@ -365,9 +365,9 @@ class ApiService {
     return this.request<Sticker[]>(`/api/v1/servers/${serverId}/stickers`);
   }
 
-  async uploadSticker(serverId: string, name: string, blob: Blob) {
+  async uploadSticker(serverId: string, name: string, file: File) {
     const formData = new FormData();
-    formData.append('image', blob, `sticker-${Date.now()}.png`);
+    formData.append('image', file, file.name || `sticker-${Date.now()}.png`);
     formData.append('name', name);
     return this.requestForm<Sticker>(`/api/v1/servers/${serverId}/stickers`, {
       method: 'POST',
