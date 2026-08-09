@@ -1,5 +1,8 @@
 import { useMemo } from 'react';
 import { useLocaleStore } from '@/stores/localeStore';
+import { ru } from './locales/ru';
+import { en } from './locales/en';
+import type { Dictionary } from './locales/ru';
 
 export const RU_MONTHS_GENITIVE = [
   'января', 'февраля', 'марта', 'апреля', 'мая', 'июня',
@@ -35,6 +38,8 @@ export function resolveDayLabel(
   return `${EN_MONTHS[date.getMonth()]} ${date.getDate()}, ${date.getFullYear()}`;
 }
 
+const DICTS: Record<string, Dictionary> = { ru, en };
+
 const TIME_OPTS: Intl.DateTimeFormatOptions = { hour: '2-digit', minute: '2-digit' };
 const DAY_MONTH_OPTS: Intl.DateTimeFormatOptions = { day: 'numeric', month: 'short' };
 
@@ -44,6 +49,12 @@ export function useDateFormat() {
     () => ({
       formatTime: (date: Date) => date.toLocaleTimeString(locale, TIME_OPTS),
       formatDayMonth: (date: Date) => date.toLocaleDateString(locale, DAY_MONTH_OPTS),
+      formatFullDate: (date: Date) => {
+        const dict = DICTS[locale];
+        const t = (key: string) =>
+          key === 'chat.today' ? dict.chat.today : dict.chat.yesterday;
+        return resolveDayLabel(date, new Date(), locale, t);
+      },
     }),
     [locale],
   );
