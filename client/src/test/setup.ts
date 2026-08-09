@@ -1,3 +1,5 @@
+import { beforeEach } from 'vitest';
+
 const store = new Map<string, string>();
 
 globalThis.window = { electronAPI: undefined } as unknown as Window & typeof globalThis;
@@ -16,3 +18,7 @@ globalThis.localStorage = {
     return store.size;
   },
 };
+
+beforeEach(() => {
+  store.clear();
+});

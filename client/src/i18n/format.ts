@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { useLocaleStore } from '@/stores/localeStore';
+import { useLocaleStore, type Locale } from '@/stores/localeStore';
 import { ru } from './locales/ru';
 import { en } from './locales/en';
 import type { Dictionary } from './locales/ru';
@@ -38,7 +38,7 @@ export function resolveDayLabel(
   return `${EN_MONTHS[date.getMonth()]} ${date.getDate()}, ${date.getFullYear()}`;
 }
 
-const DICTS: Record<string, Dictionary> = { ru, en };
+const DICTS: Record<Locale, Dictionary> = { ru, en };
 
 const TIME_OPTS: Intl.DateTimeFormatOptions = { hour: '2-digit', minute: '2-digit' };
 const DAY_MONTH_OPTS: Intl.DateTimeFormatOptions = { day: 'numeric', month: 'short' };

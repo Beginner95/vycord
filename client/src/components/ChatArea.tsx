@@ -697,8 +697,8 @@ export function ChatArea({ channel, user, onMobileBack, onShowMembers }: ChatAre
                   {dayChanged && <DayDivider label={formatFullDate(msgDate)} />}
                   <div
                     data-message-id={msg.id}
-                  className={`message ${isCompact ? 'compact' : ''} ${isFromMe ? 'self' : 'other'}${highlightedId === msg.id ? ' jump-highlight' : ''}`}
-                >
+                    className={`message ${isCompact ? 'compact' : ''} ${isFromMe ? 'self' : 'other'}${highlightedId === msg.id ? ' jump-highlight' : ''}`}
+                  >
                   {!isCompact && !isFromMe && (
                     <Avatar url={avatarUrl} username={displayName} className="message-avatar" />
                   )}
@@ -792,7 +792,7 @@ export function ChatArea({ channel, user, onMobileBack, onShowMembers }: ChatAre
                       </button>
                     </div>
                   )}
-                </div>
+                  </div>
                 </Fragment>
               );
             })}

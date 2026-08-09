@@ -20,6 +20,14 @@ describe('resolveDayLabel', () => {
   it('вчера → «Вчера»', () => {
     expect(resolveDayLabel(new Date(2026, 1, 4, 20, 0), NOW, 'ru', ruT)).toBe('Вчера');
   });
+  it('вчера через границу месяца → «Вчера»', () => {
+    const now = new Date(2026, 2, 1, 12, 0);
+    expect(resolveDayLabel(new Date(2026, 1, 28), now, 'ru', ruT)).toBe('Вчера');
+  });
+  it('вчера через границу года → «Вчера»', () => {
+    const now = new Date(2026, 0, 1);
+    expect(resolveDayLabel(new Date(2025, 11, 31), now, 'ru', ruT)).toBe('Вчера');
+  });
   it('ru: «01 февраля 2026» c ведущим нулём и склоняемым месяцем, без «г.»', () => {
     expect(resolveDayLabel(new Date(2026, 1, 1), NOW, 'ru', ruT)).toBe('01 февраля 2026');
   });
