@@ -1194,7 +1194,10 @@ export function GroupCallUI({
           {focusedUserId ? (
             /* ── Focused / screen-share view ── */
             <div className="screen-share-view">
-              <div className="screen-share-main" ref={screenShareMainRef}>
+              <div
+                className={`screen-share-main${isFullscreen ? ' is-fullscreen' : ''}`}
+                ref={screenShareMainRef}
+              >
                 <video
                   ref={focusedVideoRef}
                   autoPlay
