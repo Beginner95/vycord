@@ -27,8 +27,8 @@ func (r *messageRepository) Create(msg *domain.Message) error {
 	defer cancel()
 
 	query := `
-		INSERT INTO messages (id, channel_id, user_id, content, attachments, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
+		INSERT INTO messages (id, channel_id, user_id, content, attachments, sticker_id, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 		RETURNING id
 	`
 
@@ -40,6 +40,7 @@ func (r *messageRepository) Create(msg *domain.Message) error {
 		msg.UserID,
 		msg.Content,
 		msg.Attachments,
+		msg.StickerID,
 		msg.CreatedAt,
 		msg.UpdatedAt,
 	).Scan(&msg.ID)
@@ -56,21 +57,46 @@ func (r *messageRepository) GetByID(id uuid.UUID) (*domain.Message, error) {
 	defer cancel()
 
 	query := `
-		SELECT id, channel_id, user_id, content, attachments, created_at, updated_at
-		FROM messages
-		WHERE id = $1
+		SELECT m.id, m.channel_id, m.user_id, m.content, m.attachments, m.sticker_id,
+		       m.created_at, m.updated_at,
+		       s.id, s.name, s.image_url, s.server_id
+		FROM messages m
+		LEFT JOIN stickers s ON s.id = m.sticker_id
+		WHERE m.id = $1
 	`
 
 	msg := &domain.Message{}
+	var msgStickerID *uuid.UUID
+	var sID *uuid.UUID
+	var sName *string
+	var sURL *string
+	var sServerID *uuid.UUID
 	err := r.db.QueryRow(ctx, query, id).Scan(
 		&msg.ID,
 		&msg.ChannelID,
 		&msg.UserID,
 		&msg.Content,
 		&msg.Attachments,
+		&msgStickerID,
 		&msg.CreatedAt,
 		&msg.UpdatedAt,
+		&sID,
+		&sName,
+		&sURL,
+		&sServerID,
 	)
+	if err != nil {
+		return nil, err
+	}
+	if msgStickerID != nil {
+		msg.StickerID = msgStickerID
+		msg.Sticker = &domain.Sticker{
+			ID:       *sID,
+			Name:     *sName,
+			ImageURL: *sURL,
+			ServerID: *sServerID,
+		}
+	}
 
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, fmt.Errorf("message %s: %w", id, domain.ErrMessageNotFound)
@@ -87,10 +113,13 @@ func (r *messageRepository) GetByChannelID(channelID uuid.UUID, limit, offset in
 	defer cancel()
 
 	query := `
-		SELECT id, channel_id, user_id, content, attachments, created_at, updated_at
-		FROM messages
-		WHERE channel_id = $1
-		ORDER BY created_at DESC
+		SELECT m.id, m.channel_id, m.user_id, m.content, m.attachments, m.sticker_id,
+		       m.created_at, m.updated_at,
+		       s.id, s.name, s.image_url, s.server_id
+		FROM messages m
+		LEFT JOIN stickers s ON s.id = m.sticker_id
+		WHERE m.channel_id = $1
+		ORDER BY m.created_at DESC
 		LIMIT $2 OFFSET $3
 	`
 
@@ -103,16 +132,35 @@ func (r *messageRepository) GetByChannelID(channelID uuid.UUID, limit, offset in
 	var messages []*domain.Message
 	for rows.Next() {
 		msg := &domain.Message{}
+		var msgStickerID *uuid.UUID
+		var sID *uuid.UUID
+		var sName *string
+		var sURL *string
+		var sServerID *uuid.UUID
 		if err := rows.Scan(
 			&msg.ID,
 			&msg.ChannelID,
 			&msg.UserID,
 			&msg.Content,
 			&msg.Attachments,
+			&msgStickerID,
 			&msg.CreatedAt,
 			&msg.UpdatedAt,
+			&sID,
+			&sName,
+			&sURL,
+			&sServerID,
 		); err != nil {
 			return nil, fmt.Errorf("failed to scan message: %w", err)
+		}
+		if msgStickerID != nil {
+			msg.StickerID = msgStickerID
+			msg.Sticker = &domain.Sticker{
+				ID:       *sID,
+				Name:     *sName,
+				ImageURL: *sURL,
+				ServerID: *sServerID,
+			}
 		}
 		messages = append(messages, msg)
 	}
@@ -238,18 +286,24 @@ func (r *messageRepository) GetAround(channelID, messageID uuid.UUID, limit int)
 	// Тай-брейк по id, т.к. created_at не уникален.
 	query := `
 		(
-			SELECT id, channel_id, user_id, content, attachments, created_at, updated_at
-			FROM messages
-			WHERE channel_id = $1 AND (created_at, id) <= ($2, $3)
-			ORDER BY created_at DESC, id DESC
+			SELECT m.id, m.channel_id, m.user_id, m.content, m.attachments, m.sticker_id,
+			       m.created_at, m.updated_at,
+			       s.id, s.name, s.image_url, s.server_id
+			FROM messages m
+			LEFT JOIN stickers s ON s.id = m.sticker_id
+			WHERE m.channel_id = $1 AND (m.created_at, m.id) <= ($2, $3)
+			ORDER BY m.created_at DESC, m.id DESC
 			LIMIT $4
 		)
 		UNION ALL
 		(
-			SELECT id, channel_id, user_id, content, attachments, created_at, updated_at
-			FROM messages
-			WHERE channel_id = $1 AND (created_at, id) > ($2, $3)
-			ORDER BY created_at ASC, id ASC
+			SELECT m.id, m.channel_id, m.user_id, m.content, m.attachments, m.sticker_id,
+			       m.created_at, m.updated_at,
+			       s.id, s.name, s.image_url, s.server_id
+			FROM messages m
+			LEFT JOIN stickers s ON s.id = m.sticker_id
+			WHERE m.channel_id = $1 AND (m.created_at, m.id) > ($2, $3)
+			ORDER BY m.created_at ASC, m.id ASC
 			LIMIT $4
 		)
 	`
@@ -262,16 +316,35 @@ func (r *messageRepository) GetAround(channelID, messageID uuid.UUID, limit int)
 	var messages []*domain.Message
 	for rows.Next() {
 		msg := &domain.Message{}
+		var msgStickerID *uuid.UUID
+		var sID *uuid.UUID
+		var sName *string
+		var sURL *string
+		var sServerID *uuid.UUID
 		if err := rows.Scan(
 			&msg.ID,
 			&msg.ChannelID,
 			&msg.UserID,
 			&msg.Content,
 			&msg.Attachments,
+			&msgStickerID,
 			&msg.CreatedAt,
 			&msg.UpdatedAt,
+			&sID,
+			&sName,
+			&sURL,
+			&sServerID,
 		); err != nil {
 			return nil, fmt.Errorf("failed to scan message: %w", err)
+		}
+		if msgStickerID != nil {
+			msg.StickerID = msgStickerID
+			msg.Sticker = &domain.Sticker{
+				ID:       *sID,
+				Name:     *sName,
+				ImageURL: *sURL,
+				ServerID: *sServerID,
+			}
 		}
 		messages = append(messages, msg)
 	}

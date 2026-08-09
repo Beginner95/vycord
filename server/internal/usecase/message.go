@@ -12,6 +12,7 @@ type messageUseCase struct {
 	messageRepo domain.MessageRepository
 	channelRepo domain.ChannelRepository
 	serverRepo  domain.ServerRepository
+	stickerRepo domain.StickerRepository
 	perms       domain.PermissionUseCase
 }
 
@@ -19,12 +20,14 @@ func NewMessageUseCase(
 	messageRepo domain.MessageRepository,
 	channelRepo domain.ChannelRepository,
 	serverRepo domain.ServerRepository,
+	stickerRepo domain.StickerRepository,
 	perms domain.PermissionUseCase,
 ) domain.MessageUseCase {
 	return &messageUseCase{
 		messageRepo: messageRepo,
 		channelRepo: channelRepo,
 		serverRepo:  serverRepo,
+		stickerRepo: stickerRepo,
 		perms:       perms,
 	}
 }
@@ -79,12 +82,9 @@ func (uc *messageUseCase) validateMentions(serverID, authorID uuid.UUID, content
 	return nil
 }
 
-func (uc *messageUseCase) CreateMessage(channelID, userID uuid.UUID, content string) (*domain.Message, error) {
+func (uc *messageUseCase) CreateMessage(channelID, userID uuid.UUID, content string, stickerID *uuid.UUID) (*domain.Message, error) {
 	ch, err := uc.requirePermission(channelID, userID, domain.PermSendMessages)
 	if err != nil {
-		return nil, err
-	}
-	if err := uc.validateMentions(ch.ServerID, userID, content); err != nil {
 		return nil, err
 	}
 
@@ -93,9 +93,33 @@ func (uc *messageUseCase) CreateMessage(channelID, userID uuid.UUID, content str
 		ID:        uuid.New(),
 		ChannelID: channelID,
 		UserID:    userID,
-		Content:   content,
 		CreatedAt: now,
 		UpdatedAt: now,
+	}
+
+	if stickerID == nil {
+		if content == "" {
+			return nil, domain.ErrMessageEmpty
+		}
+		if err := uc.validateMentions(ch.ServerID, userID, content); err != nil {
+			return nil, err
+		}
+		msg.Content = content
+	} else {
+		// Сообщение-стикер: текста нет, но Content — непустая строка в смысле
+		// NULL; кладём пустую строку (колонка content NOT NULL).
+		msg.Content = ""
+
+		// Стикер обязан существовать и принадлежать серверу канала.
+		sticker, err := uc.stickerRepo.GetByID(*stickerID)
+		if err != nil {
+			return nil, err
+		}
+		if sticker.ServerID != ch.ServerID {
+			return nil, domain.ErrStickerNotFound
+		}
+		msg.StickerID = stickerID
+		msg.Sticker = sticker
 	}
 
 	if err := uc.messageRepo.Create(msg); err != nil {

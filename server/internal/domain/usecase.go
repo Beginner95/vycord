@@ -58,7 +58,7 @@ type ServerUseCase interface {
 }
 
 type MessageUseCase interface {
-	CreateMessage(channelID, userID uuid.UUID, content string) (*Message, error)
+	CreateMessage(channelID, userID uuid.UUID, content string, stickerID *uuid.UUID) (*Message, error)
 	GetMessages(channelID, userID uuid.UUID, limit, offset int) ([]*Message, error)
 	SearchMessages(channelID, userID uuid.UUID, query string, limit, offset int) ([]*MessageWithAuthor, int, error)
 	GetMessagesAround(channelID, messageID, userID uuid.UUID, limit int) ([]*Message, error)
@@ -108,4 +108,13 @@ type InviteUseCase interface {
 	// JoinViaInvite идемпотентен: уже вступившему (или владельцу) возвращает
 	// сервер без повторного добавления и без инкремента счётчика использований.
 	JoinViaInvite(code string, userID uuid.UUID) (*Server, error)
+}
+
+type StickerUseCase interface {
+	// CreateSticker требует PermManageServer (владелец/админ).
+	CreateSticker(serverID, userID uuid.UUID, name string, data []byte) (*Sticker, error)
+	// ListStickers возвращает стикеры сервера (любому участнику).
+	ListStickers(serverID, userID uuid.UUID) ([]*Sticker, error)
+	// DeleteSticker требует PermManageServer.
+	DeleteSticker(serverID, stickerID, userID uuid.UUID) error
 }
