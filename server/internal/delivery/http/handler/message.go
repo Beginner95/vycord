@@ -256,6 +256,8 @@ func (h *MessageHandler) writeUseCaseError(w http.ResponseWriter, r *http.Reques
 		h.sendError(w, http.StatusNotFound, httperr.CodeChannelNotFound, "channel not found")
 	case errors.Is(err, domain.ErrMessageNotFound):
 		h.sendError(w, http.StatusNotFound, httperr.CodeMessageNotFound, "message not found")
+	case errors.Is(err, domain.ErrStickerNotFound):
+		h.sendError(w, http.StatusNotFound, httperr.CodeStickerNotFound, "sticker not found")
 	case errors.Is(err, domain.ErrInvalidMention):
 		h.sendError(w, http.StatusBadRequest, httperr.CodeInvalidMention, "invalid mention: user is not a member of this server")
 	case errors.Is(err, domain.ErrMentionForbidden):
