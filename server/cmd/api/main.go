@@ -93,7 +93,7 @@ func main() {
 	roleUseCase := usecase.NewRoleUseCase(serverRepo, roleRepo, permissionUseCase)
 	serverUseCase := usecase.NewServerUseCase(serverRepo, channelRepo, userRepo, roleRepo, storage, permissionUseCase)
 	voiceTokenUseCase := usecase.NewVoiceTokenUseCase(serverUseCase, cfg.JWTSecret)
-	messageUseCase := usecase.NewMessageUseCase(messageRepo, channelRepo, serverRepo, permissionUseCase)
+	messageUseCase := usecase.NewMessageUseCase(messageRepo, channelRepo, serverRepo, stickerRepo, permissionUseCase)
 	stickerUseCase := usecase.NewStickerUseCase(stickerRepo, serverRepo, permissionUseCase, storage)
 	callUseCase := usecase.NewCallUseCase(callRepo)
 	turnUseCase := usecase.NewTURNUseCase(cfg.TURNSecret, cfg.TURNURLs, cfg.TURNTTL)

@@ -97,6 +97,7 @@ const (
 	// Сообщения
 	CodeMessageNotFound       = "message_not_found"
 	CodeMessageEmpty          = "message_content_required"
+	CodeStickerWithText       = "sticker_with_text"
 	CodeSearchQueryLength     = "search_query_length"
 	CodeInvalidMention        = "invalid_mention"
 	CodeMentionEveryoneDenied = "mention_everyone_denied"

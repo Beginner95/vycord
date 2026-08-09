@@ -58,7 +58,7 @@ type ServerUseCase interface {
 }
 
 type MessageUseCase interface {
-	CreateMessage(channelID, userID uuid.UUID, content string) (*Message, error)
+	CreateMessage(channelID, userID uuid.UUID, content string, stickerID *uuid.UUID) (*Message, error)
 	GetMessages(channelID, userID uuid.UUID, limit, offset int) ([]*Message, error)
 	SearchMessages(channelID, userID uuid.UUID, query string, limit, offset int) ([]*MessageWithAuthor, int, error)
 	GetMessagesAround(channelID, messageID, userID uuid.UUID, limit int) ([]*Message, error)

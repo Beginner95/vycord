@@ -61,3 +61,8 @@ var (
 	// ErrInvalidCredentials — email не найден или пароль не совпадает при входе.
 	ErrInvalidCredentials = errors.New("invalid email or password")
 )
+
+var (
+	// ErrMessageEmpty — сообщение пустое.
+	ErrMessageEmpty = errors.New("message content is empty")
+)

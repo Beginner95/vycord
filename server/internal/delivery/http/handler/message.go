@@ -31,7 +31,8 @@ func NewMessageHandler(messageUseCase domain.MessageUseCase, hub *ws.Hub, log *s
 }
 
 type CreateMessageRequest struct {
-	Content string `json:"content"`
+	Content   string     `json:"content"`
+	StickerID *uuid.UUID `json:"sticker_id"`
 }
 
 func (h *MessageHandler) CreateMessage(w http.ResponseWriter, r *http.Request) {
@@ -50,12 +51,16 @@ func (h *MessageHandler) CreateMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if req.Content == "" {
+	if req.Content == "" && req.StickerID == nil {
 		h.sendError(w, http.StatusBadRequest, httperr.CodeMessageEmpty, "message content is required")
 		return
 	}
+	if req.StickerID != nil && req.Content != "" {
+		h.sendError(w, http.StatusBadRequest, httperr.CodeStickerWithText, "sticker messages cannot contain text")
+		return
+	}
 
-	msg, err := h.messageUseCase.CreateMessage(channelID, userID, req.Content)
+	msg, err := h.messageUseCase.CreateMessage(channelID, userID, req.Content, req.StickerID)
 	if err != nil {
 		h.writeUseCaseError(w, r, err)
 		return
