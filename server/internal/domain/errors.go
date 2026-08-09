@@ -19,8 +19,8 @@ var (
 	ErrInvalidMention = errors.New("invalid mention")
 	// ErrMentionForbidden — @everyone от пользователя без права MENTION_EVERYONE.
 	ErrMentionForbidden = errors.New("mention not allowed")
-	// ErrUnsupportedAvatarFormat — загружаемый файл не PNG и не JPEG.
-	ErrUnsupportedAvatarFormat = errors.New("unsupported avatar format")
+	// ErrUnsupportedAvatarFormat — загружаемый файл не PNG, не JPEG и не GIF.
+	ErrUnsupportedAvatarFormat = errors.New("unsupported image format")
 	// ErrInvalidAvatarImage — файл не декодируется как валидное изображение.
 	ErrInvalidAvatarImage = errors.New("invalid avatar image")
 	// ErrInvalidAvatarDimensions — разрешение изображения вне допустимых границ.

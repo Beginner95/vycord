@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"image"
+	_ "image/gif"
 	_ "image/jpeg"
 	_ "image/png"
 	"net/http"
@@ -16,7 +17,7 @@ const (
 	maxImageDimension = 4096
 )
 
-// validateImage проверяет, что data — валидный PNG или JPEG разумного
+// validateImage проверяет, что data — валидный PNG, JPEG или GIF разумного
 // разрешения, и возвращает расширение файла и определённый content-type
 // для сохранения в файловое хранилище. Используется и для аватара
 // пользователя (UpdateAvatar), и для иконки сервера (UpdateServerIcon).
@@ -27,6 +28,8 @@ func validateImage(data []byte) (ext, contentType string, err error) {
 		ext = "png"
 	case "image/jpeg":
 		ext = "jpg"
+	case "image/gif":
+		ext = "gif"
 	default:
 		return "", "", domain.ErrUnsupportedAvatarFormat
 	}
