@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, Tray, Menu, session, desktopCapturer, systemPreferences } from 'electron';
+import { app, BrowserWindow, ipcMain, Tray, Menu, session, desktopCapturer, systemPreferences, shell } from 'electron';
 import * as path from 'path';
 import { initAutoUpdater } from './updater';
 import { TRAY_LABELS, isTrayLocale, type TrayLocale } from './tray-labels';
@@ -43,6 +43,22 @@ function createWindow(): BrowserWindow {
   } else {
     mainWindow.loadFile(path.resolve(projectRoot, 'dist/index.html'));
   }
+
+  const openExternal = (url: string) => {
+    if (/^(https?|mailto):/i.test(url)) shell.openExternal(url);
+  };
+
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    openExternal(url);
+    return { action: 'deny' };
+  });
+
+  mainWindow.webContents.on('will-navigate', (event, url) => {
+    if (url !== mainWindow!.webContents.getURL()) {
+      event.preventDefault();
+      openExternal(url);
+    }
+  });
 
   mainWindow.on('closed', () => {
     mainWindow = null;
@@ -135,6 +151,17 @@ ipcMain.handle('window:maximize', () => {
 
 ipcMain.handle('window:close', () => {
   mainWindow?.close();
+});
+
+ipcMain.handle('window:toggle-fullscreen', () => {
+  const win = mainWindow;
+  if (!win) return null;
+  // The DOM Fullscreen API can silently fail on a frameless Electron window, so
+  // screen-share fullscreen is driven through the main process. setFullScreen is
+  // async (notably on macOS), so report the intended state back to the renderer.
+  const next = !win.isFullScreen();
+  win.setFullScreen(next);
+  return next;
 });
 
 ipcMain.handle('get-app-version', () => {

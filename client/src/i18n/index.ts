@@ -6,7 +6,7 @@ import type { PluralForms } from './plural';
 
 export { plural } from './plural';
 export { LOCALES } from '@/stores/localeStore';
-export { useDateFormat } from './format';
+export { useDateFormat, isSameCalendarDay, resolveDayLabel } from './format';
 export type { PluralForms } from './plural';
 export type { Locale } from '@/stores/localeStore';
 

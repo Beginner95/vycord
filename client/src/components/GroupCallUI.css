@@ -900,6 +900,13 @@
   letter-spacing: 0.02em;
 }
 
+/* Fullscreen: hide the author label so the shared screen is unobstructed. Uses
+   the .is-fullscreen class (tracked via isFullscreen state) so it also works in
+   Electron, where the DOM :fullscreen pseudo-class isn't set by setFullScreen. */
+.screen-share-main.is-fullscreen .screen-share-main-label {
+  display: none;
+}
+
 /* Fullscreen: video fills the container */
 .screen-share-main:fullscreen {
   width: 100vw;
