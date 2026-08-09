@@ -43,6 +43,14 @@ var (
 	ErrInviteNotFound = errors.New("invite not found")
 	// ErrInviteForbidden — у пользователя нет прав создавать/отзывать инвайты сервера.
 	ErrInviteForbidden = errors.New("invite access denied")
+	// ErrStickerNotFound — стикер не существует или принадлежит другому серверу.
+	ErrStickerNotFound = errors.New("sticker not found")
+	// ErrStickerForbidden — у пользователя нет права управлять стикерами сервера.
+	ErrStickerForbidden = errors.New("sticker access denied")
+	// ErrStickerNameRequired — имя стикера пустое.
+	ErrStickerNameRequired = errors.New("sticker name is required")
+	// ErrStickerNameTooLong — имя стикера длиннее 100 символов.
+	ErrStickerNameTooLong = errors.New("sticker name is too long")
 
 	// ErrEmailTaken — при регистрации email уже занят другим пользователем.
 	ErrEmailTaken = errors.New("user with this email already exists")
