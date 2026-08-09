@@ -14,5 +14,5 @@ export default defineConfig({
     },
   },
   build: { outDir: 'dist', sourcemap: true },
-  test: { environment: 'node' },
+  test: { environment: 'node', setupFiles: ['./src/test/setup.ts'] },
 });
