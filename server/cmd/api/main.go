@@ -76,6 +76,7 @@ func main() {
 	callRepo := postgres.NewCallRepository(db)
 	roleRepo := postgres.NewRoleRepository(db)
 	inviteRepo := postgres.NewInviteRepository(db)
+	stickerRepo := postgres.NewStickerRepository(db)
 
 	// Initialize file storage
 	storage, err := filestorage.NewLocal(cfg.UploadDir, "/uploads")
@@ -93,6 +94,7 @@ func main() {
 	serverUseCase := usecase.NewServerUseCase(serverRepo, channelRepo, userRepo, roleRepo, storage, permissionUseCase)
 	voiceTokenUseCase := usecase.NewVoiceTokenUseCase(serverUseCase, cfg.JWTSecret)
 	messageUseCase := usecase.NewMessageUseCase(messageRepo, channelRepo, serverRepo, permissionUseCase)
+	stickerUseCase := usecase.NewStickerUseCase(stickerRepo, serverRepo, permissionUseCase, storage)
 	callUseCase := usecase.NewCallUseCase(callRepo)
 	turnUseCase := usecase.NewTURNUseCase(cfg.TURNSecret, cfg.TURNURLs, cfg.TURNTTL)
 
@@ -107,6 +109,7 @@ func main() {
 	serverHandler := handler.NewServerHandler(serverUseCase, inviteUseCase, hub, log)
 	inviteHandler := handler.NewInviteHandler(inviteUseCase, log)
 	messageHandler := handler.NewMessageHandler(messageUseCase, hub, log)
+	stickerHandler := handler.NewStickerHandler(stickerUseCase, log)
 	onlineUsersHandler := handler.NewOnlineUsersHandler(hub, userRepo, log)
 	wsHandler := handler.NewWebSocketHandler(hub, authUseCase, callUseCase, userUseCase, serverUseCase, log)
 	turnHandler := handler.NewTURNHandler(turnUseCase, log)
@@ -143,6 +146,11 @@ func main() {
 	router.HandleFunc("DELETE /api/v1/servers/{id}", authMid.RequireAuth(serverHandler.DeleteServer))
 	router.HandleFunc("POST /api/v1/servers/{id}/icon", authMid.RequireAuth(serverHandler.UploadServerIcon))
 	router.HandleFunc("DELETE /api/v1/servers/{id}/icon", authMid.RequireAuth(serverHandler.RemoveServerIcon))
+
+	// Sticker routes
+	router.HandleFunc("POST /api/v1/servers/{id}/stickers", authMid.RequireAuth(stickerHandler.CreateSticker))
+	router.HandleFunc("GET /api/v1/servers/{id}/stickers", authMid.RequireAuth(stickerHandler.ListStickers))
+	router.HandleFunc("DELETE /api/v1/servers/{id}/stickers/{sticker_id}", authMid.RequireAuth(stickerHandler.DeleteSticker))
 
 	// Channel routes
 	router.HandleFunc("POST /api/v1/servers/{server_id}/channels", authMid.RequireAuth(serverHandler.CreateChannel))

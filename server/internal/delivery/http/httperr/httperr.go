@@ -59,6 +59,15 @@ const (
 	CodeInvalidImage         = "invalid_image_file"
 	CodeInvalidImageSize     = "invalid_image_dimensions"
 
+	// Стикеры
+	CodeStickerTooLarge      = "sticker_file_too_large"
+	CodeStickerImageRequired = "sticker_image_required"
+	CodeStickerReadFailed    = "sticker_read_failed"
+	CodeStickerNotFound      = "sticker_not_found"
+	CodeStickerNameRequired  = "sticker_name_required"
+	CodeStickerNameTooLong   = "sticker_name_too_long"
+	CodeInvalidStickerID     = "invalid_sticker_id"
+
 	// Серверы
 	CodeServerNotFound     = "server_not_found"
 	CodeServerNameRequired = "server_name_required"
