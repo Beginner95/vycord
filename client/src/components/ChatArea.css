@@ -735,3 +735,200 @@
   border-radius: var(--radius-md);
   background: none;
 }
+
+/* ── Sticker picker ── */
+.sticker-picker {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 0;
+  width: 264px;
+  max-height: 240px;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lg);
+  z-index: 30;
+  overflow: hidden;
+}
+
+.sticker-picker-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+  padding: 10px;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.sticker-cell {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px;
+  border: none;
+  background: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: background var(--transition);
+}
+
+.sticker-cell:hover {
+  background: var(--bg-hover);
+}
+
+.sticker-cell img {
+  width: 100%;
+  height: auto;
+  object-fit: contain;
+  border-radius: var(--radius-sm);
+}
+
+.sticker-empty {
+  grid-column: 1 / -1;
+  padding: 20px 10px;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.sticker-manage-btn {
+  display: block;
+  width: 100%;
+  padding: 8px;
+  border: none;
+  border-top: 1px solid var(--border-subtle);
+  background: var(--bg-primary);
+  color: var(--brand-color);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background var(--transition);
+}
+
+.sticker-manage-btn:hover {
+  background: var(--bg-hover);
+}
+
+/* ── Sticker manager ── */
+.sticker-manager-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+}
+
+.sticker-manager {
+  width: 360px;
+  max-height: 70vh;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 20px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  overflow: hidden;
+}
+
+.sticker-manager h3 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.sticker-manager-upload {
+  display: flex;
+  gap: 8px;
+}
+
+.sticker-manager-upload input[type="text"] {
+  flex: 1;
+  min-width: 0;
+  padding: 8px 12px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-size: 13px;
+  font-family: inherit;
+  outline: none;
+}
+
+.sticker-manager-upload input[type="text"]:focus {
+  border-color: var(--brand-color);
+}
+
+.sticker-manager-upload input[type="file"] {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.sticker-manager-list {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.sticker-manager-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 8px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-primary);
+}
+
+.sticker-manager-item img {
+  object-fit: contain;
+  border-radius: var(--radius-sm);
+}
+
+.sticker-manager-item span {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  color: var(--text-primary);
+}
+
+.sticker-manager-item button {
+  padding: 4px 10px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: var(--red-500);
+  color: white;
+  font-size: 12px;
+  cursor: pointer;
+  transition: background var(--transition);
+}
+
+.sticker-manager-item button:hover {
+  background: var(--red-600);
+}
+
+.sticker-manager > button {
+  align-self: flex-end;
+  padding: 8px 16px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-size: 13px;
+  cursor: pointer;
+  transition: all var(--transition);
+}
+
+.sticker-manager > button:hover {
+  background: var(--bg-hover);
+}

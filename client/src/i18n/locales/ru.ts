@@ -91,6 +91,12 @@ export const ru = {
     legacyRoleMember: 'Участник',
     emptyChannelTitle: 'Добро пожаловать в #{{channel}}!',
     emptyChannelSubtitle: 'Это начало канала #{{channel}}.',
+    noStickers: 'В этом сервере пока нет стикеров',
+    manageStickers: 'Управлять стикерами',
+    manageStickersTitle: 'Стикеры сервера',
+    stickerNamePlaceholder: 'Имя стикера',
+    deleteStickerConfirm: 'Удалить этот стикер?',
+    stickers: 'Стикеры',
   },
   call: {
     participants: plural({

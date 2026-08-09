@@ -3,6 +3,8 @@ import type { RefObject } from 'react';
 import { useMessageStore } from '@/stores/messageStore';
 import { LinkDialog } from '@/components/LinkDialog';
 import { EmojiPicker } from '@/components/EmojiPicker';
+import { StickerPicker } from '@/components/StickerPicker';
+import { StickerManager } from '@/components/StickerManager';
 import { toggleQuote, toggleBullet, toggleNumbered, toggleWrap, type LineToggle } from '@/utils/textTransforms';
 import { isUnsafeUrl } from '@/utils/markdown';
 import type { Message } from '@/types';
@@ -18,6 +20,7 @@ import { MessageSearch } from '@/components/MessageSearch';
 import { Avatar } from '@/components/Avatar';
 import { DayDivider } from '@/components/DayDivider';
 import type { Channel, User, MemberWithUser } from '@/types';
+import type { Sticker } from '@/types';
 import { useT, useDateFormat, isSameCalendarDay, type TFunc } from '@/i18n';
 import { Fragment, type ReactNode } from 'react';
 import { parseInline, blockify, normalizeLinkHref, type MdInlineNode } from '@/utils/markdown';
@@ -165,12 +168,16 @@ export function ChatArea({ channel, user, onMobileBack, onShowMembers }: ChatAre
   const [searchOpen, setSearchOpen] = useState(false);
   const [historyMode, setHistoryMode] = useState(false);
   const [highlightedId, setHighlightedId] = useState<string | null>(null);
+  const [stickerPickerOpen, setStickerPickerOpen] = useState(false);
+  const [stickerManagerOpen, setStickerManagerOpen] = useState(false);
+  const [serverStickers, setServerStickers] = useState<Sticker[]>([]);
 
   // Cache for user info (id → username)
   const [userCache, setUserCache] = useState<Map<string, { username: string; avatar_url?: string }>>(new Map());
 
   const permissions = useServerStore((s) => (currentServer ? s.permissions.get(currentServer.id) : undefined));
   const canMentionEveryone = can(permissions, PERMISSIONS.MENTION_EVERYONE);
+  const canManageStickers = can(permissions, PERMISSIONS.MANAGE_SERVER);
 
   const composeMention = useMentionAutocomplete({
     value: input,
@@ -194,6 +201,17 @@ export function ChatArea({ channel, user, onMobileBack, onShowMembers }: ChatAre
     setHistoryMode(false);
     setHighlightedId(null);
   }, [channel?.id]);
+
+  useEffect(() => {
+    if (channel?.id) {
+      const sid = currentServer?.id;
+      if (sid) {
+        apiService.listStickers(sid).then((s) => {
+          if (sid === currentServer?.id) setServerStickers(s);
+        }).catch(() => {});
+      }
+    }
+  }, [channel?.id, currentServer?.id]);
 
   useEffect(() => {
     const handler = (e: globalThis.KeyboardEvent) => {
@@ -335,6 +353,18 @@ export function ChatArea({ channel, user, onMobileBack, onShowMembers }: ChatAre
       setCaretInQuoteLine(false);
     } catch (err) {
       console.error('Failed to send message:', err);
+      setSendError(apiErrorText(err, t));
+      setTimeout(() => setSendError(null), 5000);
+    }
+  };
+
+  const sendSticker = async (sticker: Sticker) => {
+    if (!channel || !user) return;
+    try {
+      const msg = await apiService.createMessage(channel.id, '', sticker.id) as Message;
+      addMessage(msg);
+      setStickerPickerOpen(false);
+    } catch (err) {
       setSendError(apiErrorText(err, t));
       setTimeout(() => setSendError(null), 5000);
     }
@@ -869,6 +899,9 @@ export function ChatArea({ channel, user, onMobileBack, onShowMembers }: ChatAre
           <button type="button" className="toolbar-btn" aria-label={t('chat.bulletedList')} title={t('chat.bulletedList')} onClick={composeBullet}>
             <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 6h11M9 12h11M9 18h11"/><path d="M4 6h.01M4 12h.01M4 18h.01"/></svg>
           </button>
+          <button type="button" className={`toolbar-btn${stickerPickerOpen ? ' active' : ''}`} aria-label={t('chat.stickers')} title={t('chat.stickers')} onClick={() => setStickerPickerOpen((open) => !open)}>
+            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12a9 9 0 1 1-9-9"/><path d="M12 3a9 9 0 0 1 9 9"/><path d="M21 12h-4l-2 2-2-2"/></svg>
+          </button>
           <button type="button" className={`toolbar-btn${emojiPickerOpen ? ' active' : ''}`} aria-label={t('chat.emoji')} title={t('chat.emoji')} onClick={() => setEmojiPickerOpen((open) => !open)}>
             <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/></svg>
           </button>
@@ -951,6 +984,20 @@ export function ChatArea({ channel, user, onMobileBack, onShowMembers }: ChatAre
         onClose={() => setLinkTarget(null)}
         onInsert={insertLink}
       />
+      {stickerPickerOpen && (
+        <StickerPicker
+          stickers={serverStickers}
+          onSelect={sendSticker}
+          onClose={() => setStickerPickerOpen(false)}
+          onManage={canManageStickers ? () => setStickerManagerOpen(true) : undefined}
+        />
+      )}
+      {stickerManagerOpen && channel && (
+        <StickerManager
+          serverId={channel.server_id}
+          onClose={() => { setStickerManagerOpen(false); setStickerPickerOpen(false); }}
+        />
+      )}
     </main>
   );
 }

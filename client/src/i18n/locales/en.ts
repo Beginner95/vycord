@@ -88,6 +88,12 @@ export const en: Dictionary = {
     legacyRoleMember: 'Member',
     emptyChannelTitle: 'Welcome to #{{channel}}!',
     emptyChannelSubtitle: 'This is the start of the #{{channel}} channel.',
+    noStickers: 'No stickers in this server yet',
+    manageStickers: 'Manage stickers',
+    manageStickersTitle: 'Server stickers',
+    stickerNamePlaceholder: 'Sticker name',
+    deleteStickerConfirm: 'Delete this sticker?',
+    stickers: 'Stickers',
   },
   call: {
     participants: plural({
