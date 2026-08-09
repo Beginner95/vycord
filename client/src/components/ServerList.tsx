@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import type { Server, User, InvitePreview } from '@/types';
-import { apiService, apiErrorText } from '@/services/api';
+import { apiService, apiErrorText, resolveUploadUrl } from '@/services/api';
 import { useServerStore } from '@/stores/serverStore';
 import { ContextMenu } from '@/components/ContextMenu';
 import { EditServerModal } from '@/components/EditServerModal';
@@ -134,7 +134,7 @@ export function ServerList({
             title={server.name}
           >
             {server.icon_url ? (
-              <img src={server.icon_url} alt={server.name} />
+              <img src={resolveUploadUrl(server.icon_url)} alt={server.name} />
             ) : (
               <span className="server-icon-symbol">{server.name.charAt(0).toUpperCase()}</span>
             )}
