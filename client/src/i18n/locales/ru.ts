@@ -399,6 +399,13 @@ export const ru = {
     role_not_found: 'Роль не найдена',
     invalid_permissions: 'Некорректный набор прав',
     invalid_role_name: 'Некорректное название роли',
+    sticker_file_too_large: 'Файл стикера слишком большой',
+    sticker_image_required: 'Прикрепите изображение стикера',
+    sticker_read_failed: 'Не удалось прочитать файл стикера',
+    sticker_not_found: 'Стикер не найден',
+    sticker_name_required: 'Введите имя стикера',
+    sticker_name_too_long: 'Имя стикера не длиннее 100 символов',
+    sticker_with_text: 'Сообщение-стикер не может содержать текст',
   },
 };
 

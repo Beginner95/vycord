@@ -394,5 +394,12 @@ export const en: Dictionary = {
     role_not_found: 'Role not found',
     invalid_permissions: 'Invalid permission set',
     invalid_role_name: 'Invalid role name',
+    sticker_file_too_large: 'Sticker file is too large',
+    sticker_image_required: 'Attach a sticker image',
+    sticker_read_failed: 'Failed to read sticker file',
+    sticker_not_found: 'Sticker not found',
+    sticker_name_required: 'Enter a sticker name',
+    sticker_name_too_long: 'Sticker name must be 100 characters or fewer',
+    sticker_with_text: 'A sticker message cannot contain text',
   },
 };
