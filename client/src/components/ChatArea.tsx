@@ -943,6 +943,14 @@ export function ChatArea({ channel, user, onMobileBack, onShowMembers }: ChatAre
             onClose={() => setEmojiPickerOpen(false)}
           />
         )}
+        {stickerPickerOpen && (
+          <StickerPicker
+            stickers={serverStickers}
+            onSelect={sendSticker}
+            onClose={() => setStickerPickerOpen(false)}
+            onManage={canManageStickers ? () => setStickerManagerOpen(true) : undefined}
+          />
+        )}
       </div>
 
       {composeSelectionToolbar.visible && (
@@ -984,14 +992,6 @@ export function ChatArea({ channel, user, onMobileBack, onShowMembers }: ChatAre
         onClose={() => setLinkTarget(null)}
         onInsert={insertLink}
       />
-      {stickerPickerOpen && (
-        <StickerPicker
-          stickers={serverStickers}
-          onSelect={sendSticker}
-          onClose={() => setStickerPickerOpen(false)}
-          onManage={canManageStickers ? () => setStickerManagerOpen(true) : undefined}
-        />
-      )}
       {stickerManagerOpen && channel && (
         <StickerManager
           serverId={channel.server_id}
