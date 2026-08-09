@@ -4,13 +4,14 @@
 
 **Goal:** Дать пользователям Vycord отправлять стандартные Unicode-эмодзи (из пикера с категориями) и серверные стикеры (сообщение-картинка), которые загружают владелец и администраторы.
 
-**Architecture:** Стикеры хранятся в новой таблице `stickers` (server_id, name, image_url); сами файлы кладутся в уже существующее локальное файловое хранилище `filestorage` (UPLOAD_DIR), как аватары. Сообщение-стикер — это расширение существующего `POST /messages` на опциональное поле `sticker_id`, а `messages` получает nullable-колонку `sticker_id` + nullable `content`. Клиент: самописные попап-пикеры эмодзи (только клиентская логика, символы вставляются в textarea) и стикеров (грид картинок сервера), иконки рядом с «Маркированным списком».
+**Architecture:** Стикеры хранятся в новой таблице `stickers` (server_id, name, image_url); сами файлы кладутся в уже существующее локальное файловое хранилище `filestorage` (UPLOAD_DIR), как аватары. Сообщение-стикер — это расширение существующего `POST /messages` на опциональное поле `sticker_id`; content остаётся строкой и для стикер-сообщения заполняется пустой строкой. Клиент: самописные попап-пикеры эмодзи (только клиентская логика, символы вставляются в textarea) и стикеров (грид картинок сервера), иконки рядом с «Маркированным списком».
 
 **Tech Stack:** Go 1.22+ (net/http ServeMux, pgx, jackc), UUID (google/uuid), testify для тестов, React 19 + TypeScript (zustand, vitest), уже есть `filestorage` пакет.
 
 ## Global Constraints
 
 - Битовая маска прав зафиксирована (см. `domain/permission.go`) — новые права **не** вводим. Управление стикерами использует существующее `PermManageServer` (= 1<<1).
+- **`Message.Content` остаётся типом `string` (НЕ указатель).** Стикер-сообщение хранит `content = ""` (пустая не-null строка) + `sticker_id`. Колонка `messages.content` остаётся `NOT NULL`. Рендер и логика строятся на присутствии `sticker_id`, а не на nullability `content`. На клиенте `Message.content: string` (не `string | null`).
 - Менять существующие селекторы `messages` нельзя вслепую — они перечисляют колонки явно; при добавлении колонки `sticker_id` их нужно легитиматно расширить.
 - `validateImage` из `usecase/image.go` поддерживает только PNG и JPEG, размеры 32–4096. Переиспользуем его для стикеров.
 - i18n: ключи добавляются **в оба** файла `ru.ts` и `en.ts` (en.ts типизирован как `Dictionary` от ru.ts — иначе сборка TS упадёт).
@@ -28,7 +29,7 @@
 
 **Interfaces:**
 - Consumes: сущ. таблицы `servers`, `users`, `messages`.
-- Produces: таблица `stickers(id, server_id, name, image_url, created_by, created_at)` и колонка `messages.sticker_id` + nullable `messages.content`.
+- Produces: таблица `stickers(id, server_id, name, image_url, created_by, created_at)` и колонка `messages.sticker_id` (content остаётся NOT NULL).
 
 - [ ] **Step 1: Создать up-миграцию**
 
@@ -47,9 +48,7 @@ CREATE TABLE IF NOT EXISTS stickers (
 CREATE INDEX IF NOT EXISTS idx_stickers_server_id ON stickers(server_id);
 
 ALTER TABLE messages ADD COLUMN IF NOT EXISTS sticker_id UUID REFERENCES stickers(id) ON DELETE CASCADE;
-ALTER TABLE messages ALTER COLUMN content DROP NOT NULL;
 -- +migrate Down
-ALTER TABLE messages ALTER COLUMN content SET NOT NULL;
 ALTER TABLE messages DROP COLUMN IF EXISTS sticker_id;
 DROP TABLE IF EXISTS stickers;
 ```
@@ -59,7 +58,6 @@ DROP TABLE IF EXISTS stickers;
 `server/migrations/015_create_stickers.down.sql`:
 ```sql
 -- +migrate Down
-ALTER TABLE messages ALTER COLUMN content SET NOT NULL;
 ALTER TABLE messages DROP COLUMN IF EXISTS sticker_id;
 DROP TABLE IF EXISTS stickers;
 ```
@@ -191,7 +189,7 @@ type Message struct {
 	ID          uuid.UUID  `json:"id"`
 	ChannelID   uuid.UUID  `json:"channel_id"`
 	UserID      uuid.UUID  `json:"user_id"`
-	Content     *string    `json:"content"`
+	Content     string     `json:"content"`
 	Attachments []string   `json:"attachments,omitempty"`
 	StickerID   *uuid.UUID `json:"sticker_id,omitempty"`
 	Sticker     *Sticker   `json:"sticker,omitempty"`
@@ -200,20 +198,16 @@ type Message struct {
 }
 ```
 
-- [ ] **Step 2: Исправить компиляцию в репозитории**
+- [ ] **Step 2: Прогнать сборку и тесты**
 
-`server/internal/repository/postgres/message.go`: поле `Content` теперь `*string`. Все места `msg.Content` в этом файле (строки с INSERT и Scan) компилируются без изменений, но `Create` заполняет `msg.Content` как указатель. Обновить `usecase/message.go` ниже в Task 7. Для этого таска — прогнать сборку, убедиться, что существующие тесты не используют `Content` как строку.
+`Content` остаётся `string` — существующие репозиторий/usecase/handler и их тесты не ломаются. Добавлены только `StickerID` (`*uuid.UUID`) и `Sticker` (`*Sticker`) — они нигде ещё не заполняются и в выводе `omitempty`.
 
-Run: `cd server && go build ./...`
-Expected: если ошибок нет — ок; если тесты/код клиента на `Content` строковый — они будут починены в соответствующих задачах (Task 7, Task 9). **Клиентский TS-тип `Message` в Task 9.** Пока `go build` проходит (repos сканирует `*string` корректно).
+- [ ] **Step 2: Прогнать сборку и тесты**
 
-- [ ] **Step 3: Обновить компактность тестов, где используется `Content` строкой**
+Run: `cd server && go test ./internal/domain/`
+Expected: PASS.
 
-Проверить компиляцию тестов:
-Run: `cd server && go test ./...`
-Expected: PASS либо понятные места для правки указателя в более поздних задачах. Если здесь падает из-за `*string` — правки внесёт Task 7, поэтому здесь просто фиксируем текущее состояние.
-
-- [ ] **Step 4: Commit**
+- [ ] **Step 3: Commit**
 
 ```bash
 git add server/internal/domain/message.go
@@ -918,7 +912,7 @@ git commit -m "feat: add sticker HTTP handlers and routes"
 ```go
 	CreateMessage(channelID, userID uuid.UUID, content string, stickerID *uuid.UUID) (*Message, error)
 ```
-Также `domain.Message.StickerID` уже есть (Task 3). Интерфейс возвращает `*Message`, где заполнены `Content *string` и `StickerID`.
+Также `domain.Message.StickerID` уже есть (Task 3). `Message.Content` остаётся `string`; для стикер-сообщения он заполняется пустой строкой.
 
 - [ ] **Step 2: Обновить usecase `CreateMessage`**
 
@@ -939,7 +933,6 @@ func (uc *messageUseCase) CreateMessage(channelID, userID uuid.UUID, content str
 		UpdatedAt: now,
 	}
 
-	var contentPtr *string
 	if stickerID == nil {
 		if content == "" {
 			return nil, domain.ErrMessageEmpty
@@ -947,14 +940,11 @@ func (uc *messageUseCase) CreateMessage(channelID, userID uuid.UUID, content str
 		if err := uc.validateMentions(ch.ServerID, userID, content); err != nil {
 			return nil, err
 		}
-		c := content
-		contentPtr = &c
-		msg.Content = &c
+		msg.Content = content
 	} else {
-		// Сообщение-стикер: текста нет.
-		empty := ""
-		contentPtr = &empty
-		msg.Content = &empty
+		// Сообщение-стикер: текста нет, но Content — непустая строка в смысле
+		// NULL; кладём пустую строку (колонка content NOT NULL).
+		msg.Content = ""
 
 		// Стикер обязан существовать и принадлежать серверу канала.
 		sticker, err := uc.stickerRepo.GetByID(*stickerID)
@@ -975,7 +965,7 @@ func (uc *messageUseCase) CreateMessage(channelID, userID uuid.UUID, content str
 	return msg, nil
 }
 ```
-**Заметка:** `contentPtr` локальная переменная не нужна — использовать `msg.Content` напрямую. Убрать `contentPtr`. `domain.ErrMessageEmpty` — новая sentinel-ошибка (пустое сообщение). Использовать её в usecase и handler; но уже есть handler-валидация `CodeMessageEmpty`. Для usecase добавить:
+`domain.ErrMessageEmpty` — новая sentinel-ошибка (пустое сообщение):
 ```go
 	// ErrMessageEmpty — сообщение пустое.
 	ErrMessageEmpty = errors.New("message content is empty")
@@ -1107,7 +1097,7 @@ git commit -m "feat: support sticker_id in message creation"
 - Consumes: существующая `Sticker` структура (по образцу серверной).
 - Produces:
   - `export interface Sticker { id: string; server_id: string; name: string; image_url: string; created_by: string; created_at: string }`
-  - `Message` получает `content: string | null`, `sticker_id?: string`, `sticker?: Sticker`.
+  - `Message` получает `sticker_id?: string`, `sticker?: Sticker`. `content` остаётся `string` (НЕ nullable).
 
 - [ ] **Step 1: Добавить тип `Sticker` и обновить `Message`**
 
@@ -1126,7 +1116,7 @@ export interface Message {
   id: string;
   channel_id: string;
   user_id: string;
-  content: string | null;
+  content: string;
   attachments?: string[];
   sticker_id?: string;
   sticker?: Sticker;
@@ -1138,7 +1128,7 @@ export interface Message {
 - [ ] **Step 2: Сборка клиента**
 
 Run: `cd client && npx tsc --noEmit`
-Expected: могут быть ошибки в местах, где `content` использовался как строка (ChatArea, MessageSearch). Их правим в Task 10. Здесь фиксируем тип; если `tsc` падает — это ожидаемо, починим далее.
+Expected: PASS — `content` остался строкой, существующие использования не ломаются.
 
 - [ ] **Step 3: Commit**
 
@@ -1215,18 +1205,18 @@ git commit -m "feat: add sticker api methods and sticker_id to createMessage"
 
 ---
 
-### Task 10: Набор эмодзи и правка рендера под nullable content
+### Task 10: Набор эмодзи и рендер стикер-сообщений
 
 **Files:**
 - Create: `client/src/utils/emojis.ts`
 - Modify: `client/src/utils/markdown.ts` (если `content` передаётся как `string` везде — проверить)
-- Modify: `client/src/components/ChatArea.tsx` (рендер `msg.content` и `startEdit`)
+- Modify: `client/src/components/ChatArea.tsx` (рендер стикер-сообщений и `startEdit`)
 
 **Interfaces:**
-- Consumes: `Message` с nullable `content` (Task 8).
+- Consumes: `Message` (Task 8) — `content: string`, `sticker_id?`, `sticker?`.
 - Produces:
   - `export const EMOJI_CATEGORIES: { id: string; label: string; emojis: string[] }[]`
-  - рендер: если `msg.sticker_id` — `<img class="message-sticker">`; иначе `content ?? ''`.
+  - рендер: если `msg.sticker_id` — `<img class="message-sticker">`; иначе `renderMessageBody(msg.content, ...)`.
 
 - [ ] **Step 1: Создать набор эмодзи**
 
@@ -1285,9 +1275,9 @@ describe('EMOJI_CATEGORIES', () => {
 Run: `cd client && npx vitest run src/utils/__tests__/emojis.test.ts`
 Expected: PASS.
 
-- [ ] **Step 4: Правка рендера в ChatArea под nullable content**
+- [ ] **Step 4: Правка рендера стикер-сообщений в ChatArea**
 
-В `ChatArea.tsx:769`, строка `renderMessageBody(msg.content, ...)` → обёртка: если `msg.sticker_id`, рендерить стикер-картинку, иначе текст. Заменить `onClick={startEdit}` и условия — стикер-сообщения не редактируются.
+В `ChatArea.tsx:769`, блок рендера: если `msg.sticker_id` — рисовать стикер-картинку, иначе текст. Заменить текущий тернарник на:
 
 Рендер (заменить блок `: (<div className="message-text">{renderMessageBody(msg.content, ...)}</div>)`):
 ```tsx
@@ -1298,7 +1288,7 @@ Expected: PASS.
 ) : msg.sticker_id ? (
   <div className="message-text">{t('chat.stickerRemoved')}</div>
 ) : (
-  <div className="message-text">{renderMessageBody(msg.content ?? '', members, t, user?.id)}</div>
+  <div className="message-text">{renderMessageBody(msg.content, members, t, user?.id)}</div>
 ```
 Точно: сейчас это `) : ( <div className="message-text">...` — заменить.
 
@@ -1317,7 +1307,7 @@ Expected: PASS.
 - [ ] **Step 5: Сборка клиента**
 
 Run: `cd client && npx tsc --noEmit`
-Expected: PASS (nullable content обработан).
+Expected: PASS (`content` остаётся строкой).
 
 - [ ] **Step 6: Commit**
 
