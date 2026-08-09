@@ -1,5 +1,6 @@
 import { useT } from '@/i18n';
 import type { Sticker } from '@/types';
+import { resolveUploadUrl } from '@/services/api';
 
 interface StickerPickerProps {
   stickers: Sticker[];
@@ -18,7 +19,7 @@ export function StickerPicker({ stickers, onSelect, onManage }: StickerPickerPro
         ) : (
           stickers.map((s) => (
             <button key={s.id} type="button" className="sticker-cell" onClick={() => onSelect(s)}>
-              <img src={s.image_url} alt={s.name} />
+              <img src={resolveUploadUrl(s.image_url)} alt={s.name} />
             </button>
           ))
         )}

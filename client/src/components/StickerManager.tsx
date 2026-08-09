@@ -1,15 +1,16 @@
 import { useEffect, useRef, useState, type ChangeEvent, type DragEvent } from 'react';
 import { useT, type TKey } from '@/i18n';
-import { apiService, apiErrorText } from '@/services/api';
+import { apiService, apiErrorText, resolveUploadUrl } from '@/services/api';
 import type { Sticker } from '@/types';
 import { validateStickerFile, ALLOWED_STICKER_TYPES } from '@/utils/stickerUpload';
 
 interface StickerManagerProps {
   serverId: string;
   onClose: () => void;
+  onStickersChanged?: () => void;
 }
 
-export function StickerManager({ serverId, onClose }: StickerManagerProps) {
+export function StickerManager({ serverId, onClose, onStickersChanged }: StickerManagerProps) {
   const t = useT();
   const [stickers, setStickers] = useState<Sticker[]>([]);
   const [name, setName] = useState('');
@@ -66,6 +67,7 @@ export function StickerManager({ serverId, onClose }: StickerManagerProps) {
       setName('');
       setFile(null);
       setError(null);
+      onStickersChanged?.();
     } catch (err) {
       setError(apiErrorText(err, t));
     } finally {
@@ -78,6 +80,7 @@ export function StickerManager({ serverId, onClose }: StickerManagerProps) {
     try {
       await apiService.deleteSticker(serverId, id);
       setStickers((prev) => prev.filter((s) => s.id !== id));
+      onStickersChanged?.();
     } catch (err) {
       setError(apiErrorText(err, t));
     }
@@ -141,7 +144,7 @@ export function StickerManager({ serverId, onClose }: StickerManagerProps) {
         <div className="sticker-manager-list">
           {stickers.map((s) => (
             <div key={s.id} className="sticker-manager-item">
-              <img src={s.image_url} alt={s.name} width={48} height={48} />
+              <img src={resolveUploadUrl(s.image_url)} alt={s.name} width={48} height={48} />
               <span>{s.name}</span>
               <button type="button" onClick={() => handleDelete(s.id)}>{t('common.delete')}</button>
             </div>

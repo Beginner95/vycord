@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, type FormEvent, type KeyboardEvent, type ChangeEvent, type ClipboardEvent } from 'react';
+import { useState, useEffect, useRef, useCallback, type FormEvent, type KeyboardEvent, type ChangeEvent, type ClipboardEvent } from 'react';
 import type { RefObject } from 'react';
 import { useMessageStore } from '@/stores/messageStore';
 import { LinkDialog } from '@/components/LinkDialog';
@@ -8,7 +8,7 @@ import { StickerManager } from '@/components/StickerManager';
 import { toggleQuote, toggleBullet, toggleNumbered, toggleWrap, type LineToggle } from '@/utils/textTransforms';
 import { isUnsafeUrl } from '@/utils/markdown';
 import type { Message } from '@/types';
-import { apiService, apiErrorText } from '@/services/api';
+import { apiService, apiErrorText, resolveUploadUrl } from '@/services/api';
 import { wsService } from '@/services/websocket';
 import { audioService } from '@/services/audio';
 import { useServerStore } from '@/stores/serverStore';
@@ -202,16 +202,18 @@ export function ChatArea({ channel, user, onMobileBack, onShowMembers }: ChatAre
     setHighlightedId(null);
   }, [channel?.id]);
 
-  useEffect(() => {
-    if (channel?.id) {
-      const sid = currentServer?.id;
-      if (sid) {
-        apiService.listStickers(sid).then((s) => {
-          if (sid === currentServer?.id) setServerStickers(s);
-        }).catch(() => {});
-      }
+  const refreshStickers = useCallback(() => {
+    const sid = currentServer?.id;
+    if (sid) {
+      apiService.listStickers(sid).then((s) => {
+        if (sid === currentServer?.id) setServerStickers(s);
+      }).catch(() => {});
     }
-  }, [channel?.id, currentServer?.id]);
+  }, [currentServer?.id]);
+
+  useEffect(() => {
+    if (channel?.id) refreshStickers();
+  }, [channel?.id, refreshStickers]);
 
   useEffect(() => {
     const handler = (e: globalThis.KeyboardEvent) => {
@@ -821,7 +823,7 @@ export function ChatArea({ channel, user, onMobileBack, onShowMembers }: ChatAre
                       </div>
                     ) : msg.sticker_id && msg.sticker ? (
                       <div className="message-sticker-wrap">
-                        <img className="message-sticker" src={msg.sticker.image_url} alt={msg.sticker.name} />
+                        <img className="message-sticker" src={resolveUploadUrl(msg.sticker.image_url)} alt={msg.sticker.name} />
                       </div>
                     ) : msg.sticker_id ? (
                       <div className="message-text">{t('chat.stickerRemoved')}</div>
@@ -996,6 +998,7 @@ export function ChatArea({ channel, user, onMobileBack, onShowMembers }: ChatAre
         <StickerManager
           serverId={channel.server_id}
           onClose={() => { setStickerManagerOpen(false); setStickerPickerOpen(false); }}
+          onStickersChanged={refreshStickers}
         />
       )}
     </main>
