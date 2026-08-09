@@ -109,3 +109,12 @@ type InviteUseCase interface {
 	// сервер без повторного добавления и без инкремента счётчика использований.
 	JoinViaInvite(code string, userID uuid.UUID) (*Server, error)
 }
+
+type StickerUseCase interface {
+	// CreateSticker требует PermManageServer (владелец/админ).
+	CreateSticker(serverID, userID uuid.UUID, name string, data []byte) (*Sticker, error)
+	// ListStickers возвращает стикеры сервера (любому участнику).
+	ListStickers(serverID, userID uuid.UUID) ([]*Sticker, error)
+	// DeleteSticker требует PermManageServer.
+	DeleteSticker(serverID, stickerID, userID uuid.UUID) error
+}

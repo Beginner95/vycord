@@ -51,6 +51,8 @@ var (
 	ErrStickerNameRequired = errors.New("sticker name is required")
 	// ErrStickerNameTooLong — имя стикера длиннее 100 символов.
 	ErrStickerNameTooLong = errors.New("sticker name is too long")
+	// ErrStickerImageRequired — при создании стикера не приложено изображение.
+	ErrStickerImageRequired = errors.New("sticker image is required")
 
 	// ErrEmailTaken — при регистрации email уже занят другим пользователем.
 	ErrEmailTaken = errors.New("user with this email already exists")
