@@ -5,6 +5,7 @@ import { apiService } from '@/services/api';
 import { wsService } from '@/services/websocket';
 import { callService } from '@/services/call';
 import { Avatar } from '@/components/Avatar';
+import { logger } from '@/utils/logger';
 import type { User, MemberWithUser } from '@/types';
 import { useT } from '@/i18n';
 import './UserList.css';
@@ -46,7 +47,7 @@ export function UserList({ onMobileBack }: UserListProps) {
       const users = await apiService.getOnlineUsers() as User[];
       setOnlineIds(new Set(users.map((u) => u.id)));
     } catch (err) {
-      console.error('Failed to load online users:', err);
+      logger.error('Failed to load online users:', err, { module: 'userList' });
     }
   };
 

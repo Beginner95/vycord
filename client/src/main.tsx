@@ -4,6 +4,9 @@ import App from './App';
 import './index.css';
 import './stores/themeStore';
 import './stores/localeStore';
+import { initErrorReporting } from './services/errorReporting';
+
+initErrorReporting();
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>

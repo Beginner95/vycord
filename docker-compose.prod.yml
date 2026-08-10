@@ -14,6 +14,8 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    ports:
+      - "127.0.0.1:5432:5432"
 
   redis:
     image: redis:7-alpine
@@ -123,6 +125,61 @@ services:
       - /var/lib/vycord/coturn-certs:/certs:ro
     restart: unless-stopped
 
+  glitchtip-db-init:
+    # GlitchTip needs its own `glitchtip` database on the same Postgres
+    # instance as the main app (see GLITCHTIP_DATABASE_URL above). The
+    # postgres image's entrypoint only auto-creates the single database named
+    # by POSTGRES_DB (the app's `vycord` db) on a brand-new data directory, so
+    # on an already-initialized prod instance the `glitchtip` database would
+    # never get created. This one-shot service creates it idempotently
+    # (safe to run on every `docker compose up -d`, including in dev where
+    # postgres is a fresh volume).
+    image: postgres:16-alpine
+    container_name: vycord-glitchtip-db-init
+    environment:
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_USER: ${POSTGRES_USER}
+    entrypoint: ["sh", "-c"]
+    command:
+      - |
+        psql -h postgres -U "$$POSTGRES_USER" -d postgres -tc "SELECT 1 FROM pg_database WHERE datname = 'glitchtip'" | grep -q 1 || psql -h postgres -U "$$POSTGRES_USER" -d postgres -c "CREATE DATABASE glitchtip"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  glitchtip:
+    # GLITCHTIP_VERSION=6.2.2 has no Celery — background jobs/periodic
+    # scheduling run through the bundled django-vtasks package (valkey/
+    # postgres task backend), and there is no separate migrate/worker
+    # script to invoke directly. SERVER_ROLE=all_in_one is the image's own
+    # recommended single-node mode: it runs migrate + maintain_partitions +
+    # cache-table setup on every start (idempotent), embeds the background
+    # worker, and serves the web UI via granian on port 8000 (the image's
+    # actual default, confirmed via `docker inspect`).
+    image: glitchtip/glitchtip:latest
+    container_name: vycord-glitchtip
+    environment:
+      DATABASE_URL: ${GLITCHTIP_DATABASE_URL}
+      REDIS_URL: ${GLITCHTIP_REDIS_URL}
+      SECRET_KEY: ${GLITCHTIP_SECRET_KEY}
+      GLITCHTIP_DOMAIN: ${GLITCHTIP_DOMAIN}
+      EMAIL_URL: ${EMAIL_URL}
+      ALLOWED_HOSTS: ${GLITCHTIP_ALLOWED_HOSTS}
+      CSRF_TRUSTED_ORIGINS: ${GLITCHTIP_DOMAIN}
+      ENABLE_ORGANIZATION_CREATION: "true"
+      SERVER_ROLE: all_in_one
+    ports:
+      - "127.0.0.1:8000:8000"
+    depends_on:
+      glitchtip-db-init:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
   client:
     build:
       context: ./client
@@ -131,6 +188,7 @@ services:
         VITE_API_URL: ${VITE_API_URL}
         VITE_WS_URL: ${VITE_WS_URL}
         VITE_SFU_URL: ${VITE_SFU_URL}
+        VITE_SENTRY_DSN: ${VITE_SENTRY_DSN}
     container_name: vycord-client
     ports:
       - "127.0.0.1:3000:80"

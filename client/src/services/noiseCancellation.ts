@@ -25,6 +25,7 @@
  */
 
 import { NC_MODELS, DEFAULT_NC_MODEL, type NcModelId } from './ncModels';
+import { logger } from '@/utils/logger';
 
 // window.electronAPI is populated synchronously by the preload before renderer scripts run.
 const ASSETS_BASE: string = window.electronAPI?.audioAssetsUrl ?? '/audio/';
@@ -330,8 +331,10 @@ class NoiseCancellationService {
       chain.active = true;
     } catch (err) {
       const message = err instanceof Error ? err.message : 'noise suppression init failed';
-      console.error('[NC] pipeline init failed:', message, err);
-      console.error('[NC] ASSETS_BASE resolved to:', new URL(ASSETS_BASE, document.baseURI).href);
+      logger.error('[NC] pipeline init failed:', err, {
+        module: 'nc',
+        assetsBase: new URL(ASSETS_BASE, document.baseURI).href,
+      });
       this.wireBypass(chain);
       this.state.error = message;
       this.state.isEnabled = false;
