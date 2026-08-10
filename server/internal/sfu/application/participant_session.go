@@ -75,10 +75,12 @@ type ParticipantSession struct {
 	pendingICE []webrtc.ICECandidateInit
 	iceMu      sync.Mutex
 
-	// sendersByTrackID tracks the RTPSender returned by pc.AddTrack for each forwarded
-	// remote track. Required for RemoveRemoteTrack: pion needs the exact sender object.
-	sendersByTrackID map[string]*webrtc.RTPSender
-	sendersMu        sync.Mutex
+	// sendersByTrack tracks the RTPSender returned by pc.AddTrack for each forwarded
+	// remote track, keyed by domain.PublishedTrack.ForwardKey (publisher SESSION +
+	// wire id, never the wire id alone — see ForwardKey). Required for
+	// RemoveRemoteTrack: pion needs the exact sender object.
+	sendersByTrack map[string]*webrtc.RTPSender
+	sendersMu      sync.Mutex
 
 	// timerMu guards the lifecycle timers below.
 	timerMu sync.Mutex
@@ -101,14 +103,14 @@ func NewParticipantSession(
 	ctx, cancel := context.WithCancel(session.Context())
 
 	ps := &ParticipantSession{
-		Participant:      participant,
-		pc:               pc,
-		session:          session,
-		log:              log,
-		ctx:              ctx,
-		cancel:           cancel,
-		onTrack:          onTrack,
-		sendersByTrackID: make(map[string]*webrtc.RTPSender),
+		Participant:    participant,
+		pc:             pc,
+		session:        session,
+		log:            log,
+		ctx:            ctx,
+		cancel:         cancel,
+		onTrack:        onTrack,
+		sendersByTrack: make(map[string]*webrtc.RTPSender),
 	}
 
 	ps.neg = newNegotiator(pc, session, log)
@@ -246,8 +248,9 @@ func (ps *ParticipantSession) AddRemoteTrack(t *domain.PublishedTrack) error {
 	// SetSharingActive for the same publisher) would each see "not forwarded"
 	// and each create a sender. pc.AddTrack only fires OnNegotiationNeeded →
 	// a non-blocking channel send, so it is safe to call under sendersMu.
+	key := t.ForwardKey()
 	ps.sendersMu.Lock()
-	if _, alreadyForwarded := ps.sendersByTrackID[t.ID]; alreadyForwarded {
+	if _, alreadyForwarded := ps.sendersByTrack[key]; alreadyForwarded {
 		ps.sendersMu.Unlock()
 		ps.log.Debug("AddRemoteTrack: track already forwarded to subscriber, skipping",
 			"subscriber_user_id", ps.Participant.UserID,
@@ -275,8 +278,8 @@ func (ps *ParticipantSession) AddRemoteTrack(t *domain.PublishedTrack) error {
 		return err
 	}
 
-	ps.sendersByTrackID[t.ID] = sender
-	bindedSenders := len(ps.sendersByTrackID)
+	ps.sendersByTrack[key] = sender
+	bindedSenders := len(ps.sendersByTrack)
 	ps.sendersMu.Unlock()
 
 	// Read RTCP from the subscriber's sender in a goroutine.
@@ -410,11 +413,16 @@ func (ps *ParticipantSession) ensureKeyframe(t *domain.PublishedTrack) {
 
 // RemoveRemoteTrack removes a previously-forwarded track from this subscriber's PC.
 // Called when the publisher leaves so their m-lines are cleaned up and don't accumulate.
-func (ps *ParticipantSession) RemoveRemoteTrack(trackID string) {
+//
+// Takes the track (not a bare id) because removal must be scoped to the exact
+// publishing session: a departing session and the reconnected session of the same
+// user share a wire id, and removing by id would detach the live session's sender.
+func (ps *ParticipantSession) RemoveRemoteTrack(t *domain.PublishedTrack) {
+	trackID := t.ForwardKey()
 	ps.sendersMu.Lock()
-	sender, ok := ps.sendersByTrackID[trackID]
+	sender, ok := ps.sendersByTrack[trackID]
 	if ok {
-		delete(ps.sendersByTrackID, trackID)
+		delete(ps.sendersByTrack, trackID)
 	}
 	ps.sendersMu.Unlock()
 
@@ -498,7 +506,7 @@ func (ps *ParticipantSession) handleRemoteTrack(remote *webrtc.TrackRemote, rece
 		// see RTCTrackEvent.streams[0].id on the client.
 		streamID += ":screen"
 	}
-	track, err := domain.NewPublishedTrack(remote, streamID, role)
+	track, err := domain.NewPublishedTrack(remote, ps.Participant.ID, streamID, role)
 	if err != nil {
 		ps.log.Error("failed to wrap published track", "error", err)
 		return
@@ -775,7 +783,7 @@ func (ps *ParticipantSession) forwardRTP(
 				"packets_forwarded", pktCount,
 				"write_errors", writeErrCount,
 				"remote_ssrc", remote.SSRC(),
-				"subscriber_bound_senders", len(ps.sendersByTrackID),
+				"subscriber_bound_senders", len(ps.sendersByTrack),
 			)
 		}
 	}

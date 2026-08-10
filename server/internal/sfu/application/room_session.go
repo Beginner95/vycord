@@ -217,7 +217,7 @@ func (rs *RoomSession) finishLeave(ps *ParticipantSession) {
 		rs.mu.RLock()
 		for _, sub := range rs.sessions {
 			for _, track := range leavingTracks {
-				sub.RemoveRemoteTrack(track.ID)
+				sub.RemoveRemoteTrack(track)
 			}
 		}
 		rs.mu.RUnlock()
@@ -377,7 +377,7 @@ func (rs *RoomSession) UnwatchShare(subscriberParticipantID, targetUserID string
 	rs.mu.Unlock()
 
 	for _, tr := range publisher.GetScreenTracks() {
-		subscriberPS.RemoveRemoteTrack(tr.ID)
+		subscriberPS.RemoveRemoteTrack(tr)
 	}
 }
 
@@ -445,7 +445,7 @@ func (rs *RoomSession) SetSharingActive(publisherParticipantID string, active bo
 
 	for _, sub := range subs {
 		for _, tr := range screenTracks {
-			sub.RemoveRemoteTrack(tr.ID)
+			sub.RemoveRemoteTrack(tr)
 		}
 	}
 }

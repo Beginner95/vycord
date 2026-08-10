@@ -43,8 +43,14 @@ func (r TrackRole) String() string {
 // StreamID equals the publisher's UserID so subscribers can identify the source
 // via RTCTrackEvent.streams[0].id.
 type PublishedTrack struct {
-	ID         string
-	StreamID   string
+	ID string
+	// PublisherID is the participant ID (NOT the user ID) of the session that
+	// published this track. It exists to make forwarding identity session-scoped:
+	// a reconnecting client re-adds the very same MediaStreamTrack to its new
+	// PeerConnection (groupCall.ts keeps localStream alive across a reconnect), so
+	// ID alone is identical for the dead session's track and the live one's.
+	PublisherID string
+	StreamID    string
 	Kind       TrackKind
 	Role       TrackRole
 	MimeType   string // e.g. "video/VP8", "video/H264" — used for keyframe-detection diagnostics.
@@ -66,7 +72,21 @@ type PublishedTrack struct {
 	keyframeLoopActive atomic.Bool
 }
 
-func NewPublishedTrack(remote *webrtc.TrackRemote, streamID string, role TrackRole) (*PublishedTrack, error) {
+// ForwardKey identifies this track among the tracks a subscriber forwards.
+// Subscribers must key their RTPSenders by this rather than by ID: when a user
+// reconnects, the dead session and the new one publish the SAME wire ID, and a
+// shared key makes the new track look like a duplicate of the dead one (so it is
+// never forwarded) and makes the dead session's teardown detach the live
+// session's sender.
+func (t *PublishedTrack) ForwardKey() string {
+	return t.PublisherID + "/" + t.ID
+}
+
+func NewPublishedTrack(
+	remote *webrtc.TrackRemote,
+	publisherID, streamID string,
+	role TrackRole,
+) (*PublishedTrack, error) {
 	local, err := webrtc.NewTrackLocalStaticRTP(
 		remote.Codec().RTPCodecCapability,
 		remote.ID(),
@@ -82,8 +102,9 @@ func NewPublishedTrack(remote *webrtc.TrackRemote, streamID string, role TrackRo
 	}
 
 	return &PublishedTrack{
-		ID:         remote.ID(),
-		StreamID:   streamID,
+		ID:          remote.ID(),
+		PublisherID: publisherID,
+		StreamID:    streamID,
 		Kind:       kind,
 		Role:       role,
 		MimeType:   remote.Codec().MimeType,

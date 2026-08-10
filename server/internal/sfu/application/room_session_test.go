@@ -173,18 +173,19 @@ func newFakeScreenTrack(t *testing.T, id string) *domain.PublishedTrack {
 		t.Fatalf("NewTrackLocalStaticRTP: %v", err)
 	}
 	return &domain.PublishedTrack{
-		ID:         id,
-		StreamID:   "alice:screen",
-		Kind:       domain.TrackKindVideo,
-		Role:       domain.RoleScreen,
-		LocalTrack: local,
+		ID:          id,
+		PublisherID: "p1",
+		StreamID:    "alice:screen",
+		Kind:        domain.TrackKindVideo,
+		Role:        domain.RoleScreen,
+		LocalTrack:  local,
 	}
 }
 
-func hasForwardedTrack(ps *ParticipantSession, trackID string) bool {
+func hasForwardedTrack(ps *ParticipantSession, t *domain.PublishedTrack) bool {
 	ps.sendersMu.Lock()
 	defer ps.sendersMu.Unlock()
-	_, ok := ps.sendersByTrackID[trackID]
+	_, ok := ps.sendersByTrack[t.ForwardKey()]
 	return ok
 }
 
@@ -217,7 +218,7 @@ func TestWatchShareForwardsCurrentScreenTrack(t *testing.T) {
 
 	rs.WatchShare("p2", "alice")
 
-	if !hasForwardedTrack(bobPS, screenTrack.ID) {
+	if !hasForwardedTrack(bobPS, screenTrack) {
 		t.Fatal("bob did not receive alice's screen track after watch_share")
 	}
 }
@@ -239,7 +240,7 @@ func TestScreenTrackNotForwardedWithoutWatch(t *testing.T) {
 	alicePS.Participant.AddTrack(screenTrack)
 
 	// Bob never calls WatchShare.
-	if hasForwardedTrack(bobPS, screenTrack.ID) {
+	if hasForwardedTrack(bobPS, screenTrack) {
 		t.Fatal("bob received alice's screen track without ever calling watch_share")
 	}
 }
@@ -260,13 +261,13 @@ func TestSetSharingActiveFalseStopsForwardingAndClearsWatchers(t *testing.T) {
 	screenTrack := newFakeScreenTrack(t, "alice-screen-video")
 	alicePS.Participant.AddTrack(screenTrack)
 	rs.WatchShare("p2", "alice")
-	if !hasForwardedTrack(bobPS, screenTrack.ID) {
+	if !hasForwardedTrack(bobPS, screenTrack) {
 		t.Fatal("setup: bob should have received the track before stop")
 	}
 
 	rs.SetSharingActive("p1", false)
 
-	if hasForwardedTrack(bobPS, screenTrack.ID) {
+	if hasForwardedTrack(bobPS, screenTrack) {
 		t.Fatal("screen track still forwarded to bob after screen_share_stop")
 	}
 
@@ -274,7 +275,7 @@ func TestSetSharingActiveFalseStopsForwardingAndClearsWatchers(t *testing.T) {
 	// resurrect the stale track — sharingActive gates delivery, not the mere
 	// existence of a PublishedTrack (which, once created, never goes away).
 	rs.WatchShare("p2", "alice")
-	if hasForwardedTrack(bobPS, screenTrack.ID) {
+	if hasForwardedTrack(bobPS, screenTrack) {
 		t.Fatal("stale screen track was forwarded even though sharing is inactive")
 	}
 }
@@ -295,13 +296,13 @@ func TestUnwatchShareStopsForwarding(t *testing.T) {
 	screenTrack := newFakeScreenTrack(t, "alice-screen-video")
 	alicePS.Participant.AddTrack(screenTrack)
 	rs.WatchShare("p2", "alice")
-	if !hasForwardedTrack(bobPS, screenTrack.ID) {
+	if !hasForwardedTrack(bobPS, screenTrack) {
 		t.Fatal("setup: bob should have received the track")
 	}
 
 	rs.UnwatchShare("p2", "alice")
 
-	if hasForwardedTrack(bobPS, screenTrack.ID) {
+	if hasForwardedTrack(bobPS, screenTrack) {
 		t.Fatal("screen track still forwarded to bob after unwatch_share")
 	}
 }
@@ -329,13 +330,13 @@ func TestJoinDoesNotDeliverScreenTracksToNewParticipant(t *testing.T) {
 		t.Fatalf("bob join: %v", err)
 	}
 
-	if hasForwardedTrack(bobPS, screenTrack.ID) {
+	if hasForwardedTrack(bobPS, screenTrack) {
 		t.Fatal("late joiner received an ongoing screen share without ever calling watch_share")
 	}
 
 	// The gate still opens on an explicit watch_share.
 	rs.WatchShare("p2", "alice")
-	if !hasForwardedTrack(bobPS, screenTrack.ID) {
+	if !hasForwardedTrack(bobPS, screenTrack) {
 		t.Fatal("late joiner did not receive the screen track after watch_share")
 	}
 }
@@ -363,13 +364,13 @@ func TestSetSharingActiveTruePushesToExistingWatchers(t *testing.T) {
 	// Bob registers while sharing is still inactive: nothing is forwarded yet
 	// (sharingActive, not track existence, is the source of truth).
 	rs.WatchShare("p2", "alice")
-	if hasForwardedTrack(bobPS, screenTrack.ID) {
+	if hasForwardedTrack(bobPS, screenTrack) {
 		t.Fatal("setup: track forwarded while sharing was inactive")
 	}
 
 	rs.SetSharingActive("p1", true)
 
-	if !hasForwardedTrack(bobPS, screenTrack.ID) {
+	if !hasForwardedTrack(bobPS, screenTrack) {
 		t.Fatal("already-registered watcher got nothing when the share became active")
 	}
 }
@@ -487,5 +488,112 @@ func TestLeaveCleansWatcherRecordsBothDirections(t *testing.T) {
 	rs.mu.RUnlock()
 	if publisherKeyExists {
 		t.Fatal("alice's watchers entry remained after alice left")
+	}
+}
+
+// newFakeMicTrack builds a RoleCameraOrMic audio PublishedTrack with an
+// explicit wire id. Two calls with the same id model the same microphone
+// MediaStreamTrack being published by two successive sessions of one user:
+// groupCall.ts's partialTeardown deliberately keeps localStream alive across an
+// auto-reconnect, so the new PeerConnection re-adds the very same
+// MediaStreamTrack and the SFU sees the same remote.ID() again.
+func newFakeMicTrack(t *testing.T, publisherID, id string) *domain.PublishedTrack {
+	t.Helper()
+	local, err := webrtc.NewTrackLocalStaticRTP(
+		webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypeOpus, ClockRate: 48000, Channels: 2},
+		id,
+		"alice",
+	)
+	if err != nil {
+		t.Fatalf("NewTrackLocalStaticRTP: %v", err)
+	}
+	return &domain.PublishedTrack{
+		ID:          id,
+		PublisherID: publisherID,
+		StreamID:    "alice",
+		Kind:        domain.TrackKindAudio,
+		Role:        domain.RoleCameraOrMic,
+		LocalTrack:  local,
+	}
+}
+
+// forwardedLocalTrack returns the local track a subscriber currently forwards
+// under trackID, or nil. Identity matters, not just presence: a sender left
+// bound to the PREVIOUS session's (now dead) local track carries no RTP, which
+// is indistinguishable from silence for the listener.
+func forwardedLocalTrack(ps *ParticipantSession, t *domain.PublishedTrack) webrtc.TrackLocal {
+	ps.sendersMu.Lock()
+	sender, ok := ps.sendersByTrack[t.ForwardKey()]
+	ps.sendersMu.Unlock()
+	if !ok || sender == nil {
+		return nil
+	}
+	return sender.Track()
+}
+
+// TestRepublishAfterReconnectKeepsSubscriberForwarding is VYC-70 (a recurrence
+// of VYC-47 through a different door): after a publisher auto-reconnects, some
+// subscribers stop hearing them until the publisher fully rejoins.
+//
+// The teardown of a dead session and the routing of the new session's tracks
+// both iterate rs.sessions under rs.mu.RLock, so they genuinely run
+// CONCURRENTLY, per subscriber, in either order — which is why only *some*
+// listeners lose the publisher. finishLeave additionally does pc.Close() before
+// its removal loop, and closing a PeerConnection whose network path just died is
+// exactly the slow case, so the teardown really can trail the new session's
+// first RTP.
+//
+// This test pins the invariant for the losing order: the previous session's
+// cleanup must not disturb what the NEW session of the same user publishes.
+// Both are keyed by the wire track id, which the reconnect keeps identical.
+func TestRepublishAfterReconnectKeepsSubscriberForwarding(t *testing.T) {
+	rs, _ := joinTestRoom(t)
+
+	bobPS, err := rs.Join(domain.NewParticipant("p2", "bob", "room1"), &fakeSignalingSession{})
+	if err != nil {
+		t.Fatalf("bob join: %v", err)
+	}
+
+	// Alice's first session publishes her microphone; bob forwards it.
+	aliceOld, err := rs.Join(domain.NewParticipant("p1", "alice", "room1"), &fakeSignalingSession{})
+	if err != nil {
+		t.Fatalf("alice first join: %v", err)
+	}
+	const micTrackID = "alice-mic"
+	oldTrack := newFakeMicTrack(t, "p1", micTrackID)
+	aliceOld.Participant.AddTrack(oldTrack)
+	if err := bobPS.AddRemoteTrack(oldTrack); err != nil {
+		t.Fatalf("forward alice's first mic track to bob: %v", err)
+	}
+
+	// Alice's connection dies. RoomSession.Leave has already taken her session
+	// out of the map and is now inside finishLeave, blocked in pc.Close().
+	rs.mu.Lock()
+	delete(rs.sessions, "p1")
+	rs.mu.Unlock()
+
+	// Meanwhile auto-reconnect brings Alice back with a new session that
+	// republishes the SAME microphone track, and routing hands it to bob.
+	aliceNew, err := rs.Join(domain.NewParticipant("p1b", "alice", "room1"), &fakeSignalingSession{})
+	if err != nil {
+		t.Fatalf("alice rejoin: %v", err)
+	}
+	newTrack := newFakeMicTrack(t, "p1b", micTrackID)
+	aliceNew.Participant.AddTrack(newTrack)
+	if err := bobPS.AddRemoteTrack(newTrack); err != nil {
+		t.Fatalf("forward alice's republished mic track to bob: %v", err)
+	}
+	if got := forwardedLocalTrack(bobPS, newTrack); got != newTrack.LocalTrack {
+		t.Fatalf("bob forwards %v, want the republished local track %v — "+
+			"the new session's track was dropped as a duplicate of the dead one",
+			got, newTrack.LocalTrack)
+	}
+
+	// Only now does the dead session's teardown reach its cleanup loop.
+	rs.finishLeave(aliceOld)
+
+	if got := forwardedLocalTrack(bobPS, newTrack); got != newTrack.LocalTrack {
+		t.Fatalf("after the previous session's teardown bob forwards %v, want %v — "+
+			"bob is now silent for alice until she rejoins", got, newTrack.LocalTrack)
 	}
 }

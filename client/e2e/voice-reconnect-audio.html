@@ -1,0 +1,335 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>E2E: audio continuity across a publisher reconnect (VYC-70)</title>
+</head>
+<body>
+  <pre id="status">starting…</pre>
+
+  <script type="module">
+    // VYC-70 diagnostic/regression scenario.
+    //
+    // Two field reports, suspected to share a root around rejoin/stale-session eviction:
+    //   bug 1 — one participant suddenly sounds ~2x fast to everyone listening;
+    //   bug 2 — SOME participants stop hearing one participant until he rejoins.
+    //
+    // This page drives three real groupCallService instances against a real Go SFU
+    // and measures, per subscriber, the inbound audio of publisher A across several
+    // forced reconnects of A. It reports raw RTP + NetEq counters so the failure mode
+    // is distinguishable from the numbers alone:
+    //   packets/s ≈ 0    → subscriber lost the publisher (bug 2)
+    //   packets/s ≈ 2x   → duplicate RTP into one stream (bug 1, hypothesis "double forward")
+    //   removedSamplesForAcceleration climbing → NetEq time-compression (bug 1, either cause)
+
+    const statusEl = document.getElementById('status');
+    const startedAt = Date.now();
+
+    function log(...args) {
+      console.log('[E2E]', ...args);
+      statusEl.textContent += '\n' + args.map(String).join(' ');
+    }
+
+    let finished = false;
+    function finish(pass, reason, extra = {}) {
+      if (finished) return;
+      finished = true;
+      console.log('E2E_RESULT ' + JSON.stringify({ pass, reason, ...extra }));
+    }
+
+    function waitFor(predicate, timeoutMs, what) {
+      return new Promise((resolve, reject) => {
+        const t0 = Date.now();
+        const id = setInterval(() => {
+          let ok = false;
+          try { ok = predicate(); } catch { /* keep polling */ }
+          if (ok) { clearInterval(id); resolve(); }
+          else if (Date.now() - t0 > timeoutMs) {
+            clearInterval(id);
+            reject(new Error(`timeout waiting for: ${what}`));
+          }
+        }, 200);
+      });
+    }
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+    // ── Media fakes: a distinct continuous tone per participant, no camera ──────
+    const TONES = {};
+    function makeToneTrack(freq) {
+      const ctx = new AudioContext();
+      const dst = ctx.createMediaStreamDestination();
+      const osc = ctx.createOscillator();
+      osc.type = 'sine';
+      osc.frequency.value = freq;
+      const g = ctx.createGain();
+      g.gain.value = 0.3;
+      osc.connect(g); g.connect(dst);
+      osc.start();
+      return dst.stream.getAudioTracks()[0];
+    }
+    let nextTone = 300;
+    navigator.mediaDevices.getUserMedia = async (constraints) => {
+      if (constraints?.video) throw new DOMException('Requested device not found', 'NotFoundError');
+      if (constraints?.audio) {
+        nextTone += 110;
+        return new MediaStream([makeToneTrack(nextTone)]);
+      }
+      throw new DOMException('Requested device not found', 'NotFoundError');
+    };
+
+    setTimeout(() => finish(false, 'global watchdog (85s) fired', { report }), 85_000);
+
+    const E2E_JWT_SECRET = 'e2e-test-secret';
+    const room = crypto.randomUUID();
+    const ids = { a: crypto.randomUUID(), b: crypto.randomUUID(), c: crypto.randomUUID() };
+    const who = (uid) => Object.keys(ids).find((k) => ids[k] === uid) ?? uid.slice(0, 8);
+
+    async function makeToken(secret, userId, roomId) {
+      const enc = new TextEncoder();
+      const b64url = (bytes) => btoa(String.fromCharCode(...new Uint8Array(bytes)))
+        .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+      const header = b64url(enc.encode(JSON.stringify({ alg: 'HS256', typ: 'JWT' })));
+      const payload = b64url(enc.encode(JSON.stringify({
+        user_id: userId, room_id: roomId, exp: Math.floor(Date.now() / 1000) + 3600,
+      })));
+      const key = await crypto.subtle.importKey(
+        'raw', enc.encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign'],
+      );
+      const sig = await crypto.subtle.sign('HMAC', key, enc.encode(`${header}.${payload}`));
+      return `${header}.${payload}.${b64url(sig)}`;
+    }
+
+    const report = { phases: [], events: { a: [], b: [], c: [] } };
+    let svc = {};
+
+    // ── Stats helpers ──────────────────────────────────────────────────────────
+
+    // Every inbound audio RTP stream currently arriving on `sub`'s PeerConnection
+    // that belongs to publisher `uid` (matched through the MediaStream the service
+    // keeps per remote user, i.e. exactly what the UI would play).
+    async function inboundAudioOf(sub, uid) {
+      const s = svc[sub];
+      const pc = s.pc;
+      const stream = s.remoteStreams.get(uid);
+      if (!pc || !stream) return [];
+      const trackIds = new Set(stream.getAudioTracks().map((t) => t.id));
+      const recvs = pc.getReceivers()
+        .filter((r) => r.track && r.track.kind === 'audio' && trackIds.has(r.track.id));
+      const out = [];
+      for (const r of recvs) {
+        const stats = await r.getStats();
+        stats.forEach((rep) => {
+          if (rep.type !== 'inbound-rtp') return;
+          out.push({
+            ssrc: rep.ssrc,
+            packets: rep.packetsReceived ?? 0,
+            jbDelay: rep.jitterBufferDelay ?? 0,
+            jbEmitted: rep.jitterBufferEmittedCount ?? 0,
+            accel: rep.removedSamplesForAcceleration ?? 0,
+            decel: rep.insertedSamplesForDeceleration ?? 0,
+            concealed: rep.concealedSamples ?? 0,
+            samples: rep.totalSamplesReceived ?? 0,
+            level: Number((rep.audioLevel ?? 0).toFixed(4)),
+          });
+        });
+      }
+      return out;
+    }
+
+    const sum = (arr, k) => arr.reduce((acc, x) => acc + (x[k] ?? 0), 0);
+
+    // Aggregate snapshot of what `sub` receives from `uid`.
+    async function snap(sub, uid) {
+      const rows = await inboundAudioOf(sub, uid);
+      return {
+        t: Date.now(),
+        streams: rows.length,
+        ssrcs: rows.map((r) => r.ssrc),
+        packets: sum(rows, 'packets'),
+        samples: sum(rows, 'samples'),
+        accel: sum(rows, 'accel'),
+        decel: sum(rows, 'decel'),
+        concealed: sum(rows, 'concealed'),
+        jbDelay: sum(rows, 'jbDelay'),
+        jbEmitted: sum(rows, 'jbEmitted'),
+        level: rows.length ? Math.max(...rows.map((r) => r.level)) : 0,
+        tracksInStream: (svc[sub].remoteStreams.get(uid)?.getAudioTracks() ?? []).length,
+      };
+    }
+
+    // Measures rates over `ms` — the number that tells the three failure modes apart.
+    async function measure(sub, uid, ms) {
+      const s0 = await snap(sub, uid);
+      await sleep(ms);
+      const s1 = await snap(sub, uid);
+      const dt = (s1.t - s0.t) / 1000;
+      return {
+        sub, uid: who(uid),
+        pps: Number(((s1.packets - s0.packets) / dt).toFixed(1)),
+        samplesPerSec: Number(((s1.samples - s0.samples) / dt).toFixed(0)),
+        accelSamplesPerSec: Number(((s1.accel - s0.accel) / dt).toFixed(0)),
+        decelSamplesPerSec: Number(((s1.decel - s0.decel) / dt).toFixed(0)),
+        concealedPerSec: Number(((s1.concealed - s0.concealed) / dt).toFixed(0)),
+        avgJbDelayMs: s1.jbEmitted > s0.jbEmitted
+          ? Number((((s1.jbDelay - s0.jbDelay) / (s1.jbEmitted - s0.jbEmitted)) * 1000).toFixed(1))
+          : null,
+        streams: s1.streams,
+        tracksInStream: s1.tracksInStream,
+        ssrcs: s1.ssrcs,
+        level: s1.level,
+      };
+    }
+
+    try {
+      // Patch the API layer before groupCall is imported: the e2e stack has no
+      // API server, and the SFU now requires a room-scoped token (VYC-25 + private
+      // channels). localStorage carries which identity the NEXT connect belongs to,
+      // because reconnect() fetches its own token asynchronously.
+      const api = await import('/src/services/api.ts');
+      api.apiService.getVoiceToken = async (roomId) => ({
+        token: await makeToken(E2E_JWT_SECRET, localStorage.getItem('e2e_user'), roomId),
+      });
+      api.apiService.getTurnCredentials = async () => ({ ice_servers: [], ttl: 0 });
+
+      const [modA, modB, modC] = await Promise.all([
+        import('/src/services/groupCall.ts?inst=a'),
+        import('/src/services/groupCall.ts?inst=b'),
+        import('/src/services/groupCall.ts?inst=c'),
+      ]);
+      svc = { a: modA.groupCallService, b: modB.groupCallService, c: modC.groupCallService };
+      if (svc.a === svc.b || svc.b === svc.c) {
+        finish(false, 'harness broken: services are not distinct instances');
+        throw new Error('shared instance');
+      }
+
+      const reconnects = { a: 0, b: 0, c: 0 };
+      // NetEq only runs when something actually consumes the remote track: without a
+      // sink Chrome leaves totalSamplesReceived/removedSamplesForAcceleration at 0 and
+      // the "sped-up speech" symptom is invisible. Mirror what the UI does — attach
+      // every remote stream to an audio element.
+      const sinks = new Map();
+      function attachSink(k, uid, stream) {
+        const key = `${k}:${uid}`;
+        let el = sinks.get(key);
+        if (!el) {
+          el = document.createElement('audio');
+          el.autoplay = true;
+          el.muted = false;
+          el.volume = 0.01;
+          document.body.appendChild(el);
+          sinks.set(key, el);
+        }
+        if (el.srcObject !== stream) {
+          el.srcObject = stream;
+          el.play().catch(() => {});
+        }
+      }
+      for (const k of ['a', 'b', 'c']) {
+        svc[k].init({
+          onRemoteStream: (uid, stream) => {
+            report.events[k].push(`stream:${who(uid)}`);
+            attachSink(k, uid, stream);
+          },
+          onRemoteScreenStream: () => {},
+          onPeerJoined: (uid, src) => report.events[k].push(`join:${who(uid)}:${src}`),
+          onPeerLeft: (uid) => report.events[k].push(`left:${who(uid)}`),
+          onCallEnded: () => report.events[k].push('ended'),
+          onError: (e) => report.events[k].push('error:' + e),
+          onReconnecting: () => report.events[k].push('reconnecting'),
+          onReconnected: () => { reconnects[k]++; report.events[k].push('reconnected'); },
+        });
+      }
+
+      async function join(k) {
+        localStorage.setItem('e2e_user', ids[k]);
+        await svc[k].joinGroupCall(room, ids[k]);
+        await waitFor(() => svc[k].isInGroupCallState, 10_000, `${k}-joined`);
+        log(k, 'joined');
+      }
+
+      await join('a');
+      await join('b');
+      await join('c');
+
+      // Baseline: both subscribers must actually decode A's tone before we can
+      // call anything a regression.
+      await waitFor(
+        async () => true, 100, 'noop',
+      );
+      await waitFor(() => svc.b.remoteStreams.has(ids.a) && svc.c.remoteStreams.has(ids.a),
+        15_000, 'subscribers-have-A-stream');
+      const b0 = await measure('b', ids.a, 3000);
+      const c0 = await measure('c', ids.a, 3000);
+      log('baseline b<-a', JSON.stringify(b0));
+      log('baseline c<-a', JSON.stringify(c0));
+      report.phases.push({ phase: 'baseline', measures: [b0, c0] });
+
+      if (b0.pps < 10 || c0.pps < 10) {
+        finish(false, 'baseline failed: subscribers do not receive A before any reconnect', { report });
+        throw new Error('baseline');
+      }
+
+      // Forced reconnect cycles of the publisher.
+      //
+      // Two modes, because they take different server paths:
+      //   'clean'    — the socket really closes, so the SFU tears the old session down
+      //                on its own (RoomSession.Leave) before the new join arrives.
+      //   'halfopen' — the close never reaches the server (WiFi drop / VPN switch /
+      //                sleep: TCP hangs half-open and readPump blocks). The old session
+      //                is still in rs.sessions when the new one joins, so the SFU takes
+      //                its stale-eviction path instead. This is the field scenario
+      //                auto-reconnect exists for, and the one the reports come from.
+      const params = new URLSearchParams(location.search);
+      const CYCLES = Number(params.get('cycles') ?? 3);
+      const MODE = params.get('mode') ?? 'clean';
+      for (let i = 1; i <= CYCLES; i++) {
+        const before = reconnects.a;
+        localStorage.setItem('e2e_user', ids.a);
+        const mode = MODE === 'mixed' ? (i % 2 ? 'halfopen' : 'clean') : MODE;
+        log(`cycle ${i} (${mode}): dropping A's connection`);
+        if (mode === 'halfopen') {
+          // Neuter close() so the server never learns; then drive the same
+          // reconnect() entry point the pc-failure path uses.
+          const dead = svc.a.ws;
+          dead.close = () => {};
+          svc.a.reconnect('e2e_halfopen');
+        } else {
+          svc.a.ws.close();
+        }
+        await waitFor(() => reconnects.a > before, 25_000, `a-reconnected-${i}`);
+        log(`cycle ${i}: A reconnected`);
+        // Give renegotiation + RTP a moment, then measure over a window long
+        // enough that ~50 pps is unambiguous.
+        await sleep(2500);
+        const mb = await measure('b', ids.a, 4000);
+        const mc = await measure('c', ids.a, 4000);
+        log(`cycle ${i} b<-a`, JSON.stringify(mb));
+        log(`cycle ${i} c<-a`, JSON.stringify(mc));
+        report.phases.push({ phase: `after-reconnect-${i}`, measures: [mb, mc] });
+      }
+
+      // Verdict. Nominal Opus is 50 packets/s (ptime 20ms).
+      const failures = [];
+      for (const ph of report.phases) {
+        if (ph.phase === 'baseline') continue;
+        for (const m of ph.measures) {
+          if (m.pps < 10) failures.push(`${ph.phase}: ${m.sub} receives ${m.pps} pps from A (silence)`);
+          else if (m.pps > 80) failures.push(`${ph.phase}: ${m.sub} receives ${m.pps} pps from A (duplicate RTP)`);
+          if (m.accelSamplesPerSec > 2000) failures.push(`${ph.phase}: ${m.sub} NetEq accelerating ${m.accelSamplesPerSec} samples/s`);
+          if (m.tracksInStream > 1) failures.push(`${ph.phase}: ${m.sub} has ${m.tracksInStream} audio tracks for A`);
+        }
+      }
+      report.failures = failures;
+      finish(failures.length === 0,
+        failures.length === 0
+          ? 'audio from A stayed intact for every subscriber across all reconnects'
+          : failures.join(' | '),
+        { report });
+    } catch (err) {
+      finish(false, String((err && err.message) || err), { report });
+    } finally {
+      for (const k of ['a', 'b', 'c']) { try { svc[k]?.leaveGroupCall(); } catch { /* gone */ } }
+    }
+  </script>
+</body>
+</html>
