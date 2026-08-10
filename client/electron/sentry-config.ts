@@ -2,4 +2,4 @@
 // (they're meant to be embedded in client bundles), so this is safe to
 // commit. Must be the same project/value as VITE_SENTRY_DSN in
 // client/.env.production (see README.md "Error reporting (GlitchTip)").
-export const SENTRY_DSN = 'https://16d644237e774c9dae28c62bcd0b752a@app.glitchtip.com/26232';
+export const SENTRY_DSN = 'https://ff00f86de3ec44ab90908405a78fbcab@errors.vycord.webvaha.ru/1';
