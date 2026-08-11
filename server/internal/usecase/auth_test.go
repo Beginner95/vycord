@@ -257,6 +257,24 @@ func TestRefresh_ReusedRevokedToken_RevokesFamilyAndReturnsInvalid(t *testing.T)
 	refreshRepo.AssertExpectations(t)
 }
 
+func TestRefresh_RepoError_DoesNotReturnInvalidTokenError(t *testing.T) {
+	mockRepo := new(MockUserRepository)
+	refreshRepo := new(MockRefreshTokenRepository)
+	authUseCase := newAuthUseCase(mockRepo, refreshRepo)
+
+	refreshRepo.On("GetByHash", mock.AnythingOfType("[]uint8")).Return(nil, errors.New("connection refused"))
+
+	_, accessToken, newRefreshToken, err := authUseCase.Refresh("some-token")
+
+	assert.Error(t, err)
+	assert.False(t, errors.Is(err, domain.ErrRefreshTokenInvalid), "an infra error must not be reported as an invalid token")
+	assert.Contains(t, err.Error(), "failed to look up refresh token")
+	assert.Contains(t, err.Error(), "connection refused")
+	assert.Empty(t, accessToken)
+	assert.Empty(t, newRefreshToken)
+	refreshRepo.AssertExpectations(t)
+}
+
 func TestLogout_RevokesFamily(t *testing.T) {
 	mockRepo := new(MockUserRepository)
 	refreshRepo := new(MockRefreshTokenRepository)
@@ -283,4 +301,18 @@ func TestLogout_UnknownToken_IsNotAnError(t *testing.T) {
 	err := authUseCase.Logout("unknown-token")
 
 	assert.NoError(t, err)
+}
+
+func TestLogout_RepoError_DoesNotReturnInvalidTokenError(t *testing.T) {
+	mockRepo := new(MockUserRepository)
+	refreshRepo := new(MockRefreshTokenRepository)
+	authUseCase := newAuthUseCase(mockRepo, refreshRepo)
+
+	refreshRepo.On("GetByHash", mock.AnythingOfType("[]uint8")).Return(nil, errors.New("connection refused"))
+
+	err := authUseCase.Logout("some-token")
+
+	assert.Error(t, err)
+	assert.False(t, errors.Is(err, domain.ErrRefreshTokenInvalid), "an infra error must not be reported as an invalid token")
+	refreshRepo.AssertExpectations(t)
 }
