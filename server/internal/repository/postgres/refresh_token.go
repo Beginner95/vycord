@@ -62,9 +62,12 @@ func (r *refreshTokenRepository) MarkRotated(id, replacedBy uuid.UUID, revokedAt
 	defer cancel()
 
 	query := `UPDATE refresh_tokens SET revoked_at = $1, replaced_by = $2 WHERE id = $3`
-	_, err := r.db.Exec(ctx, query, revokedAt, replacedBy, id)
+	tag, err := r.db.Exec(ctx, query, revokedAt, replacedBy, id)
 	if err != nil {
 		return fmt.Errorf("failed to mark refresh token rotated: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("refresh token %s: %w", id, domain.ErrRefreshTokenNotFound)
 	}
 	return nil
 }
