@@ -164,21 +164,16 @@ func TestEvictedSessionNotifiedSessionReplaced(t *testing.T) {
 // logic, which never inspects RTP content itself.
 func newFakeScreenTrack(t *testing.T, id string) *domain.PublishedTrack {
 	t.Helper()
-	local, err := webrtc.NewTrackLocalStaticRTP(
-		webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypeVP8, ClockRate: 90000},
-		id,
-		"alice:screen",
-	)
-	if err != nil {
-		t.Fatalf("NewTrackLocalStaticRTP: %v", err)
-	}
 	return &domain.PublishedTrack{
 		ID:          id,
 		PublisherID: "p1",
 		StreamID:    "alice:screen",
 		Kind:        domain.TrackKindVideo,
 		Role:        domain.RoleScreen,
-		LocalTrack:  local,
+		Fanout: domain.NewTrackFanout(
+			webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypeVP8, ClockRate: 90000},
+			id, "alice:screen", domain.TrackKindVideo,
+		),
 	}
 }
 
@@ -375,13 +370,14 @@ func TestSetSharingActiveTruePushesToExistingWatchers(t *testing.T) {
 	}
 }
 
-// senderCountForTrack counts how many RTPSenders on the subscriber's PC carry
-// the given local track — sendersByTrackID keeps only the LAST sender, so a
-// duplicate pc.AddTrack is invisible there and only shows up here.
-func senderCountForTrack(ps *ParticipantSession, trackID string) int {
+// senderCountForTrack counts how many RTPSenders on the subscriber's PC carry a
+// forwarding track for the given publisher track — sendersByTrack keeps only the
+// LAST sender, so a duplicate pc.AddTrack is invisible there and only shows up
+// here. Matches on the session-scoped wire id the fan-out assigns.
+func senderCountForTrack(ps *ParticipantSession, t *domain.PublishedTrack) int {
 	n := 0
 	for _, s := range ps.pc.GetSenders() {
-		if tr := s.Track(); tr != nil && tr.ID() == trackID {
+		if tr := s.Track(); tr != nil && tr.ID() == t.Fanout.WireID() {
 			n++
 		}
 	}
@@ -391,7 +387,7 @@ func senderCountForTrack(ps *ParticipantSession, trackID string) int {
 // TestDuplicateWatchShareCreatesSingleSender: a repeated watch_share for the
 // same (subscriber, publisher) pair must not create a second RTPSender for the
 // same track. RemoveRemoteTrack can only detach the sender recorded in
-// sendersByTrackID, so an orphaned duplicate would forward RTP forever.
+// sendersByTrack, so an orphaned duplicate would forward RTP forever.
 func TestDuplicateWatchShareCreatesSingleSender(t *testing.T) {
 	rs, _ := joinTestRoom(t)
 
@@ -411,13 +407,13 @@ func TestDuplicateWatchShareCreatesSingleSender(t *testing.T) {
 	rs.WatchShare("p2", "alice")
 	rs.WatchShare("p2", "alice")
 
-	if got := senderCountForTrack(bobPS, screenTrack.ID); got != 1 {
+	if got := senderCountForTrack(bobPS, screenTrack); got != 1 {
 		t.Fatalf("sender count for screen track = %d, want 1 (duplicate watch_share created an orphan sender)", got)
 	}
 
 	// The single sender must still be removable — no leak past the gate.
 	rs.UnwatchShare("p2", "alice")
-	if got := senderCountForTrack(bobPS, screenTrack.ID); got != 0 {
+	if got := senderCountForTrack(bobPS, screenTrack); got != 0 {
 		t.Fatalf("sender count after unwatch_share = %d, want 0", got)
 	}
 }
@@ -499,36 +495,34 @@ func TestLeaveCleansWatcherRecordsBothDirections(t *testing.T) {
 // MediaStreamTrack and the SFU sees the same remote.ID() again.
 func newFakeMicTrack(t *testing.T, publisherID, id string) *domain.PublishedTrack {
 	t.Helper()
-	local, err := webrtc.NewTrackLocalStaticRTP(
-		webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypeOpus, ClockRate: 48000, Channels: 2},
-		id,
-		"alice",
-	)
-	if err != nil {
-		t.Fatalf("NewTrackLocalStaticRTP: %v", err)
-	}
 	return &domain.PublishedTrack{
 		ID:          id,
 		PublisherID: publisherID,
 		StreamID:    "alice",
 		Kind:        domain.TrackKindAudio,
 		Role:        domain.RoleCameraOrMic,
-		LocalTrack:  local,
+		Fanout: domain.NewTrackFanout(
+			webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypeOpus, ClockRate: 48000, Channels: 2},
+			// Session-scoped, exactly as NewPublishedTrack builds it: this is what
+			// keeps a dead session's track distinguishable from the live one.
+			id+"-"+publisherID, "alice", domain.TrackKindAudio,
+		),
 	}
 }
 
-// forwardedLocalTrack returns the local track a subscriber currently forwards
-// under trackID, or nil. Identity matters, not just presence: a sender left
-// bound to the PREVIOUS session's (now dead) local track carries no RTP, which
-// is indistinguishable from silence for the listener.
-func forwardedLocalTrack(ps *ParticipantSession, t *domain.PublishedTrack) webrtc.TrackLocal {
+// forwardedWireID returns the wire id of the track a subscriber currently
+// forwards for t, or "". Identity matters, not just presence: a sender left
+// bound to the PREVIOUS session's (now dead) track carries no RTP, which is
+// indistinguishable from silence for the listener. The wire id is session-scoped
+// (see domain.localTrackID), so it tells the two apart.
+func forwardedWireID(ps *ParticipantSession, t *domain.PublishedTrack) string {
 	ps.sendersMu.Lock()
-	sender, ok := ps.sendersByTrack[t.ForwardKey()]
+	fwd, ok := ps.sendersByTrack[t.ForwardKey()]
 	ps.sendersMu.Unlock()
-	if !ok || sender == nil {
-		return nil
+	if !ok || fwd.sender == nil || fwd.sender.Track() == nil {
+		return ""
 	}
-	return sender.Track()
+	return fwd.sender.Track().ID()
 }
 
 // TestRepublishAfterReconnectKeepsSubscriberForwarding is VYC-70 (a recurrence
@@ -583,17 +577,83 @@ func TestRepublishAfterReconnectKeepsSubscriberForwarding(t *testing.T) {
 	if err := bobPS.AddRemoteTrack(newTrack); err != nil {
 		t.Fatalf("forward alice's republished mic track to bob: %v", err)
 	}
-	if got := forwardedLocalTrack(bobPS, newTrack); got != newTrack.LocalTrack {
-		t.Fatalf("bob forwards %v, want the republished local track %v — "+
+	wantWireID := micTrackID + "-p1b"
+	if got := forwardedWireID(bobPS, newTrack); got != wantWireID {
+		t.Fatalf("bob forwards track %q, want the republished %q — "+
 			"the new session's track was dropped as a duplicate of the dead one",
-			got, newTrack.LocalTrack)
+			got, wantWireID)
 	}
 
 	// Only now does the dead session's teardown reach its cleanup loop.
 	rs.finishLeave(aliceOld)
 
-	if got := forwardedLocalTrack(bobPS, newTrack); got != newTrack.LocalTrack {
-		t.Fatalf("after the previous session's teardown bob forwards %v, want %v — "+
-			"bob is now silent for alice until she rejoins", got, newTrack.LocalTrack)
+	if got := forwardedWireID(bobPS, newTrack); got != wantWireID {
+		t.Fatalf("after the previous session's teardown bob forwards track %q, want %q — "+
+			"bob is now silent for alice until she rejoins", got, wantWireID)
+	}
+}
+
+// A departing subscriber must release its fan-out sink on every publisher it was
+// receiving. Nothing else does it: a sink is an application-level queue and
+// goroutine keyed by subscriber id, unlike the old shared local track whose pion
+// binding died with the subscriber's PeerConnection. Left behind, every
+// disconnect would strand a goroutine that keeps being handed copies of every
+// packet for the rest of the call — and reconnects make that unbounded.
+func TestLeavingSubscriberReleasesFanoutSink(t *testing.T) {
+	rs, _ := joinTestRoom(t)
+
+	alicePS, err := rs.Join(domain.NewParticipant("p1", "alice", "room1"), &fakeSignalingSession{})
+	if err != nil {
+		t.Fatalf("alice join: %v", err)
+	}
+	bobPS, err := rs.Join(domain.NewParticipant("p2", "bob", "room1"), &fakeSignalingSession{})
+	if err != nil {
+		t.Fatalf("bob join: %v", err)
+	}
+
+	aliceTrack := newFakeMicTrack(t, "p1", "alice-mic")
+	alicePS.Participant.AddTrack(aliceTrack)
+	if err := bobPS.AddRemoteTrack(aliceTrack); err != nil {
+		t.Fatalf("forward alice's mic to bob: %v", err)
+	}
+	if got := aliceTrack.Fanout.SinkCount(); got != 1 {
+		t.Fatalf("alice's track has %d sinks after bob subscribed, want 1", got)
+	}
+
+	rs.Leave("p2")
+
+	if got := aliceTrack.Fanout.SinkCount(); got != 0 {
+		t.Fatalf("alice's track still has %d sinks after bob left, want 0", got)
+	}
+}
+
+// A closed session must refuse new forwarding. WatchShare and SetSharingActive
+// both capture the subscriber session under rs.mu and release it before calling
+// AddRemoteTrack, so one can land after Close() has already drained
+// sendersByTrack. Without a guard the sink it creates is registered on the
+// publisher's fan-out with nothing left to ever remove it — a goroutine that
+// keeps being handed a copy of every packet until the publisher's track ends.
+func TestAddRemoteTrackAfterCloseCreatesNoSink(t *testing.T) {
+	rs, _ := joinTestRoom(t)
+
+	alicePS, err := rs.Join(domain.NewParticipant("p1", "alice", "room1"), &fakeSignalingSession{})
+	if err != nil {
+		t.Fatalf("alice join: %v", err)
+	}
+	bobPS, err := rs.Join(domain.NewParticipant("p2", "bob", "room1"), &fakeSignalingSession{})
+	if err != nil {
+		t.Fatalf("bob join: %v", err)
+	}
+
+	track := newFakeMicTrack(t, "p1", "alice-mic")
+	alicePS.Participant.AddTrack(track)
+
+	bobPS.Close()
+
+	if err := bobPS.AddRemoteTrack(track); err == nil {
+		t.Fatal("AddRemoteTrack succeeded on a closed session")
+	}
+	if track.Fanout.HasSink("p2") {
+		t.Fatal("a closed session left a fan-out sink behind, and nothing will remove it")
 	}
 }

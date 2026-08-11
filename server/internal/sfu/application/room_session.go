@@ -315,9 +315,9 @@ func (rs *RoomSession) WatchShare(subscriberParticipantID, targetUserID string) 
 
 	// Already watching: a duplicate watch_share (client retry, overlapping
 	// focus transitions) must be a no-op. Re-running the forwarding below
-	// would ask pion for a SECOND RTPSender bound to the same LocalTrack;
+	// would ask pion for a SECOND RTPSender bound to the same fan-out sink;
 	// UnwatchShare/RemoveRemoteTrack only ever drops the sender currently in
-	// sendersByTrackID, so the first one would keep pushing RTP forever with
+	// sendersByTrack, so the first one would keep pushing RTP forever with
 	// no way to remove it — an unbounded leak past the subscription gate.
 	if rs.watchers[publisherID][subscriberParticipantID] {
 		rs.mu.Unlock()

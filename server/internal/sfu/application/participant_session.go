@@ -75,12 +75,17 @@ type ParticipantSession struct {
 	pendingICE []webrtc.ICECandidateInit
 	iceMu      sync.Mutex
 
-	// sendersByTrack tracks the RTPSender returned by pc.AddTrack for each forwarded
-	// remote track, keyed by domain.PublishedTrack.ForwardKey (publisher SESSION +
-	// wire id, never the wire id alone — see ForwardKey). Required for
-	// RemoveRemoteTrack: pion needs the exact sender object.
-	sendersByTrack map[string]*webrtc.RTPSender
-	sendersMu      sync.Mutex
+	// sendersByTrack tracks each forwarded remote track, keyed by
+	// domain.PublishedTrack.ForwardKey (publisher SESSION + wire id, never the wire
+	// id alone — see ForwardKey). The sender is what pc.RemoveTrack needs; the
+	// track is what lets Close() release this subscriber's fan-out sinks.
+	sendersByTrack map[string]forwardedTrack
+	// closed is set by Close under sendersMu so AddRemoteTrack can refuse work
+	// afterwards. Checking the PeerConnection instead is not enough: Close drains
+	// sendersByTrack BEFORE closing the PC, and an AddRemoteTrack landing in that
+	// gap would succeed and register a fan-out sink with nothing left to remove it.
+	closed    bool
+	sendersMu sync.Mutex
 
 	// timerMu guards the lifecycle timers below.
 	timerMu sync.Mutex
@@ -110,7 +115,7 @@ func NewParticipantSession(
 		ctx:            ctx,
 		cancel:         cancel,
 		onTrack:        onTrack,
-		sendersByTrack: make(map[string]*webrtc.RTPSender),
+		sendersByTrack: make(map[string]forwardedTrack),
 	}
 
 	ps.neg = newNegotiator(pc, session, log)
@@ -239,7 +244,7 @@ func (ps *ParticipantSession) flushPendingICE() {
 //
 // Idempotent per track ID: a second call for a track this subscriber already
 // receives is a no-op. Without the guard pion would create a second, independent
-// RTPSender for the same LocalTrack while sendersByTrackID keeps only the last
+// RTPSender for the same fan-out sink while sendersByTrack keeps only the last
 // one — RemoveRemoteTrack could then never detach the first, leaving RTP
 // flowing past the subscription gate forever.
 func (ps *ParticipantSession) AddRemoteTrack(t *domain.PublishedTrack) error {
@@ -250,6 +255,10 @@ func (ps *ParticipantSession) AddRemoteTrack(t *domain.PublishedTrack) error {
 	// a non-blocking channel send, so it is safe to call under sendersMu.
 	key := t.ForwardKey()
 	ps.sendersMu.Lock()
+	if ps.closed {
+		ps.sendersMu.Unlock()
+		return domain.ErrSessionClosed
+	}
 	if _, alreadyForwarded := ps.sendersByTrack[key]; alreadyForwarded {
 		ps.sendersMu.Unlock()
 		ps.log.Debug("AddRemoteTrack: track already forwarded to subscriber, skipping",
@@ -267,8 +276,19 @@ func (ps *ParticipantSession) AddRemoteTrack(t *domain.PublishedTrack) error {
 		"pc_signaling_state", ps.pc.SignalingState().String(),
 		"pc_connection_state", ps.pc.ConnectionState().String(),
 	)
-	sender, err := ps.pc.AddTrack(t.LocalTrack)
+	localTrack, err := t.Fanout.AddSink(ps.Participant.ID)
 	if err != nil {
+		ps.sendersMu.Unlock()
+		ps.log.Error("AddRemoteTrack: could not create fan-out sink",
+			"subscriber_user_id", ps.Participant.UserID,
+			"track_id", t.ID,
+			"error", err,
+		)
+		return err
+	}
+	sender, err := ps.pc.AddTrack(localTrack)
+	if err != nil {
+		t.Fanout.RemoveSink(ps.Participant.ID)
 		ps.sendersMu.Unlock()
 		ps.log.Error("AddRemoteTrack: pc.AddTrack failed",
 			"subscriber_user_id", ps.Participant.UserID,
@@ -278,7 +298,7 @@ func (ps *ParticipantSession) AddRemoteTrack(t *domain.PublishedTrack) error {
 		return err
 	}
 
-	ps.sendersByTrack[key] = sender
+	ps.sendersByTrack[key] = forwardedTrack{sender: sender, track: t}
 	bindedSenders := len(ps.sendersByTrack)
 	ps.sendersMu.Unlock()
 
@@ -418,22 +438,36 @@ func (ps *ParticipantSession) ensureKeyframe(t *domain.PublishedTrack) {
 // publishing session: a departing session and the reconnected session of the same
 // user share a wire id, and removing by id would detach the live session's sender.
 func (ps *ParticipantSession) RemoveRemoteTrack(t *domain.PublishedTrack) {
-	trackID := t.ForwardKey()
+	key := t.ForwardKey()
+	// The sink must be dropped under the SAME lock that drops the map entry, and
+	// AddRemoteTrack must create it under that lock too. Otherwise an interleaved
+	// re-subscribe (watch_share racing unwatch_share for one publisher) can slip
+	// in after the delete and have its brand-new sink torn down here, leaving a
+	// recorded sender no RTP can ever reach — and AddRemoteTrack's idempotency
+	// guard then reports every retry as already-forwarded, so it never recovers.
+	//
+	// The sink is released through the RECORDED track, not the argument: a track
+	// re-published under the same wire id within one session yields a new
+	// PublishedTrack with the same ForwardKey but a different fan-out, and
+	// detaching the argument's would strand the live one's writer goroutine.
 	ps.sendersMu.Lock()
-	sender, ok := ps.sendersByTrack[trackID]
+	fwd, ok := ps.sendersByTrack[key]
 	if ok {
-		delete(ps.sendersByTrack, trackID)
+		delete(ps.sendersByTrack, key)
+		fwd.track.Fanout.RemoveSink(ps.Participant.ID)
 	}
 	ps.sendersMu.Unlock()
 
 	if !ok {
 		return
 	}
+	sender := fwd.sender
 
 	if err := ps.pc.RemoveTrack(sender); err != nil {
 		ps.log.Warn("RemoveRemoteTrack: pc.RemoveTrack failed",
 			"subscriber_user_id", ps.Participant.UserID,
-			"track_id", trackID,
+			"track_id", t.ID,
+			"forward_key", key,
 			"error", err,
 		)
 		return
@@ -441,8 +475,18 @@ func (ps *ParticipantSession) RemoveRemoteTrack(t *domain.PublishedTrack) {
 
 	ps.log.Info("RemoveRemoteTrack: track removed from subscriber PC",
 		"subscriber_user_id", ps.Participant.UserID,
-		"track_id", trackID,
+		"track_id", t.ID,
+		"forward_key", key,
 	)
+}
+
+// forwardedTrackCount reports how many remote tracks this subscriber currently
+// forwards. Read under sendersMu: forwardRTP logs it from its own goroutine
+// while AddRemoteTrack/RemoveRemoteTrack mutate the map from others.
+func (ps *ParticipantSession) forwardedTrackCount() int {
+	ps.sendersMu.Lock()
+	defer ps.sendersMu.Unlock()
+	return len(ps.sendersByTrack)
 }
 
 // StartForwarding launches the RTP copying goroutine for a published track.
@@ -452,10 +496,32 @@ func (ps *ParticipantSession) StartForwarding(track *domain.PublishedTrack, remo
 }
 
 // Close stops all goroutines and closes the PeerConnection.
+//
+// Detaching the fan-out sinks is not optional: a sink is an application-level
+// queue and goroutine owned by the PUBLISHER's track and keyed by this
+// subscriber's id, so closing this PeerConnection does not reach it. Left
+// behind, it would keep receiving a copy of every packet for the rest of the
+// call — and every reconnect would add another.
 func (ps *ParticipantSession) Close() {
 	ps.stopTimers()
 	ps.cancel()
+
+	ps.sendersMu.Lock()
+	ps.closed = true
+	for key, fwd := range ps.sendersByTrack {
+		fwd.track.Fanout.RemoveSink(ps.Participant.ID)
+		delete(ps.sendersByTrack, key)
+	}
+	ps.sendersMu.Unlock()
+
 	ps.pc.Close()
+}
+
+// forwardedTrack pairs a subscriber's RTPSender with the publisher track it
+// carries, so teardown can detach both the sender and the fan-out sink.
+type forwardedTrack struct {
+	sender *webrtc.RTPSender
+	track  *domain.PublishedTrack
 }
 
 func (ps *ParticipantSession) Done() <-chan struct{} {
@@ -513,7 +579,8 @@ func (ps *ParticipantSession) handleRemoteTrack(remote *webrtc.TrackRemote, rece
 	}
 
 	ps.log.Info("published track created",
-		"local_track_id", track.ID,
+		"publisher_track_id", track.ID,
+		"forward_key", track.ForwardKey(),
 		"local_track_stream_id", track.StreamID,
 		"local_track_kind", track.Kind.String(),
 	)
@@ -671,22 +738,25 @@ func (ps *ParticipantSession) readSubscriberRTCP(
 	}
 }
 
-// forwardRTP copies RTP packets from a remote (publisher) track to a local
-// (forwarding) track. It must only exit when:
+// forwardRTP copies RTP packets from a remote (publisher) track into the track's
+// fan-out. It must only exit when:
 //   - ctx is cancelled (publisher left or session closed)
 //   - remote.Read returns an error (source track ended)
 //
-// Write errors from local.Write are intentionally ignored: TrackLocalStaticRTP
-// writes to ALL bound subscriber PeerConnections. If one subscriber's SRTP
-// context has a transient error (e.g. DTLS race on first bind), pion still
-// delivers the packet to all other subscribers and returns a non-nil error.
-// Exiting here would kill audio for everyone, not just the failing subscriber.
+// This loop must never block on a subscriber. It used to: it wrote to a single
+// shared TrackLocalStaticRTP, whose writeRTP walks every binding serially and
+// synchronously, so one stuck subscriber stalled the read side. pion then piled
+// up the publisher's stream (1MB — minutes of Opus, no time bound) and released
+// the whole backlog the moment the loop resumed, measured at ~31x real time,
+// which sped the publisher's audio up for EVERY listener at once (VYC-70 bug 1).
+// TrackFanout.Write hands each subscriber its own bounded queue instead, so the
+// reader stays at the live edge and a subscriber that cannot keep up drops only
+// its own packets.
 func (ps *ParticipantSession) forwardRTP(
 	ctx context.Context,
 	remote *webrtc.TrackRemote,
 	track *domain.PublishedTrack,
 ) {
-	local := track.LocalTrack
 	ps.log.Info("RTP forwarding started",
 		"user_id", ps.Participant.UserID,
 		"kind", remote.Kind().String(),
@@ -702,9 +772,9 @@ func (ps *ParticipantSession) forwardRTP(
 
 	buf := make([]byte, 1500)
 	var pktCount int64
-	var writeErrCount int64
 	var keyframeCount int64
 	var lastKeyframeAt time.Time
+	defer track.Fanout.Close()
 
 	for {
 		select {
@@ -721,7 +791,7 @@ func (ps *ParticipantSession) forwardRTP(
 				"user_id", ps.Participant.UserID,
 				"track_id", remote.ID(),
 				"packets_forwarded", pktCount,
-				"write_errors", writeErrCount,
+				"subscriber_drops", track.Fanout.TotalDropped(),
 				"error", err,
 			)
 			return
@@ -757,20 +827,8 @@ func (ps *ParticipantSession) forwardRTP(
 			ps.log.Info("forwarded keyframe from publisher", fields...)
 		}
 
-		if _, err := local.Write(buf[:n]); err != nil {
-			// A subscriber had a transient write error.
-			// pion already wrote to all other subscribers successfully.
-			writeErrCount++
-			ps.log.Warn("subscriber write error (forwarding continues)",
-				"user_id", ps.Participant.UserID,
-				"track_id", remote.ID(),
-				"kind", remote.Kind().String(),
-				"packets_forwarded", pktCount,
-				"write_errors", writeErrCount,
-				"error", err,
-			)
-			// Do NOT return here. Continue forwarding to healthy subscribers.
-		}
+		// Never blocks: each subscriber has its own bounded queue and goroutine.
+		track.Fanout.Write(buf[:n])
 
 		// Log RTP flow milestones so we can confirm audio is actually reaching pion.
 		// First packet is critical — confirms ICE+DTLS+SRTP established for publisher.
@@ -781,9 +839,10 @@ func (ps *ParticipantSession) forwardRTP(
 				"kind", remote.Kind().String(),
 				"track_id", remote.ID(),
 				"packets_forwarded", pktCount,
-				"write_errors", writeErrCount,
 				"remote_ssrc", remote.SSRC(),
-				"subscriber_bound_senders", len(ps.sendersByTrack),
+				"subscriber_bound_senders", ps.forwardedTrackCount(),
+				"subscriber_sinks", track.Fanout.SinkCount(),
+				"subscriber_drops", track.Fanout.TotalDropped(),
 			)
 		}
 	}
