@@ -1,6 +1,7 @@
 package usecase
 
 import (
+	"errors"
 	"fmt"
 	"time"
 
@@ -13,35 +14,37 @@ import (
 )
 
 type authUseCase struct {
-	userRepo      domain.UserRepository
-	jwtSecret     string
-	jwtExpiration time.Duration
+	userRepo          domain.UserRepository
+	refreshRepo       domain.RefreshTokenRepository
+	jwtSecret         string
+	jwtExpiration     time.Duration
+	refreshExpiration time.Duration
 }
 
-func NewAuthUseCase(userRepo domain.UserRepository, jwtSecret string, jwtExpiration time.Duration) domain.AuthUseCase {
+func NewAuthUseCase(userRepo domain.UserRepository, refreshRepo domain.RefreshTokenRepository, jwtSecret string, jwtExpiration, refreshExpiration time.Duration) domain.AuthUseCase {
 	return &authUseCase{
-		userRepo:      userRepo,
-		jwtSecret:     jwtSecret,
-		jwtExpiration: jwtExpiration,
+		userRepo:          userRepo,
+		refreshRepo:       refreshRepo,
+		jwtSecret:         jwtSecret,
+		jwtExpiration:     jwtExpiration,
+		refreshExpiration: refreshExpiration,
 	}
 }
 
-func (uc *authUseCase) Register(username, email, password string) (*domain.User, string, error) {
-	// Check if user already exists
+func (uc *authUseCase) Register(username, email, password string) (*domain.User, string, string, error) {
 	_, err := uc.userRepo.GetByEmail(email)
 	if err == nil {
-		return nil, "", domain.ErrEmailTaken
+		return nil, "", "", domain.ErrEmailTaken
 	}
 
 	_, err = uc.userRepo.GetByUsername(username)
 	if err == nil {
-		return nil, "", domain.ErrUsernameTaken
+		return nil, "", "", domain.ErrUsernameTaken
 	}
 
-	// Hash password
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	if err != nil {
-		return nil, "", fmt.Errorf("failed to hash password: %w", err)
+		return nil, "", "", fmt.Errorf("failed to hash password: %w", err)
 	}
 
 	now := time.Now()
@@ -56,40 +59,45 @@ func (uc *authUseCase) Register(username, email, password string) (*domain.User,
 	}
 
 	if err := uc.userRepo.Create(user); err != nil {
-		return nil, "", fmt.Errorf("failed to create user: %w", err)
+		return nil, "", "", fmt.Errorf("failed to create user: %w", err)
 	}
 
-	// Generate token
-	token, err := uc.generateToken(user)
+	accessToken, err := uc.generateAccessToken(user)
 	if err != nil {
-		return nil, "", fmt.Errorf("failed to generate token: %w", err)
+		return nil, "", "", fmt.Errorf("failed to generate token: %w", err)
 	}
 
-	// Clear password before returning
+	refreshToken, _, err := uc.issueRefreshToken(user.ID, uuid.New())
+	if err != nil {
+		return nil, "", "", fmt.Errorf("failed to issue refresh token: %w", err)
+	}
+
 	user.Password = ""
-	return user, token, nil
+	return user, accessToken, refreshToken, nil
 }
 
-func (uc *authUseCase) Login(email, password string) (*domain.User, string, error) {
+func (uc *authUseCase) Login(email, password string) (*domain.User, string, string, error) {
 	user, err := uc.userRepo.GetByEmail(email)
 	if err != nil {
-		return nil, "", domain.ErrInvalidCredentials
+		return nil, "", "", domain.ErrInvalidCredentials
 	}
 
-	// Compare password
 	if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(password)); err != nil {
-		return nil, "", domain.ErrInvalidCredentials
+		return nil, "", "", domain.ErrInvalidCredentials
 	}
 
-	// Generate JWT token
-	token, err := uc.generateToken(user)
+	accessToken, err := uc.generateAccessToken(user)
 	if err != nil {
-		return nil, "", fmt.Errorf("failed to generate token: %w", err)
+		return nil, "", "", fmt.Errorf("failed to generate token: %w", err)
 	}
 
-	// Clear password before returning
+	refreshToken, _, err := uc.issueRefreshToken(user.ID, uuid.New())
+	if err != nil {
+		return nil, "", "", fmt.Errorf("failed to issue refresh token: %w", err)
+	}
+
 	user.Password = ""
-	return user, token, nil
+	return user, accessToken, refreshToken, nil
 }
 
 func (uc *authUseCase) ValidateToken(tokenString string) (*domain.User, error) {
@@ -106,7 +114,94 @@ func (uc *authUseCase) ValidateToken(tokenString string) (*domain.User, error) {
 	return user, nil
 }
 
-func (uc *authUseCase) generateToken(user *domain.User) (string, error) {
+// Refresh обменивает refreshToken на новую пару access+refresh. Ротация
+// обязательна: старый токен помечается использованным при каждом успешном
+// вызове. Если presented токен уже был помечен использованным раньше —
+// это reuse украденного/дублированного токена, и вся его family
+// отзывается целиком (см. docs/superpowers/specs/2026-08-11-vyc72-refresh-token-design.md).
+func (uc *authUseCase) Refresh(refreshToken string) (*domain.User, string, string, error) {
+	hash := authtoken.HashRefreshToken(refreshToken)
+	stored, err := uc.refreshRepo.GetByHash(hash)
+	if err != nil {
+		if errors.Is(err, domain.ErrRefreshTokenNotFound) {
+			return nil, "", "", domain.ErrRefreshTokenInvalid
+		}
+		return nil, "", "", fmt.Errorf("failed to look up refresh token: %w", err)
+	}
+
+	if stored.RevokedAt != nil {
+		if err := uc.refreshRepo.RevokeFamily(stored.FamilyID); err != nil {
+			return nil, "", "", fmt.Errorf("failed to revoke refresh token family: %w", err)
+		}
+		return nil, "", "", domain.ErrRefreshTokenInvalid
+	}
+
+	if time.Now().After(stored.ExpiresAt) {
+		return nil, "", "", domain.ErrRefreshTokenInvalid
+	}
+
+	user, err := uc.userRepo.GetByID(stored.UserID)
+	if err != nil {
+		return nil, "", "", fmt.Errorf("user not found: %w", err)
+	}
+
+	newRefreshToken, newRecord, err := uc.issueRefreshToken(stored.UserID, stored.FamilyID)
+	if err != nil {
+		return nil, "", "", fmt.Errorf("failed to issue refresh token: %w", err)
+	}
+
+	if err := uc.refreshRepo.MarkRotated(stored.ID, newRecord.ID, time.Now()); err != nil {
+		return nil, "", "", fmt.Errorf("failed to rotate refresh token: %w", err)
+	}
+
+	accessToken, err := uc.generateAccessToken(user)
+	if err != nil {
+		return nil, "", "", fmt.Errorf("failed to generate token: %w", err)
+	}
+
+	user.Password = ""
+	return user, accessToken, newRefreshToken, nil
+}
+
+// Logout отзывает всю сессию (family), к которой принадлежит refreshToken.
+// Не требует, чтобы access-токен был ещё валиден — логаут должен работать
+// и когда он уже истёк. Неизвестный токен — не ошибка (уже разлогинен).
+func (uc *authUseCase) Logout(refreshToken string) error {
+	hash := authtoken.HashRefreshToken(refreshToken)
+	stored, err := uc.refreshRepo.GetByHash(hash)
+	if err != nil {
+		if errors.Is(err, domain.ErrRefreshTokenNotFound) {
+			return nil
+		}
+		return fmt.Errorf("failed to look up refresh token: %w", err)
+	}
+	return uc.refreshRepo.RevokeFamily(stored.FamilyID)
+}
+
+func (uc *authUseCase) issueRefreshToken(userID, familyID uuid.UUID) (string, *domain.RefreshToken, error) {
+	token, err := authtoken.GenerateRefreshToken()
+	if err != nil {
+		return "", nil, err
+	}
+
+	now := time.Now()
+	record := &domain.RefreshToken{
+		ID:        uuid.New(),
+		UserID:    userID,
+		FamilyID:  familyID,
+		TokenHash: authtoken.HashRefreshToken(token),
+		CreatedAt: now,
+		ExpiresAt: now.Add(uc.refreshExpiration),
+	}
+
+	if err := uc.refreshRepo.Create(record); err != nil {
+		return "", nil, err
+	}
+
+	return token, record, nil
+}
+
+func (uc *authUseCase) generateAccessToken(user *domain.User) (string, error) {
 	claims := jwt.MapClaims{
 		"user_id":  user.ID.String(),
 		"username": user.Username,
