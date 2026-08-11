@@ -5,6 +5,9 @@
 package authtoken
 
 import (
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"time"
 
@@ -90,4 +93,23 @@ func ValidateRoomToken(secret, tokenString string) (userID, roomID uuid.UUID, er
 		return uuid.Nil, uuid.Nil, fmt.Errorf("invalid room id in token")
 	}
 	return userID, roomID, nil
+}
+
+// GenerateRefreshToken returns a new cryptographically random opaque
+// refresh-token string (32 random bytes, hex-encoded — 64 characters).
+// Unlike access tokens it carries no claims: validity lives entirely in
+// the refresh_tokens table, keyed by HashRefreshToken's output.
+func GenerateRefreshToken() (string, error) {
+	buf := make([]byte, 32)
+	if _, err := rand.Read(buf); err != nil {
+		return "", fmt.Errorf("failed to generate refresh token: %w", err)
+	}
+	return hex.EncodeToString(buf), nil
+}
+
+// HashRefreshToken returns the SHA-256 hash of a refresh-token string, as
+// stored in refresh_tokens.token_hash. The raw token is never persisted.
+func HashRefreshToken(token string) []byte {
+	sum := sha256.Sum256([]byte(token))
+	return sum[:]
 }
