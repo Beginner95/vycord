@@ -8,6 +8,7 @@ import (
 	"regexp"
 
 	"github.com/vycord/server/internal/delivery/http/httperr"
+	"github.com/vycord/server/internal/delivery/http/middleware"
 	"github.com/vycord/server/internal/domain"
 )
 
@@ -61,7 +62,7 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	user, token, err := h.authUseCase.Register(req.Username, req.Email, req.Password)
+	user, accessToken, refreshToken, err := h.authUseCase.Register(req.Username, req.Email, req.Password)
 	if err != nil {
 		switch {
 		case errors.Is(err, domain.ErrEmailTaken):
@@ -75,8 +76,9 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.sendJSON(w, http.StatusCreated, map[string]interface{}{
-		"token": token,
-		"user":  user,
+		"access_token":  accessToken,
+		"refresh_token": refreshToken,
+		"user":          user,
 	})
 }
 
@@ -86,8 +88,9 @@ type LoginRequest struct {
 }
 
 type LoginResponse struct {
-	Token string       `json:"token"`
-	User  *domain.User `json:"user"`
+	AccessToken  string       `json:"access_token"`
+	RefreshToken string       `json:"refresh_token"`
+	User         *domain.User `json:"user"`
 }
 
 func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
@@ -102,7 +105,7 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	user, token, err := h.authUseCase.Login(req.Email, req.Password)
+	user, accessToken, refreshToken, err := h.authUseCase.Login(req.Email, req.Password)
 	if err != nil {
 		if errors.Is(err, domain.ErrInvalidCredentials) {
 			h.sendError(w, http.StatusUnauthorized, httperr.CodeInvalidCredentials, err.Error())
@@ -112,7 +115,60 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.sendJSON(w, http.StatusOK, LoginResponse{Token: token, User: user})
+	h.sendJSON(w, http.StatusOK, LoginResponse{AccessToken: accessToken, RefreshToken: refreshToken, User: user})
+}
+
+type RefreshRequest struct {
+	RefreshToken string `json:"refresh_token"`
+}
+
+type RefreshResponse struct {
+	AccessToken  string       `json:"access_token"`
+	RefreshToken string       `json:"refresh_token"`
+	User         *domain.User `json:"user"`
+}
+
+// Refresh обменивает refresh-токен на новую пару access+refresh. Не требует
+// Authorization-заголовка: клиент вызывает его именно потому, что access-
+// токен уже истёк.
+func (h *AuthHandler) Refresh(w http.ResponseWriter, r *http.Request) {
+	var req RefreshRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		h.sendError(w, http.StatusBadRequest, httperr.CodeInvalidBody, "invalid request body")
+		return
+	}
+
+	user, accessToken, refreshToken, err := h.authUseCase.Refresh(req.RefreshToken)
+	if err != nil {
+		if errors.Is(err, domain.ErrRefreshTokenInvalid) {
+			h.sendError(w, http.StatusUnauthorized, httperr.CodeInvalidToken, "invalid or expired refresh token")
+		} else {
+			h.log.Error("refresh failed", "request_id", middleware.RequestIDFromContext(r.Context()), "error", err)
+			h.sendError(w, http.StatusInternalServerError, httperr.CodeInternalError, "failed to refresh token")
+		}
+		return
+	}
+
+	h.sendJSON(w, http.StatusOK, RefreshResponse{AccessToken: accessToken, RefreshToken: refreshToken, User: user})
+}
+
+type LogoutRequest struct {
+	RefreshToken string `json:"refresh_token"`
+}
+
+// Logout отзывает сессию, к которой принадлежит переданный refresh-токен.
+// Всегда отвечает 204 — логаут идемпотентен и не должен требовать от
+// клиента специальной обработки ошибок при выходе.
+func (h *AuthHandler) Logout(w http.ResponseWriter, r *http.Request) {
+	var req LogoutRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	if err := h.authUseCase.Logout(req.RefreshToken); err != nil {
+		h.log.Error("logout failed", "request_id", middleware.RequestIDFromContext(r.Context()), "error", err)
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (h *AuthHandler) sendJSON(w http.ResponseWriter, status int, data interface{}) {
