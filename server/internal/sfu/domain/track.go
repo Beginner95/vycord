@@ -43,12 +43,23 @@ func (r TrackRole) String() string {
 // StreamID equals the publisher's UserID so subscribers can identify the source
 // via RTCTrackEvent.streams[0].id.
 type PublishedTrack struct {
-	ID         string
-	StreamID   string
-	Kind       TrackKind
-	Role       TrackRole
-	MimeType   string // e.g. "video/VP8", "video/H264" — used for keyframe-detection diagnostics.
-	LocalTrack *webrtc.TrackLocalStaticRTP
+	ID string
+	// PublisherID is the participant ID (NOT the user ID) of the session that
+	// published this track. It exists to make forwarding identity session-scoped:
+	// a reconnecting client re-adds the very same MediaStreamTrack to its new
+	// PeerConnection (groupCall.ts keeps localStream alive across a reconnect), so
+	// ID alone is identical for the dead session's track and the live one's.
+	PublisherID string
+	StreamID    string
+	Kind        TrackKind
+	Role        TrackRole
+	MimeType    string // e.g. "video/VP8", "video/H264" — used for keyframe-detection diagnostics.
+
+	// Fanout delivers this track's RTP to each subscriber over its own queue and
+	// its own TrackLocalStaticRTP. Deliberately NOT one shared local track: see
+	// TrackFanout for why a shared one lets a single slow subscriber stall the
+	// publisher's reader and speed the audio up for everyone.
+	Fanout *TrackFanout
 
 	// SendPLI forwards a Picture Loss Indication to the publisher, requesting
 	// a keyframe. Set by ParticipantSession after the track is created.
@@ -66,28 +77,54 @@ type PublishedTrack struct {
 	keyframeLoopActive atomic.Bool
 }
 
-func NewPublishedTrack(remote *webrtc.TrackRemote, streamID string, role TrackRole) (*PublishedTrack, error) {
-	local, err := webrtc.NewTrackLocalStaticRTP(
-		remote.Codec().RTPCodecCapability,
-		remote.ID(),
-		streamID,
-	)
-	if err != nil {
-		return nil, err
-	}
+// ForwardKey identifies this track among the tracks a subscriber forwards.
+// Subscribers must key their RTPSenders by this rather than by ID: when a user
+// reconnects, the dead session and the new one publish the SAME wire ID, and a
+// shared key makes the new track look like a duplicate of the dead one (so it is
+// never forwarded) and makes the dead session's teardown detach the live
+// session's sender.
+func (t *PublishedTrack) ForwardKey() string {
+	return t.PublisherID + "/" + t.ID
+}
 
+// localTrackID builds the wire id the forwarding track is advertised with.
+//
+// It must NOT be the publisher's bare remote.ID(): a reconnecting client re-adds
+// the same MediaStreamTrack, so the dead session and the live one would advertise
+// byte-identical a=msid lines. The two forwarding tracks legitimately coexist on a
+// subscriber until the dead session's teardown completes, and the client dedupes
+// arriving tracks by id — identical ids make it skip the live track. Scoping the
+// id to the publishing session keeps the two m-lines distinguishable on the wire.
+//
+// The stream id is deliberately left alone: StreamID == UserID is the contract
+// subscribers use to attribute a track to a participant.
+func localTrackID(publisherID, remoteID string) string {
+	return remoteID + "-" + publisherID
+}
+
+func NewPublishedTrack(
+	remote *webrtc.TrackRemote,
+	publisherID, streamID string,
+	role TrackRole,
+) (*PublishedTrack, error) {
 	kind := TrackKindAudio
 	if remote.Kind() == webrtc.RTPCodecTypeVideo {
 		kind = TrackKindVideo
 	}
 
 	return &PublishedTrack{
-		ID:         remote.ID(),
-		StreamID:   streamID,
-		Kind:       kind,
-		Role:       role,
-		MimeType:   remote.Codec().MimeType,
-		LocalTrack: local,
+		ID:          remote.ID(),
+		PublisherID: publisherID,
+		StreamID:    streamID,
+		Kind:        kind,
+		Role:        role,
+		MimeType:    remote.Codec().MimeType,
+		Fanout: NewTrackFanout(
+			remote.Codec().RTPCodecCapability,
+			localTrackID(publisherID, remote.ID()),
+			streamID,
+			kind,
+		),
 	}, nil
 }
 

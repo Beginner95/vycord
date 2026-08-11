@@ -8,6 +8,7 @@ import type { ScreenQuality, ScreenQualityPreset } from '@/services/groupCall';
 import { wsService } from '@/services/websocket';
 import { apiService } from '@/services/api';
 import { audioService } from '@/services/audio';
+import { logger } from '@/utils/logger';
 import type { User, Message } from '@/types';
 import type { DesktopCapturerSource } from '@/types/electron';
 import type { ConnectionQualityMetrics, QualityLevel } from '@/utils/callQuality';
@@ -655,7 +656,7 @@ export function GroupCallUI({
         const channelId = groupCallService.currentRoomIdState;
         if (channelId) wsService.send('voice_left', { channel_id: channelId });
         setIsReconnecting(false);
-        console.error('[GroupCall] Error:', msg);
+        logger.error('[GroupCall] Error:', msg, { module: 'groupCallUI' });
         setIsInGroupCall(false);
         onInCallChange(false);
         setParticipants([]);
@@ -1064,7 +1065,7 @@ export function GroupCallUI({
       setIsScreenSharing(true);
       wsService.send('screen_share_started', {});
     } catch (err) {
-      console.error('[GroupCall] Screen share failed:', err);
+logger.error('[GroupCall] Screen share failed:', err, { module: 'groupCallUI' });
       alert(t('call.screenShareFailed'));
     }
   }, [selectedSourceId, t]);
@@ -1113,7 +1114,7 @@ export function GroupCallUI({
       addMessage(msg);
       setChatInput('');
     } catch (err) {
-      console.error('Failed to send message:', err);
+      logger.error('Failed to send message in group call:', err, { module: 'groupCallUI' });
     }
   }, [currentChannel, chatInput, user, addMessage]);
 

@@ -13,6 +13,7 @@ import { wsService } from '@/services/websocket';
 import { audioService } from '@/services/audio';
 import { useServerStore } from '@/stores/serverStore';
 import { tokenizeMentions, LEGACY_ROLE_KEYS } from '@/utils/mentions';
+import { logger } from '@/utils/logger';
 import { useMentionAutocomplete } from '@/hooks/useMentionAutocomplete';
 import { can, PERMISSIONS } from '@/utils/permissions';
 import { useFloatingSelectionToolbar } from '@/hooks/useFloatingSelectionToolbar';
@@ -326,7 +327,7 @@ export function ChatArea({ channel, user, onMobileBack, onShowMembers }: ChatAre
       });
       window.setTimeout(() => setHighlightedId(null), 2200);
     } catch (err) {
-      console.error('Failed to jump to message:', err);
+logger.error('Failed to jump to message:', err, { module: 'chat' });
       setSendError(apiErrorText(err, t));
       setTimeout(() => setSendError(null), 5000);
     }
@@ -340,7 +341,7 @@ export function ChatArea({ channel, user, onMobileBack, onShowMembers }: ChatAre
       setHighlightedId(null);
       setMessages(latest);
     } catch (err) {
-      console.error('Failed to load latest messages:', err);
+      logger.error('Failed to load latest messages:', err, { module: 'chat' });
     }
   };
 
@@ -354,7 +355,7 @@ export function ChatArea({ channel, user, onMobileBack, onShowMembers }: ChatAre
       setInput('');
       setCaretInQuoteLine(false);
     } catch (err) {
-      console.error('Failed to send message:', err);
+      logger.error('Failed to send message:', err, { module: 'chat' });
       setSendError(apiErrorText(err, t));
       setTimeout(() => setSendError(null), 5000);
     }
@@ -633,7 +634,7 @@ export function ChatArea({ channel, user, onMobileBack, onShowMembers }: ChatAre
       updateMessage(messageId, updated);
       cancelEdit();
     } catch (err) {
-      console.error('Failed to update message:', err);
+logger.error('Failed to update message:', err, { module: 'chat' });
       setSendError(apiErrorText(err, t));
       setTimeout(() => setSendError(null), 5000);
     }
@@ -657,7 +658,7 @@ export function ChatArea({ channel, user, onMobileBack, onShowMembers }: ChatAre
       await apiService.deleteMessage(channel.id, messageId);
       removeMessage(messageId);
     } catch (err) {
-      console.error('Failed to delete message:', err);
+      logger.error('Failed to delete message:', err, { module: 'chat' });
     }
   };
 

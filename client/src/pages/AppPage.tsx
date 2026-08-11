@@ -4,6 +4,7 @@ import { useServerStore } from '@/stores/serverStore';
 import { useMessageStore } from '@/stores/messageStore';
 import { wsService } from '@/services/websocket';
 import { apiService, apiErrorText } from '@/services/api';
+import { logger } from '@/utils/logger';
 import { ServerList } from '@/components/ServerList';
 import { ChannelSidebar } from '@/components/ChannelSidebar';
 import { ChatArea } from '@/components/ChatArea';
@@ -108,7 +109,7 @@ export function AppPage() {
   useEffect(() => {
     if (token && !wsService.connected) {
       wsService.connect(token).catch((err) => {
-        console.error('Failed to reconnect WebSocket:', err);
+        logger.error('Failed to reconnect WebSocket:', err, { module: 'app' });
       });
     }
   }, [token]);
@@ -246,7 +247,7 @@ export function AppPage() {
   const loadServerMembers = (serverId: string) => {
     apiService.getServerMembers(serverId)
       .then((members) => setMembers(members as MemberWithUser[]))
-      .catch((err) => console.error('Failed to load server members:', err));
+      .catch((err) => logger.error('Failed to load server members:', err, { module: 'app' }));
   };
 
   const loadServerPermissions = (serverId: string) => {
@@ -371,7 +372,7 @@ export function AppPage() {
       // No restore data — select first server
       handleSelectServer(data[0]);
     } catch (err) {
-      console.error('Failed to load servers:', err);
+      logger.error('Failed to load servers:', err, { module: 'app' });
     }
   };
 
@@ -382,7 +383,7 @@ export function AppPage() {
       // Ignore "already a member" or "owner" errors — proceed to select the server
       const msg = err instanceof Error ? err.message : '';
       if (!msg.includes('already') && !msg.includes('owner')) {
-        console.error('Failed to join server:', err);
+        logger.error('Failed to join server:', err, { module: 'app' });
         return;
       }
     }
@@ -419,7 +420,7 @@ export function AppPage() {
         setMessages([]);
       }
     } catch (err) {
-      console.error('Failed to load channels:', err);
+      logger.error('Failed to load channels:', err, { module: 'app' });
     }
   };
 
@@ -456,7 +457,7 @@ export function AppPage() {
       const data = await apiService.getMessages(channel.id);
       setMessages(data as Message[]);
     } catch (err) {
-      console.error('Failed to load messages:', err);
+      logger.error('Failed to load messages:', err, { module: 'app' });
     }
   };
 
@@ -473,6 +474,7 @@ export function AppPage() {
       setShowCreateServer(false);
       handleSelectServer(server);
     } catch (err) {
+logger.error('Failed to create server:', err, { module: 'app' });
       setCreateServerError(apiErrorText(err, t));
     }
   };

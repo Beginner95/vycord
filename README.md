@@ -242,3 +242,35 @@ coturn использует Let's Encrypt-сертификат api-домена:
 Продление рвёт активные relay-аллокации (~раз в 60 дней, ночью) — активный
 звонок у relay-клиентов при этом падает, нужно перезайти в звонок
 (авто-ICE-restart пока не реализован).
+
+## Error reporting (GlitchTip, prod)
+
+Клиентские ошибки (веб + Electron) репортятся в self-hosted
+[GlitchTip](https://glitchtip.com/) — Sentry-протокол-совместимый трекер,
+поднимается в `docker-compose.prod.yml` (`glitchtip-db-init`,
+`glitchtip`), переиспользует существующие
+Postgres/Redis.
+
+### Первичная настройка (один раз)
+
+1. DNS: A-запись `errors.vycord.webvaha.ru` → IP сервера.
+2. Сертификат:
+   ```bash
+   sudo cp deploy/nginx/errors.vycord.webvaha.ru.conf /etc/nginx/sites-available/errors.vycord.webvaha.ru
+   sudo ln -sf /etc/nginx/sites-available/errors.vycord.webvaha.ru /etc/nginx/sites-enabled/
+   sudo nginx -t && sudo systemctl reload nginx
+   sudo certbot --nginx -d errors.vycord.webvaha.ru --non-interactive --agree-tos -m admin@webvaha.ru
+   sudo nginx -t && sudo systemctl reload nginx
+   ```
+3. Заполнить в `.env.prod`: `GLITCHTIP_SECRET_KEY` (`openssl rand -hex 32`),
+   `GLITCHTIP_DATABASE_URL`, `GLITCHTIP_REDIS_URL`, `GLITCHTIP_DOMAIN`.
+4. `docker compose -f docker-compose.prod.yml --env-file .env.prod up -d --build`
+5. Открыть `https://errors.vycord.webvaha.ru`, создать первого
+   пользователя/организацию, затем проект `vycord-client` — скопировать
+   выданный DSN.
+6. Вписать DSN в `.env.prod` (`VITE_SENTRY_DSN=...`) и в
+   `client/electron/sentry-config.ts` (`SENTRY_DSN`, см. Task 8), пересобрать:
+   `docker compose -f docker-compose.prod.yml --env-file .env.prod up -d --build client`
+7. В настройках организации GlitchTip выключить `ENABLE_ORGANIZATION_CREATION`
+   (убрать переменную/поставить `"false"` в `docker-compose.prod.yml`) —
+   она нужна была только для создания первой организации.
