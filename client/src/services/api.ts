@@ -7,6 +7,18 @@ import { wsService } from '@/services/websocket';
 
 const REFRESH_BUFFER_MS = 60_000;
 
+// Все коды означают одно и то же с точки зрения клиента: сервер не принял
+// предъявленный access-токен — либо его не было вовсе (заголовок
+// Authorization не отправлен, потому что localStorage пуст — например, на
+// bootstrap до того, как отработал initAuthLifecycle), либо он истёк/невалиден.
+// Разница важна только на сервере для логов; клиент везде реагирует
+// одинаково — тихий refresh, а не немедленный logout.
+const RETRYABLE_AUTH_CODES = new Set([
+  'invalid_or_expired_token',
+  'missing_auth_header',
+  'invalid_auth_header',
+]);
+
 export const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8080';
 
 export function resolveUploadUrl(url?: string): string | undefined {
@@ -227,7 +239,7 @@ class ApiService {
 
     if (response.status === 401) {
       const body = await response.json().catch(() => ({ error: 'Unauthorized' }));
-      if (body.code === 'invalid_or_expired_token' && !retried && this.getRefreshToken()) {
+      if (RETRYABLE_AUTH_CODES.has(body.code) && !retried && this.getRefreshToken()) {
         try {
           await this.refreshAccessToken();
           return this.request<T>(endpoint, options, true);
@@ -275,7 +287,7 @@ class ApiService {
 
     if (response.status === 401) {
       const body = await response.json().catch(() => ({ error: 'Unauthorized' }));
-      if (body.code === 'invalid_or_expired_token' && !retried && this.getRefreshToken()) {
+      if (RETRYABLE_AUTH_CODES.has(body.code) && !retried && this.getRefreshToken()) {
         try {
           await this.refreshAccessToken();
           return this.requestForm<T>(endpoint, options, true);

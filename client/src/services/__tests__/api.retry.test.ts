@@ -77,6 +77,39 @@ describe('apiService request() 401 retry', () => {
     expect(useAuthStore.getState().isAuthenticated).toBe(true);
   });
 
+  it('retries after a missing_auth_header 401 (empty/absent access token), not just invalid_or_expired_token', async () => {
+    // Сценарий: accessToken пуст (bootstrap-гонка, ручное удаление и т.п.),
+    // Authorization-заголовок вообще не отправляется — сервер отвечает
+    // другим кодом, чем "истёк". Раньше это уходило прямо в logout().
+    useAuthStore.getState().login('', 'refresh-old', user);
+
+    const freshToken = makeToken(Math.floor(Date.now() / 1000) + 900);
+    let call = 0;
+    vi.stubGlobal('fetch', vi.fn().mockImplementation((url: string) => {
+      call++;
+      if (String(url).includes('/auth/refresh')) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () => Promise.resolve({ access_token: freshToken, refresh_token: 'refresh-new', user }),
+        });
+      }
+      if (call === 1) {
+        return Promise.resolve({
+          ok: false,
+          status: 401,
+          json: () => Promise.resolve({ error: 'missing', code: 'missing_auth_header' }),
+        });
+      }
+      return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ id: '1' }) });
+    }));
+
+    const result = await apiService.getMe();
+
+    expect(result).toEqual({ id: '1' });
+    expect(useAuthStore.getState().isAuthenticated).toBe(true);
+  });
+
   it('does not retry a second time and logs out if the retried request is still 401', async () => {
     useAuthStore.getState().login(makeToken(Math.floor(Date.now() / 1000) - 10), 'refresh-old', user);
 
