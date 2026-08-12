@@ -130,7 +130,8 @@ class WebSocketService {
   };
 
   private handleError = (error: Event): void => {
-    logger.error('WebSocket error:', error, { module: 'ws' });
+    const socket = error.target as WebSocket | null;
+    logger.error('WebSocket error:', error, { module: 'ws', readyState: String(socket?.readyState) });
   };
 
   on(eventType: string, listener: (payload: unknown) => void): () => void {
