@@ -257,6 +257,100 @@ func TestRefresh_ReusedRevokedToken_RevokesFamilyAndReturnsInvalid(t *testing.T)
 	refreshRepo.AssertExpectations(t)
 }
 
+// Ответ на предыдущий refresh не дошёл до клиента: он предъявляет тот же токен
+// снова через пару секунд. Это не кража — сессию жечь нельзя, надо просто
+// выдать новую пару ещё раз.
+func TestRefresh_ReuseWithinGraceWindow_RotatesAgainInsteadOfRevoking(t *testing.T) {
+	mockRepo := new(MockUserRepository)
+	refreshRepo := new(MockRefreshTokenRepository)
+	authUseCase := newAuthUseCase(mockRepo, refreshRepo)
+
+	userID := uuid.New()
+	storedID := uuid.New()
+	revokedAt := time.Now().Add(-5 * time.Second)
+	replacedBy := uuid.New()
+	stored := &domain.RefreshToken{
+		ID:         storedID,
+		UserID:     userID,
+		FamilyID:   uuid.New(),
+		ExpiresAt:  time.Now().Add(time.Hour),
+		RevokedAt:  &revokedAt,
+		ReplacedBy: &replacedBy,
+	}
+
+	refreshRepo.On("GetByHash", mock.AnythingOfType("[]uint8")).Return(stored, nil)
+	mockRepo.On("GetByID", userID).Return(&domain.User{ID: userID, Username: "testuser"}, nil)
+	refreshRepo.On("Create", mock.AnythingOfType("*domain.RefreshToken")).Return(nil)
+	refreshRepo.On("MarkRotated", storedID, mock.AnythingOfType("uuid.UUID"), mock.AnythingOfType("time.Time")).Return(nil)
+	// RevokeFamily намеренно НЕ заявлен: вызов незаявленного метода уронит мок —
+	// именно так мы доказываем, что family не отзывается.
+
+	user, accessToken, newRefreshToken, err := authUseCase.Refresh("retried-refresh-token")
+
+	assert.NoError(t, err)
+	assert.NotNil(t, user)
+	assert.NotEmpty(t, accessToken)
+	assert.NotEmpty(t, newRefreshToken)
+	refreshRepo.AssertExpectations(t)
+	refreshRepo.AssertNotCalled(t, "RevokeFamily", mock.Anything)
+}
+
+func TestRefresh_ReuseOutsideGraceWindow_StillRevokesFamily(t *testing.T) {
+	mockRepo := new(MockUserRepository)
+	refreshRepo := new(MockRefreshTokenRepository)
+	authUseCase := newAuthUseCase(mockRepo, refreshRepo)
+
+	familyID := uuid.New()
+	revokedAt := time.Now().Add(-time.Hour)
+	replacedBy := uuid.New()
+	stored := &domain.RefreshToken{
+		ID:         uuid.New(),
+		UserID:     uuid.New(),
+		FamilyID:   familyID,
+		ExpiresAt:  time.Now().Add(time.Hour),
+		RevokedAt:  &revokedAt,
+		ReplacedBy: &replacedBy,
+	}
+
+	refreshRepo.On("GetByHash", mock.AnythingOfType("[]uint8")).Return(stored, nil)
+	refreshRepo.On("RevokeFamily", familyID).Return(nil)
+
+	_, accessToken, newRefreshToken, err := authUseCase.Refresh("stolen-token")
+
+	assert.ErrorIs(t, err, domain.ErrRefreshTokenInvalid)
+	assert.Empty(t, accessToken)
+	assert.Empty(t, newRefreshToken)
+	refreshRepo.AssertExpectations(t)
+}
+
+// Токен, отозванный без преемника (Logout → RevokeFamily), под grace-окно
+// не подпадает даже будучи отозванным секунду назад.
+func TestRefresh_RevokedWithoutSuccessor_RevokesFamilyRegardlessOfAge(t *testing.T) {
+	mockRepo := new(MockUserRepository)
+	refreshRepo := new(MockRefreshTokenRepository)
+	authUseCase := newAuthUseCase(mockRepo, refreshRepo)
+
+	familyID := uuid.New()
+	revokedAt := time.Now().Add(-1 * time.Second)
+	stored := &domain.RefreshToken{
+		ID:        uuid.New(),
+		UserID:    uuid.New(),
+		FamilyID:  familyID,
+		ExpiresAt: time.Now().Add(time.Hour),
+		RevokedAt: &revokedAt,
+	}
+
+	refreshRepo.On("GetByHash", mock.AnythingOfType("[]uint8")).Return(stored, nil)
+	refreshRepo.On("RevokeFamily", familyID).Return(nil)
+
+	_, accessToken, newRefreshToken, err := authUseCase.Refresh("logged-out-token")
+
+	assert.ErrorIs(t, err, domain.ErrRefreshTokenInvalid)
+	assert.Empty(t, accessToken)
+	assert.Empty(t, newRefreshToken)
+	refreshRepo.AssertExpectations(t)
+}
+
 func TestRefresh_RepoError_DoesNotReturnInvalidTokenError(t *testing.T) {
 	mockRepo := new(MockUserRepository)
 	refreshRepo := new(MockRefreshTokenRepository)

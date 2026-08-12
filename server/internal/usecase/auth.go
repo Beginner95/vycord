@@ -13,6 +13,15 @@ import (
 	"github.com/vycord/server/pkg/authtoken"
 )
 
+// refreshGraceWindow — окно, в течение которого повторное предъявление уже
+// ротированного refresh-токена трактуется как ретрай запроса, ответ на который
+// не дошёл до клиента (обрыв сети, засыпание Electron посреди запроса), а не как
+// reuse украденного токена. Без него потерянный ответ означал бы отзыв всей
+// family и принудительный ре-логин — ровно тот сценарий, ради устранения
+// которого refresh-токены и вводились. Это внутренний запас прочности,
+// а не настройка: конфигурации/env-переменной сознательно нет.
+const refreshGraceWindow = 30 * time.Second
+
 type authUseCase struct {
 	userRepo          domain.UserRepository
 	refreshRepo       domain.RefreshTokenRepository
@@ -119,6 +128,13 @@ func (uc *authUseCase) ValidateToken(tokenString string) (*domain.User, error) {
 // вызове. Если presented токен уже был помечен использованным раньше —
 // это reuse украденного/дублированного токена, и вся его family
 // отзывается целиком (см. docs/superpowers/specs/2026-08-11-vyc72-refresh-token-design.md).
+//
+// Исключение — grace-окно (refreshGraceWindow): токен, ротированный только что
+// (RevokedAt свежий) и имеющий преемника (ReplacedBy != nil), почти наверняка
+// предъявлен повторно потому, что ответ с новой парой не дошёл до клиента.
+// Такой вызов обслуживается как обычная ротация. Токен, отозванный без
+// преемника (ReplacedBy == nil, т.е. через Logout/RevokeFamily), под grace
+// не попадает никогда — там повторное предъявление всегда подозрительно.
 func (uc *authUseCase) Refresh(refreshToken string) (*domain.User, string, string, error) {
 	hash := authtoken.HashRefreshToken(refreshToken)
 	stored, err := uc.refreshRepo.GetByHash(hash)
@@ -129,15 +145,24 @@ func (uc *authUseCase) Refresh(refreshToken string) (*domain.User, string, strin
 		return nil, "", "", fmt.Errorf("failed to look up refresh token: %w", err)
 	}
 
-	if stored.RevokedAt != nil {
-		if err := uc.refreshRepo.RevokeFamily(stored.FamilyID); err != nil {
-			return nil, "", "", fmt.Errorf("failed to revoke refresh token family: %w", err)
-		}
+	// Проверка истечения идёт первой: протухший токен мёртв независимо от
+	// grace-окна, и жечь из-за него всю family незачем.
+	if time.Now().After(stored.ExpiresAt) {
 		return nil, "", "", domain.ErrRefreshTokenInvalid
 	}
 
-	if time.Now().After(stored.ExpiresAt) {
-		return nil, "", "", domain.ErrRefreshTokenInvalid
+	if stored.RevokedAt != nil {
+		lostResponseRetry := stored.ReplacedBy != nil && time.Since(*stored.RevokedAt) < refreshGraceWindow
+		if !lostResponseRetry {
+			if err := uc.refreshRepo.RevokeFamily(stored.FamilyID); err != nil {
+				return nil, "", "", fmt.Errorf("failed to revoke refresh token family: %w", err)
+			}
+			return nil, "", "", domain.ErrRefreshTokenInvalid
+		}
+		// Иначе проваливаемся в обычную ротацию ниже. Повторный MarkRotated по
+		// той же строке безопасен: он просто перезапишет revoked_at/replaced_by
+		// новыми значениями. Ребёнок из потерянного ответа остаётся сиротой
+		// и тихо истечёт неиспользованным.
 	}
 
 	user, err := uc.userRepo.GetByID(stored.UserID)
