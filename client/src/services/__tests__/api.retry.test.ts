@@ -47,6 +47,36 @@ describe('apiService request() 401 retry', () => {
     expect(useAuthStore.getState().isAuthenticated).toBe(true);
   });
 
+  it('retries once after a successful refresh on invalid_or_expired_token (requestForm() path)', async () => {
+    useAuthStore.getState().login(makeToken(Math.floor(Date.now() / 1000) - 10), 'refresh-old', user);
+
+    const freshToken = makeToken(Math.floor(Date.now() / 1000) + 900);
+    let call = 0;
+    vi.stubGlobal('fetch', vi.fn().mockImplementation((url: string) => {
+      call++;
+      if (String(url).includes('/auth/refresh')) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () => Promise.resolve({ access_token: freshToken, refresh_token: 'refresh-new', user }),
+        });
+      }
+      if (call === 1) {
+        return Promise.resolve({
+          ok: false,
+          status: 401,
+          json: () => Promise.resolve({ error: 'expired', code: 'invalid_or_expired_token' }),
+        });
+      }
+      return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(user) });
+    }));
+
+    const result = await apiService.removeAvatar();
+
+    expect(result).toEqual(user);
+    expect(useAuthStore.getState().isAuthenticated).toBe(true);
+  });
+
   it('does not retry a second time and logs out if the retried request is still 401', async () => {
     useAuthStore.getState().login(makeToken(Math.floor(Date.now() / 1000) - 10), 'refresh-old', user);
 
