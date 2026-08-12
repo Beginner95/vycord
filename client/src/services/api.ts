@@ -173,7 +173,8 @@ class ApiService {
 
   private async request<T>(
     endpoint: string,
-    options: RequestInit = {}
+    options: RequestInit = {},
+    retried = false
   ): Promise<T> {
     const response = await fetch(`${API_BASE_URL}${endpoint}`, {
       ...options,
@@ -184,11 +185,18 @@ class ApiService {
     });
 
     if (response.status === 401) {
-      // Разлогин при 401 сохраняем без изменений (VYC-54).
-      useAuthStore.getState().logout();
-      // Но тело ответа больше не выбрасываем: 401 приходит и от /auth/login,
-      // где code отличает «неверный пароль» от «истёкший токен».
       const body = await response.json().catch(() => ({ error: 'Unauthorized' }));
+      if (body.code === 'invalid_or_expired_token' && !retried && this.getRefreshToken()) {
+        try {
+          await this.refreshAccessToken();
+          return this.request<T>(endpoint, options, true);
+        } catch {
+          // refreshAccessToken() уже разлогинил при 401; при сетевой
+          // ошибке сессия остаётся жива — просто отдаём исходную ошибку.
+        }
+      } else {
+        useAuthStore.getState().logout();
+      }
       throw new ApiError(body.error || 'Unauthorized', body.code, 401);
     }
 
@@ -205,9 +213,13 @@ class ApiService {
     return response.json();
   }
 
-  private async requestForm<T>(endpoint: string, options: RequestInit): Promise<T> {
-    const token = this.getAccessToken();
+  private async requestForm<T>(
+    endpoint: string,
+    options: RequestInit,
+    retried = false
+  ): Promise<T> {
     const headers: HeadersInit = {};
+    const token = this.getAccessToken();
     if (token) {
       headers['Authorization'] = `Bearer ${token}`;
     }
@@ -221,12 +233,17 @@ class ApiService {
     });
 
     if (response.status === 401) {
-      // Разлогин при 401 сохраняем без изменений (VYC-54).
-      useAuthStore.getState().logout();
-      window.location.href = '/login';
-      // Но тело ответа больше не выбрасываем: 401 приходит и от /auth/login,
-      // где code отличает «неверный пароль» от «истёкший токен».
       const body = await response.json().catch(() => ({ error: 'Unauthorized' }));
+      if (body.code === 'invalid_or_expired_token' && !retried && this.getRefreshToken()) {
+        try {
+          await this.refreshAccessToken();
+          return this.requestForm<T>(endpoint, options, true);
+        } catch {
+          // см. комментарий в request()
+        }
+      } else {
+        useAuthStore.getState().logout();
+      }
       throw new ApiError(body.error || 'Unauthorized', body.code, 401);
     }
 
