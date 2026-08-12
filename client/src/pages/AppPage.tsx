@@ -73,7 +73,7 @@ function startCallRingtone(): () => void {
 
 export function AppPage() {
   const t = useT();
-  const { user, token, logout } = useAuthStore();
+  const { user, accessToken, logout } = useAuthStore();
   const { servers, setServers, setCurrentServer, currentServer, setChannels, channels, currentChannel, setCurrentChannel, setMembers, members, setPermissions } = useServerStore();
   const { setMessages } = useMessageStore();
   const [showCreateServer, setShowCreateServer] = useState(false);
@@ -105,14 +105,21 @@ export function AppPage() {
     return () => { stopRingtoneRef.current?.(); };
   }, []);
 
-  // Reconnect WebSocket on mount if already authenticated (page reload)
+  // Reconnect WebSocket on mount if already authenticated (page reload).
+  // Токен мог протухнуть, пока приложение было закрыто — getFreshAccessToken()
+  // обновит его перед подключением вместо того, чтобы предъявить SFU/hub
+  // мёртвый JWT.
   useEffect(() => {
-    if (token && !wsService.connected) {
-      wsService.connect(token).catch((err) => {
-        logger.error('Failed to reconnect WebSocket:', err, { module: 'app' });
+    if (!wsService.connected) {
+      apiService.getFreshAccessToken().then((freshToken) => {
+        if (freshToken) {
+          wsService.connect(freshToken).catch((err) => {
+            logger.error('Failed to reconnect WebSocket:', err, { module: 'app' });
+          });
+        }
       });
     }
-  }, [token]);
+  }, [accessToken]);
 
   useEffect(() => {
     // Load servers
@@ -461,6 +468,11 @@ export function AppPage() {
     }
   };
 
+  const handleLogout = () => {
+    void apiService.logout();
+    logout();
+  };
+
   const handleCreateServer = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newServerName.trim()) return;
@@ -509,7 +521,7 @@ logger.error('Failed to create server:', err, { module: 'app' });
           currentChannel={currentChannel}
           onSelectChannel={handleSelectChannel}
           user={user}
-          onLogout={logout}
+          onLogout={handleLogout}
           onMobileBack={() => setMobilePanel('servers')}
           voiceParticipants={voiceParticipants}
           members={members}

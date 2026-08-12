@@ -122,11 +122,14 @@ export interface MemberWithUser {
 
 export interface AuthState {
   user: User | null;
-  token: string | null;
+  accessToken: string | null;
+  refreshToken: string | null;
   isAuthenticated: boolean;
-  login: (token: string, user: User) => void;
+  login: (accessToken: string, refreshToken: string, user: User) => void;
+  replaceTokens: (accessToken: string, refreshToken: string) => void;
   logout: () => void;
   updateUser: (patch: Partial<User>) => void;
+  syncFromStorage: () => void;
 }
 
 export interface WSMessage {

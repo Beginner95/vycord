@@ -3,9 +3,16 @@ package domain
 import "github.com/google/uuid"
 
 type AuthUseCase interface {
-	Register(username, email, password string) (*User, string, error)
-	Login(email, password string) (*User, string, error)
+	Register(username, email, password string) (*User, string, string, error)
+	Login(email, password string) (*User, string, string, error)
 	ValidateToken(tokenString string) (*User, error)
+	// Refresh обменивает валидный неиспользованный refresh-токен на новую
+	// пару access+refresh, ротируя refresh-токен. Повторное использование
+	// уже ротированного токена отзывает всю его family.
+	Refresh(refreshToken string) (*User, string, string, error)
+	// Logout отзывает всю сессию (family), к которой принадлежит
+	// refreshToken. Не ошибка, если токен уже не существует.
+	Logout(refreshToken string) error
 }
 
 type UserUseCase interface {

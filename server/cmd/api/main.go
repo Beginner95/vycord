@@ -77,6 +77,7 @@ func main() {
 	roleRepo := postgres.NewRoleRepository(db)
 	inviteRepo := postgres.NewInviteRepository(db)
 	stickerRepo := postgres.NewStickerRepository(db)
+	refreshTokenRepo := postgres.NewRefreshTokenRepository(db)
 
 	// Initialize file storage
 	storage, err := filestorage.NewLocal(cfg.UploadDir, "/uploads")
@@ -86,7 +87,7 @@ func main() {
 	}
 
 	// Initialize usecases
-	authUseCase := usecase.NewAuthUseCase(userRepo, cfg.JWTSecret, cfg.JWTExpiration)
+	authUseCase := usecase.NewAuthUseCase(userRepo, refreshTokenRepo, cfg.JWTSecret, cfg.JWTExpiration, cfg.RefreshTokenExpiration)
 	userUseCase := usecase.NewUserUseCase(userRepo, storage)
 	permissionUseCase := usecase.NewPermissionUseCase(serverRepo, roleRepo)
 	inviteUseCase := usecase.NewInviteUseCase(inviteRepo, serverRepo, permissionUseCase)
@@ -125,6 +126,8 @@ func main() {
 	// Auth routes
 	router.HandleFunc("POST /api/v1/auth/register", authHandler.Register)
 	router.HandleFunc("POST /api/v1/auth/login", authHandler.Login)
+	router.HandleFunc("POST /api/v1/auth/refresh", authHandler.Refresh)
+	router.HandleFunc("POST /api/v1/auth/logout", authHandler.Logout)
 	router.HandleFunc("GET /api/v1/auth/me", authMid.RequireAuth(userHandler.GetMe))
 
 	// User routes

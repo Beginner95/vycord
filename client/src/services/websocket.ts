@@ -79,6 +79,16 @@ class WebSocketService {
     this.cleanup();
   }
 
+  /**
+   * Обновляет токен для будущих (пере)подключений, не разрывая текущее.
+   * JWT проверяется только на этапе handshake, поэтому уже открытое
+   * соединение продолжает работать и после истечения токена; но без этого
+   * метода реконнект после сетевого сбоя предъявит серверу мёртвый токен.
+   */
+  updateToken(token: string): void {
+    this.token = token;
+  }
+
   private cleanup(): void {
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
