@@ -146,8 +146,15 @@ class ApiService {
 
     const accessToken = this.getAccessToken();
     const expMs = accessToken ? decodeJwtExpMs(accessToken) : null;
-    const isFresh = expMs !== null && expMs - Date.now() > REFRESH_BUFFER_MS;
-    if (isFresh) return accessToken;
+    const isFresh = accessToken !== null && expMs !== null && expMs - Date.now() > REFRESH_BUFFER_MS;
+    if (isFresh) {
+      // Взводим таймер даже когда обновлять пока нечего: иначе при рестарте
+      // приложения с ещё живым access-токеном фоновое обновление не
+      // запланируется вообще, и токен тихо протухнет до следующего вызова API —
+      // а переподключающийся WebSocket предъявит уже мёртвый JWT.
+      this.scheduleTokenRefresh(accessToken);
+      return accessToken;
+    }
 
     try {
       return await this.refreshAccessToken();
@@ -193,6 +200,14 @@ class ApiService {
       const e = event as StorageEvent;
       if (e.key === ACCESS_TOKEN_KEY || e.key === REFRESH_TOKEN_KEY) {
         useAuthStore.getState().syncFromStorage();
+        // Своё обновление токена wsService получает напрямую из
+        // refreshAccessToken(); ротацию, сделанную другой вкладкой, — только
+        // отсюда. Без этого wsService этой вкладки держал бы в памяти старый
+        // JWT и переподключился бы с уже истёкшим.
+        const syncedToken = useAuthStore.getState().accessToken;
+        if (syncedToken) {
+          wsService.updateToken(syncedToken);
+        }
       }
     });
   }

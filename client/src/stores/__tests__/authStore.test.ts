@@ -53,4 +53,34 @@ describe('authStore', () => {
     expect(state.accessToken).toBe('external-access');
     expect(state.refreshToken).toBe('external-refresh');
   });
+
+  it('syncFromStorage drops isAuthenticated and user after a logout in another tab', () => {
+    useAuthStore.getState().login('access-1', 'refresh-1', user);
+
+    // Ровно то, что делает logout() в соседней вкладке: чистит localStorage.
+    // Эта вкладка узнаёт об этом только через storage-событие → syncFromStorage.
+    localStorage.removeItem(ACCESS_TOKEN_KEY);
+    localStorage.removeItem(REFRESH_TOKEN_KEY);
+    localStorage.removeItem('vycord_user');
+
+    useAuthStore.getState().syncFromStorage();
+
+    const state = useAuthStore.getState();
+    expect(state.accessToken).toBeNull();
+    expect(state.refreshToken).toBeNull();
+    expect(state.isAuthenticated).toBe(false);
+    expect(state.user).toBeNull();
+  });
+
+  it('syncFromStorage restores isAuthenticated and user after a login in another tab', () => {
+    localStorage.setItem(ACCESS_TOKEN_KEY, 'external-access');
+    localStorage.setItem(REFRESH_TOKEN_KEY, 'external-refresh');
+    localStorage.setItem('vycord_user', JSON.stringify(user));
+
+    useAuthStore.getState().syncFromStorage();
+
+    const state = useAuthStore.getState();
+    expect(state.isAuthenticated).toBe(true);
+    expect(state.user).toEqual(user);
+  });
 });

@@ -66,11 +66,16 @@ describe('apiService refresh mechanics', () => {
 
     const fetchMock = vi.fn();
     vi.stubGlobal('fetch', fetchMock);
+    const scheduleSpy = vi.spyOn(apiService, 'scheduleTokenRefresh').mockImplementation(() => {});
 
     const result = await apiService.getFreshAccessToken();
 
     expect(result).toBe(freshToken);
     expect(fetchMock).not.toHaveBeenCalled();
+    // Токен ещё свеж — сеть не нужна, но фоновое обновление всё равно должно
+    // быть запланировано: иначе после рестарта приложения таймер не взведётся
+    // никогда и токен протухнет молча.
+    expect(scheduleSpy).toHaveBeenCalledWith(freshToken);
   });
 
   it('getFreshAccessToken returns null and logs out when there is no refresh token', async () => {

@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { apiService } from '@/services/api';
 import { useAuthStore, ACCESS_TOKEN_KEY, REFRESH_TOKEN_KEY } from '@/stores/authStore';
+import { wsService } from '@/services/websocket';
 import { fireTestEvent } from '@/test/setup';
 import type { User } from '@/types';
 
@@ -16,6 +17,7 @@ describe('apiService.initAuthLifecycle', () => {
   beforeEach(() => {
     useAuthStore.setState({ user: null, accessToken: null, refreshToken: null, isAuthenticated: false });
     vi.restoreAllMocks();
+    vi.spyOn(wsService, 'updateToken').mockImplementation(() => {});
   });
 
   it('does nothing at startup when the user is not logged in', () => {
@@ -37,6 +39,9 @@ describe('apiService.initAuthLifecycle', () => {
 
     expect(useAuthStore.getState().accessToken).toBe('from-other-tab-access');
     expect(useAuthStore.getState().refreshToken).toBe('from-other-tab-refresh');
+    // Ротацию из соседней вкладки должен получить и wsService, иначе он
+    // переподключится с протухшим JWT.
+    expect(wsService.updateToken).toHaveBeenCalledWith('from-other-tab-access');
   });
 
   it('refreshes on becoming visible if the access token is stale', async () => {

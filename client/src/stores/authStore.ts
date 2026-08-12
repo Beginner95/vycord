@@ -50,10 +50,19 @@ export const useAuthStore = create<AuthState>((set) => ({
     });
   },
 
+  // Пересобирает состояние из localStorage целиком, а не только токены:
+  // логаут в соседней вкладке должен выкинуть эту вкладку на экран логина
+  // (PrivateRoute смотрит только на isAuthenticated), а логин в соседней —
+  // наоборот, впустить внутрь. Обновлять одни токены мало: вкладка осталась
+  // бы рендерить приложение с мёртвой сессией до первого 401.
   syncFromStorage: () => {
+    const accessToken = localStorage.getItem(ACCESS_TOKEN_KEY);
+    const refreshToken = localStorage.getItem(REFRESH_TOKEN_KEY);
     set({
-      accessToken: localStorage.getItem(ACCESS_TOKEN_KEY),
-      refreshToken: localStorage.getItem(REFRESH_TOKEN_KEY),
+      accessToken,
+      refreshToken,
+      isAuthenticated: !!refreshToken,
+      user: refreshToken ? getStoredUser() : null,
     });
   },
 }));
