@@ -57,6 +57,28 @@ func (r *refreshTokenRepository) GetByHash(hash []byte) (*domain.RefreshToken, e
 	return t, nil
 }
 
+func (r *refreshTokenRepository) GetByID(id uuid.UUID) (*domain.RefreshToken, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	query := `
+		SELECT id, user_id, family_id, token_hash, created_at, expires_at, revoked_at, replaced_by
+		FROM refresh_tokens
+		WHERE id = $1
+	`
+	t := &domain.RefreshToken{}
+	err := r.db.QueryRow(ctx, query, id).Scan(
+		&t.ID, &t.UserID, &t.FamilyID, &t.TokenHash, &t.CreatedAt, &t.ExpiresAt, &t.RevokedAt, &t.ReplacedBy,
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, domain.ErrRefreshTokenNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to get refresh token: %w", err)
+	}
+	return t, nil
+}
+
 func (r *refreshTokenRepository) MarkRotated(id, replacedBy uuid.UUID, revokedAt time.Time) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
