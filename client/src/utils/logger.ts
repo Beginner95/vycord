@@ -1,7 +1,20 @@
 import * as Sentry from '@sentry/react';
 
-function toError(err: unknown): Error {
-  return err instanceof Error ? err : new Error(String(err));
+export function toError(err: unknown): Error {
+  if (err instanceof Error) return err;
+  if (err instanceof Event) {
+    const parts = [`Event: ${err.type}`];
+    if ('code' in err && 'reason' in err) {
+      const closeEvent = err as CloseEvent;
+      parts.push(
+        `code=${closeEvent.code}`,
+        `reason=${closeEvent.reason || '(empty)'}`,
+        `wasClean=${closeEvent.wasClean}`
+      );
+    }
+    return new Error(parts.join(' '));
+  }
+  return new Error(String(err));
 }
 
 export const logger = {
