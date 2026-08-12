@@ -60,6 +60,13 @@ var (
 	ErrUsernameTaken = errors.New("user with this username already exists")
 	// ErrInvalidCredentials — email не найден или пароль не совпадает при входе.
 	ErrInvalidCredentials = errors.New("invalid email or password")
+	// ErrRefreshTokenNotFound — refresh-токен с таким хэшем не найден в БД.
+	ErrRefreshTokenNotFound = errors.New("refresh token not found")
+	// ErrRefreshTokenInvalid — refresh-токен истёк или уже был использован
+	// (ротация/reuse). Отдельная от ErrRefreshTokenNotFound ошибка нужна
+	// только на уровне usecase-логики (reuse триггерит RevokeFamily) — по
+	// HTTP обе маппятся в один и тот же 401 invalid_or_expired_token.
+	ErrRefreshTokenInvalid = errors.New("refresh token invalid or expired")
 )
 
 var (

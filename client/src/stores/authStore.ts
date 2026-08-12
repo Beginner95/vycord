@@ -1,7 +1,8 @@
 import { create } from 'zustand';
 import type { User, AuthState } from '@/types';
 
-const TOKEN_KEY = 'vycord_token';
+export const ACCESS_TOKEN_KEY = 'vycord_access_token';
+export const REFRESH_TOKEN_KEY = 'vycord_refresh_token';
 const USER_KEY = 'vycord_user';
 
 function getStoredUser(): User | null {
@@ -16,19 +17,28 @@ function getStoredUser(): User | null {
 
 export const useAuthStore = create<AuthState>((set) => ({
   user: getStoredUser(),
-  token: localStorage.getItem(TOKEN_KEY),
-  isAuthenticated: !!localStorage.getItem(TOKEN_KEY),
+  accessToken: localStorage.getItem(ACCESS_TOKEN_KEY),
+  refreshToken: localStorage.getItem(REFRESH_TOKEN_KEY),
+  isAuthenticated: !!localStorage.getItem(REFRESH_TOKEN_KEY),
 
-  login: (token: string, user: User) => {
-    localStorage.setItem(TOKEN_KEY, token);
+  login: (accessToken: string, refreshToken: string, user: User) => {
+    localStorage.setItem(ACCESS_TOKEN_KEY, accessToken);
+    localStorage.setItem(REFRESH_TOKEN_KEY, refreshToken);
     localStorage.setItem(USER_KEY, JSON.stringify(user));
-    set({ token, user, isAuthenticated: true });
+    set({ accessToken, refreshToken, user, isAuthenticated: true });
+  },
+
+  replaceTokens: (accessToken: string, refreshToken: string) => {
+    localStorage.setItem(ACCESS_TOKEN_KEY, accessToken);
+    localStorage.setItem(REFRESH_TOKEN_KEY, refreshToken);
+    set({ accessToken, refreshToken });
   },
 
   logout: () => {
-    localStorage.removeItem(TOKEN_KEY);
+    localStorage.removeItem(ACCESS_TOKEN_KEY);
+    localStorage.removeItem(REFRESH_TOKEN_KEY);
     localStorage.removeItem(USER_KEY);
-    set({ token: null, user: null, isAuthenticated: false });
+    set({ accessToken: null, refreshToken: null, user: null, isAuthenticated: false });
   },
 
   updateUser: (patch: Partial<User>) => {
@@ -37,6 +47,22 @@ export const useAuthStore = create<AuthState>((set) => ({
       const user = { ...state.user, ...patch };
       localStorage.setItem(USER_KEY, JSON.stringify(user));
       return { user };
+    });
+  },
+
+  // Пересобирает состояние из localStorage целиком, а не только токены:
+  // логаут в соседней вкладке должен выкинуть эту вкладку на экран логина
+  // (PrivateRoute смотрит только на isAuthenticated), а логин в соседней —
+  // наоборот, впустить внутрь. Обновлять одни токены мало: вкладка осталась
+  // бы рендерить приложение с мёртвой сессией до первого 401.
+  syncFromStorage: () => {
+    const accessToken = localStorage.getItem(ACCESS_TOKEN_KEY);
+    const refreshToken = localStorage.getItem(REFRESH_TOKEN_KEY);
+    set({
+      accessToken,
+      refreshToken,
+      isAuthenticated: !!refreshToken,
+      user: refreshToken ? getStoredUser() : null,
     });
   },
 }));

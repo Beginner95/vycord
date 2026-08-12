@@ -24,20 +24,29 @@ import (
 
 type mockAuthUseCase struct{ mock.Mock }
 
-func (m *mockAuthUseCase) Register(username, email, password string) (*domain.User, string, error) {
+func (m *mockAuthUseCase) Register(username, email, password string) (*domain.User, string, string, error) {
 	args := m.Called(username, email, password)
 	u, _ := args.Get(0).(*domain.User)
-	return u, args.String(1), args.Error(2)
+	return u, args.String(1), args.String(2), args.Error(3)
 }
-func (m *mockAuthUseCase) Login(email, password string) (*domain.User, string, error) {
+func (m *mockAuthUseCase) Login(email, password string) (*domain.User, string, string, error) {
 	args := m.Called(email, password)
 	u, _ := args.Get(0).(*domain.User)
-	return u, args.String(1), args.Error(2)
+	return u, args.String(1), args.String(2), args.Error(3)
 }
 func (m *mockAuthUseCase) ValidateToken(tokenString string) (*domain.User, error) {
 	args := m.Called(tokenString)
 	u, _ := args.Get(0).(*domain.User)
 	return u, args.Error(1)
+}
+func (m *mockAuthUseCase) Refresh(refreshToken string) (*domain.User, string, string, error) {
+	args := m.Called(refreshToken)
+	u, _ := args.Get(0).(*domain.User)
+	return u, args.String(1), args.String(2), args.Error(3)
+}
+func (m *mockAuthUseCase) Logout(refreshToken string) error {
+	args := m.Called(refreshToken)
+	return args.Error(0)
 }
 
 type mockUserUseCase struct{ mock.Mock }

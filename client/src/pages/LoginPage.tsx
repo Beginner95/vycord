@@ -22,11 +22,12 @@ export function LoginPage() {
     setLoading(true);
 
     try {
-      const data = await apiService.login(email, password) as { token: string; user: User };
-      login(data.token, data.user);
+      const data = await apiService.login(email, password) as { access_token: string; refresh_token: string; user: User };
+      login(data.access_token, data.refresh_token, data.user);
+      apiService.scheduleTokenRefresh(data.access_token);
 
       // Connect WebSocket
-      await wsService.connect(data.token);
+      await wsService.connect(data.access_token);
 
       navigate('/app');
     } catch (err) {

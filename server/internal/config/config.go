@@ -8,21 +8,22 @@ import (
 )
 
 type Config struct {
-	ServerPort    string
-	JWTSecret     string
-	JWTExpiration time.Duration
-	PostgresHost  string
-	PostgresUser  string
-	PostgresPass  string
-	PostgresDB    string
-	PostgresPort  string
-	RedisHost     string
-	RedisPort     string
-	ClientURL     string
-	TURNSecret    string
-	TURNURLs      []string
-	TURNTTL       time.Duration
-	UploadDir     string
+	ServerPort             string
+	JWTSecret              string
+	JWTExpiration          time.Duration
+	RefreshTokenExpiration time.Duration
+	PostgresHost           string
+	PostgresUser           string
+	PostgresPass           string
+	PostgresDB             string
+	PostgresPort           string
+	RedisHost              string
+	RedisPort              string
+	ClientURL              string
+	TURNSecret             string
+	TURNURLs               []string
+	TURNTTL                time.Duration
+	UploadDir              string
 }
 
 func New() (*Config, error) {
@@ -32,21 +33,22 @@ func New() (*Config, error) {
 	}
 
 	cfg := &Config{
-		ServerPort:    getEnv("SERVER_PORT", "8080"),
-		JWTSecret:     jwtSecret,
-		JWTExpiration: parseDuration(getEnv("JWT_EXPIRATION", "24h")),
-		PostgresHost:  getEnv("POSTGRES_HOST", "localhost"),
-		PostgresUser:  getEnv("POSTGRES_USER", "vycord"),
-		PostgresPass:  getEnv("POSTGRES_PASSWORD", "vycord_secret"),
-		PostgresDB:    getEnv("POSTGRES_DB", "vycord"),
-		PostgresPort:  getEnv("POSTGRES_PORT", "5432"),
-		RedisHost:     getEnv("REDIS_HOST", "localhost"),
-		RedisPort:     getEnv("REDIS_PORT", "6379"),
-		ClientURL:     getEnv("CLIENT_URL", "http://localhost:3000"),
-		TURNSecret:    getEnv("TURN_SECRET", ""),
-		TURNURLs:      splitList(getEnv("TURN_URLS", "")),
-		TURNTTL:       parseDuration(getEnv("TURN_CREDENTIAL_TTL", "12h")),
-		UploadDir:     getEnv("UPLOAD_DIR", "./uploads"),
+		ServerPort:             getEnv("SERVER_PORT", "8080"),
+		JWTSecret:              jwtSecret,
+		JWTExpiration:          parseDuration(getEnv("JWT_EXPIRATION", "15m")),
+		RefreshTokenExpiration: parseDuration(getEnv("REFRESH_TOKEN_EXPIRATION", "720h")),
+		PostgresHost:           getEnv("POSTGRES_HOST", "localhost"),
+		PostgresUser:           getEnv("POSTGRES_USER", "vycord"),
+		PostgresPass:           getEnv("POSTGRES_PASSWORD", "vycord_secret"),
+		PostgresDB:             getEnv("POSTGRES_DB", "vycord"),
+		PostgresPort:           getEnv("POSTGRES_PORT", "5432"),
+		RedisHost:              getEnv("REDIS_HOST", "localhost"),
+		RedisPort:              getEnv("REDIS_PORT", "6379"),
+		ClientURL:              getEnv("CLIENT_URL", "http://localhost:3000"),
+		TURNSecret:             getEnv("TURN_SECRET", ""),
+		TURNURLs:               splitList(getEnv("TURN_URLS", "")),
+		TURNTTL:                parseDuration(getEnv("TURN_CREDENTIAL_TTL", "12h")),
+		UploadDir:              getEnv("UPLOAD_DIR", "./uploads"),
 	}
 
 	return cfg, nil

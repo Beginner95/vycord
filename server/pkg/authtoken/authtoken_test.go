@@ -157,3 +157,39 @@ func TestValidateToken_StillIgnoresRoomIDClaim(t *testing.T) {
 		t.Fatalf("user id = %s, want %s", got, want)
 	}
 }
+
+func TestGenerateRefreshToken_ReturnsNonEmptyUniqueValues(t *testing.T) {
+	a, err := GenerateRefreshToken()
+	if err != nil {
+		t.Fatalf("GenerateRefreshToken: %v", err)
+	}
+	b, err := GenerateRefreshToken()
+	if err != nil {
+		t.Fatalf("GenerateRefreshToken: %v", err)
+	}
+	if a == "" || b == "" {
+		t.Fatal("expected non-empty tokens")
+	}
+	if a == b {
+		t.Fatal("expected two calls to produce different tokens")
+	}
+	if len(a) < 32 {
+		t.Fatalf("expected a high-entropy token, got length %d", len(a))
+	}
+}
+
+func TestHashRefreshToken_DeterministicAndDistinct(t *testing.T) {
+	h1 := HashRefreshToken("token-a")
+	h2 := HashRefreshToken("token-a")
+	h3 := HashRefreshToken("token-b")
+
+	if string(h1) != string(h2) {
+		t.Fatal("expected the same input to hash the same way")
+	}
+	if string(h1) == string(h3) {
+		t.Fatal("expected different inputs to hash differently")
+	}
+	if len(h1) != 32 {
+		t.Fatalf("expected a 32-byte SHA-256 hash, got %d bytes", len(h1))
+	}
+}
