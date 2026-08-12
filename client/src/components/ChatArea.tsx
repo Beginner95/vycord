@@ -14,6 +14,7 @@ import { audioService } from '@/services/audio';
 import { useServerStore } from '@/stores/serverStore';
 import { tokenizeMentions, LEGACY_ROLE_KEYS } from '@/utils/mentions';
 import { logger } from '@/utils/logger';
+import { collectUnresolvedUserIds } from '@/utils/userCache';
 import { useMentionAutocomplete } from '@/hooks/useMentionAutocomplete';
 import { can, PERMISSIONS } from '@/utils/permissions';
 import { useFloatingSelectionToolbar } from '@/hooks/useFloatingSelectionToolbar';
@@ -175,6 +176,11 @@ export function ChatArea({ channel, user, onMobileBack, onShowMembers }: ChatAre
 
   // Cache for user info (id → username)
   const [userCache, setUserCache] = useState<Map<string, { username: string; avatar_url?: string }>>(new Map());
+  const userCacheRef = useRef(userCache);
+  useEffect(() => {
+    userCacheRef.current = userCache;
+  }, [userCache]);
+  const pendingUserFetchesRef = useRef(new Set<string>());
 
   const permissions = useServerStore((s) => (currentServer ? s.permissions.get(currentServer.id) : undefined));
   const canMentionEveryone = can(permissions, PERMISSIONS.MENTION_EVERYONE);
@@ -237,13 +243,16 @@ export function ChatArea({ channel, user, onMobileBack, onShowMembers }: ChatAre
   // Fetch usernames for all unique user_ids in messages
   useEffect(() => {
     const fetchUsernames = async () => {
-      const userIds = new Set<string>();
-      for (const msg of messages) {
-        if (msg.user_id !== user?.id && !userCache.has(msg.user_id)) {
-          userIds.add(msg.user_id);
-        }
-      }
+      const candidateIds = messages.map((msg) => msg.user_id);
+      const userIds = collectUnresolvedUserIds(
+        candidateIds,
+        user?.id,
+        (id) => userCacheRef.current.has(id),
+        (id) => pendingUserFetchesRef.current.has(id)
+      );
       for (const uid of userIds) {
+        if (pendingUserFetchesRef.current.has(uid) || userCacheRef.current.has(uid)) continue;
+        pendingUserFetchesRef.current.add(uid);
         try {
           const fetchedUser = await apiService.getUserById(uid) as User;
           setUserCache((prev) => {
@@ -257,13 +266,15 @@ export function ChatArea({ channel, user, onMobileBack, onShowMembers }: ChatAre
             next.set(uid, { username: uid.slice(0, 8) });
             return next;
           });
+        } finally {
+          pendingUserFetchesRef.current.delete(uid);
         }
       }
     };
     if (messages.length > 0) {
       fetchUsernames();
     }
-  }, [messages, user, userCache]);
+  }, [messages, user]);
 
   // Play sound for incoming messages (from other users)
   useEffect(() => {
@@ -272,9 +283,18 @@ export function ChatArea({ channel, user, onMobileBack, onShowMembers }: ChatAre
       if (user && msg.user_id !== user.id) {
         audioService.playMessage();
         // Cache username if not already cached
-        if (msg.user_id && !userCache.has(msg.user_id as string)) {
+        const uid = msg.user_id as string | undefined;
+        const unresolvedIds = collectUnresolvedUserIds(
+          uid ? [uid] : [],
+          user.id,
+          (id) => userCacheRef.current.has(id),
+          (id) => pendingUserFetchesRef.current.has(id)
+        );
+        for (const unresolvedId of unresolvedIds) {
+          if (pendingUserFetchesRef.current.has(unresolvedId) || userCacheRef.current.has(unresolvedId)) continue;
+          pendingUserFetchesRef.current.add(unresolvedId);
           try {
-            const fetchedUser = await apiService.getUserById(msg.user_id as string) as User;
+            const fetchedUser = await apiService.getUserById(unresolvedId) as User;
             setUserCache((prev) => {
               const next = new Map(prev);
               next.set(fetchedUser.id, { username: fetchedUser.username, avatar_url: fetchedUser.avatar_url });
@@ -283,16 +303,18 @@ export function ChatArea({ channel, user, onMobileBack, onShowMembers }: ChatAre
           } catch {
             setUserCache((prev) => {
               const next = new Map(prev);
-              next.set(msg.user_id as string, { username: 'Unknown' });
+              next.set(unresolvedId, { username: 'Unknown' });
               return next;
             });
+          } finally {
+            pendingUserFetchesRef.current.delete(unresolvedId);
           }
         }
       }
     };
     const unsub = wsService.on('chat_message', handleMessage);
     return unsub;
-  }, [user, userCache]);
+  }, [user]);
 
   useEffect(() => {
     const unsubUpdate = wsService.on('message_update', (payload) => {
