@@ -1100,7 +1100,7 @@ logger.error('[GroupCall] Screen share failed:', err, { module: 'groupCallUI' })
         (id) => pendingUserFetchesRef.current.has(id)
       );
       for (const uid of userIds) {
-        if (pendingUserFetchesRef.current.has(uid)) continue;
+        if (pendingUserFetchesRef.current.has(uid) || userCacheRef.current.has(uid)) continue;
         pendingUserFetchesRef.current.add(uid);
         try {
           const fetched = await apiService.getUserById(uid) as User;

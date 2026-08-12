@@ -251,7 +251,7 @@ export function ChatArea({ channel, user, onMobileBack, onShowMembers }: ChatAre
         (id) => pendingUserFetchesRef.current.has(id)
       );
       for (const uid of userIds) {
-        if (pendingUserFetchesRef.current.has(uid)) continue;
+        if (pendingUserFetchesRef.current.has(uid) || userCacheRef.current.has(uid)) continue;
         pendingUserFetchesRef.current.add(uid);
         try {
           const fetchedUser = await apiService.getUserById(uid) as User;
@@ -291,7 +291,7 @@ export function ChatArea({ channel, user, onMobileBack, onShowMembers }: ChatAre
           (id) => pendingUserFetchesRef.current.has(id)
         );
         for (const unresolvedId of unresolvedIds) {
-          if (pendingUserFetchesRef.current.has(unresolvedId)) continue;
+          if (pendingUserFetchesRef.current.has(unresolvedId) || userCacheRef.current.has(unresolvedId)) continue;
           pendingUserFetchesRef.current.add(unresolvedId);
           try {
             const fetchedUser = await apiService.getUserById(unresolvedId) as User;
