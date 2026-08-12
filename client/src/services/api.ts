@@ -1,6 +1,11 @@
 import { useAuthStore } from '@/stores/authStore';
 import type { Server, User, Role, PermissionsResponse, Invite, InvitePreview, Sticker } from '@/types';
 import { hasKey, type TFunc, type TKey } from '@/i18n';
+import { decodeJwtExpMs } from '@/utils/jwt';
+import { ACCESS_TOKEN_KEY, REFRESH_TOKEN_KEY } from '@/stores/authStore';
+import { wsService } from '@/services/websocket';
+
+const REFRESH_BUFFER_MS = 60_000;
 
 export const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8080';
 
@@ -38,19 +43,132 @@ export function apiErrorText(err: unknown, t: TFunc): string {
 }
 
 class ApiService {
-  private getToken(): string | null {
-    return localStorage.getItem('vycord_token');
+  private refreshPromise: Promise<string> | null = null;
+  private refreshTimer: ReturnType<typeof setTimeout> | null = null;
+
+  private getAccessToken(): string | null {
+    return localStorage.getItem(ACCESS_TOKEN_KEY);
+  }
+
+  private getRefreshToken(): string | null {
+    return localStorage.getItem(REFRESH_TOKEN_KEY);
   }
 
   private getHeaders(): HeadersInit {
     const headers: HeadersInit = {
       'Content-Type': 'application/json',
     };
-    const token = this.getToken();
+    const token = this.getAccessToken();
     if (token) {
       headers['Authorization'] = `Bearer ${token}`;
     }
     return headers;
+  }
+
+  /**
+   * Обменивает текущий refresh-токен на новую пару. Дедуплицирует
+   * конкурентные вызовы одним in-flight промисом — критично из-за ротации:
+   * без дедупа два параллельных 401 предъявят один и тот же (уже
+   * ротированный первым вызовом) refresh-токен, и второй ложно словит
+   * server-side reuse-detection, сжигая всю сессию.
+   */
+  private async refreshAccessToken(): Promise<string> {
+    if (this.refreshPromise) {
+      return this.refreshPromise;
+    }
+
+    const refreshToken = this.getRefreshToken();
+    if (!refreshToken) {
+      throw new Error('no refresh token available');
+    }
+
+    this.refreshPromise = (async () => {
+      const response = await fetch(`${API_BASE_URL}/api/v1/auth/refresh`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ refresh_token: refreshToken }),
+      });
+
+      if (response.status === 401) {
+        useAuthStore.getState().logout();
+        throw new ApiError('Session expired', 'invalid_or_expired_token', 401);
+      }
+      if (!response.ok) {
+        throw new Error(`refresh failed: HTTP ${response.status}`);
+      }
+
+      const data = (await response.json()) as { access_token: string; refresh_token: string; user: User };
+      useAuthStore.getState().replaceTokens(data.access_token, data.refresh_token);
+      wsService.updateToken(data.access_token);
+      this.scheduleTokenRefresh(data.access_token);
+      return data.access_token;
+    })();
+
+    try {
+      return await this.refreshPromise;
+    } finally {
+      this.refreshPromise = null;
+    }
+  }
+
+  /**
+   * Ставит таймер на тихое обновление access-токена за REFRESH_BUFFER_MS
+   * до истечения. В норме это единственный путь обновления — реактивный
+   * retry-after-401 в request()/requestForm() существует только как
+   * страховка на случай пропущенного таймера (сон устройства и т.п.).
+   */
+  scheduleTokenRefresh(accessToken: string): void {
+    if (this.refreshTimer !== null) {
+      clearTimeout(this.refreshTimer);
+      this.refreshTimer = null;
+    }
+    const expMs = decodeJwtExpMs(accessToken);
+    if (expMs === null) return;
+
+    const delay = Math.max(0, expMs - Date.now() - REFRESH_BUFFER_MS);
+    this.refreshTimer = setTimeout(() => {
+      // На момент срабатывания пользователь мог уже разлогиниться —
+      // тогда просто ничего не делаем, а не падаем.
+      if (this.getRefreshToken()) {
+        this.refreshAccessToken().catch(() => {});
+      }
+    }, delay);
+  }
+
+  /**
+   * Возвращает access-токен, гарантированно не близкий к истечению —
+   * обновляя его при необходимости. Используется там, где обновление
+   * нужно синхронизировать с конкретным действием (подключение WS,
+   * bootstrap), а не просто положиться на фоновый таймер.
+   */
+  async getFreshAccessToken(): Promise<string | null> {
+    if (!this.getRefreshToken()) return null;
+
+    const accessToken = this.getAccessToken();
+    const expMs = accessToken ? decodeJwtExpMs(accessToken) : null;
+    const isFresh = expMs !== null && expMs - Date.now() > REFRESH_BUFFER_MS;
+    if (isFresh) return accessToken;
+
+    try {
+      return await this.refreshAccessToken();
+    } catch {
+      return null;
+    }
+  }
+
+  /** Best-effort отзыв текущей сессии на сервере; локальное состояние чистит вызывающая сторона. */
+  async logout(): Promise<void> {
+    const refreshToken = this.getRefreshToken();
+    if (!refreshToken) return;
+    try {
+      await fetch(`${API_BASE_URL}/api/v1/auth/logout`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ refresh_token: refreshToken }),
+      });
+    } catch {
+      // Логаут best-effort: сеть недоступна — сервер сам вычистит запись по expires_at.
+    }
   }
 
   private async request<T>(
@@ -88,7 +206,7 @@ class ApiService {
   }
 
   private async requestForm<T>(endpoint: string, options: RequestInit): Promise<T> {
-    const token = this.getToken();
+    const token = this.getAccessToken();
     const headers: HeadersInit = {};
     if (token) {
       headers['Authorization'] = `Bearer ${token}`;
@@ -122,14 +240,14 @@ class ApiService {
 
   // Auth
   async register(username: string, email: string, password: string) {
-    return this.request<{ token: string; user: User }>('/api/v1/auth/register', {
+    return this.request<{ access_token: string; refresh_token: string; user: User }>('/api/v1/auth/register', {
       method: 'POST',
       body: JSON.stringify({ username, email, password }),
     });
   }
 
   async login(email: string, password: string) {
-    return this.request<{ token: string; user: User }>('/api/v1/auth/login', {
+    return this.request<{ access_token: string; refresh_token: string; user: User }>('/api/v1/auth/login', {
       method: 'POST',
       body: JSON.stringify({ email, password }),
     });
