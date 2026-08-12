@@ -171,6 +171,32 @@ class ApiService {
     }
   }
 
+  /**
+   * Вызывается один раз при старте приложения (main.tsx). Пытается сразу
+   * освежить access-токен, если он уже устарел, и подписывается на два
+   * триггера для остального времени жизни приложения: возврат вкладки в
+   * фокус (сон устройства/фоновый троттлинг мог пропустить таймер) и
+   * изменение localStorage из другой вкладки (чтобы не предъявить уже
+   * ротированный другой вкладкой refresh-токен и не словить ложный
+   * reuse-detect).
+   */
+  initAuthLifecycle(): void {
+    void this.getFreshAccessToken();
+
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') {
+        void this.getFreshAccessToken();
+      }
+    });
+
+    window.addEventListener('storage', (event) => {
+      const e = event as StorageEvent;
+      if (e.key === ACCESS_TOKEN_KEY || e.key === REFRESH_TOKEN_KEY) {
+        useAuthStore.getState().syncFromStorage();
+      }
+    });
+  }
+
   private async request<T>(
     endpoint: string,
     options: RequestInit = {},
