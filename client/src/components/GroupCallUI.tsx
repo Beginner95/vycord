@@ -9,6 +9,7 @@ import { wsService } from '@/services/websocket';
 import { apiService } from '@/services/api';
 import { audioService } from '@/services/audio';
 import { logger } from '@/utils/logger';
+import { collectUnresolvedUserIds } from '@/utils/userCache';
 import type { User, Message } from '@/types';
 import type { DesktopCapturerSource } from '@/types/electron';
 import type { ConnectionQualityMetrics, QualityLevel } from '@/utils/callQuality';
@@ -435,6 +436,11 @@ export function GroupCallUI({
   const [showChat, setShowChat] = useState(false);
   const [chatInput, setChatInput] = useState('');
   const [userCache, setUserCache] = useState<Map<string, string>>(new Map());
+  const userCacheRef = useRef(userCache);
+  useEffect(() => {
+    userCacheRef.current = userCache;
+  }, [userCache]);
+  const pendingUserFetchesRef = useRef(new Set<string>());
   const [participants, setParticipants] = useState<RemoteParticipant[]>([]);
   const [isScreenSharing, setIsScreenSharing] = useState(false);
   const [showSourcePicker, setShowSourcePicker] = useState(false);
@@ -1083,28 +1089,31 @@ logger.error('[GroupCall] Screen share failed:', err, { module: 'groupCallUI' })
 
   useEffect(() => {
     const fetchUsernames = async () => {
-      const userIds = new Set<string>();
-      for (const msg of messages) {
-        if (msg.user_id !== user?.id && !userCache.has(msg.user_id)) {
-          userIds.add(msg.user_id);
-        }
-      }
-      for (const p of participants) {
-        if (p.userId !== user?.id && !userCache.has(p.userId)) {
-          userIds.add(p.userId);
-        }
-      }
+      const candidateIds = [
+        ...messages.map((msg) => msg.user_id),
+        ...participants.map((p) => p.userId),
+      ];
+      const userIds = collectUnresolvedUserIds(
+        candidateIds,
+        user?.id,
+        (id) => userCacheRef.current.has(id),
+        (id) => pendingUserFetchesRef.current.has(id)
+      );
       for (const uid of userIds) {
+        if (pendingUserFetchesRef.current.has(uid)) continue;
+        pendingUserFetchesRef.current.add(uid);
         try {
           const fetched = await apiService.getUserById(uid) as User;
           setUserCache((prev) => new Map(prev).set(fetched.id, fetched.username));
         } catch {
           setUserCache((prev) => new Map(prev).set(uid, uid.slice(0, 8)));
+        } finally {
+          pendingUserFetchesRef.current.delete(uid);
         }
       }
     };
     if (messages.length > 0 || participants.length > 0) fetchUsernames();
-  }, [messages, participants, user, userCache]);
+  }, [messages, participants, user]);
 
   const handleSendMessage = useCallback(async (e: FormEvent) => {
     e.preventDefault();
