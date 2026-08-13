@@ -212,6 +212,12 @@ class GroupCallService {
   // True while the reconnect loop owns the WS/PC lifecycle — suppresses
   // onclose/onerror side effects from failed attempts.
   private reconnecting = false;
+  // Bumped by every fresh doJoinGroupCall. Lets an in-flight reconnect() loop
+  // (started by an earlier drop) notice a newer join has since taken over and
+  // stop competing for the connection instead of opening a second, doomed
+  // WebSocket that can clobber `this.ws`/fire a spurious onError onto an
+  // already-healthy call (VYC-74).
+  private sessionEpoch = 0;
   // Started when the PC goes 'disconnected'; fires reconnect if it doesn't
   // recover — the browser can sit in 'disconnected' for tens of seconds
   // before 'failed' while the WS hangs half-open (VPN case).
@@ -261,6 +267,9 @@ class GroupCallService {
     // A hung previous reconnect cycle (e.g. its attempt never settled) must not
     // silently disable auto-reconnect for this new call.
     this.reconnecting = false;
+    // Invalidate any reconnect() loop still running from an earlier drop —
+    // see sessionEpoch's comment.
+    this.sessionEpoch++;
     this.currentUserId = userId;
     this.currentRoomId = roomId;
 
@@ -317,6 +326,7 @@ class GroupCallService {
   private async reconnect(trigger: string): Promise<void> {
     if (this.reconnecting || this.intentionalLeave || !this.inCall) return;
     this.reconnecting = true;
+    const mySession = this.sessionEpoch;
     gcLog(this.currentUserId, 'reconnect: started', { trigger });
     this.callbacks?.onReconnecting?.();
 
@@ -337,6 +347,14 @@ class GroupCallService {
       await new Promise((r) => setTimeout(r, delay));
       if (this.intentionalLeave) {
         this.reconnecting = false;
+        return;
+      }
+      if (mySession !== this.sessionEpoch) {
+        // A fresh joinGroupCall() already re-established the call while we
+        // were waiting — don't open a competing WebSocket for a call that's
+        // already up.
+        this.reconnecting = false;
+        gcLog(this.currentUserId, 'reconnect: superseded by a new join, stopping');
         return;
       }
       gcLog(this.currentUserId, 'reconnect: attempt', { attempt: attempt + 1, delay });
@@ -958,13 +976,27 @@ class GroupCallService {
     // docs/superpowers/specs/2026-08-04-private-channels-design.md. A VYC-24
     // reconnect may also run after the user re-logged in, so a token frozen
     // at join time would be stale regardless.
+    // Snapshot at entry: identifies which join/reconnect cycle this attempt
+    // belongs to. getVoiceToken() below is the first await, so a fresher
+    // doJoinGroupCall() can bump sessionEpoch while we're mid-fetch — checked
+    // right after. Without this, a stale reconnect attempt that started
+    // before a manual rejoin could still finish setting up after it, clobber
+    // `this.ws` with a socket nobody's listening for the result of, and fire
+    // a spurious onError onto the meanwhile-already-healthy call.
+    const mySession = this.sessionEpoch;
+
     let token: string;
     try {
       const resp = await apiService.getVoiceToken(roomId);
       token = resp.token;
     } catch (err) {
       gcLog(userId, 'failed to obtain voice token', { error: String(err) });
-      if (!this.reconnecting) this.callbacks?.onError(apiErrorText(err, t));
+      if (!this.reconnecting && mySession === this.sessionEpoch) this.callbacks?.onError(apiErrorText(err, t));
+      return false;
+    }
+
+    if (mySession !== this.sessionEpoch) {
+      gcLog(userId, 'connectSignaling: superseded before WS open, aborting');
       return false;
     }
 
@@ -993,7 +1025,7 @@ class GroupCallService {
         socket.onmessage = null;
         socket.close();
         if (this.ws === socket) this.ws = null;
-        if (!this.reconnecting) this.callbacks?.onError('SFU connection timeout');
+        if (!this.reconnecting && mySession === this.sessionEpoch) this.callbacks?.onError('SFU connection timeout');
         settle(false);
       }, 10_000);
 

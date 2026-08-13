@@ -36,6 +36,9 @@ sudo install -m 755 deploy/coturn-cert-hook.sh ${CERTBOT_HOOKS}/coturn-cert-hook
 sudo ${CERTBOT_HOOKS}/coturn-cert-hook.sh
 
 echo "==> [6/6] Запускаем Docker-контейнеры..."
+# Каталог для загруженных аватарок/стикеров (UPLOAD_DIR) — монтируется в api
+# как bind mount (docker-compose.prod.yml), чтобы файлы переживали ребилды.
+sudo mkdir -p /var/lib/vycord/uploads
 docker compose -f docker-compose.prod.yml --env-file .env.prod up -d --build
 
 echo ""
