@@ -1071,7 +1071,15 @@ export function GroupCallUI({
       setIsScreenSharing(true);
       wsService.send('screen_share_started', {});
     } catch (err) {
-logger.error('[GroupCall] Screen share failed:', err, { module: 'groupCallUI' });
+      // NotAllowedError covers both an explicit permission deny AND the user
+      // just closing the OS/browser share picker without choosing anything —
+      // by far the most common case. Neither is a bug: don't scare the user
+      // with a "failed" alert or spam GlitchTip with an unactionable report
+      // for something that happens on every cancelled picker.
+      if (err instanceof DOMException && err.name === 'NotAllowedError') {
+        return;
+      }
+      logger.error('[GroupCall] Screen share failed:', err, { module: 'groupCallUI' });
       alert(t('call.screenShareFailed'));
     }
   }, [selectedSourceId, t]);
