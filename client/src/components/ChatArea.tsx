@@ -8,7 +8,7 @@ import { StickerManager } from '@/components/StickerManager';
 import { toggleQuote, toggleBullet, toggleNumbered, toggleWrap, type LineToggle } from '@/utils/textTransforms';
 import { isUnsafeUrl } from '@/utils/markdown';
 import type { Message } from '@/types';
-import { apiService, apiErrorText, resolveUploadUrl } from '@/services/api';
+import { apiService, apiErrorText, resolveUploadUrl, ApiError } from '@/services/api';
 import { wsService } from '@/services/websocket';
 import { audioService } from '@/services/audio';
 import { useServerStore } from '@/stores/serverStore';
@@ -680,6 +680,14 @@ logger.error('Failed to update message:', err, { module: 'chat' });
       await apiService.deleteMessage(channel.id, messageId);
       removeMessage(messageId);
     } catch (err) {
+      // The message is already gone server-side (deleted from another
+      // device/tab, or its own delete WS event just hasn't reached this
+      // client yet) — the end state the user wanted is already true, so
+      // just drop it locally instead of logging a "bug" that isn't one.
+      if (err instanceof ApiError && err.code === 'message_not_found') {
+        removeMessage(messageId);
+        return;
+      }
       logger.error('Failed to delete message:', err, { module: 'chat' });
     }
   };

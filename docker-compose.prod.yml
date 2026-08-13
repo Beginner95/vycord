@@ -51,6 +51,11 @@ services:
       REDIS_HOST: redis
     ports:
       - "127.0.0.1:8080:8080"
+    volumes:
+      # Uploaded avatars/stickers (UPLOAD_DIR in .env.prod) must live on the
+      # host, not the container's writable layer — otherwise every rebuild
+      # (docker compose up -d --build) recreates the container and wipes them.
+      - /var/lib/vycord/uploads:/var/lib/vycord/uploads
     depends_on:
       migrate:
         condition: service_completed_successfully
