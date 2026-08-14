@@ -22,6 +22,9 @@ func DefaultCORS() *CORSConfig {
 			"http://192.168.1.109:80",
 			"https://192.168.1.109",
 			"https://192.168.1.109:443",
+			// Electron грузит прод-сборку через loadFile ("file://"), браузер
+			// в этом случае отправляет Origin: null.
+			"null",
 		},
 		AllowedMethods: []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
 		AllowedHeaders: []string{"Content-Type", "Authorization"},
