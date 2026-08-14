@@ -228,6 +228,16 @@ class GroupCallService {
   private qualityIntervalId: ReturnType<typeof setInterval> | null = null;
   private lastBytesSent = 0;
   private lastBytesSentAt = 0;
+  // VYC-76 uplink pacing diagnostics — previous sample, for per-tick deltas.
+  private lastPacingAt = 0;
+  private lastAudioPacketsSent = 0;
+  private lastPacketSendDelay = 0;
+  private lastSamplesDuration = 0;
+  // Throttle state for VYC-76 GlitchTip reports, keyed by anomaly kind.
+  // The samplers tick every 2-3s; an anomaly that lasts a while would otherwise
+  // fire a report per tick per remote track and flood the issue.
+  private vyc76LastReportAt = new Map<string, number>();
+  private vyc76ReportCount = 0;
 
   // Timestamps for mobile diagnostic metrics (milliseconds since epoch).
   private joinedAt = 0;
@@ -420,6 +430,15 @@ class GroupCallService {
     this.stopQualitySampler();
     this.lastBytesSent = 0;
     this.lastBytesSentAt = 0;
+    // Reset the VYC-76 baselines too: a rejoin builds a new PeerConnection, so
+    // its counters restart at zero and a stale baseline would report one huge
+    // bogus negative delta on the first tick of every reconnect.
+    this.lastPacingAt = 0;
+    this.lastAudioPacketsSent = 0;
+    this.lastPacketSendDelay = 0;
+    this.lastSamplesDuration = 0;
+    this.vyc76LastReportAt.clear();
+    this.vyc76ReportCount = 0;
     this.qualityIntervalId = setInterval(() => {
       void this.sampleQuality();
     }, 3000);
@@ -444,6 +463,22 @@ class GroupCallService {
       let hasData = false;
       let bytesSent = 0;
       let candidateRttMs = 0;
+      // ── VYC-76 uplink diagnostics ────────────────────────────────────────
+      // The reported bug ("one participant sounds sped up TO EVERYONE, a
+      // rejoin fixes it") means the burst is created upstream of the SFU's
+      // per-subscriber fan-out — so it must be visible here, on the
+      // publisher's own send path. These three groups separate the candidates:
+      //   mic/NC chain  → media-source.totalSamplesDuration vs wall clock
+      //   encoder/pacer → outbound-rtp packet rate + totalPacketSendDelay
+      //   transport     → candidate-pair protocol (TURN over TCP head-of-line
+      //                   blocking stalls, then flushes a burst)
+      let audioPacketsSent = 0;
+      let totalPacketSendDelay = 0;
+      let samplesDuration = 0;
+      let selectedPairId = '';
+      let localCandId = '';
+      let remoteCandId = '';
+      const candidates = new Map<string, RTCStats>();
 
       stats.forEach((report) => {
         if (report.type === 'remote-inbound-rtp' && report.kind === 'audio') {
@@ -454,13 +489,35 @@ class GroupCallService {
           if (typeof rtt === 'number') rttMs = rtt * 1000;
         } else if (report.type === 'outbound-rtp' && !report.isRemote) {
           bytesSent += (report.bytesSent as number | undefined) ?? 0;
+          if (report.kind === 'audio') {
+            audioPacketsSent += ((report as any).packetsSent as number | undefined) ?? 0;
+            totalPacketSendDelay += ((report as any).totalPacketSendDelay as number | undefined) ?? 0;
+          }
+        } else if (report.type === 'media-source' && (report as any).kind === 'audio') {
+          samplesDuration = ((report as any).totalSamplesDuration as number | undefined) ?? 0;
         } else if (report.type === 'candidate-pair' && report.state === 'succeeded') {
           const crtt = report.currentRoundTripTime as number | undefined;
           if (typeof crtt === 'number') candidateRttMs = crtt * 1000;
+          // Prefer the nominated pair; fall back to any succeeded one.
+          if (!selectedPairId || (report as any).nominated) {
+            selectedPairId = report.id;
+            localCandId = ((report as any).localCandidateId as string) ?? '';
+            remoteCandId = ((report as any).remoteCandidateId as string) ?? '';
+          }
+        } else if (report.type === 'local-candidate' || report.type === 'remote-candidate') {
+          candidates.set(report.id, report);
         }
       });
 
       if (rttMs === 0 && candidateRttMs > 0) rttMs = candidateRttMs;
+
+      this.logUplinkPacing({
+        audioPacketsSent,
+        totalPacketSendDelay,
+        samplesDuration,
+        localCand: candidates.get(localCandId),
+        remoteCand: candidates.get(remoteCandId),
+      });
 
       const now = Date.now();
       let bitrateKbps = 0;
@@ -482,6 +539,114 @@ class GroupCallService {
     } catch {
       // getStats может кинуть на закрывающемся pc — игнорируем.
     }
+  }
+
+  // VYC-76: forwards one measured anomaly to GlitchTip, rate-limited.
+  //
+  // The console line is emitted by the caller either way; this only governs
+  // what escapes the machine. Two limits, because the samplers tick every 2-3s
+  // against every remote track: a per-kind cooldown so one sustained anomaly
+  // reports once rather than continuously, and a per-call ceiling so a
+  // persistently bad call cannot dominate the project's event quota.
+  //
+  // Every report carries selfUserId/peerUserId/roomId (first 8 chars — enough
+  // to correlate, not enough to be an identifier on its own) so the listener's
+  // report and the publisher's report can be joined against each other: that
+  // join is the whole experiment, since it tells us whether the burst existed
+  // before it reached the SFU.
+  private reportVyc76(kind: string, message: string, extra: Record<string, unknown>): void {
+    const COOLDOWN_MS = 60_000;
+    const MAX_PER_CALL = 10;
+    if (this.vyc76ReportCount >= MAX_PER_CALL) return;
+    const now = Date.now();
+    const last = this.vyc76LastReportAt.get(kind) ?? 0;
+    if (now - last < COOLDOWN_MS) return;
+    this.vyc76LastReportAt.set(kind, now);
+    this.vyc76ReportCount++;
+
+    logger.report(
+      message,
+      { module: 'vyc76', kind, ...(typeof extra.path === 'string' ? { path: extra.path } : {}) },
+      {
+        ...extra,
+        selfUserId: this.currentUserId.slice(0, 8),
+        roomId: this.currentRoomId.slice(0, 8),
+        elapsedFromJoinMs: this.joinedAt ? now - this.joinedAt : -1,
+        reportIndexInCall: this.vyc76ReportCount,
+      },
+    );
+  }
+
+  // VYC-76: logs the publisher's own send pacing as per-tick deltas, so a stall
+  // followed by a burst is visible as a rate spike. Cumulative totals cannot
+  // show it. Each field isolates one layer of the send path:
+  //
+  //   samplesDurationDrift — wall-clock seconds elapsed minus seconds of audio
+  //     the capture chain actually produced. Persistently negative means the
+  //     mic → NC AudioContext → MediaStreamDestination chain is starving (the
+  //     worklet underruns without ever catching up), so the encoder is fed less
+  //     than real time. Near zero exonerates the capture chain.
+  //
+  //   pps — audio packets/sec leaving the encoder. Opus at 20ms ptime is 50.
+  //     A tick near 0 followed by a tick well above 50 IS the burst, and proves
+  //     it forms on this machine, before any packet reaches the SFU.
+  //
+  //   sendDelayMsPerPkt — totalPacketSendDelay delta / packets delta: how long
+  //     each packet sat in the pacer/transport queue. Rises sharply when the
+  //     transport backs up; the single clearest signal for TURN-over-TCP
+  //     head-of-line blocking.
+  //
+  //   path — candidate types + protocol. `relay` with protocol `tcp`/`tls` is
+  //     the configuration under suspicion (see TURN_URLS in .env.prod.example,
+  //     which offers transport=tcp and turns:5349 alongside UDP).
+  private logUplinkPacing(s: {
+    audioPacketsSent: number;
+    totalPacketSendDelay: number;
+    samplesDuration: number;
+    localCand?: RTCStats;
+    remoteCand?: RTCStats;
+  }): void {
+    const now = Date.now();
+    if (this.lastPacingAt > 0) {
+      const dSec = (now - this.lastPacingAt) / 1000;
+      const dPackets = s.audioPacketsSent - this.lastAudioPacketsSent;
+      const dSendDelay = s.totalPacketSendDelay - this.lastPacketSendDelay;
+      const dSamples = s.samplesDuration - this.lastSamplesDuration;
+      const pps = dSec > 0 ? dPackets / dSec : 0;
+      const sendDelayMsPerPkt = dPackets > 0 ? (dSendDelay / dPackets) * 1000 : -1;
+      const local = s.localCand as any;
+      const remote = s.remoteCand as any;
+      const path =
+        local || remote
+          ? `${local?.candidateType ?? '?'}/${local?.relayProtocol ?? local?.protocol ?? '?'}` +
+            ` → ${remote?.candidateType ?? '?'}/${remote?.protocol ?? '?'}`
+          : 'unknown';
+      const fields = {
+        pps: pps.toFixed(1),
+        sendDelayMsPerPkt: sendDelayMsPerPkt >= 0 ? sendDelayMsPerPkt.toFixed(1) : 'N/A',
+        samplesDurationDrift: (dSamples - dSec).toFixed(3),
+        path,
+        elapsedFromJoinMs: this.joinedAt ? now - this.joinedAt : -1,
+      };
+      // 50 pps is nominal; flag both directions — a stall and the burst that
+      // drains it are two halves of the same event and must both be captured.
+      if (dSec > 0 && (pps < 35 || pps > 70)) {
+        gcLog(this.currentUserId, '[VYC-76] UPLINK PACING ANOMALY', fields);
+        this.reportVyc76('uplink-pacing', 'VYC-76 uplink pacing anomaly', {
+          ...fields,
+          ppsNum: Number(pps.toFixed(1)),
+          sendDelayMsPerPktNum: sendDelayMsPerPkt,
+          samplesDurationDriftNum: dSamples - dSec,
+          tickSec: dSec,
+        });
+      } else {
+        gcLog(this.currentUserId, '[VYC-76] uplink pacing', fields);
+      }
+    }
+    this.lastPacingAt = now;
+    this.lastAudioPacketsSent = s.audioPacketsSent;
+    this.lastPacketSendDelay = s.totalPacketSendDelay;
+    this.lastSamplesDuration = s.samplesDuration;
   }
 
   private restoreScreenShare(screenTrack: MediaStreamTrack | null): void {
@@ -1264,6 +1429,18 @@ class GroupCallService {
         const trackIdShort = event.track.id.slice(0, 8);
         let firstFrameSeen = false;
 
+        // VYC-76 diagnostics: previous sample, so every counter below can be
+        // reported as a per-tick DELTA. Cumulative totals are useless here —
+        // the bug is a transient burst, and a burst is only visible as a spike
+        // in a rate.
+        let prevAt = 0;
+        let prevPacketsReceived = 0;
+        let prevAccelSamples = 0;
+        let prevDecelSamples = 0;
+        let prevConcealed = 0;
+        let prevJbDelay = 0;
+        let prevJbEmitted = 0;
+
         const monitorId = setInterval(async () => {
           if (!this.pc || this.pc.connectionState !== 'connected') {
             clearInterval(monitorId);
@@ -1278,6 +1455,14 @@ class GroupCallService {
             let jitter = 0;
             let audioLevel: number | undefined;
             let totalAudioEnergy: number | undefined;
+            // VYC-76: NetEq counters. removedSamplesForAcceleration is literally
+            // "how many samples NetEq deleted by time-compressing playout" — i.e.
+            // the "he suddenly talked fast" symptom, measured directly.
+            let accelSamples = 0;
+            let decelSamples = 0;
+            let concealed = 0;
+            let jbDelay = 0;
+            let jbEmitted = 0;
             stats.forEach((r) => {
               if (r.type === 'inbound-rtp') {
                 packetsReceived = (r.packetsReceived as number) ?? 0;
@@ -1286,8 +1471,71 @@ class GroupCallService {
                 jitter = (r.jitter as number) ?? 0;
                 audioLevel = (r as any).audioLevel;
                 totalAudioEnergy = (r as any).totalAudioEnergy;
+                accelSamples = ((r as any).removedSamplesForAcceleration as number) ?? 0;
+                decelSamples = ((r as any).insertedSamplesForDeceleration as number) ?? 0;
+                concealed = ((r as any).concealedSamples as number) ?? 0;
+                jbDelay = ((r as any).jitterBufferDelay as number) ?? 0;
+                jbEmitted = ((r as any).jitterBufferEmittedCount as number) ?? 0;
               }
             });
+
+            // ── VYC-76 burst/acceleration detector ───────────────────────────
+            const nowMs = Date.now();
+            if (prevAt > 0) {
+              const dSec = (nowMs - prevAt) / 1000;
+              const dPackets = packetsReceived - prevPacketsReceived;
+              const dAccel = accelSamples - prevAccelSamples;
+              const dDecel = decelSamples - prevDecelSamples;
+              const dConcealed = concealed - prevConcealed;
+              const dJbDelay = jbDelay - prevJbDelay;
+              const dJbEmitted = jbEmitted - prevJbEmitted;
+              // Packets/sec. Opus at 20ms ptime is 50 pps in steady state; a
+              // burst released after an upstream stall shows up as a large
+              // overshoot, a stall as a large undershoot.
+              const pps = dSec > 0 ? dPackets / dSec : 0;
+              // Current jitter-buffer depth in ms, averaged over this tick only.
+              const jbMs = dJbEmitted > 0 ? (dJbDelay / dJbEmitted) * 1000 : -1;
+              // Playout speed-up over this tick: samples NetEq deleted, as a
+              // fraction of what it should have emitted. 0.05 = played 5% fast.
+              const accelRatio = dJbEmitted > 0 ? dAccel / dJbEmitted : 0;
+              const fields = {
+                streamId: streamId.slice(0, 8),
+                trackId: trackIdShort,
+                pps: pps.toFixed(1),
+                jitterBufferMs: jbMs >= 0 ? jbMs.toFixed(0) : 'N/A',
+                accelSamplesDelta: dAccel,
+                accelPct: (accelRatio * 100).toFixed(2),
+                decelSamplesDelta: dDecel,
+                concealedDelta: dConcealed,
+                jitterMs: (jitter * 1000).toFixed(1),
+                elapsedFromJoinMs: this.joinedAt ? nowMs - this.joinedAt : -1,
+              };
+              // 1% time-compression over a whole tick is well past "inaudible
+              // NetEq housekeeping" and into the reported symptom.
+              if (accelRatio > 0.01) {
+                gcLog(this.currentUserId, '[VYC-76] PLAYOUT ACCELERATED (NetEq time-compression)', fields);
+                // peerUserId is the PUBLISHER whose voice sped up — the join key
+                // against that publisher's own uplink-pacing report.
+                this.reportVyc76('inbound-accel', 'VYC-76 playout accelerated (NetEq time-compression)', {
+                  ...fields,
+                  peerUserId: ownerUserId.slice(0, 8),
+                  accelPctNum: accelRatio * 100,
+                  ppsNum: Number(pps.toFixed(1)),
+                  jitterBufferMsNum: jbMs,
+                  packetsLost,
+                  tickSec: dSec,
+                });
+              } else {
+                gcLog(this.currentUserId, '[VYC-76] inbound pacing', fields);
+              }
+            }
+            prevAt = nowMs;
+            prevPacketsReceived = packetsReceived;
+            prevAccelSamples = accelSamples;
+            prevDecelSamples = decelSamples;
+            prevConcealed = concealed;
+            prevJbDelay = jbDelay;
+            prevJbEmitted = jbEmitted;
 
             if (!firstFrameSeen && packetsReceived > 0) {
               firstFrameSeen = true;
