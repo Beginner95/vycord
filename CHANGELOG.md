@@ -1,5 +1,21 @@
 # Changelog
 
+## v1.7.3 - 2026-08-14
+
+### Исправления
+
+#### Авторизация не проходила в собранном приложении (VYC-75)
+- Причина: Electron грузит прод-сборку через `loadFile(...)` ("file://"),
+  поэтому браузер отправляет запросы к API с заголовком `Origin: null`.
+  Серверный CORS-мидлварь (`cors.go`) разрешал только dev-адреса и
+  `CLIENT_URL` веб-версии origin `null` в списке никогда не было, поэтому
+  сервер не выставлял `Access-Control-Allow-Origin`, браузер блокировал
+  ответ, и все fetch-запросы при старте (`auth/me`, `auth/refresh`,
+  `servers`, `users/online`) падали с `TypeError: Failed to fetch`
+  (GlitchTip issue #38). Баг не был специфичен для Linux та же ошибка
+  воспроизводилась на Windows и macOS начиная с v1.6.0.
+- В `AllowedOrigins` (`DefaultCORS()`) добавлен `"null"`.
+
 ## v1.7.2 - 2026-08-13
 
 ### Исправления
