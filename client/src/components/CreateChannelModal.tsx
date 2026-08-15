@@ -1,19 +1,17 @@
 import { useState } from 'react';
-import type { Channel, ChannelType } from '@/types';
+import type { Channel } from '@/types';
 import { apiService, apiErrorText } from '@/services/api';
 import { useServerStore } from '@/stores/serverStore';
 import { useT } from '@/i18n';
 
 interface CreateChannelModalProps {
   serverId: string;
-  defaultType: ChannelType;
   onClose: () => void;
 }
 
-export function CreateChannelModal({ serverId, defaultType, onClose }: CreateChannelModalProps) {
+export function CreateChannelModal({ serverId, onClose }: CreateChannelModalProps) {
   const t = useT();
   const [name, setName] = useState('');
-  const [type, setType] = useState<ChannelType>(defaultType);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -23,7 +21,7 @@ export function CreateChannelModal({ serverId, defaultType, onClose }: CreateCha
     if (!trimmed) return;
     setSaving(true);
     try {
-      const channel = (await apiService.createChannel(serverId, trimmed, type)) as Channel;
+      const channel = (await apiService.createChannel(serverId, trimmed)) as Channel;
       useServerStore.getState().addChannel(channel);
       onClose();
     } catch (err) {
@@ -49,19 +47,6 @@ export function CreateChannelModal({ serverId, defaultType, onClose }: CreateCha
               autoFocus
               required
             />
-          </div>
-          <div className="form-group">
-            <label>{t('channel.typeLabel')}</label>
-            <div className="channel-type-options">
-              <label>
-                <input type="radio" name="channel-type" checked={type === 'text'} onChange={() => setType('text')} />
-                {t('channel.textChannels')}
-              </label>
-              <label>
-                <input type="radio" name="channel-type" checked={type === 'voice'} onChange={() => setType('voice')} />
-                {t('channel.voiceChannels')}
-              </label>
-            </div>
           </div>
           {error && <p className="modal-error">{error}</p>}
           <div className="modal-actions">

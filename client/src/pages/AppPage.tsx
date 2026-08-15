@@ -508,6 +508,7 @@ logger.error('Failed to create server:', err, { module: 'app' });
           channels={channels}
           currentChannel={currentChannel}
           onSelectChannel={handleSelectChannel}
+          onJoinVoice={handleJoinVoice}
           user={user}
           onLogout={handleLogout}
           onMobileBack={() => setMobilePanel('servers')}

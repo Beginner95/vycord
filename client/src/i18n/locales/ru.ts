@@ -320,6 +320,7 @@ export const ru = {
   },
   channel: {
     noServerHint: 'Выберите сервер или создайте новый, чтобы начать',
+    channels: 'Каналы',
     textChannels: 'Текстовые каналы',
     voiceChannels: 'Голосовые каналы',
 

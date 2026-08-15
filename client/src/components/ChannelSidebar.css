@@ -93,6 +93,32 @@
   transition: all var(--transition);
 }
 
+.channel-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.channel-join-voice {
+  opacity: 0;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  padding: 2px 4px;
+}
+
+.channel:hover .channel-join-voice,
+.channel-join-voice.always-visible {
+  opacity: 1;
+}
+
+.channel.in-call {
+  box-shadow: inset 3px 0 0 var(--green-color, #23a55a);
+}
+
 .channel::before {
   content: '#';
   font-size: 16px;

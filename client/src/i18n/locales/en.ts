@@ -315,6 +315,7 @@ export const en: Dictionary = {
   },
   channel: {
     noServerHint: 'Select or create a server to get started',
+    channels: 'Channels',
     textChannels: 'Text Channels',
     voiceChannels: 'Voice Channels',
 
