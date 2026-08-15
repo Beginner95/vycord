@@ -177,6 +177,7 @@ export const ru = {
     joinVoice: 'Подключиться',
     inThisCall: 'Вы в звонке',
     goToCall: 'Перейти',
+    inCallAt: 'В звонке',
 
     // Одиночный звонок (CallUI)
     incomingCall: 'Входящий звонок',

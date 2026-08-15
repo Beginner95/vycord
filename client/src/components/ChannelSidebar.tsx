@@ -5,6 +5,7 @@ import { Avatar } from '@/components/Avatar';
 import { ContextMenu } from '@/components/ContextMenu';
 import { EditChannelModal } from '@/components/EditChannelModal';
 import { CreateChannelModal } from '@/components/CreateChannelModal';
+import { CallDock } from '@/components/CallDock';
 import { apiService, apiErrorText } from '@/services/api';
 import { useServerStore } from '@/stores/serverStore';
 import { useCallStore } from '@/stores/callStore';
@@ -25,6 +26,7 @@ interface ChannelSidebarProps {
   voiceParticipants?: Map<string, string[]>;
   members: MemberWithUser[];
   onChannelDeleted: (channelId: string) => void;
+  onGoToCall: (serverId: string | null, channelId: string) => void;
 }
 
 export function ChannelSidebar({
@@ -39,6 +41,7 @@ export function ChannelSidebar({
   voiceParticipants,
   members,
   onChannelDeleted,
+  onGoToCall,
 }: ChannelSidebarProps) {
   const t = useT();
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -99,6 +102,7 @@ export function ChannelSidebar({
         <div className="no-server-message">
           <p>{t('channel.noServerHint')}</p>
         </div>
+        <CallDock onGoToCall={onGoToCall} />
       </nav>
     );
   }
@@ -183,6 +187,8 @@ export function ChannelSidebar({
           );
         })}
       </div>
+
+      <CallDock onGoToCall={onGoToCall} />
 
       <div className="user-panel">
         <div className="user-info">

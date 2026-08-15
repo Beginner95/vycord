@@ -172,6 +172,7 @@ export const en: Dictionary = {
     joinVoice: 'Join voice',
     inThisCall: 'You are in this call',
     goToCall: 'Go to call',
+    inCallAt: 'In call',
 
     // 1:1 call (CallUI)
     incomingCall: 'Incoming Call',

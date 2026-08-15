@@ -360,7 +360,8 @@ export function AppPage() {
     if (handledRemovalsRef.current.has(removedChannelId)) return;
     handledRemovalsRef.current.add(removedChannelId);
 
-    if (groupCallService.isInGroupCallState && groupCallService.currentRoomIdState === removedChannelId) {
+    // Звонок и открытый канал независимы: удаление может задеть один, оба или ни одного.
+    if (useCallStore.getState().callChannelId === removedChannelId) {
       callLeaveGroupCall();
     }
 
@@ -470,7 +471,12 @@ export function AppPage() {
       setChannels(data);
       loadServerMembers(server.id);
       loadServerPermissions(server.id);
-      const nextChannel = data[0];
+      // Если в этом сервере идёт звонок — открыть именно его канал, а не первый
+      // попавшийся, чтобы переход из CallDock (или обратно на сервер со звонком)
+      // приземлял ровно на канал звонка.
+      const callChannelId = useCallStore.getState().callChannelId;
+      const callChannel = callChannelId ? data.find((c) => c.id === callChannelId) : undefined;
+      const nextChannel = callChannel ?? data[0];
       if (nextChannel) {
         handleSelectChannel(nextChannel);
       } else {
@@ -499,6 +505,15 @@ export function AppPage() {
     } catch (err) {
       logger.error('Failed to load messages:', err, { module: 'app' });
     }
+  };
+
+  const handleGoToCall = (serverId: string | null, channelId: string) => {
+    const targetServer = servers.find((s) => s.id === serverId);
+    if (targetServer && targetServer.id !== currentServer?.id) {
+      handleSelectServer(targetServer);
+    }
+    const channel = useServerStore.getState().channels.find((c) => c.id === channelId);
+    if (channel) handleSelectChannel(channel);
   };
 
   const handleLogout = () => {
@@ -560,6 +575,7 @@ logger.error('Failed to create server:', err, { module: 'app' });
           voiceParticipants={voiceParticipants}
           members={members}
           onChannelDeleted={handleChannelRemoved}
+          onGoToCall={handleGoToCall}
         />
 
         {/* Сцена звонка показывается только в том канале, где идёт звонок:
