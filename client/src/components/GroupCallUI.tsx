@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { useAuthStore } from '@/stores/authStore';
 import { useServerStore } from '@/stores/serverStore';
 import { useMessageStore } from '@/stores/messageStore';
+import { useCallStore } from '@/stores/callStore';
 import { groupCallService, SCREEN_QUALITY_PRESETS } from '@/services/groupCall';
 import type { ScreenQuality, ScreenQualityPreset } from '@/services/groupCall';
 import { wsService } from '@/services/websocket';
@@ -426,7 +427,7 @@ export function GroupCallUI({
   const tp = useTp();
   const { formatTime } = useDateFormat();
   const { user } = useAuthStore();
-  const { currentServer, currentChannel } = useServerStore();
+  const { currentChannel } = useServerStore();
   const { messages, addMessage } = useMessageStore();
   const [isInGroupCall, setIsInGroupCall] = useState(false);
   const [isReconnecting, setIsReconnecting] = useState(false);
@@ -953,62 +954,34 @@ export function GroupCallUI({
 
   const handleJoinGroupCall = useCallback(async (roomId: string): Promise<boolean> => {
     if (!user) return false;
-    if (groupCallService.isInGroupCallState && groupCallService.currentRoomIdState === roomId) {
-      // Already actively in this exact call (e.g. re-clicking the active voice
-      // channel, or your own row in the participant list) — no-op. Without this,
-      // groupCallService.joinGroupCall's "already in a call" guard fires
-      // onError, whose handler in this file reads currentRoomIdState, sends a
-      // spurious voice_left, and tears down the still-active call.
-      return false;
-    }
-    // joinGroupCall's "already in a call" guard is a no-op when re-invoked for
-    // the room we're already in (e.g. re-clicking the active voice channel) —
-    // it doesn't touch currentRoomId either, so capture the prior value here
-    // to avoid a spurious duplicate voice_joined on that path.
-    //
-    // The guard above handles the case where we're actively in this room.
-    // This check still matters for a narrower window: mid-reconnect, inCall
-    // is briefly false (see partialTeardown) while currentRoomId is
-    // deliberately left set to the room being reconnected to (reconnect()
-    // reads it to rejoin the SAME room). A re-invocation during that window
-    // skips the guard above (isInGroupCallState is false) but must still
-    // suppress the duplicate voice_joined once joinGroupCall's own call
-    // completes and lands back on the same room.
-    const alreadyInThisRoom = groupCallService.currentRoomIdState === roomId;
-    const isFirst = await groupCallService.joinGroupCall(roomId, user.id);
-    if (!alreadyInThisRoom && groupCallService.currentRoomIdState === roomId) {
-      wsService.send('voice_joined', { channel_id: roomId });
-      // Same predicate as voice_joined: it filters out a repeated click on the active
-      // voice channel and the mid-reconnect window where inCall is briefly false.
-      audioService.playUserJoined();
-    }
+    const channel = useServerStore.getState().channels.find((c) => c.id === roomId);
+    const server = useServerStore.getState().currentServer;
+    const before = useCallStore.getState().callChannelId;
+    await useCallStore.getState().join({
+      channelId: roomId,
+      channelName: channel?.name ?? '',
+      serverId: server?.id ?? null,
+      serverName: server?.name ?? null,
+      userId: user.id,
+      userName: user.username,
+    });
+    const joined = useCallStore.getState().callChannelId === roomId && before !== roomId;
+    if (!joined) return false;
     setIsInGroupCall(true);
     onInCallChange(true);
     setShowChat(false);
     const micAvailable = groupCallService.isMicrophoneAvailable;
     setIsMicAvailable(micAvailable);
     if (!micAvailable) setIsMuted(true);
-    wsService.send(micAvailable ? 'mic_unmuted' : 'mic_muted', {});
-    return isFirst;
-  }, [user]);
+    // callStore.join() already sent voice_call_ring itself when we were first
+    // in the room (ring из AppPage ещё не убран на этом шаге) — always
+    // returning false here prevents AppPage's own ring branch from firing a
+    // duplicate. See Task 3 for removing that branch entirely.
+    return false;
+  }, [user, onInCallChange]);
 
   const handleLeaveGroupCall = useCallback(() => {
-    const channelId = groupCallService.currentRoomIdState;
-    if (groupCallService.isScreenSharing) {
-      wsService.send('screen_share_stopped', {});
-    }
-    if (channelId) {
-      wsService.send('voice_call_cancel', {
-        channel_id: channelId,
-        server_id: currentServer?.id,
-      });
-      wsService.send('voice_left', { channel_id: channelId });
-      // Only the deliberate exit chimes. A dropped connection, session_replaced or an
-      // exhausted reconnect all land in onCallEnded/onError instead and stay silent —
-      // those are connection failures, not someone leaving the call.
-      audioService.playUserLeft();
-    }
-    groupCallService.leaveGroupCall();
+    useCallStore.getState().leave();
     setIsInGroupCall(false);
     onInCallChange(false);
     setIsReconnecting(false);
@@ -1018,7 +991,7 @@ export function GroupCallUI({
     setScreenSharers(new Set());
     setFocusedUserId(null);
     if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
-  }, [currentServer]);
+  }, []);
 
   const handleVolumeChange = useCallback((userId: string, value: number) => {
     setParticipantVolumes((prev) => ({ ...prev, [userId]: value }));
