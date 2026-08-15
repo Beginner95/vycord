@@ -311,8 +311,6 @@ export const en: Dictionary = {
   channel: {
     noServerHint: 'Select or create a server to get started',
     channels: 'Channels',
-    textChannels: 'Text Channels',
-    voiceChannels: 'Voice Channels',
 
     // Context menu
     editMenu: 'Edit',
@@ -326,7 +324,6 @@ export const en: Dictionary = {
     createTitle: 'Create channel',
     createChannelMenu: 'Create channel',
     createButton: 'Create',
-    typeLabel: 'Channel Type',
   },
   update: {
     downloading: 'Downloading update {{version}}… it will install automatically',

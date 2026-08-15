@@ -307,6 +307,7 @@ export function initCallBridge(): void {
       });
     },
     onReconnecting: () => {
+      if (!inCall()) return;
       // Snapshot what we were watching BEFORE clearing focusedUserId below —
       // that state update triggers the watch/unwatch sync effect, which would
       // otherwise clobber callWatchState.prevWatched back to null before
@@ -337,6 +338,7 @@ export function initCallBridge(): void {
       });
     },
     onReconnected: () => {
+      if (!inCall()) return;
       useCallStore.setState({ status: 'connected' });
       // Restore real focus/watch state (rather than calling watchShare directly
       // and tracking it in a second ref) so the sync effect in the call scene —

@@ -143,32 +143,6 @@
   color: var(--brand-color);
 }
 
-.channel.voice::before {
-  content: '';
-  opacity: 1;
-  font-size: 14px;
-}
-
-.channel.voice {
-  color: var(--text-secondary);
-}
-
-.channel.voice::after {
-  content: '🎙';
-  margin-left: auto;
-  font-size: 13px;
-  opacity: 0.7;
-}
-
-.channel.voice:hover::after,
-.channel.voice.active::after {
-  opacity: 1;
-}
-
-.channel.voice.active {
-  color: var(--green-600);
-}
-
 /* ── User Panel ── */
 .user-panel {
   height: 64px;

@@ -316,8 +316,6 @@ export const ru = {
   channel: {
     noServerHint: 'Выберите сервер или создайте новый, чтобы начать',
     channels: 'Каналы',
-    textChannels: 'Текстовые каналы',
-    voiceChannels: 'Голосовые каналы',
 
     // Контекстное меню
     editMenu: 'Редактировать',
@@ -331,7 +329,6 @@ export const ru = {
     createTitle: 'Создать канал',
     createChannelMenu: 'Создать канал',
     createButton: 'Создать',
-    typeLabel: 'Тип канала',
   },
   update: {
     downloading: 'Скачивание обновления {{version}}... установится автоматически',

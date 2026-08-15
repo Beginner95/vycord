@@ -95,7 +95,6 @@ export function AppPage() {
       return next;
     });
   };
-  const inGroupCall = useCallStore((s) => s.status !== 'idle');
   const callChannelId = useCallStore((s) => s.callChannelId);
 
   // Мобильная панель «Звонок» существует только пока CallStage реально
@@ -559,7 +558,7 @@ logger.error('Failed to create server:', err, { module: 'app' });
   return (
     <div className="app-page">
       <TitleBar />
-      <div className="app-layout" data-mobile-panel={mobilePanel} data-in-call={inGroupCall ? 'true' : 'false'} data-left-sidebar={leftSidebarHidden ? 'hidden' : 'shown'}>
+      <div className="app-layout" data-mobile-panel={mobilePanel} data-left-sidebar={leftSidebarHidden ? 'hidden' : 'shown'}>
         <button
           className="sidebar-gutter"
           onClick={toggleLeftSidebar}
