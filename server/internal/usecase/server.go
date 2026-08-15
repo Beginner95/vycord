@@ -93,36 +93,19 @@ func (uc *serverUseCase) CreateServer(name string, ownerID uuid.UUID, isPrivate 
 		return nil, fmt.Errorf("failed to create default role: %w", err)
 	}
 
-	// Create default text channel
-	textChannel := &domain.Channel{
+	// Create default channel
+	channel := &domain.Channel{
 		ID:        uuid.New(),
 		ServerID:  server.ID,
 		Name:      "general",
-		Type:      domain.ChannelTypeText,
 		Position:  0,
 		CreatedAt: now,
 		UpdatedAt: now,
 	}
 
-	if err := uc.channelRepo.Create(textChannel); err != nil {
+	if err := uc.channelRepo.Create(channel); err != nil {
 		uc.compensateFailedCreate(server.ID)
 		return nil, fmt.Errorf("failed to create default channel: %w", err)
-	}
-
-	// Create default voice channel
-	voiceChannel := &domain.Channel{
-		ID:        uuid.New(),
-		ServerID:  server.ID,
-		Name:      "General",
-		Type:      domain.ChannelTypeVoice,
-		Position:  1,
-		CreatedAt: now,
-		UpdatedAt: now,
-	}
-
-	if err := uc.channelRepo.Create(voiceChannel); err != nil {
-		uc.compensateFailedCreate(server.ID)
-		return nil, fmt.Errorf("failed to create default voice channel: %w", err)
 	}
 
 	return server, nil
@@ -238,7 +221,7 @@ func (uc *serverUseCase) SearchServers(query string, limit int) ([]*domain.Serve
 	return servers, nil
 }
 
-func (uc *serverUseCase) CreateChannel(serverID, userID uuid.UUID, name string, channelType domain.ChannelType) (*domain.Channel, error) {
+func (uc *serverUseCase) CreateChannel(serverID, userID uuid.UUID, name string) (*domain.Channel, error) {
 	if err := uc.requirePermission(serverID, userID, domain.PermManageChannels); err != nil {
 		return nil, err
 	}
@@ -255,7 +238,6 @@ func (uc *serverUseCase) CreateChannel(serverID, userID uuid.UUID, name string, 
 		ID:        uuid.New(),
 		ServerID:  serverID,
 		Name:      name,
-		Type:      channelType,
 		Position:  position,
 		CreatedAt: now,
 		UpdatedAt: now,

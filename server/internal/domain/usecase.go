@@ -49,7 +49,7 @@ type ServerUseCase interface {
 	JoinServer(serverID, userID uuid.UUID) error
 	LeaveServer(serverID, userID uuid.UUID) error
 	SearchServers(query string, limit int) ([]*Server, error)
-	CreateChannel(serverID, userID uuid.UUID, name string, channelType ChannelType) (*Channel, error)
+	CreateChannel(serverID, userID uuid.UUID, name string) (*Channel, error)
 	GetChannels(serverID, userID uuid.UUID) ([]*Channel, error)
 	GetMembers(serverID, userID uuid.UUID) ([]*MemberWithUser, error)
 	UpdateServer(serverID, userID uuid.UUID, name string, isPrivate *bool) (*Server, error)

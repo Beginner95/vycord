@@ -74,6 +74,11 @@ func TestCreateServer_AddsOwnerAsMember(t *testing.T) {
 			role.Position == 0 &&
 			role.Permissions == (domain.PermViewChannels|domain.PermSendMessages|domain.PermCreateInvite)
 	}))
+
+	chRepo.AssertNumberOfCalls(t, "Create", 1)
+	chRepo.AssertCalled(t, "Create", mock.MatchedBy(func(ch *domain.Channel) bool {
+		return ch.Name == "general" && ch.Position == 0
+	}))
 }
 
 func TestCreateServer_Private_SetsFlagOnCreatedServer(t *testing.T) {
@@ -613,7 +618,7 @@ func TestCreateChannel_WithoutManageChannels_Forbidden(t *testing.T) {
 	perms := permsWith(serverID, userID, 0)
 
 	uc := usecase.NewServerUseCase(new(MockServerRepository), chRepo, new(MockUserRepository), new(MockRoleRepository), new(MockStorage), perms)
-	got, err := uc.CreateChannel(serverID, userID, "general", domain.ChannelTypeText)
+	got, err := uc.CreateChannel(serverID, userID, "general")
 
 	assert.Nil(t, got)
 	assert.ErrorIs(t, err, domain.ErrForbidden)
@@ -629,7 +634,7 @@ func TestCreateChannel_WithManageChannels_Success(t *testing.T) {
 	perms := permsWith(serverID, userID, domain.PermManageChannels)
 
 	uc := usecase.NewServerUseCase(new(MockServerRepository), chRepo, new(MockUserRepository), new(MockRoleRepository), new(MockStorage), perms)
-	got, err := uc.CreateChannel(serverID, userID, "general", domain.ChannelTypeText)
+	got, err := uc.CreateChannel(serverID, userID, "general")
 
 	require.NoError(t, err)
 	assert.Equal(t, "general", got.Name)
