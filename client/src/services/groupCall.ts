@@ -431,7 +431,7 @@ class GroupCallService {
 
     this.reconnecting = false;
     gcLog(this.currentUserId, 'reconnect: gave up');
-    // onCallEnded must run before teardown(): GroupCallUI's onCallEnded reads
+    // onCallEnded must run before teardown(): initCallBridge's onCallEnded reads
     // currentRoomIdState to send voice_left, and teardown() now clears
     // currentRoomId — see the onclose handler above for the same ordering.
     this.callbacks?.onCallEnded();

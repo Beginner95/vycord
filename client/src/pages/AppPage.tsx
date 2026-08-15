@@ -97,11 +97,6 @@ export function AppPage() {
   };
   const inGroupCall = useCallStore((s) => s.status !== 'idle');
   const callChannelId = useCallStore((s) => s.callChannelId);
-  const [showCallMembers, setShowCallMembers] = useState(false);
-  // Переключатель списка участников уехал из шапки звонка вместе с ней; его
-  // новое место — CallDock (Task 10, VYC-77). До тех пор сеттер без вызывающего,
-  // и ссылка нужна только чтобы noUnusedLocals не уронил сборку.
-  void setShowCallMembers;
 
   // Высота сцены звонка в сплите «звонок сверху, чат снизу». Проценты, а не
   // пиксели: окно можно менять в размерах, а доля экрана под звонок — это то,
@@ -122,16 +117,22 @@ export function AppPage() {
       const clamped = Math.min(80, Math.max(20, pct));
       setStageHeight(clamped);
     };
-    const onUp = () => {
+    // Одна функция очистки на pointerup И pointercancel: на мобильном браузер
+    // может увести вертикальный свайп в скролл — тогда pointerup не придёт
+    // вовсе, и слушатели остались бы на window навсегда, стакаясь с каждым
+    // следующим перетаскиванием.
+    const stopDrag = () => {
       window.removeEventListener('pointermove', onMove);
-      window.removeEventListener('pointerup', onUp);
+      window.removeEventListener('pointerup', stopDrag);
+      window.removeEventListener('pointercancel', stopDrag);
       setStageHeight((h) => {
         window.localStorage.setItem('vycord.callStageHeight', String(Math.round(h)));
         return h;
       });
     };
     window.addEventListener('pointermove', onMove);
-    window.addEventListener('pointerup', onUp);
+    window.addEventListener('pointerup', stopDrag);
+    window.addEventListener('pointercancel', stopDrag);
   };
   const stopRingtoneRef = useRef<(() => void) | null>(null);
   const callNotifRef = useRef<CallNotif | null>(null);
@@ -585,9 +586,9 @@ logger.error('Failed to create server:', err, { module: 'app' });
           />
         </div>
 
-        {(!inGroupCall || showCallMembers) && (
-          <UserList onMobileBack={() => setMobilePanel('chat')} />
-        )}
+        {/* Список участников виден всегда, включая звонок: чат и сцена теперь
+            делят колонку, и прятать соседнюю панель больше не за чем. */}
+        <UserList onMobileBack={() => setMobilePanel('chat')} />
       </div>
 
       {showCreateServer && (

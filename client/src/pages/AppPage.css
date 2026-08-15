@@ -35,15 +35,33 @@
   flex-shrink: 0;
   cursor: row-resize;
   background: var(--bg-elevated);
+  /* Без touch-action браузер уводит вертикальный свайп по разделителю в скролл
+     и глушит драг ещё до первого pointermove. */
+  touch-action: none;
+  user-select: none;
 }
 
 .call-split-handle:hover {
-  background: var(--brand, #5865f2);
+  background: var(--brand-color);
 }
 
 .channel-body .chat-area {
   flex: 1;
   min-height: 0;
+}
+
+/* Фуллскрин в Electron разворачивает окно ОС, но сцена осталась бы высотой в
+   свои 20-80% колонки, и «на весь экран» ничего бы не дало. Пока внутри сцены
+   активен фуллскрин-режим, она забирает всю колонку, а разделитель и чат
+   уходят. Чистый CSS: класс is-fullscreen на .screen-share-main уже есть. */
+.channel-body:has(.screen-share-main.is-fullscreen) .call-stage {
+  height: 100%;
+  flex: 1 1 auto;
+}
+
+.channel-body:has(.screen-share-main.is-fullscreen) > .call-split-handle,
+.channel-body:has(.screen-share-main.is-fullscreen) > .chat-area {
+  display: none;
 }
 
 /* ── Left sidebar collapse toggle (desktop only) ── */

@@ -318,13 +318,6 @@ function RemoteParticipantTile({
   );
 }
 
-// Проверка «этот пользователь сейчас в звонке» читает участников из стора прямо
-// в момент WS-события: локальная копия в ref дублировала бы единственный
-// источник правды и рисковала разъехаться с ним.
-function isCallParticipant(userId: string): boolean {
-  return useCallStore.getState().participants.some((p) => p.userId === userId);
-}
-
 // Сцена звонка. Рендерится только когда открытый канал совпадает с каналом
 // звонка (см. AppPage), поэтому монтируется и размонтируется вместе с
 // переключением каналов — всё состояние звонка живёт в сторе, а не здесь.
@@ -408,70 +401,6 @@ export function CallStage() {
     document.addEventListener('fullscreenchange', onFsChange);
     return () => document.removeEventListener('fullscreenchange', onFsChange);
   }, []);
-
-  // Listen for remote screen share events via main WS
-  useEffect(() => {
-    if (!isInGroupCall) return;
-
-    const unsubStart = wsService.on('screen_share_started', (payload) => {
-      const p = payload as { user_id: string };
-      if (p.user_id === user?.id) return; // ignore own events
-      // Only care about current call participants
-      if (!isCallParticipant(p.user_id)) return;
-      // A dismissed banner must not stay dismissed for a later, different share.
-      setCall((s) => ({
-        bannerDismissed: false,
-        screenSharers: new Set([...s.screenSharers, p.user_id]),
-      }));
-    });
-
-    const unsubStop = wsService.on('screen_share_stopped', (payload) => {
-      const p = payload as { user_id: string };
-      // Побочный эффект (выход из фуллскрина) держим снаружи апдейтера стора:
-      // zustand может вызвать апдейтер повторно, а exitFullscreen() — не идемпотентная
-      // операция над DOM.
-      const wasFocused = useCallStore.getState().focusedUserId === p.user_id;
-      setCall((s) => {
-        const nextSharers = new Set(s.screenSharers);
-        nextSharers.delete(p.user_id);
-        const nextStreams = new Map(s.remoteScreenStreams);
-        nextStreams.delete(p.user_id);
-        // If this participant was focused, exit focus view
-        const focusedUserId = s.focusedUserId === p.user_id ? null : s.focusedUserId;
-        return { screenSharers: nextSharers, remoteScreenStreams: nextStreams, focusedUserId };
-      });
-      if (wasFocused && document.fullscreenElement) document.exitFullscreen().catch(() => {});
-      groupCallService.unwatchShare(p.user_id);
-    });
-
-    const unsubMicMuted = wsService.on('mic_muted', (payload) => {
-      const p = payload as { user_id: string };
-      if (p.user_id === user?.id) return;
-      if (!isCallParticipant(p.user_id)) return;
-      setCall((s) => ({ remoteMicMuted: new Map(s.remoteMicMuted).set(p.user_id, true) }));
-    });
-
-    const unsubMicUnmuted = wsService.on('mic_unmuted', (payload) => {
-      const p = payload as { user_id: string };
-      if (p.user_id === user?.id) return;
-      if (!isCallParticipant(p.user_id)) return;
-      setCall((s) => ({ remoteMicMuted: new Map(s.remoteMicMuted).set(p.user_id, false) }));
-    });
-
-    const unsubQuality = wsService.on('connection_quality', (payload) => {
-      const p = payload as { user_id: string; level: QualityLevel; packet_loss: number; rtt: number; bitrate: number };
-      if (p.user_id === user?.id) return; // своё качество берём из локального сэмплера
-      if (!isCallParticipant(p.user_id)) return;
-      setCall((s) => ({
-        qualityByUser: {
-          ...s.qualityByUser,
-          [p.user_id]: { level: p.level, packetLoss: p.packet_loss, rtt: p.rtt, bitrate: p.bitrate },
-        },
-      }));
-    });
-
-    return () => { unsubStart(); unsubStop(); unsubMicMuted(); unsubMicUnmuted(); unsubQuality(); };
-  }, [isInGroupCall, user?.id]);
 
   // Attach stream to the focused main video whenever focus or stream changes.
   // Two cases: focusing a screen-sharer plays their dedicated screen stream

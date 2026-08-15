@@ -15,7 +15,7 @@ vi.mock('@/services/groupCall', () => ({
     unwatchShare: vi.fn(),
   },
 }));
-vi.mock('@/services/websocket', () => ({ wsService: { send: vi.fn() } }));
+vi.mock('@/services/websocket', () => ({ wsService: { send: vi.fn(), on: vi.fn(() => () => {}) } }));
 vi.mock('@/services/audio', () => ({
   audioService: { playUserJoined: vi.fn(), playUserLeft: vi.fn() },
 }));
@@ -170,12 +170,18 @@ describe('callStore', () => {
     // после которого init.mock.calls уже пуст.
     let callbacks: GroupCallCallbacks;
     let initCallCount = 0;
+    // Входящие WS-события звонка тоже подписываются здесь, а не в сцене:
+    // сцена размонтируется при уходе в другой канал.
+    const wsHandlers = new Map<string, (payload: unknown) => void>();
 
     beforeAll(() => {
       initCallBridge();
       initCallBridge();
       initCallCount = gc.init.mock.calls.length;
       callbacks = gc.init.mock.calls[0][0] as GroupCallCallbacks;
+      for (const [type, handler] of (wsService.on as ReturnType<typeof vi.fn>).mock.calls) {
+        wsHandlers.set(type as string, handler as (payload: unknown) => void);
+      }
     });
 
     it('подписывается на сервис ровно один раз при повторных вызовах', () => {
@@ -217,6 +223,49 @@ describe('callStore', () => {
       callbacks.onSharingPeers?.(['u-2']);
       callbacks.onSharingPeers?.(['u-3']);
       expect([...useCallStore.getState().screenSharers].sort()).toEqual(['u-2', 'u-3']);
+    });
+
+    it('подписан на входящие WS-события звонка', () => {
+      expect([...wsHandlers.keys()].sort()).toEqual([
+        'connection_quality',
+        'mic_muted',
+        'mic_unmuted',
+        'screen_share_started',
+        'screen_share_stopped',
+      ]);
+    });
+
+    it('mic_muted/mic_unmuted обновляют remoteMicMuted участника звонка', async () => {
+      await useCallStore.getState().join(opts);
+      callbacks.onPeerJoined('u-2', 'live');
+
+      wsHandlers.get('mic_muted')!({ user_id: 'u-2' });
+      expect(useCallStore.getState().remoteMicMuted.get('u-2')).toBe(true);
+
+      wsHandlers.get('mic_unmuted')!({ user_id: 'u-2' });
+      expect(useCallStore.getState().remoteMicMuted.get('u-2')).toBe(false);
+
+      useCallStore.getState().reset();
+    });
+
+    it('screen_share_stopped чистит шарера и отписывается от демонстрации', async () => {
+      await useCallStore.getState().join(opts);
+      callbacks.onPeerJoined('u-2', 'live');
+      wsHandlers.get('screen_share_started')!({ user_id: 'u-2' });
+      expect(useCallStore.getState().screenSharers.has('u-2')).toBe(true);
+
+      wsHandlers.get('screen_share_stopped')!({ user_id: 'u-2' });
+
+      expect(useCallStore.getState().screenSharers.has('u-2')).toBe(false);
+      expect(groupCallService.unwatchShare).toHaveBeenCalledWith('u-2');
+
+      useCallStore.getState().reset();
+    });
+
+    it('входящие WS-события вне звонка игнорируются', () => {
+      useCallStore.getState().reset();
+      wsHandlers.get('mic_muted')!({ user_id: 'u-2' });
+      expect(useCallStore.getState().remoteMicMuted.size).toBe(0);
     });
 
     it('onScreenShareEnded снимает флаг шаринга и объявляет остановку', () => {

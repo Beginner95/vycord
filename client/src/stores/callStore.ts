@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { useAuthStore } from '@/stores/authStore';
 import { groupCallService } from '@/services/groupCall';
 import { wsService } from '@/services/websocket';
 import { audioService } from '@/services/audio';
@@ -200,6 +201,17 @@ const qualitySend: { lastLevel: QualityLevel | null; lastSentAt: number } = {
   lastSentAt: 0,
 };
 
+/**
+ * Раньше эти проверки были условиями монтирования эффекта в компоненте сцены:
+ * подписка ставилась только внутри звонка и знала свой user.id из пропа стора
+ * авторизации. Подписки моста живут всё время работы приложения, поэтому те же
+ * условия стали ранними выходами внутри обработчиков.
+ */
+const inCall = (): boolean => useCallStore.getState().callChannelId !== null;
+const selfId = (): string | undefined => useAuthStore.getState().user?.id;
+const isCallParticipant = (userId: string): boolean =>
+  useCallStore.getState().participants.some((p) => p.userId === userId);
+
 let bridgeInitialized = false;
 
 /**
@@ -397,5 +409,75 @@ export function initCallBridge(): void {
         });
       }
     },
+  });
+
+  // ── Входящие события звонка из основного WS ──
+  // Живут здесь, а не в сцене звонка, по той же причине, что и подписка на
+  // groupCallService: сцена размонтируется при уходе в другой канал, а
+  // пропущенный screen_share_stopped оставил бы SFU форвардить мёртвую
+  // демонстрацию и протухшие screenSharers/remoteMicMuted/qualityByUser в
+  // сторе. Подписки не снимаются — мост идемпотентен и живёт всё время работы
+  // приложения.
+
+  wsService.on('screen_share_started', (payload) => {
+    const p = payload as { user_id: string };
+    if (!inCall()) return;
+    if (p.user_id === selfId()) return; // ignore own events
+    // Only care about current call participants
+    if (!isCallParticipant(p.user_id)) return;
+    // A dismissed banner must not stay dismissed for a later, different share.
+    useCallStore.setState((s) => ({
+      bannerDismissed: false,
+      screenSharers: new Set([...s.screenSharers, p.user_id]),
+    }));
+  });
+
+  wsService.on('screen_share_stopped', (payload) => {
+    const p = payload as { user_id: string };
+    if (!inCall()) return;
+    // Побочный эффект (выход из фуллскрина) держим снаружи апдейтера стора:
+    // zustand может вызвать апдейтер повторно, а exitFullscreen() — не идемпотентная
+    // операция над DOM.
+    const wasFocused = useCallStore.getState().focusedUserId === p.user_id;
+    useCallStore.setState((s) => {
+      const nextSharers = new Set(s.screenSharers);
+      nextSharers.delete(p.user_id);
+      const nextStreams = new Map(s.remoteScreenStreams);
+      nextStreams.delete(p.user_id);
+      // If this participant was focused, exit focus view
+      const focusedUserId = s.focusedUserId === p.user_id ? null : s.focusedUserId;
+      return { screenSharers: nextSharers, remoteScreenStreams: nextStreams, focusedUserId };
+    });
+    if (wasFocused && document.fullscreenElement) document.exitFullscreen().catch(() => {});
+    groupCallService.unwatchShare(p.user_id);
+  });
+
+  wsService.on('mic_muted', (payload) => {
+    const p = payload as { user_id: string };
+    if (!inCall()) return;
+    if (p.user_id === selfId()) return;
+    if (!isCallParticipant(p.user_id)) return;
+    useCallStore.setState((s) => ({ remoteMicMuted: new Map(s.remoteMicMuted).set(p.user_id, true) }));
+  });
+
+  wsService.on('mic_unmuted', (payload) => {
+    const p = payload as { user_id: string };
+    if (!inCall()) return;
+    if (p.user_id === selfId()) return;
+    if (!isCallParticipant(p.user_id)) return;
+    useCallStore.setState((s) => ({ remoteMicMuted: new Map(s.remoteMicMuted).set(p.user_id, false) }));
+  });
+
+  wsService.on('connection_quality', (payload) => {
+    const p = payload as { user_id: string; level: QualityLevel; packet_loss: number; rtt: number; bitrate: number };
+    if (!inCall()) return;
+    if (p.user_id === selfId()) return; // своё качество берём из локального сэмплера
+    if (!isCallParticipant(p.user_id)) return;
+    useCallStore.setState((s) => ({
+      qualityByUser: {
+        ...s.qualityByUser,
+        [p.user_id]: { level: p.level, packetLoss: p.packet_loss, rtt: p.rtt, bitrate: p.bitrate },
+      },
+    }));
   });
 }
