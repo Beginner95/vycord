@@ -11,7 +11,7 @@ import { ChatArea } from '@/components/ChatArea';
 import { UserList } from '@/components/UserList';
 import { TitleBar } from '@/components/TitleBar';
 import { CallUI } from '@/components/CallUI';
-import { GroupCallUI } from '@/components/GroupCallUI';
+import { CallStage } from '@/components/CallStage';
 import { groupCallService } from '@/services/groupCall';
 import { useCallStore, initCallBridge } from '@/stores/callStore';
 import { useT } from '@/i18n';
@@ -96,7 +96,43 @@ export function AppPage() {
     });
   };
   const inGroupCall = useCallStore((s) => s.status !== 'idle');
+  const callChannelId = useCallStore((s) => s.callChannelId);
   const [showCallMembers, setShowCallMembers] = useState(false);
+  // Переключатель списка участников уехал из шапки звонка вместе с ней; его
+  // новое место — CallDock (Task 10, VYC-77). До тех пор сеттер без вызывающего,
+  // и ссылка нужна только чтобы noUnusedLocals не уронил сборку.
+  void setShowCallMembers;
+
+  // Высота сцены звонка в сплите «звонок сверху, чат снизу». Проценты, а не
+  // пиксели: окно можно менять в размерах, а доля экрана под звонок — это то,
+  // что пользователь на самом деле выбирает.
+  const [stageHeight, setStageHeight] = useState<number>(() => {
+    const saved = Number(window.localStorage.getItem('vycord.callStageHeight'));
+    return Number.isFinite(saved) && saved >= 20 && saved <= 80 ? saved : 55;
+  });
+
+  const handleSplitDragStart = (e: React.PointerEvent<HTMLDivElement>) => {
+    const container = e.currentTarget.parentElement;
+    if (!container) return;
+    e.currentTarget.setPointerCapture(e.pointerId);
+    const rect = container.getBoundingClientRect();
+
+    const onMove = (ev: PointerEvent) => {
+      const pct = ((ev.clientY - rect.top) / rect.height) * 100;
+      const clamped = Math.min(80, Math.max(20, pct));
+      setStageHeight(clamped);
+    };
+    const onUp = () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+      setStageHeight((h) => {
+        window.localStorage.setItem('vycord.callStageHeight', String(Math.round(h)));
+        return h;
+      });
+    };
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+  };
   const stopRingtoneRef = useRef<(() => void) | null>(null);
   const callNotifRef = useRef<CallNotif | null>(null);
   const handledRemovalsRef = useRef<Set<string>>(new Set());
@@ -525,18 +561,29 @@ logger.error('Failed to create server:', err, { module: 'app' });
           onChannelDeleted={handleChannelRemoved}
         />
 
-        <ChatArea
-          channel={currentChannel}
-          user={user}
-          onMobileBack={() => setMobilePanel('channels')}
-          onShowMembers={() => setMobilePanel('members')}
-          onJoinVoice={handleJoinVoice}
-        />
-
-        <GroupCallUI
-          showMembers={showCallMembers}
-          onToggleMembers={() => setShowCallMembers((v) => !v)}
-        />
+        {/* Сцена звонка показывается только в том канале, где идёт звонок:
+            уход в другой канал размонтирует её, а сам звонок продолжается —
+            его состояние и подписки живут в сторе. */}
+        <div className="channel-body" style={{ '--call-stage-height': `${stageHeight}%` } as React.CSSProperties}>
+          {callChannelId && callChannelId === currentChannel?.id && (
+            <>
+              <CallStage />
+              <div
+                className="call-split-handle"
+                onPointerDown={handleSplitDragStart}
+                role="separator"
+                aria-label={t('call.resizeSplit')}
+              />
+            </>
+          )}
+          <ChatArea
+            channel={currentChannel}
+            user={user}
+            onMobileBack={() => setMobilePanel('channels')}
+            onShowMembers={() => setMobilePanel('members')}
+            onJoinVoice={handleJoinVoice}
+          />
+        </div>
 
         {(!inGroupCall || showCallMembers) && (
           <UserList onMobileBack={() => setMobilePanel('chat')} />

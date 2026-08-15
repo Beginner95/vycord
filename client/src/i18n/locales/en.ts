@@ -134,6 +134,7 @@ export const en: Dictionary = {
 
     // Header and banners
     groupCallTitle: 'Group Call',
+    resizeSplit: 'Resize call area',
     screenSharingActive: 'Screen sharing active',
     isSharingScreen: '{{name}} is sharing their screen',
     view: 'View',
@@ -144,12 +145,6 @@ export const en: Dictionary = {
     fullscreen: 'Fullscreen',
     backToGrid: 'Back to grid',
 
-    // In-call chat panel
-    chatFallback: 'Chat',
-    channelFallback: 'channel',
-    noMessagesYet: 'No messages yet',
-    send: 'Send',
-
     // Call control buttons
     micUnavailable: 'Microphone unavailable',
     micOn: 'Turn on microphone',
@@ -159,8 +154,6 @@ export const en: Dictionary = {
     cameraOff: 'Turn off camera',
     stopScreenShare: 'Stop screen sharing',
     shareScreen: 'Share screen',
-    hideChat: 'Hide chat',
-    showChat: 'Show chat',
     leaveCall: 'Leave call',
 
     // Screen share errors

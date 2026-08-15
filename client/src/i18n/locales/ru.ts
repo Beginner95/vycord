@@ -139,6 +139,7 @@ export const ru = {
 
     // Заголовок и баннеры
     groupCallTitle: 'Групповой звонок',
+    resizeSplit: 'Изменить высоту звонка',
     screenSharingActive: 'Идёт демонстрация экрана',
     isSharingScreen: '{{name}} показывает экран',
     view: 'Смотреть',
@@ -149,12 +150,6 @@ export const ru = {
     fullscreen: 'На весь экран',
     backToGrid: 'Вернуться к сетке',
 
-    // Панель чата в звонке
-    chatFallback: 'Чат',
-    channelFallback: 'канал',
-    noMessagesYet: 'Сообщений пока нет',
-    send: 'Отправить',
-
     // Кнопки управления звонком
     micUnavailable: 'Микрофон недоступен',
     micOn: 'Включить микрофон',
@@ -164,8 +159,6 @@ export const ru = {
     cameraOff: 'Выключить камеру',
     stopScreenShare: 'Остановить демонстрацию',
     shareScreen: 'Демонстрировать экран',
-    hideChat: 'Скрыть чат',
-    showChat: 'Показать чат',
     leaveCall: 'Покинуть звонок',
 
     // Ошибки демонстрации экрана

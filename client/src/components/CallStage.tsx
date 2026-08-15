@@ -1,22 +1,21 @@
-import { useState, useEffect, useRef, useCallback, type FormEvent } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { useAuthStore } from '@/stores/authStore';
-import { useServerStore } from '@/stores/serverStore';
-import { useMessageStore } from '@/stores/messageStore';
 import { useCallStore, callWatchState } from '@/stores/callStore';
 import type { RemoteParticipant } from '@/stores/callStore';
-import { groupCallService, SCREEN_QUALITY_PRESETS } from '@/services/groupCall';
-import type { ScreenQuality, ScreenQualityPreset } from '@/services/groupCall';
+import { groupCallService } from '@/services/groupCall';
+import type { ScreenQuality } from '@/services/groupCall';
 import { wsService } from '@/services/websocket';
 import { apiService } from '@/services/api';
 import { logger } from '@/utils/logger';
 import { collectUnresolvedUserIds } from '@/utils/userCache';
-import type { User, Message } from '@/types';
+import type { User } from '@/types';
 import type { DesktopCapturerSource } from '@/types/electron';
 import type { ConnectionQualityMetrics, QualityLevel } from '@/utils/callQuality';
 import { VolumeControlPopover } from './VolumeControlPopover';
-import { useT, useTp, useDateFormat, type TKey } from '@/i18n';
-import './GroupCallUI.css';
+import { ScreenSourcePicker, ScreenQualityPicker } from './ScreenSharePicker';
+import { useT, useTp, type TKey } from '@/i18n';
+import './CallStage.css';
 
 function useMicLevel(stream: MediaStream | null, isMuted: boolean): number {
   const [level, setLevel] = useState(0);
@@ -98,94 +97,6 @@ function attachStreamToElement(el: HTMLVideoElement, stream: MediaStream, userId
       el.muted = false;
       console.warn(`[GC] el.play() failed uid=${userId.slice(0, 8)}:`, err);
     });
-}
-
-// ─── Screen Source Picker Modal ──────────────────────────────────────────────
-
-interface ScreenSourcePickerProps {
-  sources: DesktopCapturerSource[];
-  onSelect: (sourceId: string) => void;
-  onCancel: () => void;
-}
-
-function ScreenSourcePicker({ sources, onSelect, onCancel }: ScreenSourcePickerProps) {
-  const t = useT();
-  const screens = sources.filter((s) => s.id.startsWith('screen:'));
-  const windows = sources.filter((s) => s.id.startsWith('window:'));
-
-  return (
-    <div className="screen-picker-backdrop" onClick={onCancel}>
-      <div className="screen-picker-modal" onClick={(e) => e.stopPropagation()}>
-        <div className="screen-picker-header">
-          <span>{t('call.selectScreen')}</span>
-          <button className="screen-picker-close" onClick={onCancel}>✕</button>
-        </div>
-
-        {screens.length > 0 && (
-          <div className="screen-picker-section">
-            <div className="screen-picker-section-label">{t('call.entireScreen')}</div>
-            <div className="screen-picker-grid">
-              {screens.map((s) => (
-                <button key={s.id} className="screen-picker-item" onClick={() => onSelect(s.id)}>
-                  <img src={s.thumbnail} alt={s.name} className="screen-picker-thumb" />
-                  <span className="screen-picker-name">{s.name}</span>
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {windows.length > 0 && (
-          <div className="screen-picker-section">
-            <div className="screen-picker-section-label">{t('call.applicationWindow')}</div>
-            <div className="screen-picker-grid">
-              {windows.map((s) => (
-                <button key={s.id} className="screen-picker-item" onClick={() => onSelect(s.id)}>
-                  {s.appIconUrl
-                    ? <img src={s.appIconUrl} alt="" className="screen-picker-app-icon" />
-                    : <img src={s.thumbnail} alt={s.name} className="screen-picker-thumb" />
-                  }
-                  <span className="screen-picker-name">{s.name}</span>
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-// ─── Screen Quality Picker Modal ─────────────────────────────────────────────
-
-interface ScreenQualityPickerProps {
-  onSelect: (quality: ScreenQuality) => void;
-  onCancel: () => void;
-}
-
-function ScreenQualityPicker({ onSelect, onCancel }: ScreenQualityPickerProps) {
-  const t = useT();
-  const entries = Object.entries(SCREEN_QUALITY_PRESETS) as [ScreenQuality, ScreenQualityPreset][];
-  return (
-    <div className="screen-picker-backdrop" onClick={onCancel}>
-      <div className="screen-quality-modal" onClick={(e) => e.stopPropagation()}>
-        <div className="screen-picker-header">
-          <span>{t('call.selectQuality')}</span>
-          <button className="screen-picker-close" onClick={onCancel}>✕</button>
-        </div>
-        <div className="screen-quality-list">
-          {entries.map(([key, preset]) => (
-            <button key={key} className="screen-quality-item" onClick={() => onSelect(key)}>
-              <span className="screen-quality-label">{preset.label}</span>
-              <span className="screen-quality-desc">
-                {preset.width} × {preset.height} · {preset.frameRate} fps
-              </span>
-            </button>
-          ))}
-        </div>
-      </div>
-    </div>
-  );
 }
 
 // ─── Connection Indicator ────────────────────────────────────────────────────
@@ -407,32 +318,30 @@ function RemoteParticipantTile({
   );
 }
 
-interface GroupCallUIProps {
-  showMembers?: boolean;
-  onToggleMembers?: () => void;
+// Проверка «этот пользователь сейчас в звонке» читает участников из стора прямо
+// в момент WS-события: локальная копия в ref дублировала бы единственный
+// источник правды и рисковала разъехаться с ним.
+function isCallParticipant(userId: string): boolean {
+  return useCallStore.getState().participants.some((p) => p.userId === userId);
 }
 
-export function GroupCallUI({
-  showMembers = false,
-  onToggleMembers = () => {},
-}: GroupCallUIProps) {
+// Сцена звонка. Рендерится только когда открытый канал совпадает с каналом
+// звонка (см. AppPage), поэтому монтируется и размонтируется вместе с
+// переключением каналов — всё состояние звонка живёт в сторе, а не здесь.
+export function CallStage() {
   const t = useT();
   const tp = useTp();
-  const { formatTime } = useDateFormat();
   const { user } = useAuthStore();
-  const { currentChannel } = useServerStore();
-  const { messages, addMessage } = useMessageStore();
   // Состояние звонка живёт в сторе: подписка на groupCallService переехала в
   // initCallBridge(), потому что сцена звонка размонтируется при уходе в другой
   // канал, а обработка стримов/реконнекта/метрик должна это пережить.
   const setCall = useCallStore.setState;
   const isInGroupCall = useCallStore((s) => s.callChannelId !== null);
+  const callChannelName = useCallStore((s) => s.callChannelName);
   const isReconnecting = useCallStore((s) => s.status === 'reconnecting');
   const isMuted = useCallStore((s) => s.isMuted);
   const isMicAvailable = useCallStore((s) => s.isMicAvailable);
   const isVideoOff = useCallStore((s) => s.isVideoOff);
-  const [showChat, setShowChat] = useState(false);
-  const [chatInput, setChatInput] = useState('');
   const [userCache, setUserCache] = useState<Map<string, string>>(new Map());
   const userCacheRef = useRef(userCache);
   useEffect(() => {
@@ -453,15 +362,8 @@ export function GroupCallUI({
   const [isFullscreen, setIsFullscreen] = useState(false);
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const remoteVideoRefs = useRef<Map<string, HTMLVideoElement>>(new Map());
-  const messagesEndRef = useRef<HTMLDivElement>(null);
   const focusedVideoRef = useRef<HTMLVideoElement>(null);
   const screenShareMainRef = useRef<HTMLDivElement>(null);
-  // Stable ref to participants for use in WS event callbacks (avoids stale closure)
-  const participantsRef = useRef<RemoteParticipant[]>([]);
-
-  useEffect(() => {
-    participantsRef.current = participants;
-  }, [participants]);
 
   const remoteMicMuted = useCallStore((s) => s.remoteMicMuted);
   const participantVolumes = useCallStore((s) => s.participantVolumes);
@@ -515,7 +417,7 @@ export function GroupCallUI({
       const p = payload as { user_id: string };
       if (p.user_id === user?.id) return; // ignore own events
       // Only care about current call participants
-      if (!participantsRef.current.some((pt) => pt.userId === p.user_id)) return;
+      if (!isCallParticipant(p.user_id)) return;
       // A dismissed banner must not stay dismissed for a later, different share.
       setCall((s) => ({
         bannerDismissed: false,
@@ -525,40 +427,41 @@ export function GroupCallUI({
 
     const unsubStop = wsService.on('screen_share_stopped', (payload) => {
       const p = payload as { user_id: string };
+      // Побочный эффект (выход из фуллскрина) держим снаружи апдейтера стора:
+      // zustand может вызвать апдейтер повторно, а exitFullscreen() — не идемпотентная
+      // операция над DOM.
+      const wasFocused = useCallStore.getState().focusedUserId === p.user_id;
       setCall((s) => {
         const nextSharers = new Set(s.screenSharers);
         nextSharers.delete(p.user_id);
         const nextStreams = new Map(s.remoteScreenStreams);
         nextStreams.delete(p.user_id);
-        // If this participant was focused, exit focus view and fullscreen
-        let focusedUserId = s.focusedUserId;
-        if (focusedUserId === p.user_id) {
-          if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
-          focusedUserId = null;
-        }
+        // If this participant was focused, exit focus view
+        const focusedUserId = s.focusedUserId === p.user_id ? null : s.focusedUserId;
         return { screenSharers: nextSharers, remoteScreenStreams: nextStreams, focusedUserId };
       });
+      if (wasFocused && document.fullscreenElement) document.exitFullscreen().catch(() => {});
       groupCallService.unwatchShare(p.user_id);
     });
 
     const unsubMicMuted = wsService.on('mic_muted', (payload) => {
       const p = payload as { user_id: string };
       if (p.user_id === user?.id) return;
-      if (!participantsRef.current.some((pt) => pt.userId === p.user_id)) return;
+      if (!isCallParticipant(p.user_id)) return;
       setCall((s) => ({ remoteMicMuted: new Map(s.remoteMicMuted).set(p.user_id, true) }));
     });
 
     const unsubMicUnmuted = wsService.on('mic_unmuted', (payload) => {
       const p = payload as { user_id: string };
       if (p.user_id === user?.id) return;
-      if (!participantsRef.current.some((pt) => pt.userId === p.user_id)) return;
+      if (!isCallParticipant(p.user_id)) return;
       setCall((s) => ({ remoteMicMuted: new Map(s.remoteMicMuted).set(p.user_id, false) }));
     });
 
     const unsubQuality = wsService.on('connection_quality', (payload) => {
       const p = payload as { user_id: string; level: QualityLevel; packet_loss: number; rtt: number; bitrate: number };
       if (p.user_id === user?.id) return; // своё качество берём из локального сэмплера
-      if (!participantsRef.current.some((pt) => pt.userId === p.user_id)) return;
+      if (!isCallParticipant(p.user_id)) return;
       setCall((s) => ({
         qualityByUser: {
           ...s.qualityByUser,
@@ -694,36 +597,6 @@ export function GroupCallUI({
     }
   }, []);
 
-  const handleJoinGroupCall = useCallback(async (roomId: string): Promise<boolean> => {
-    if (!user) return false;
-    const channel = useServerStore.getState().channels.find((c) => c.id === roomId);
-    const server = useServerStore.getState().currentServer;
-    const before = useCallStore.getState().callChannelId;
-    await useCallStore.getState().join({
-      channelId: roomId,
-      channelName: channel?.name ?? '',
-      serverId: server?.id ?? null,
-      serverName: server?.name ?? null,
-      userId: user.id,
-      userName: user.username,
-    });
-    const joined = useCallStore.getState().callChannelId === roomId && before !== roomId;
-    if (!joined) return false;
-    setShowChat(false);
-    const micAvailable = groupCallService.isMicrophoneAvailable;
-    setCall({ isMicAvailable: micAvailable });
-    if (!micAvailable) setCall({ isMuted: true });
-    // This function is dead code: nothing calls it anymore now that AppPage
-    // joins calls directly via useCallStore (Task 3, VYC-77). GroupCallUI.tsx
-    // is slated for full removal later in the plan.
-    return false;
-  }, [user]);
-  // handleJoinGroupCall no longer has any caller now that the window-exposure
-  // hack is gone (Task 3, VYC-77). GroupCallUI.tsx is slated for full removal
-  // later in the plan; keep the function intact and just reference it here so
-  // noUnusedLocals doesn't fail the build in the meantime.
-  void handleJoinGroupCall;
-
   const handleLeaveGroupCall = useCallback(() => {
     // leave() сбрасывает стор к IDLE целиком — участники, шареры, фокус и флаги
     // экрана чистятся там же, отдельные setState здесь больше не нужны.
@@ -812,17 +685,9 @@ export function GroupCallUI({
   }, [selectedSourceId, t]);
 
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
-
-  useEffect(() => {
     const fetchUsernames = async () => {
-      const candidateIds = [
-        ...messages.map((msg) => msg.user_id),
-        ...participants.map((p) => p.userId),
-      ];
       const userIds = collectUnresolvedUserIds(
-        candidateIds,
+        participants.map((p) => p.userId),
         user?.id,
         (id) => userCacheRef.current.has(id),
         (id) => pendingUserFetchesRef.current.has(id)
@@ -840,20 +705,8 @@ export function GroupCallUI({
         }
       }
     };
-    if (messages.length > 0 || participants.length > 0) fetchUsernames();
-  }, [messages, participants, user]);
-
-  const handleSendMessage = useCallback(async (e: FormEvent) => {
-    e.preventDefault();
-    if (!currentChannel || !chatInput.trim() || !user) return;
-    try {
-      const msg = await apiService.createMessage(currentChannel.id, chatInput.trim()) as Message;
-      addMessage(msg);
-      setChatInput('');
-    } catch (err) {
-      logger.error('Failed to send message in group call:', err, { module: 'groupCallUI' });
-    }
-  }, [currentChannel, chatInput, user, addMessage]);
+    if (participants.length > 0) fetchUsernames();
+  }, [participants, user]);
 
   if (!isInGroupCall) return null;
 
@@ -870,7 +723,7 @@ export function GroupCallUI({
   const firstSharer = screenSharers.size > 0 ? [...screenSharers][0] : null;
 
   return (
-    <div className="group-call-overlay">
+    <div className="call-stage">
       {isReconnecting && (
         <div className="gc-reconnecting-banner">{t('call.reconnecting')}</div>
       )}
@@ -888,19 +741,12 @@ export function GroupCallUI({
         />
       )}
       <div className="group-call-header">
-        <h2>{t('call.groupCallTitle')}{currentChannel ? ` · #${currentChannel.name}` : ''}</h2>
+        <h2>{t('call.groupCallTitle')}{callChannelName ? ` · #${callChannelName}` : ''}</h2>
         <div className="group-call-header-right">
           {screenSharers.size > 0 && (
             <span className="header-screen-share-indicator">🖥 {t('call.screenSharingActive')}</span>
           )}
           <span className="participant-count">{tp('call.participants', totalParticipants)}</span>
-          <button
-            className={`call-members-toggle ${showMembers ? 'active' : ''}`}
-            onClick={onToggleMembers}
-            title={tp('call.participants', totalParticipants)}
-          >
-            👥 {tp('call.participants', totalParticipants)}
-          </button>
         </div>
       </div>
 
@@ -1060,44 +906,6 @@ export function GroupCallUI({
             </div>
           )}
         </div>
-
-        {showChat && (
-          <div className="call-chat">
-            <div className="call-chat-header">
-              <span>#{currentChannel?.name ?? t('call.chatFallback')}</span>
-            </div>
-            <div className="call-chat-messages">
-              {messages.length === 0 ? (
-                <p className="call-chat-empty">{t('call.noMessagesYet')}</p>
-              ) : (
-                messages.map((msg) => {
-                  const isFromMe = msg.user_id === user?.id;
-                  const displayName = isFromMe
-                    ? user!.username
-                    : (userCache.get(msg.user_id) ?? msg.user_id.slice(0, 8));
-                  return (
-                    <div key={msg.id} className={`call-chat-msg ${isFromMe ? 'self' : ''}`}>
-                      <span className="call-chat-author">{displayName}</span>
-                      <span className="call-chat-time">{formatTime(new Date(msg.created_at))}</span>
-                      <p className="call-chat-text">{msg.content}</p>
-                    </div>
-                  );
-                })
-              )}
-              <div ref={messagesEndRef} />
-            </div>
-            <form className="call-chat-input" onSubmit={handleSendMessage}>
-              <input
-                type="text"
-                value={chatInput}
-                onChange={(e) => setChatInput(e.target.value)}
-                placeholder={t('chat.messagePlaceholder', { channel: currentChannel?.name ?? t('call.channelFallback') })}
-                maxLength={2000}
-              />
-              <button type="submit" disabled={!chatInput.trim()} aria-label={t('call.send')}>➤</button>
-            </form>
-          </div>
-        )}
       </div>
 
       <div className="call-controls">
@@ -1128,13 +936,6 @@ export function GroupCallUI({
           title={isScreenSharing ? t('call.stopScreenShare') : t('call.shareScreen')}
         >
           🖥
-        </button>
-        <button
-          className={`control-btn ${showChat ? 'chat-active' : ''}`}
-          onClick={() => setShowChat((v) => !v)}
-          title={showChat ? t('call.hideChat') : t('call.showChat')}
-        >
-          💬
         </button>
         <button className="control-btn end-call" onClick={handleLeaveGroupCall} title={t('call.leaveCall')}>
           📞
