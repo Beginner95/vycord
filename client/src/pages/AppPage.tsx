@@ -18,7 +18,7 @@ import { useT } from '@/i18n';
 import type { Server, Channel, Message, MemberWithUser } from '@/types';
 import './AppPage.css';
 
-type MobilePanel = 'servers' | 'channels' | 'chat' | 'members';
+type MobilePanel = 'servers' | 'channels' | 'chat' | 'call' | 'members';
 
 interface CallNotif {
   channelId: string;
@@ -97,6 +97,19 @@ export function AppPage() {
   };
   const inGroupCall = useCallStore((s) => s.status !== 'idle');
   const callChannelId = useCallStore((s) => s.callChannelId);
+
+  // Мобильная панель «Звонок» существует только пока CallStage реально
+  // смонтирована (см. рендер ниже). Если звонок завершается — сам, по
+  // кику, по обрыву связи — или открытый канал меняется, пока эта панель
+  // активна, CallStage размонтируется, а панель «Звонок» осталась бы
+  // пустой: чат для неё скрыт CSS-правилами мобильного режима, а сцены
+  // больше нет. Откатываемся на чат, как только эта комбинация перестаёт
+  // выполняться.
+  useEffect(() => {
+    if (mobilePanel === 'call' && !(callChannelId && callChannelId === currentChannel?.id)) {
+      setMobilePanel('chat');
+    }
+  }, [mobilePanel, callChannelId, currentChannel]);
 
   // Высота сцены звонка в сплите «звонок сверху, чат снизу». Проценты, а не
   // пиксели: окно можно менять в размерах, а доля экрана под звонок — это то,
@@ -335,14 +348,18 @@ export function AppPage() {
     if (handledRemovalsRef.current.has(removedServerId)) return;
     handledRemovalsRef.current.add(removedServerId);
 
-    if (currentServer?.id !== removedServerId) return;
-
-    if (
-      groupCallService.isInGroupCallState &&
-      channels.some((c) => c.id === groupCallService.currentRoomIdState)
-    ) {
+    // Звонок больше не привязан к навигации: сервер со звонком может быть
+    // удалён, пока мы смотрим другой сервер. Сервер шлёт один server_delete
+    // без каскадных channel_delete, поэтому звонок нужно проверить и
+    // завершить здесь — ДО раннего выхода по «смотрю другой сервер» — иначе
+    // он повиснет без канала, к которому уже нет доступа. callServerId из
+    // useCallStore — источник правды о том, в каком сервере идёт звонок,
+    // независимо от того, какой сервер сейчас открыт в UI.
+    if (useCallStore.getState().callServerId === removedServerId) {
       callLeaveGroupCall();
     }
+
+    if (currentServer?.id !== removedServerId) return;
 
     const remaining = useServerStore.getState().servers;
     if (remaining.length > 0) {
@@ -584,7 +601,7 @@ logger.error('Failed to create server:', err, { module: 'app' });
         <div className="channel-body" style={{ '--call-stage-height': `${stageHeight}%` } as React.CSSProperties}>
           {callChannelId && callChannelId === currentChannel?.id && (
             <>
-              <CallStage />
+              <CallStage onMobileBackToChat={() => setMobilePanel('chat')} />
               <div
                 className="call-split-handle"
                 onPointerDown={handleSplitDragStart}
@@ -599,6 +616,11 @@ logger.error('Failed to create server:', err, { module: 'app' });
             onMobileBack={() => setMobilePanel('channels')}
             onShowMembers={() => setMobilePanel('members')}
             onJoinVoice={handleJoinVoice}
+            onShowCall={
+              callChannelId && callChannelId === currentChannel?.id
+                ? () => setMobilePanel('call')
+                : undefined
+            }
           />
         </div>
 

@@ -415,9 +415,28 @@
 
   .app-layout[data-mobile-panel="servers"] .server-list { display: flex; }
   .app-layout[data-mobile-panel="channels"] .channel-sidebar { display: flex; }
-  /* Панель канала на мобильном — это весь сплит целиком: сцена звонка (если
-     звонок идёт в открытом канале) плюс чат под ней. */
-  .app-layout[data-mobile-panel="chat"] .channel-body { display: flex; }
+  /* На мобильном сплита нет: сцена звонка и чат — две отдельные панели,
+     переключаемые через data-mobile-panel, но обе живут внутри одного
+     .channel-body (десктопный сплит-контейнер), поэтому его самого нужно
+     показывать в обоих режимах — конкретную панель внутри выбирают правила
+     ниже. */
+  .app-layout[data-mobile-panel="chat"] .channel-body,
+  .app-layout[data-mobile-panel="call"] .channel-body {
+    display: flex;
+  }
+
+  .app-layout[data-mobile-panel="call"] .channel-body .call-stage {
+    height: 100%;
+    flex: 1 1 auto;
+  }
+
+  .app-layout[data-mobile-panel="call"] .channel-body .chat-area,
+  .app-layout[data-mobile-panel="call"] .channel-body .call-split-handle,
+  .app-layout[data-mobile-panel="chat"] .channel-body .call-stage,
+  .app-layout[data-mobile-panel="chat"] .channel-body .call-split-handle {
+    display: none;
+  }
+
   .app-layout[data-mobile-panel="members"] .user-list { display: flex; }
 
   .sidebar-gutter {

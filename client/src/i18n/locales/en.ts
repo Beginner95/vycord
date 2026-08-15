@@ -135,6 +135,7 @@ export const en: Dictionary = {
     // Header and banners
     groupCallTitle: 'Group Call',
     resizeSplit: 'Resize call area',
+    showCall: 'Call',
     screenSharingActive: 'Screen sharing active',
     isSharingScreen: '{{name}} is sharing their screen',
     view: 'View',

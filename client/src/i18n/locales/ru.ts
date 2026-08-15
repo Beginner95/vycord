@@ -140,6 +140,7 @@ export const ru = {
     // Заголовок и баннеры
     groupCallTitle: 'Групповой звонок',
     resizeSplit: 'Изменить высоту звонка',
+    showCall: 'Звонок',
     screenSharingActive: 'Идёт демонстрация экрана',
     isSharingScreen: '{{name}} показывает экран',
     view: 'Смотреть',
