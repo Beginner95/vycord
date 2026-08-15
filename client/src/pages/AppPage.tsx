@@ -322,9 +322,9 @@ export function AppPage() {
     if (currentChannel?.id !== removedChannelId) return;
 
     const remaining = useServerStore.getState().channels;
-    const textChannel = remaining.find((c) => c.type === 'text');
-    if (textChannel) {
-      handleSelectChannel(textChannel);
+    const nextChannel = remaining[0];
+    if (nextChannel) {
+      handleSelectChannel(nextChannel);
     } else {
       setCurrentChannel(null);
       setMessages([]);
@@ -371,9 +371,9 @@ export function AppPage() {
             }
           }
 
-          const textChannel = channelsData.find((c) => c.type === 'text');
-          if (textChannel) {
-            handleSelectChannel(textChannel);
+          const nextChannel = channelsData[0];
+          if (nextChannel) {
+            handleSelectChannel(nextChannel);
           } else {
             setCurrentChannel(null);
             setMessages([]);
@@ -425,9 +425,9 @@ export function AppPage() {
       setChannels(data);
       loadServerMembers(server.id);
       loadServerPermissions(server.id);
-      const textChannel = data.find((c) => c.type === 'text');
-      if (textChannel) {
-        handleSelectChannel(textChannel);
+      const nextChannel = data[0];
+      if (nextChannel) {
+        handleSelectChannel(nextChannel);
       } else {
         setCurrentChannel(null);
         setMessages([]);

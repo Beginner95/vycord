@@ -460,10 +460,10 @@ class ApiService {
   }
 
   // Channels
-  async createChannel(serverId: string, name: string, type: 'text' | 'voice' = 'text') {
+  async createChannel(serverId: string, name: string) {
     return this.request(`/api/v1/servers/${serverId}/channels`, {
       method: 'POST',
-      body: JSON.stringify({ name, type }),
+      body: JSON.stringify({ name }),
     });
   }
 
