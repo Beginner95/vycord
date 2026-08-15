@@ -180,6 +180,11 @@ export const ru = {
     invitesTo: 'зовёт в',
     joinCall: 'Войти',
 
+    // Кнопка входа в звонок в шапке чата
+    joinVoice: 'Подключиться',
+    inThisCall: 'Вы в звонке',
+    goToCall: 'Перейти',
+
     // Одиночный звонок (CallUI)
     incomingCall: 'Входящий звонок',
     userCalling: 'Вам звонят...',

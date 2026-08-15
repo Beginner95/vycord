@@ -175,6 +175,11 @@ export const en: Dictionary = {
     invitesTo: 'is calling you to',
     joinCall: 'Join',
 
+    // Voice join button in the chat header
+    joinVoice: 'Join voice',
+    inThisCall: 'You are in this call',
+    goToCall: 'Go to call',
+
     // 1:1 call (CallUI)
     incomingCall: 'Incoming Call',
     userCalling: 'User is calling you...',

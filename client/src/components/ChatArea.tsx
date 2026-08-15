@@ -12,6 +12,7 @@ import { apiService, apiErrorText, resolveUploadUrl, ApiError } from '@/services
 import { wsService } from '@/services/websocket';
 import { audioService } from '@/services/audio';
 import { useServerStore } from '@/stores/serverStore';
+import { useCallStore } from '@/stores/callStore';
 import { tokenizeMentions, LEGACY_ROLE_KEYS } from '@/utils/mentions';
 import { logger } from '@/utils/logger';
 import { collectUnresolvedUserIds } from '@/utils/userCache';
@@ -33,6 +34,7 @@ interface ChatAreaProps {
   user: User | null;
   onMobileBack?: () => void;
   onShowMembers?: () => void;
+  onJoinVoice?: (channel: Channel) => void;
 }
 
 const QUOTE_PREFIX = '> ';
@@ -156,7 +158,8 @@ function insertEmojiAtCaret(el: HTMLTextAreaElement, setValue: (v: string) => vo
   });
 }
 
-export function ChatArea({ channel, user, onMobileBack, onShowMembers }: ChatAreaProps) {
+export function ChatArea({ channel, user, onMobileBack, onShowMembers, onJoinVoice }: ChatAreaProps) {
+  const callChannelId = useCallStore((s) => s.callChannelId);
   const t = useT();
   const { formatTime, formatFullDate } = useDateFormat();
   const { messages, setMessages, addMessage, updateMessage, removeMessage } = useMessageStore();
@@ -720,6 +723,31 @@ logger.error('Failed to update message:', err, { module: 'chat' });
         )}
         <span className="channel-hash">#</span>
         <h3>{channel.name}</h3>
+        {onJoinVoice && (
+          <button
+            type="button"
+            className={`chat-voice-btn${callChannelId === channel.id ? ' in-call' : ''}`}
+            onClick={() => {
+              if (callChannelId === channel.id) return;
+              onJoinVoice(channel);
+            }}
+            disabled={callChannelId === channel.id}
+            title={
+              callChannelId === channel.id
+                ? t('call.inThisCall')
+                : callChannelId
+                  ? t('call.goToCall')
+                  : t('call.joinVoice')
+            }
+          >
+            🎧{' '}
+            {callChannelId === channel.id
+              ? t('call.inThisCall')
+              : callChannelId
+                ? t('call.goToCall')
+                : t('call.joinVoice')}
+          </button>
+        )}
         <button
           type="button"
           className={`chat-search-btn${searchOpen ? ' active' : ''}`}

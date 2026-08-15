@@ -979,6 +979,11 @@ export function GroupCallUI({
     // duplicate. See Task 3 for removing that branch entirely.
     return false;
   }, [user, onInCallChange]);
+  // handleJoinGroupCall no longer has any caller now that the window-exposure
+  // hack is gone (Task 3, VYC-77). GroupCallUI.tsx is slated for full removal
+  // later in the plan; keep the function intact and just reference it here so
+  // noUnusedLocals doesn't fail the build in the meantime.
+  void handleJoinGroupCall;
 
   const handleLeaveGroupCall = useCallback(() => {
     useCallStore.getState().leave();
@@ -1072,13 +1077,6 @@ export function GroupCallUI({
       alert(t('call.screenShareFailed'));
     }
   }, [selectedSourceId, t]);
-
-  // Expose joinGroupCall to window for other components
-  useEffect(() => {
-    const w = window as unknown as Record<string, unknown>;
-    w.joinGroupCall = handleJoinGroupCall;
-    w.leaveGroupCall = handleLeaveGroupCall;
-  }, [handleJoinGroupCall, handleLeaveGroupCall]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });

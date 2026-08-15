@@ -13,6 +13,7 @@ import { TitleBar } from '@/components/TitleBar';
 import { CallUI } from '@/components/CallUI';
 import { GroupCallUI } from '@/components/GroupCallUI';
 import { groupCallService } from '@/services/groupCall';
+import { useCallStore } from '@/stores/callStore';
 import { useT } from '@/i18n';
 import type { Server, Channel, Message, MemberWithUser } from '@/types';
 import './AppPage.css';
@@ -270,9 +271,19 @@ export function AppPage() {
       .catch((err) => console.error('Failed to load server permissions:', err));
   };
 
-  const callLeaveGroupCall = () => {
-    const w = window as unknown as Record<string, unknown>;
-    (w.leaveGroupCall as (() => void) | undefined)?.();
+  const callLeaveGroupCall = () => useCallStore.getState().leave();
+
+  const handleJoinVoice = (channel: Channel) => {
+    if (!user) return;
+    const server = useServerStore.getState().currentServer;
+    void useCallStore.getState().join({
+      channelId: channel.id,
+      channelName: channel.name,
+      serverId: server?.id ?? null,
+      serverName: server?.name ?? null,
+      userId: user.id,
+      userName: user.username,
+    });
   };
 
   const handleInCallChange = (active: boolean) => {
@@ -442,24 +453,6 @@ export function AppPage() {
     const currentSrv = useServerStore.getState().currentServer;
     apiService.updateLastVisited(currentSrv?.id ?? null, channel.id).catch(() => {});
 
-    // If voice channel, join the group call; ring only if no one else is in the room yet.
-    if (channel.type === 'voice' && user) {
-      const joinGroupCall = (window as unknown as Record<string, unknown>).joinGroupCall as
-        ((id: string) => Promise<boolean>) | undefined;
-      if (typeof joinGroupCall === 'function') {
-        const isFirst = await joinGroupCall(channel.id);
-        if (isFirst) {
-          wsService.send('voice_call_ring', {
-            channel_id: channel.id,
-            server_id: currentSrv?.id,
-            caller_id: user.id,
-            caller_name: user.username,
-            channel_name: channel.name,
-          });
-        }
-      }
-    }
-
     try {
       const data = await apiService.getMessages(channel.id);
       setMessages(data as Message[]);
@@ -533,6 +526,7 @@ logger.error('Failed to create server:', err, { module: 'app' });
           user={user}
           onMobileBack={() => setMobilePanel('channels')}
           onShowMembers={() => setMobilePanel('members')}
+          onJoinVoice={handleJoinVoice}
         />
 
         <GroupCallUI
@@ -601,7 +595,7 @@ logger.error('Failed to create server:', err, { module: 'app' });
               stopRingtoneRef.current?.();
               stopRingtoneRef.current = null;
               const ch = channels.find((c) => c.id === callNotif.channelId);
-              if (ch) handleSelectChannel(ch);
+              if (ch) { handleSelectChannel(ch); handleJoinVoice(ch); }
               setCallNotif(null);
             }}
           >
