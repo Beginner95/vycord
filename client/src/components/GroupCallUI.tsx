@@ -413,13 +413,11 @@ function RemoteParticipantTile({
 }
 
 interface GroupCallUIProps {
-  onInCallChange?: (active: boolean) => void;
   showMembers?: boolean;
   onToggleMembers?: () => void;
 }
 
 export function GroupCallUI({
-  onInCallChange = () => {},
   showMembers = false,
   onToggleMembers = () => {},
 }: GroupCallUIProps) {
@@ -429,7 +427,7 @@ export function GroupCallUI({
   const { user } = useAuthStore();
   const { currentChannel } = useServerStore();
   const { messages, addMessage } = useMessageStore();
-  const [isInGroupCall, setIsInGroupCall] = useState(false);
+  const isInGroupCall = useCallStore((s) => s.callChannelId !== null);
   const [isReconnecting, setIsReconnecting] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
   const [isMicAvailable, setIsMicAvailable] = useState(true);
@@ -657,8 +655,6 @@ export function GroupCallUI({
         const channelId = groupCallService.currentRoomIdState;
         if (channelId) wsService.send('voice_left', { channel_id: channelId });
         setIsReconnecting(false);
-        setIsInGroupCall(false);
-        onInCallChange(false);
         setParticipants([]);
         setRemoteScreenStreams(new Map());
         setLocalQuality(undefined);
@@ -680,8 +676,6 @@ export function GroupCallUI({
         if (channelId) wsService.send('voice_left', { channel_id: channelId });
         setIsReconnecting(false);
         logger.error('[GroupCall] Error:', msg, { module: 'groupCallUI' });
-        setIsInGroupCall(false);
-        onInCallChange(false);
         setParticipants([]);
         setRemoteScreenStreams(new Map());
         setIsMicAvailable(true);
@@ -967,18 +961,15 @@ export function GroupCallUI({
     });
     const joined = useCallStore.getState().callChannelId === roomId && before !== roomId;
     if (!joined) return false;
-    setIsInGroupCall(true);
-    onInCallChange(true);
     setShowChat(false);
     const micAvailable = groupCallService.isMicrophoneAvailable;
     setIsMicAvailable(micAvailable);
     if (!micAvailable) setIsMuted(true);
-    // callStore.join() already sent voice_call_ring itself when we were first
-    // in the room (ring из AppPage ещё не убран на этом шаге) — always
-    // returning false here prevents AppPage's own ring branch from firing a
-    // duplicate. See Task 3 for removing that branch entirely.
+    // This function is dead code: nothing calls it anymore now that AppPage
+    // joins calls directly via useCallStore (Task 3, VYC-77). GroupCallUI.tsx
+    // is slated for full removal later in the plan.
     return false;
-  }, [user, onInCallChange]);
+  }, [user]);
   // handleJoinGroupCall no longer has any caller now that the window-exposure
   // hack is gone (Task 3, VYC-77). GroupCallUI.tsx is slated for full removal
   // later in the plan; keep the function intact and just reference it here so
@@ -987,8 +978,6 @@ export function GroupCallUI({
 
   const handleLeaveGroupCall = useCallback(() => {
     useCallStore.getState().leave();
-    setIsInGroupCall(false);
-    onInCallChange(false);
     setIsReconnecting(false);
     setParticipants([]);
     setIsScreenSharing(false);

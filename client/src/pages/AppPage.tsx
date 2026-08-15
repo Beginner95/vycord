@@ -95,7 +95,7 @@ export function AppPage() {
       return next;
     });
   };
-  const [inGroupCall, setInGroupCall] = useState(false);
+  const inGroupCall = useCallStore((s) => s.status !== 'idle');
   const [showCallMembers, setShowCallMembers] = useState(false);
   const stopRingtoneRef = useRef<(() => void) | null>(null);
   const callNotifRef = useRef<CallNotif | null>(null);
@@ -284,11 +284,6 @@ export function AppPage() {
       userId: user.id,
       userName: user.username,
     });
-  };
-
-  const handleInCallChange = (active: boolean) => {
-    setInGroupCall(active);
-    setShowCallMembers(false);
   };
 
   const handleServerRemoved = (removedServerId: string) => {
@@ -530,7 +525,6 @@ logger.error('Failed to create server:', err, { module: 'app' });
         />
 
         <GroupCallUI
-          onInCallChange={handleInCallChange}
           showMembers={showCallMembers}
           onToggleMembers={() => setShowCallMembers((v) => !v)}
         />
