@@ -238,6 +238,10 @@ class GroupCallService {
   // fire a report per tick per remote track and flood the issue.
   private vyc76LastReportAt = new Map<string, number>();
   private vyc76ReportCount = 0;
+  // Selected ICE candidate pair, as "localType/proto → remoteType/proto".
+  // Empty until the first sample; used to detect mid-call path moves.
+  private lastIcePath = '';
+  private icePathChanges = 0;
 
   // Timestamps for mobile diagnostic metrics (milliseconds since epoch).
   private joinedAt = 0;
@@ -439,6 +443,8 @@ class GroupCallService {
     this.lastSamplesDuration = 0;
     this.vyc76LastReportAt.clear();
     this.vyc76ReportCount = 0;
+    this.lastIcePath = '';
+    this.icePathChanges = 0;
     this.qualityIntervalId = setInterval(() => {
       void this.sampleQuality();
     }, 3000);
@@ -554,13 +560,17 @@ class GroupCallService {
   // report and the publisher's report can be joined against each other: that
   // join is the whole experiment, since it tells us whether the burst existed
   // before it reached the SFU.
-  private reportVyc76(kind: string, message: string, extra: Record<string, unknown>): void {
-    const COOLDOWN_MS = 60_000;
+  private reportVyc76(
+    kind: string,
+    message: string,
+    extra: Record<string, unknown>,
+    cooldownMs = 60_000,
+  ): void {
     const MAX_PER_CALL = 10;
     if (this.vyc76ReportCount >= MAX_PER_CALL) return;
     const now = Date.now();
     const last = this.vyc76LastReportAt.get(kind) ?? 0;
-    if (now - last < COOLDOWN_MS) return;
+    if (now - last < cooldownMs) return;
     this.vyc76LastReportAt.set(kind, now);
     this.vyc76ReportCount++;
 
@@ -628,6 +638,53 @@ class GroupCallService {
         path,
         elapsedFromJoinMs: this.joinedAt ? now - this.joinedAt : -1,
       };
+
+      // ── VYC-76: ICE path census ──────────────────────────────────────────
+      // Two questions this answers, both needed BEFORE touching TURN_URLS:
+      //
+      //   1. How often does the selected pair move mid-call? A move to a TCP
+      //      relay is the only звено in this setup that can hold packets back
+      //      and then release them in a burst, which is what the receiving
+      //      side measured. Counting the moves measures the actual cause.
+      //
+      //   2. Is a TCP relay ever someone's ONLY working path — i.e. would
+      //      dropping transport=tcp from TURN_URLS cut them off entirely?
+      //      A client that starts on relay/tcp and never leaves it is exactly
+      //      that case. Without this census, removing TCP is a blind change.
+      //
+      // 'unknown' is skipped: getStats occasionally reports a succeeded pair
+      // whose candidate rows haven't landed in the same snapshot, and treating
+      // that as a transition would invent moves that never happened.
+      if (path !== 'unknown') {
+        if (this.lastIcePath === '') {
+          this.lastIcePath = path;
+          this.reportVyc76('ice-path-initial', 'VYC-76 ICE path selected', {
+            path,
+            isRelay: path.startsWith('relay'),
+            isTcpRelay: path.startsWith('relay/tcp') || path.startsWith('relay/tls'),
+          });
+        } else if (path !== this.lastIcePath) {
+          const from = this.lastIcePath;
+          this.lastIcePath = path;
+          this.icePathChanges++;
+          gcLog(this.currentUserId, '[VYC-76] ICE PATH CHANGED', { from, to: path });
+          // Shorter cooldown than the default: a call that flaps repeatedly is
+          // the most informative case there is, and at 60s we would record one
+          // move and silently drop the rest of the pattern.
+          this.reportVyc76(
+            'ice-path-change',
+            'VYC-76 ICE path changed mid-call',
+            {
+              from,
+              to: path,
+              changeIndex: this.icePathChanges,
+              toTcpRelay: path.startsWith('relay/tcp') || path.startsWith('relay/tls'),
+              ...fields,
+            },
+            15_000,
+          );
+        }
+      }
       // 50 pps is nominal; flag both directions — a stall and the burst that
       // drains it are two halves of the same event and must both be captured.
       if (dSec > 0 && (pps < 35 || pps > 70)) {
@@ -1512,8 +1569,26 @@ class GroupCallService {
               };
               // 1% time-compression over a whole tick is well past "inaudible
               // NetEq housekeeping" and into the reported symptom.
+              // Two thresholds, deliberately far apart.
+              //
+              // NetEq time-compresses a little all the time; at 1% over a tick
+              // that is housekeeping, not the bug. The console line is free and
+              // rides along in breadcrumbs, so it stays sensitive at 1% and
+              // gives the full run-up to any event we do send.
+              //
+              // The GlitchTip report must be much stricter: reports are capped
+              // at 10 per call, so anything that fires on background behaviour
+              // burns the whole budget in the first half-minute and the real
+              // burst never leaves the machine. The reported symptom — a full
+              // second of speech compressed away — is ~50% over a 2s tick, so
+              // 5% is still an order of magnitude below it while sitting well
+              // clear of the noise floor.
               if (accelRatio > 0.01) {
                 gcLog(this.currentUserId, '[VYC-76] PLAYOUT ACCELERATED (NetEq time-compression)', fields);
+              } else {
+                gcLog(this.currentUserId, '[VYC-76] inbound pacing', fields);
+              }
+              if (accelRatio > 0.05) {
                 // peerUserId is the PUBLISHER whose voice sped up — the join key
                 // against that publisher's own uplink-pacing report.
                 this.reportVyc76('inbound-accel', 'VYC-76 playout accelerated (NetEq time-compression)', {
@@ -1525,8 +1600,6 @@ class GroupCallService {
                   packetsLost,
                   tickSec: dSec,
                 });
-              } else {
-                gcLog(this.currentUserId, '[VYC-76] inbound pacing', fields);
               }
             }
             prevAt = nowMs;

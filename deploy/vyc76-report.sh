@@ -80,6 +80,33 @@ WHERE tags->>'module' = 'vyc76' AND tags->>'kind' = 'uplink-pacing'
 ORDER BY timestamp DESC LIMIT 60;
 
 \echo ''
+\echo '=== ПЕРЕПИСЬ ICE-ПУТЕЙ: на чём сидят клиенты (ice-path-initial) ==='
+\echo '=== tcp_relay=t у кого-то, кто ТАК И НЕ ушёл с него → убирать transport=tcp нельзя ==='
+SELECT data->'extra'->>'path'       AS path,
+       data->'extra'->>'isTcpRelay' AS tcp_relay,
+       count(*)                     AS calls,
+       count(DISTINCT data->'extra'->>'selfUserId') AS users
+FROM issue_events_issueevent
+WHERE tags->>'module' = 'vyc76' AND tags->>'kind' = 'ice-path-initial'
+  AND timestamp > now() - interval '${HOURS} hours'
+GROUP BY 1, 2 ORDER BY 3 DESC;
+
+\echo ''
+\echo '=== ПЕРЕКЛЮЧЕНИЯ ПУТИ В ЗВОНКЕ (ice-path-change) ==='
+\echo '=== to_tcp_relay=t — предвестник всплеска; сверяй время с inbound-accel выше ==='
+SELECT timestamp,
+       data->'extra'->>'selfUserId'   AS "user",
+       data->'extra'->>'from'         AS moved_from,
+       data->'extra'->>'to'           AS moved_to,
+       data->'extra'->>'toTcpRelay'   AS to_tcp_relay,
+       data->'extra'->>'changeIndex'  AS change_no,
+       tags->>'platform'              AS platform
+FROM issue_events_issueevent
+WHERE tags->>'module' = 'vyc76' AND tags->>'kind' = 'ice-path-change'
+  AND timestamp > now() - interval '${HOURS} hours'
+ORDER BY timestamp DESC LIMIT 60;
+
+\echo ''
 \echo '=== СВЕДЕНИЕ: жалоба слушателя рядом с аномалией у названного паблишера ==='
 \echo '=== Строки здесь = всплеск возник ДО SFU. Пусто при живых жалобах = SFU.  ==='
 SELECT a.timestamp AS accel_at,
