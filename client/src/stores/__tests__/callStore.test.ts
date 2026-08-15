@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeAll, beforeEach, vi } from 'vitest';
 
 vi.mock('@/services/groupCall', () => ({
   groupCallService: {
@@ -6,19 +6,24 @@ vi.mock('@/services/groupCall', () => ({
     currentRoomIdState: '',
     isMicrophoneAvailable: true,
     isScreenSharing: false,
+    init: vi.fn(),
     joinGroupCall: vi.fn(),
     leaveGroupCall: vi.fn(),
     toggleMuteAudio: vi.fn(() => true),
     toggleMuteVideo: vi.fn(() => true),
+    watchShare: vi.fn(),
+    unwatchShare: vi.fn(),
   },
 }));
 vi.mock('@/services/websocket', () => ({ wsService: { send: vi.fn() } }));
 vi.mock('@/services/audio', () => ({
   audioService: { playUserJoined: vi.fn(), playUserLeft: vi.fn() },
 }));
+vi.mock('@/utils/logger', () => ({ logger: { error: vi.fn(), warn: vi.fn(), info: vi.fn() } }));
 
-import { useCallStore } from '@/stores/callStore';
+import { useCallStore, initCallBridge } from '@/stores/callStore';
 import { groupCallService } from '@/services/groupCall';
+import type { GroupCallCallbacks } from '@/services/groupCall';
 import { wsService } from '@/services/websocket';
 import { audioService } from '@/services/audio';
 
@@ -27,6 +32,7 @@ const gc = groupCallService as unknown as {
   currentRoomIdState: string;
   isMicrophoneAvailable: boolean;
   isScreenSharing: boolean;
+  init: ReturnType<typeof vi.fn>;
   joinGroupCall: ReturnType<typeof vi.fn>;
   leaveGroupCall: ReturnType<typeof vi.fn>;
 };
@@ -156,5 +162,70 @@ describe('callStore', () => {
     expect(useCallStore.getState().callChannelId).toBeNull();
     expect(sent()).toHaveLength(0);
     expect(audioService.playUserLeft).not.toHaveBeenCalled();
+  });
+
+  describe('initCallBridge', () => {
+    // Мост подписывается один раз на весь модуль, поэтому счётчик и сам набор
+    // колбэков снимаются здесь — beforeEach выше делает vi.clearAllMocks(),
+    // после которого init.mock.calls уже пуст.
+    let callbacks: GroupCallCallbacks;
+    let initCallCount = 0;
+
+    beforeAll(() => {
+      initCallBridge();
+      initCallBridge();
+      initCallCount = gc.init.mock.calls.length;
+      callbacks = gc.init.mock.calls[0][0] as GroupCallCallbacks;
+    });
+
+    it('подписывается на сервис ровно один раз при повторных вызовах', () => {
+      expect(initCallCount).toBe(1);
+    });
+
+    it('onPeerJoined добавляет участника, onPeerLeft убирает', () => {
+      callbacks.onPeerJoined('u-2', 'live');
+      expect(useCallStore.getState().participants).toEqual([{ userId: 'u-2', stream: null }]);
+
+      callbacks.onPeerLeft('u-2');
+      expect(useCallStore.getState().participants).toEqual([]);
+    });
+
+    it('onReconnecting и onReconnected двигают только status', async () => {
+      await useCallStore.getState().join(opts);
+
+      callbacks.onReconnecting?.();
+      expect(useCallStore.getState().status).toBe('reconnecting');
+      expect(useCallStore.getState().callChannelId).toBe('ch-1');
+
+      callbacks.onReconnected?.();
+      expect(useCallStore.getState().status).toBe('connected');
+      expect(useCallStore.getState().callChannelId).toBe('ch-1');
+    });
+
+    it('onCallEnded сбрасывает стор молча', async () => {
+      await useCallStore.getState().join(opts);
+      vi.clearAllMocks();
+
+      callbacks.onCallEnded();
+
+      expect(useCallStore.getState().status).toBe('idle');
+      expect(useCallStore.getState().callChannelId).toBeNull();
+      expect(audioService.playUserLeft).not.toHaveBeenCalled();
+    });
+
+    it('onSharingPeers объединяется с уже известными шарерами, не затирая их', () => {
+      callbacks.onSharingPeers?.(['u-2']);
+      callbacks.onSharingPeers?.(['u-3']);
+      expect([...useCallStore.getState().screenSharers].sort()).toEqual(['u-2', 'u-3']);
+    });
+
+    it('onScreenShareEnded снимает флаг шаринга и объявляет остановку', () => {
+      useCallStore.setState({ isScreenSharing: true });
+
+      callbacks.onScreenShareEnded?.();
+
+      expect(useCallStore.getState().isScreenSharing).toBe(false);
+      expect(sent().some(([type]) => type === 'screen_share_stopped')).toBe(true);
+    });
   });
 });

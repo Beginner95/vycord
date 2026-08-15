@@ -13,7 +13,7 @@ import { TitleBar } from '@/components/TitleBar';
 import { CallUI } from '@/components/CallUI';
 import { GroupCallUI } from '@/components/GroupCallUI';
 import { groupCallService } from '@/services/groupCall';
-import { useCallStore } from '@/stores/callStore';
+import { useCallStore, initCallBridge } from '@/stores/callStore';
 import { useT } from '@/i18n';
 import type { Server, Channel, Message, MemberWithUser } from '@/types';
 import './AppPage.css';
@@ -125,6 +125,14 @@ export function AppPage() {
   useEffect(() => {
     // Load servers
     loadServers();
+  }, []);
+
+  // Подписка на groupCallService живёт в модуле стора, а не в компоненте сцены
+  // звонка: сцена размонтируется при уходе в другой канал, а обработка входящих
+  // стримов, реконнекта и метрик обязана это пережить. initCallBridge()
+  // идемпотентна — повторные вызовы (StrictMode, ремаунт) ничего не делают.
+  useEffect(() => {
+    initCallBridge();
   }, []);
 
   useEffect(() => {

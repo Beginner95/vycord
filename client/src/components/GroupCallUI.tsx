@@ -3,12 +3,12 @@ import { createPortal } from 'react-dom';
 import { useAuthStore } from '@/stores/authStore';
 import { useServerStore } from '@/stores/serverStore';
 import { useMessageStore } from '@/stores/messageStore';
-import { useCallStore } from '@/stores/callStore';
+import { useCallStore, callWatchState } from '@/stores/callStore';
+import type { RemoteParticipant } from '@/stores/callStore';
 import { groupCallService, SCREEN_QUALITY_PRESETS } from '@/services/groupCall';
 import type { ScreenQuality, ScreenQualityPreset } from '@/services/groupCall';
 import { wsService } from '@/services/websocket';
 import { apiService } from '@/services/api';
-import { audioService } from '@/services/audio';
 import { logger } from '@/utils/logger';
 import { collectUnresolvedUserIds } from '@/utils/userCache';
 import type { User, Message } from '@/types';
@@ -59,11 +59,6 @@ function useMicLevel(stream: MediaStream | null, isMuted: boolean): number {
   }, [stream, isMuted, audioTrackCount]);
 
   return level;
-}
-
-interface RemoteParticipant {
-  userId: string;
-  stream: MediaStream | null;
 }
 
 // Attaches a remote MediaStream to a video element and starts playback.
@@ -427,11 +422,15 @@ export function GroupCallUI({
   const { user } = useAuthStore();
   const { currentChannel } = useServerStore();
   const { messages, addMessage } = useMessageStore();
+  // Состояние звонка живёт в сторе: подписка на groupCallService переехала в
+  // initCallBridge(), потому что сцена звонка размонтируется при уходе в другой
+  // канал, а обработка стримов/реконнекта/метрик должна это пережить.
+  const setCall = useCallStore.setState;
   const isInGroupCall = useCallStore((s) => s.callChannelId !== null);
-  const [isReconnecting, setIsReconnecting] = useState(false);
-  const [isMuted, setIsMuted] = useState(false);
-  const [isMicAvailable, setIsMicAvailable] = useState(true);
-  const [isVideoOff, setIsVideoOff] = useState(true);
+  const isReconnecting = useCallStore((s) => s.status === 'reconnecting');
+  const isMuted = useCallStore((s) => s.isMuted);
+  const isMicAvailable = useCallStore((s) => s.isMicAvailable);
+  const isVideoOff = useCallStore((s) => s.isVideoOff);
   const [showChat, setShowChat] = useState(false);
   const [chatInput, setChatInput] = useState('');
   const [userCache, setUserCache] = useState<Map<string, string>>(new Map());
@@ -440,25 +439,17 @@ export function GroupCallUI({
     userCacheRef.current = userCache;
   }, [userCache]);
   const pendingUserFetchesRef = useRef(new Set<string>());
-  const [participants, setParticipants] = useState<RemoteParticipant[]>([]);
-  const [isScreenSharing, setIsScreenSharing] = useState(false);
-  const [showSourcePicker, setShowSourcePicker] = useState(false);
+  const participants = useCallStore((s) => s.participants);
+  const isScreenSharing = useCallStore((s) => s.isScreenSharing);
+  const showSourcePicker = useCallStore((s) => s.showSourcePicker);
   const [screenSources, setScreenSources] = useState<DesktopCapturerSource[]>([]);
   const [showQualityPicker, setShowQualityPicker] = useState(false);
   // null = non-Electron path (getDisplayMedia will pick its own source)
   const [selectedSourceId, setSelectedSourceId] = useState<string | null>(null);
-  // Set of remote user IDs currently sharing their screen
-  const [screenSharers, setScreenSharers] = useState<Set<string>>(new Set());
-  // Controls ONLY the "someone is sharing" banner's visibility. It must never be
-  // conflated with screenSharers: clearing that set removes the Watch overlay
-  // from every sharing tile and empties the focused view, with no way back until
-  // the sharer restarts. Reset whenever a new share starts (below).
-  const [bannerDismissed, setBannerDismissed] = useState(false);
-  // userId -> their screen-share MediaStream (video + audio), populated only
-  // while we're actively watching them (see onRemoteScreenStream below).
-  const [remoteScreenStreams, setRemoteScreenStreams] = useState<Map<string, MediaStream>>(new Map());
-  // When set, shows the focused layout (large video + thumbnails strip)
-  const [focusedUserId, setFocusedUserId] = useState<string | null>(null);
+  const screenSharers = useCallStore((s) => s.screenSharers);
+  const bannerDismissed = useCallStore((s) => s.bannerDismissed);
+  const remoteScreenStreams = useCallStore((s) => s.remoteScreenStreams);
+  const focusedUserId = useCallStore((s) => s.focusedUserId);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const remoteVideoRefs = useRef<Map<string, HTMLVideoElement>>(new Map());
@@ -467,257 +458,16 @@ export function GroupCallUI({
   const screenShareMainRef = useRef<HTMLDivElement>(null);
   // Stable ref to participants for use in WS event callbacks (avoids stale closure)
   const participantsRef = useRef<RemoteParticipant[]>([]);
-  // Tracks which remote user's screen share (if any) we're currently subscribed
-  // to via watchShare/unwatchShare. Declared here (rather than beside the sync
-  // effect below) so onReconnected — set up inside the earlier groupCallService.init
-  // useEffect — can also read/write it without a stale closure.
-  const prevWatchedRef = useRef<string | null>(null);
-  // Snapshot of prevWatchedRef.current taken at the start of onReconnecting,
-  // before setFocusedUserId(null) triggers the sync effect below and clobbers
-  // prevWatchedRef.current back to null. onReconnected reads this (not
-  // prevWatchedRef) to decide whether to resubscribe after the outage.
-  const watchedBeforeReconnectRef = useRef<string | null>(null);
 
   useEffect(() => {
     participantsRef.current = participants;
   }, [participants]);
 
-  const [remoteMicMuted, setRemoteMicMuted] = useState<Map<string, boolean>>(new Map());
-
-  // Stable ref to isMuted for use in the onPeerJoined WS callback (avoids stale closure)
-  const isMutedRef = useRef(isMuted);
-
-  useEffect(() => {
-    isMutedRef.current = isMuted;
-  }, [isMuted]);
-
-  // userId -> 0-100, local-only, never persisted or sent over WS; missing entry means 100 (default)
-  const [participantVolumes, setParticipantVolumes] = useState<Record<string, number>>({});
-  const [volumePopoverUserId, setVolumePopoverUserId] = useState<string | null>(null);
-
-  // Stable ref to participantVolumes for use in the onRemoteStream WS callback (avoids stale closure)
-  const participantVolumesRef = useRef<Record<string, number>>({});
-
-  useEffect(() => {
-    participantVolumesRef.current = participantVolumes;
-  }, [participantVolumes]);
-
-  // userId -> latest connection-quality metrics received via WS broadcasts.
-  const [qualityByUser, setQualityByUser] = useState<Record<string, ConnectionQualityMetrics>>({});
-  // Local outbound (uplink) quality, sampled by groupCallService and reported via onLocalQuality.
-  const [localQuality, setLocalQuality] = useState<ConnectionQualityMetrics | undefined>(undefined);
-
-  // Throttling state for outgoing connection_quality sends: resend on level
-  // change, or as a heartbeat at least every 9s.
-  const qualitySendRef = useRef<{ lastLevel: QualityLevel | null; lastSentAt: number }>({
-    lastLevel: null,
-    lastSentAt: 0,
-  });
-
-  useEffect(() => {
-    groupCallService.init({
-      onRemoteStream: (userId, stream) => {
-        setParticipants((prev) => {
-          const exists = prev.find((p) => p.userId === userId);
-          if (exists) {
-            return prev.map((p) =>
-              p.userId === userId ? { ...p, stream } : p
-            );
-          }
-          return [...prev, { userId, stream }];
-        });
-
-        // Attach stream to video element if it's already in the DOM.
-        // The useEffect below is the fallback for when React re-renders first.
-        const videoEl = remoteVideoRefs.current.get(userId);
-        if (videoEl && videoEl.srcObject !== stream) {
-          attachStreamToElement(videoEl, stream, userId, (participantVolumesRef.current[userId] ?? 100) / 100);
-        }
-      },
-      onRemoteScreenStream: (userId, stream) => {
-        setRemoteScreenStreams((prev) => {
-          const next = new Map(prev);
-          next.set(userId, stream);
-          return next;
-        });
-      },
-      onPeerJoined: (userId, source) => {
-        setParticipants((prev) => {
-          if (prev.find((p) => p.userId === userId)) return prev;
-          return [...prev, { userId, stream: null }];
-        });
-        // Only a live arrival is an actual join: 'snapshot' peers were already in the
-        // room when we connected, which also happens on every auto-reconnect and must
-        // stay silent.
-        if (source === 'live') audioService.playUserJoined();
-        // Fires both when I discover an already-present peer and when someone
-        // joins after me — re-announcing my mic state either way is harmless
-        // and closes the window where a newly-joined peer doesn't know it yet.
-        wsService.send(isMutedRef.current ? 'mic_muted' : 'mic_unmuted', {});
-      },
-      onPeerSnapshot: (userIds) => {
-        // Fired once, right after a successful resume (VYC-78 step 3): while
-        // this session sat dead in grace, participant_joined/left broadcasts
-        // for anyone else were sent to the dead session and lost — this is
-        // the only correction that ever arrives, so it must be a real diff
-        // against the authoritative list, not just an add like onPeerJoined's
-        // 'snapshot' source (which only ever runs on a blank-slate join/full
-        // reconnect, where there is nothing stale to remove).
-        const idSet = new Set(userIds);
-        setParticipants((prev) => {
-          const kept = prev.filter((p) => idSet.has(p.userId));
-          const keptIds = new Set(kept.map((p) => p.userId));
-          const added = userIds.filter((uid) => !keptIds.has(uid)).map((uid) => ({ userId: uid, stream: null }));
-          return [...kept, ...added];
-        });
-      },
-      onPeerLeft: (userId) => {
-        // A genuinely live participant_left for someone else's userId always means a real
-        // departure. It can also fire with OUR OWN userId when the server evicts a stale
-        // session of ours (second-device login, or a reconnect landing inside
-        // disconnectedTimeout) — groupCall.ts's handleMessage filters that case out before
-        // calling onPeerLeft, so by the time we get here it is always a real departure.
-        audioService.playUserLeft();
-        setParticipants((prev) => prev.filter((p) => p.userId !== userId));
-        setRemoteScreenStreams((prev) => {
-          const next = new Map(prev);
-          next.delete(userId);
-          return next;
-        });
-        setRemoteMicMuted((prev) => {
-          const next = new Map(prev);
-          next.delete(userId);
-          return next;
-        });
-        setQualityByUser((prev) => {
-          const next = { ...prev };
-          delete next[userId];
-          return next;
-        });
-      },
-      onReconnecting: () => {
-        // Snapshot what we were watching BEFORE clearing focusedUserId below —
-        // that state update triggers the watch/unwatch sync effect, which would
-        // otherwise clobber prevWatchedRef.current back to null before
-        // onReconnected ever gets a chance to read it.
-        //
-        // Plain assignment (no `?? ` fallback): onReconnected below now restores
-        // real focusedUserId/screenSharers state instead of bookkeeping a second
-        // ref, so the sync effect reconciles prevWatchedRef with reality after
-        // every reconnect cycle. prevWatchedRef is therefore always current by
-        // the time the next onReconnecting runs, and a fallback here would only
-        // reintroduce the staleness this design removes (e.g. incorrectly
-        // resubscribing after a real, explicit unfocus).
-        watchedBeforeReconnectRef.current = prevWatchedRef.current;
-        setIsReconnecting(true);
-        // Participants are re-announced via 'joined'/onPeerJoined after
-        // rejoin; clear now so users who left during the outage don't linger.
-        setParticipants([]);
-        setRemoteScreenStreams(new Map());
-        setScreenSharers(new Set());
-        setBannerDismissed(false);
-        setRemoteMicMuted(new Map());
-        setParticipantVolumes({});
-        setVolumePopoverUserId(null);
-        setFocusedUserId(null);
-        setQualityByUser({});
-        setLocalQuality(undefined);
-      },
-      onReconnected: () => {
-        setIsReconnecting(false);
-        // Restore real focus/watch state (rather than calling watchShare directly
-        // and tracking it in a second ref) so the sync effect below — the single
-        // place that sends watch_share/unwatch_share — naturally reconciles
-        // prevWatchedRef with reality on its next run, exactly like any other
-        // focus transition. This keeps one source of truth instead of two refs
-        // that can drift apart across reconnect cycles.
-        const target = watchedBeforeReconnectRef.current;
-        if (target) {
-          setScreenSharers((prev) => new Set(prev).add(target));
-          setFocusedUserId(target);
-        }
-      },
-      onSharingPeers: (ids) => {
-        // Authoritative "who is sharing right now" snapshot from the SFU's
-        // 'joined' notification (initial join AND reconnects). Union with what we
-        // already know — a reconnect's onReconnected may have just restored a
-        // watched user, and onSharingPeers must not erase that. This is what fixes
-        // the Watch button never appearing for a viewer who joins (or reconnects)
-        // while a share is already active: the app-WS screen_share_started
-        // broadcast is fire-and-forget and late joiners miss it.
-        setScreenSharers((prev) => {
-          const next = new Set(prev);
-          for (const uid of ids) next.add(uid);
-          return next;
-        });
-      },
-      onCallEnded: () => {
-        const channelId = groupCallService.currentRoomIdState;
-        if (channelId) wsService.send('voice_left', { channel_id: channelId });
-        setIsReconnecting(false);
-        setParticipants([]);
-        setRemoteScreenStreams(new Map());
-        setLocalQuality(undefined);
-        setIsMuted(false);
-        setIsMicAvailable(true);
-        setIsVideoOff(false);
-        setIsScreenSharing(false);
-        setShowSourcePicker(false);
-        setScreenSharers(new Set());
-        setBannerDismissed(false);
-        setRemoteMicMuted(new Map());
-        setParticipantVolumes({});
-        setVolumePopoverUserId(null);
-        setFocusedUserId(null);
-        if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
-      },
-      onError: (msg) => {
-        const channelId = groupCallService.currentRoomIdState;
-        if (channelId) wsService.send('voice_left', { channel_id: channelId });
-        setIsReconnecting(false);
-        logger.error('[GroupCall] Error:', msg, { module: 'groupCallUI' });
-        setParticipants([]);
-        setRemoteScreenStreams(new Map());
-        setIsMicAvailable(true);
-        setScreenSharers(new Set());
-        setBannerDismissed(false);
-        setRemoteMicMuted(new Map());
-        setParticipantVolumes({});
-        setVolumePopoverUserId(null);
-        setFocusedUserId(null);
-        if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
-        groupCallService.leaveGroupCall();
-      },
-      onScreenShareEnded: () => {
-        setIsScreenSharing(false);
-        wsService.send('screen_share_stopped', {});
-      },
-      onScreenShareRestored: () => {
-        // Our reconnect made everyone else drop us from their screenSharers set
-        // (their own onReconnecting/participant_left cleanup, or simply never
-        // having seen the original broadcast). Re-announce so their Watch
-        // overlay/banner comes back for the share that is still running.
-        wsService.send('screen_share_started', {});
-      },
-      onLocalQuality: (metrics) => {
-        setLocalQuality(metrics);
-        const now = Date.now();
-        const st = qualitySendRef.current;
-        const changed = metrics.level !== st.lastLevel;
-        const heartbeat = now - st.lastSentAt >= 9000;
-        if (changed || heartbeat) {
-          st.lastLevel = metrics.level;
-          st.lastSentAt = now;
-          wsService.send('connection_quality', {
-            level: metrics.level,
-            packet_loss: metrics.packetLoss,
-            rtt: metrics.rtt,
-            bitrate: metrics.bitrate,
-          });
-        }
-      },
-    });
-  }, []);
+  const remoteMicMuted = useCallStore((s) => s.remoteMicMuted);
+  const participantVolumes = useCallStore((s) => s.participantVolumes);
+  const volumePopoverUserId = useCallStore((s) => s.volumePopoverUserId);
+  const qualityByUser = useCallStore((s) => s.qualityByUser);
+  const localQuality = useCallStore((s) => s.localQuality);
 
   useEffect(() => {
     if (!localVideoRef.current) return;
@@ -767,54 +517,53 @@ export function GroupCallUI({
       // Only care about current call participants
       if (!participantsRef.current.some((pt) => pt.userId === p.user_id)) return;
       // A dismissed banner must not stay dismissed for a later, different share.
-      setBannerDismissed(false);
-      setScreenSharers((prev) => new Set([...prev, p.user_id]));
+      setCall((s) => ({
+        bannerDismissed: false,
+        screenSharers: new Set([...s.screenSharers, p.user_id]),
+      }));
     });
 
     const unsubStop = wsService.on('screen_share_stopped', (payload) => {
       const p = payload as { user_id: string };
-      setScreenSharers((prev) => {
-        const next = new Set(prev);
-        next.delete(p.user_id);
-        return next;
-      });
-      setRemoteScreenStreams((prev) => {
-        const next = new Map(prev);
-        next.delete(p.user_id);
-        return next;
+      setCall((s) => {
+        const nextSharers = new Set(s.screenSharers);
+        nextSharers.delete(p.user_id);
+        const nextStreams = new Map(s.remoteScreenStreams);
+        nextStreams.delete(p.user_id);
+        // If this participant was focused, exit focus view and fullscreen
+        let focusedUserId = s.focusedUserId;
+        if (focusedUserId === p.user_id) {
+          if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+          focusedUserId = null;
+        }
+        return { screenSharers: nextSharers, remoteScreenStreams: nextStreams, focusedUserId };
       });
       groupCallService.unwatchShare(p.user_id);
-      // If this participant was focused, exit focus view and fullscreen
-      setFocusedUserId((prev) => {
-        if (prev === p.user_id) {
-          if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
-          return null;
-        }
-        return prev;
-      });
     });
 
     const unsubMicMuted = wsService.on('mic_muted', (payload) => {
       const p = payload as { user_id: string };
       if (p.user_id === user?.id) return;
       if (!participantsRef.current.some((pt) => pt.userId === p.user_id)) return;
-      setRemoteMicMuted((prev) => new Map(prev).set(p.user_id, true));
+      setCall((s) => ({ remoteMicMuted: new Map(s.remoteMicMuted).set(p.user_id, true) }));
     });
 
     const unsubMicUnmuted = wsService.on('mic_unmuted', (payload) => {
       const p = payload as { user_id: string };
       if (p.user_id === user?.id) return;
       if (!participantsRef.current.some((pt) => pt.userId === p.user_id)) return;
-      setRemoteMicMuted((prev) => new Map(prev).set(p.user_id, false));
+      setCall((s) => ({ remoteMicMuted: new Map(s.remoteMicMuted).set(p.user_id, false) }));
     });
 
     const unsubQuality = wsService.on('connection_quality', (payload) => {
       const p = payload as { user_id: string; level: QualityLevel; packet_loss: number; rtt: number; bitrate: number };
       if (p.user_id === user?.id) return; // своё качество берём из локального сэмплера
       if (!participantsRef.current.some((pt) => pt.userId === p.user_id)) return;
-      setQualityByUser((prev) => ({
-        ...prev,
-        [p.user_id]: { level: p.level, packetLoss: p.packet_loss, rtt: p.rtt, bitrate: p.bitrate },
+      setCall((s) => ({
+        qualityByUser: {
+          ...s.qualityByUser,
+          [p.user_id]: { level: p.level, packetLoss: p.packet_loss, rtt: p.rtt, bitrate: p.bitrate },
+        },
       }));
     });
 
@@ -880,11 +629,11 @@ export function GroupCallUI({
   // focus unwatches the previous target and watches the new one.
   useEffect(() => {
     const nextWatched = focusedUserId && screenSharers.has(focusedUserId) ? focusedUserId : null;
-    const prevWatched = prevWatchedRef.current;
+    const prevWatched = callWatchState.prevWatched;
     if (prevWatched === nextWatched) return;
     if (prevWatched) groupCallService.unwatchShare(prevWatched);
     if (nextWatched) groupCallService.watchShare(nextWatched);
-    prevWatchedRef.current = nextWatched;
+    callWatchState.prevWatched = nextWatched;
   }, [focusedUserId, screenSharers]);
 
   // Self-heal the watch subscription for a focused sharer whose screen stream
@@ -918,11 +667,10 @@ export function GroupCallUI({
     if (!focusedUserId) return;
     const stillPresent = participants.some((p) => p.userId === focusedUserId);
     if (!stillPresent) {
-      setFocusedUserId(null);
-      setScreenSharers((prev) => {
-        const next = new Set(prev);
+      setCall((s) => {
+        const next = new Set(s.screenSharers);
         next.delete(focusedUserId);
-        return next;
+        return { focusedUserId: null, screenSharers: next };
       });
       if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
     }
@@ -963,8 +711,8 @@ export function GroupCallUI({
     if (!joined) return false;
     setShowChat(false);
     const micAvailable = groupCallService.isMicrophoneAvailable;
-    setIsMicAvailable(micAvailable);
-    if (!micAvailable) setIsMuted(true);
+    setCall({ isMicAvailable: micAvailable });
+    if (!micAvailable) setCall({ isMuted: true });
     // This function is dead code: nothing calls it anymore now that AppPage
     // joins calls directly via useCallStore (Task 3, VYC-77). GroupCallUI.tsx
     // is slated for full removal later in the plan.
@@ -977,18 +725,14 @@ export function GroupCallUI({
   void handleJoinGroupCall;
 
   const handleLeaveGroupCall = useCallback(() => {
+    // leave() сбрасывает стор к IDLE целиком — участники, шареры, фокус и флаги
+    // экрана чистятся там же, отдельные setState здесь больше не нужны.
     useCallStore.getState().leave();
-    setIsReconnecting(false);
-    setParticipants([]);
-    setIsScreenSharing(false);
-    setShowSourcePicker(false);
-    setScreenSharers(new Set());
-    setFocusedUserId(null);
     if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
   }, []);
 
   const handleVolumeChange = useCallback((userId: string, value: number) => {
-    setParticipantVolumes((prev) => ({ ...prev, [userId]: value }));
+    setCall((s) => ({ participantVolumes: { ...s.participantVolumes, [userId]: value } }));
     const videoEl = remoteVideoRefs.current.get(userId);
     if (videoEl) videoEl.volume = value / 100;
   }, []);
@@ -1000,19 +744,19 @@ export function GroupCallUI({
 
   const handleToggleMute = useCallback(() => {
     const muted = groupCallService.toggleMuteAudio();
-    setIsMuted(muted);
+    setCall({ isMuted: muted });
     wsService.send(muted ? 'mic_muted' : 'mic_unmuted', {});
   }, []);
 
   const handleToggleVideo = useCallback(() => {
     const off = groupCallService.toggleMuteVideo();
-    setIsVideoOff(off);
+    setCall({ isVideoOff: off });
   }, []);
 
   const handleToggleScreenShare = useCallback(async () => {
     if (isScreenSharing) {
       await groupCallService.stopScreenShare();
-      setIsScreenSharing(false);
+      setCall({ isScreenSharing: false });
       wsService.send('screen_share_stopped', {});
       return;
     }
@@ -1031,7 +775,7 @@ export function GroupCallUI({
         return;
       }
       setScreenSources(result.sources);
-      setShowSourcePicker(true);
+      setCall({ showSourcePicker: true });
     } else {
       // Non-Electron: quality picker first, then getDisplayMedia (OS native picker opens when quality is confirmed)
       setSelectedSourceId(null);
@@ -1040,7 +784,7 @@ export function GroupCallUI({
   }, [isScreenSharing, t]);
 
   const handleSelectSource = useCallback((sourceId: string) => {
-    setShowSourcePicker(false);
+    setCall({ showSourcePicker: false });
     setSelectedSourceId(sourceId);
     setShowQualityPicker(true);
   }, []);
@@ -1051,7 +795,7 @@ export function GroupCallUI({
     setSelectedSourceId(null);
     try {
       await groupCallService.startScreenShare(sourceId, quality);
-      setIsScreenSharing(true);
+      setCall({ isScreenSharing: true });
       wsService.send('screen_share_started', {});
     } catch (err) {
       // NotAllowedError covers both an explicit permission deny AND the user
@@ -1134,7 +878,7 @@ export function GroupCallUI({
         <ScreenSourcePicker
           sources={screenSources}
           onSelect={handleSelectSource}
-          onCancel={() => setShowSourcePicker(false)}
+          onCancel={() => setCall({ showSourcePicker: false })}
         />
       )}
       {showQualityPicker && (
@@ -1171,13 +915,13 @@ export function GroupCallUI({
               </span>
               <button
                 className="screen-share-banner-btn"
-                onClick={() => setFocusedUserId(firstSharer)}
+                onClick={() => setCall({ focusedUserId: firstSharer })}
               >
                 {t('call.view')}
               </button>
               <button
                 className="screen-share-banner-dismiss"
-                onClick={() => setBannerDismissed(true)}
+                onClick={() => setCall({ bannerDismissed: true })}
                 title={t('call.dismiss')}
               >
                 ✕
@@ -1214,7 +958,7 @@ export function GroupCallUI({
                   </button>
                   <button
                     className="screen-share-ctrl-btn"
-                    onClick={() => setFocusedUserId(null)}
+                    onClick={() => setCall({ focusedUserId: null })}
                     title={t('call.backToGrid')}
                   >
                     ⊞
@@ -1259,12 +1003,12 @@ export function GroupCallUI({
                     isSharing={screenSharers.has(p.userId)}
                     layout="thumbnail"
                     isFocused={focusedUserId === p.userId}
-                    onFocus={() => setFocusedUserId(p.userId)}
+                    onFocus={() => setCall({ focusedUserId: p.userId })}
                     videoRefSetter={(el) => { if (el) remoteVideoRefs.current.set(p.userId, el); }}
                     volume={participantVolumes[p.userId] ?? 100}
                     isVolumePopoverOpen={volumePopoverUserId === p.userId}
-                    onToggleVolumePopover={() => setVolumePopoverUserId((prev) => (prev === p.userId ? null : p.userId))}
-                    onCloseVolumePopover={() => setVolumePopoverUserId(null)}
+                    onToggleVolumePopover={() => setCall((s) => ({ volumePopoverUserId: s.volumePopoverUserId === p.userId ? null : p.userId }))}
+                    onCloseVolumePopover={() => setCall({ volumePopoverUserId: null })}
                     onVolumeChange={(value) => handleVolumeChange(p.userId, value)}
                     quality={qualityByUser[p.userId]}
                   />
@@ -1303,12 +1047,12 @@ export function GroupCallUI({
                   muted={remoteMicMuted.get(p.userId) ?? false}
                   isSharing={screenSharers.has(p.userId)}
                   layout="grid"
-                  onFocus={() => setFocusedUserId(p.userId)}
+                  onFocus={() => setCall({ focusedUserId: p.userId })}
                   videoRefSetter={(el) => { if (el) remoteVideoRefs.current.set(p.userId, el); }}
                   volume={participantVolumes[p.userId] ?? 100}
                   isVolumePopoverOpen={volumePopoverUserId === p.userId}
-                  onToggleVolumePopover={() => setVolumePopoverUserId((prev) => (prev === p.userId ? null : p.userId))}
-                  onCloseVolumePopover={() => setVolumePopoverUserId(null)}
+                  onToggleVolumePopover={() => setCall((s) => ({ volumePopoverUserId: s.volumePopoverUserId === p.userId ? null : p.userId }))}
+                  onCloseVolumePopover={() => setCall({ volumePopoverUserId: null })}
                   onVolumeChange={(value) => handleVolumeChange(p.userId, value)}
                   quality={qualityByUser[p.userId]}
                 />
