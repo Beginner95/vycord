@@ -44,8 +44,6 @@ func (h *VoiceTokenHandler) IssueToken(w http.ResponseWriter, r *http.Request) {
 			h.sendError(w, http.StatusNotFound, httperr.CodeChannelNotFound, "channel not found")
 		case errors.Is(err, domain.ErrChannelForbidden), errors.Is(err, domain.ErrForbidden):
 			h.sendError(w, http.StatusForbidden, httperr.CodeChannelForbidden, "channel access denied")
-		case errors.Is(err, domain.ErrChannelNotVoice):
-			h.sendError(w, http.StatusBadRequest, httperr.CodeChannelNotVoice, "channel is not a voice channel")
 		default:
 			h.log.Error("voice token request failed", "request_id", middleware.RequestIDFromContext(r.Context()), "error", err)
 			h.sendError(w, http.StatusInternalServerError, httperr.CodeVoiceTokenFailed, "failed to issue voice token")

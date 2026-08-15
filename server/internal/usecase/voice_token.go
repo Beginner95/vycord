@@ -21,12 +21,8 @@ func NewVoiceTokenUseCase(access domain.ChannelAccessChecker, jwtSecret string) 
 }
 
 func (uc *voiceTokenUseCase) IssueToken(channelID, userID uuid.UUID) (string, error) {
-	ch, err := uc.access.CheckChannelAccess(channelID, userID)
-	if err != nil {
+	if _, err := uc.access.CheckChannelAccess(channelID, userID); err != nil {
 		return "", err
-	}
-	if ch.Type != domain.ChannelTypeVoice {
-		return "", domain.ErrChannelNotVoice
 	}
 
 	token, err := authtoken.GenerateRoomToken(uc.jwtSecret, userID, channelID, voiceTokenTTL)

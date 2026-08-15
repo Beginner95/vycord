@@ -83,7 +83,7 @@ type VoiceTokenUseCase interface {
 	// IssueToken mints a short-lived JWT scoped to a single SFU room after
 	// verifying userID may access channelID (server membership plus
 	// PermViewChannels; a private server's non-members already resolve to
-	// zero permissions upstream). Requires channelID to be a voice channel.
+	// zero permissions upstream).
 	IssueToken(channelID, userID uuid.UUID) (string, error)
 }
 

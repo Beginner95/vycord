@@ -26,10 +26,10 @@ func (m *MockChannelAccessChecker) GetChannelAudience(channelID uuid.UUID) ([]uu
 	return ids, args.Error(1)
 }
 
-func TestIssueToken_VoiceChannelAccessGranted_ReturnsValidRoomToken(t *testing.T) {
+func TestIssueToken_ChannelAccessGranted_ReturnsValidRoomToken(t *testing.T) {
 	channelID := uuid.New()
 	userID := uuid.New()
-	ch := &domain.Channel{ID: channelID, Type: domain.ChannelTypeVoice}
+	ch := &domain.Channel{ID: channelID}
 
 	access := new(MockChannelAccessChecker)
 	access.On("CheckChannelAccess", channelID, userID).Return(ch, nil)
@@ -57,16 +57,22 @@ func TestIssueToken_AccessDenied_PropagatesError(t *testing.T) {
 	assert.ErrorIs(t, err, domain.ErrChannelForbidden)
 }
 
-func TestIssueToken_TextChannel_Rejected(t *testing.T) {
+func TestIssueToken_AnyAccessibleChannel_ReturnsValidRoomToken(t *testing.T) {
 	channelID := uuid.New()
 	userID := uuid.New()
-	ch := &domain.Channel{ID: channelID, Type: domain.ChannelTypeText}
+	// Тип канала больше не существует — любой канал, к которому есть доступ,
+	// пригоден для голоса.
+	ch := &domain.Channel{ID: channelID}
 
 	access := new(MockChannelAccessChecker)
 	access.On("CheckChannelAccess", channelID, userID).Return(ch, nil)
 
 	uc := usecase.NewVoiceTokenUseCase(access, "test-secret")
-	_, err := uc.IssueToken(channelID, userID)
+	tok, err := uc.IssueToken(channelID, userID)
 
-	assert.ErrorIs(t, err, domain.ErrChannelNotVoice)
+	require.NoError(t, err)
+	gotUser, gotRoom, err := authtoken.ValidateRoomToken("test-secret", tok)
+	require.NoError(t, err)
+	assert.Equal(t, userID, gotUser)
+	assert.Equal(t, channelID, gotRoom)
 }
