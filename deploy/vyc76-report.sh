@@ -87,16 +87,17 @@ ORDER BY timestamp DESC LIMIT 60;
 \echo ''
 \echo '=== ПОКРЫТИЕ: кто вообще шлёт события инструментированной сборки ==='
 \echo '=== ВАЖНО: паблишер, которого здесь нет, невидим — его uplink не измеряется ==='
-\echo '=== (тег release не отличает старый бандл от нового: версия не менялась) ==='
+\echo '=== release < 1.7.4 = старая сборка без инструментации отдачи (нужен F5 / рестарт) ==='
 SELECT data->'extra'->>'selfUserId' AS "user",
        tags->>'platform' AS platform,
+       tags->>'release'  AS release,
        count(*) AS events,
        count(*) FILTER (WHERE tags->>'kind' = 'uplink-pacing') AS uplink_events,
        max(timestamp) AS last_seen
 FROM issue_events_issueevent
 WHERE tags->>'module' = 'vyc76'
   AND timestamp > now() - interval '${HOURS} hours'
-GROUP BY 1, 2 ORDER BY 3 DESC;
+GROUP BY 1, 2, 3 ORDER BY 4 DESC;
 
 \echo ''
 \echo '=== ПЕРЕПИСЬ ICE-ПУТЕЙ: на чём сидят клиенты (ice-path-initial) ==='
