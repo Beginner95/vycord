@@ -242,6 +242,11 @@ class GroupCallService {
   // Empty until the first sample; used to detect mid-call path moves.
   private lastIcePath = '';
   private icePathChanges = 0;
+  // VYC-76 fast uplink sampler: 500ms pps samples covering one 3s pacing tick.
+  private uplinkFastIntervalId: ReturnType<typeof setInterval> | null = null;
+  private uplinkPpsWindow: number[] = [];
+  private lastFastPacketsSent = 0;
+  private lastFastSampleAt = 0;
 
   // Timestamps for mobile diagnostic metrics (milliseconds since epoch).
   private joinedAt = 0;
@@ -430,8 +435,72 @@ class GroupCallService {
     this.inCall = false;
   }
 
+  // VYC-76: fast uplink sampler, 500ms. Exists because the 3s pacing tick
+  // measures only the AVERAGE rate and is blind to the failure we actually see.
+  //
+  // In the 2026-08-15 episodes the sick inbound track carried ~50 pps on
+  // average while swinging 32–69 between ticks, i.e. the sender was emitting in
+  // waves. Averaged over 3s that reads as a healthy 50 and the [35,70] guard
+  // never fires. Sampling 6x faster and reporting the SPREAD (not the mean) is
+  // what makes such a wave visible from the sending side.
+  //
+  // Deliberately sender-scoped rather than pc.getStats(): the microphone sender
+  // is the only thing being judged here, and per-sender stats stay small as the
+  // room grows.
+  private startUplinkFastSampler(): void {
+    this.stopUplinkFastSampler();
+    this.uplinkPpsWindow = [];
+    this.lastFastPacketsSent = 0;
+    this.lastFastSampleAt = 0;
+    this.uplinkFastIntervalId = setInterval(() => {
+      void this.sampleUplinkFast();
+    }, 500);
+  }
+
+  private stopUplinkFastSampler(): void {
+    if (this.uplinkFastIntervalId !== null) {
+      clearInterval(this.uplinkFastIntervalId);
+      this.uplinkFastIntervalId = null;
+    }
+  }
+
+  private async sampleUplinkFast(): Promise<void> {
+    if (!this.pc || this.pc.connectionState !== 'connected') return;
+    // The mic sender is the FIRST audio sender: transceiver slot [0] is the
+    // microphone and slot [3] is screen-audio (see NewParticipantSession on the
+    // server for the fixed ordering). Measuring screen-audio here would report
+    // a dummy silent track's pacing instead of the voice we care about.
+    const sender = this.pc.getSenders().find((s) => s.track?.kind === 'audio');
+    if (!sender) return;
+    try {
+      const stats = await sender.getStats();
+      let packetsSent = 0;
+      stats.forEach((r) => {
+        if (r.type === 'outbound-rtp' && (r as any).kind === 'audio') {
+          packetsSent = ((r as any).packetsSent as number | undefined) ?? 0;
+        }
+      });
+      const now = Date.now();
+      if (this.lastFastSampleAt > 0 && packetsSent >= this.lastFastPacketsSent) {
+        const dSec = (now - this.lastFastSampleAt) / 1000;
+        if (dSec > 0.1) {
+          const pps = (packetsSent - this.lastFastPacketsSent) / dSec;
+          this.uplinkPpsWindow.push(pps);
+          // Keep one 3s pacing window's worth, so the spread reported alongside
+          // a pacing tick describes exactly that tick's interval.
+          if (this.uplinkPpsWindow.length > 6) this.uplinkPpsWindow.shift();
+        }
+      }
+      this.lastFastPacketsSent = packetsSent;
+      this.lastFastSampleAt = now;
+    } catch {
+      // getStats throws on a closing pc — same handling as sampleQuality.
+    }
+  }
+
   private startQualitySampler(): void {
     this.stopQualitySampler();
+    this.startUplinkFastSampler();
     this.lastBytesSent = 0;
     this.lastBytesSentAt = 0;
     // Reset the VYC-76 baselines too: a rejoin builds a new PeerConnection, so
@@ -451,6 +520,7 @@ class GroupCallService {
   }
 
   private stopQualitySampler(): void {
+    this.stopUplinkFastSampler();
     if (this.qualityIntervalId !== null) {
       clearInterval(this.qualityIntervalId);
       this.qualityIntervalId = null;
@@ -631,8 +701,38 @@ class GroupCallService {
           ? `${local?.candidateType ?? '?'}/${local?.relayProtocol ?? local?.protocol ?? '?'}` +
             ` → ${remote?.candidateType ?? '?'}/${remote?.protocol ?? '?'}`
           : 'unknown';
+      // Spread across the 500ms samples inside this tick, computed ONLY over
+      // samples that carry actual speech.
+      //
+      // The filter is not optional. When the speaker pauses, the rate collapses
+      // toward comfort-noise levels, so a window straddling a speech boundary
+      // mixes ~50 pps with near-zero and yields a spread near 2 — on every
+      // sentence break, from a perfectly healthy sender. Unfiltered, this
+      // detector would burn the 10-report budget within the first half-minute
+      // of any call and never report the wave it exists to catch.
+      //
+      // 20 pps sits well below the ~50 of continuous speech and well above
+      // comfort noise. The sick track's own low point was 32 pps, so a genuine
+      // wave survives the filter intact.
+      const SPEECH_PPS_FLOOR = 20;
+      const win = this.uplinkPpsWindow.filter((p) => p >= SPEECH_PPS_FLOOR);
+      let ppsMin = -1;
+      let ppsMax = -1;
+      let ppsSpread = -1;
+      // Require most of the window to be speech: 3 of 6 surviving samples could
+      // otherwise straddle a pause and still report a spread built from its edge.
+      if (win.length >= 5) {
+        ppsMin = Math.min(...win);
+        ppsMax = Math.max(...win);
+        const mean = win.reduce((a, b) => a + b, 0) / win.length;
+        if (mean > 1) ppsSpread = (ppsMax - ppsMin) / mean;
+      }
+
       const fields = {
         pps: pps.toFixed(1),
+        ppsMin: ppsMin >= 0 ? ppsMin.toFixed(1) : 'N/A',
+        ppsMax: ppsMax >= 0 ? ppsMax.toFixed(1) : 'N/A',
+        ppsSpread: ppsSpread >= 0 ? ppsSpread.toFixed(2) : 'N/A',
         sendDelayMsPerPkt: sendDelayMsPerPkt >= 0 ? sendDelayMsPerPkt.toFixed(1) : 'N/A',
         samplesDurationDrift: (dSamples - dSec).toFixed(3),
         path,
@@ -685,13 +785,28 @@ class GroupCallService {
           );
         }
       }
-      // 50 pps is nominal; flag both directions — a stall and the burst that
-      // drains it are two halves of the same event and must both be captured.
-      if (dSec > 0 && (pps < 35 || pps > 70)) {
+      // Two independent triggers, because they catch different failures:
+      //
+      //   rate  — mean outside [35,70]: a stall, or the burst draining it.
+      //   spread — the 500ms samples inside this tick disagree by more than 60%
+      //            of their mean. This is the one the old detector lacked. The
+      //            sick track on 2026-08-15 averaged a healthy ~50 pps while
+      //            swinging 32–69, so only the spread test can see it.
+      //
+      // 0.6 sits above ordinary DTX behaviour (speech onsets move the rate but
+      // not that far within 3s) and well below the observed wave, whose spread
+      // computes to roughly 0.7.
+      const rateBad = pps < 35 || pps > 70;
+      const spreadBad = ppsSpread >= 0.6;
+      if (dSec > 0 && (rateBad || spreadBad)) {
         gcLog(this.currentUserId, '[VYC-76] UPLINK PACING ANOMALY', fields);
         this.reportVyc76('uplink-pacing', 'VYC-76 uplink pacing anomaly', {
           ...fields,
+          trigger: spreadBad && rateBad ? 'rate+spread' : spreadBad ? 'spread' : 'rate',
           ppsNum: Number(pps.toFixed(1)),
+          ppsMinNum: ppsMin,
+          ppsMaxNum: ppsMax,
+          ppsSpreadNum: ppsSpread,
           sendDelayMsPerPktNum: sendDelayMsPerPkt,
           samplesDurationDriftNum: dSamples - dSec,
           tickSec: dSec,

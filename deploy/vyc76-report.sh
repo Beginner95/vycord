@@ -65,11 +65,16 @@ ORDER BY timestamp DESC LIMIT 60;
 
 \echo ''
 \echo '=== Аномалии отдачи у публикующих (uplink-pacing) ==='
-\echo '=== path вида relay/tcp или relay/tls подтверждает гипотезу TURN-over-TCP ==='
+\echo '=== trigger=spread — отдача идёт ВОЛНАМИ при нормальном среднем; ==='
+\echo '=== именно это пропускал старый детектор и именно так выглядел больной трек ==='
 SELECT timestamp,
        data->'extra'->>'selfUserId' AS publisher,
        data->'extra'->>'roomId'     AS room,
+       COALESCE(data->'extra'->>'trigger','rate')                     AS trigger,
        round((data->'extra'->>'ppsNum')::numeric, 1)                  AS pps,
+       round((data->'extra'->>'ppsMinNum')::numeric, 1)               AS pps_min,
+       round((data->'extra'->>'ppsMaxNum')::numeric, 1)               AS pps_max,
+       round((data->'extra'->>'ppsSpreadNum')::numeric, 2)            AS spread,
        round((data->'extra'->>'sendDelayMsPerPktNum')::numeric, 1)    AS send_delay_ms,
        round((data->'extra'->>'samplesDurationDriftNum')::numeric, 3) AS capture_drift_s,
        tags->>'path'     AS ice_path,
@@ -78,6 +83,20 @@ FROM issue_events_issueevent
 WHERE tags->>'module' = 'vyc76' AND tags->>'kind' = 'uplink-pacing'
   AND timestamp > now() - interval '${HOURS} hours'
 ORDER BY timestamp DESC LIMIT 60;
+
+\echo ''
+\echo '=== ПОКРЫТИЕ: кто вообще шлёт события инструментированной сборки ==='
+\echo '=== ВАЖНО: паблишер, которого здесь нет, невидим — его uplink не измеряется ==='
+\echo '=== (тег release не отличает старый бандл от нового: версия не менялась) ==='
+SELECT data->'extra'->>'selfUserId' AS "user",
+       tags->>'platform' AS platform,
+       count(*) AS events,
+       count(*) FILTER (WHERE tags->>'kind' = 'uplink-pacing') AS uplink_events,
+       max(timestamp) AS last_seen
+FROM issue_events_issueevent
+WHERE tags->>'module' = 'vyc76'
+  AND timestamp > now() - interval '${HOURS} hours'
+GROUP BY 1, 2 ORDER BY 3 DESC;
 
 \echo ''
 \echo '=== ПЕРЕПИСЬ ICE-ПУТЕЙ: на чём сидят клиенты (ice-path-initial) ==='
