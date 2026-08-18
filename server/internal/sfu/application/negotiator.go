@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"sync/atomic"
 	"time"
 
 	"github.com/pion/webrtc/v4"
@@ -27,6 +28,21 @@ var defaultRetryBackoff = []time.Duration{
 	8 * time.Second,
 }
 
+// offererPC is the subset of *webrtc.PeerConnection's API negotiate() drives
+// an offer/answer exchange through. A real pion PeerConnection satisfies this
+// structurally, so production code is unaffected; it exists so tests can
+// inject a fake that fails at one specific step (e.g. SetLocalDescription
+// while CreateOffer still succeeds) — something a real PC has no way to
+// force deterministically, since its only failure trigger for either call is
+// pc.isClosed, which fails both identically.
+type offererPC interface {
+	SignalingState() webrtc.SignalingState
+	LocalDescription() *webrtc.SessionDescription
+	CreateOffer(options *webrtc.OfferOptions) (webrtc.SessionDescription, error)
+	SetLocalDescription(desc webrtc.SessionDescription) error
+	SetRemoteDescription(desc webrtc.SessionDescription) error
+}
+
 // negotiator serialises offer/answer exchanges for a single PeerConnection.
 //
 // Why: pion fires OnNegotiationNeeded for every AddTrack / AddTransceiver call.
@@ -38,7 +54,7 @@ var defaultRetryBackoff = []time.Duration{
 // After each answer is applied, the loop checks whether a new trigger arrived
 // and re-negotiates without delay.
 type negotiator struct {
-	pc      *webrtc.PeerConnection
+	pc      offererPC
 	session SignalingSession
 	log     *slog.Logger
 
@@ -68,6 +84,15 @@ type negotiator struct {
 	// retryCount tracks how many consecutive retries have been scheduled since the
 	// last success. Accessed only from the Run goroutine — no locking needed.
 	retryCount int
+
+	// iceRestartPending marks that the next offer must re-gather ICE. Set from
+	// outside the Run goroutine (PC state callback, client request) and consumed
+	// inside it, hence atomic.
+	//
+	// It is a flag rather than a parameter of a call because negotiation is
+	// serialised: several restart requests arriving while one negotiation is in
+	// flight must collapse into a single restart, exactly like ordinary triggers.
+	iceRestartPending atomic.Bool
 }
 
 func newNegotiator(pc *webrtc.PeerConnection, session SignalingSession, log *slog.Logger) *negotiator {
@@ -91,6 +116,18 @@ func (n *negotiator) trigger() {
 	default:
 		// A trigger is already queued; it will be processed after current negotiation.
 	}
+}
+
+// TriggerICERestart requests that the next offer re-gather ICE: fresh
+// credentials and a fresh candidate set, so the client's ICE agent abandons a
+// candidate pair that has stopped passing traffic instead of waiting it out.
+//
+// The alternative the client used to take — tear the PeerConnection down and
+// rejoin the room — costs everyone in the room a renegotiation and a new jitter
+// buffer, for what is usually a few hundred milliseconds of packet loss.
+func (n *negotiator) TriggerICERestart() {
+	n.iceRestartPending.Store(true)
+	n.trigger()
 }
 
 // DeliverAnswer delivers the client's SDP answer to the pending negotiation.
@@ -124,6 +161,16 @@ func (n *negotiator) Run(ctx context.Context) {
 				// A successful negotiation flushed all pending tracks; reset the
 				// budget so a later, unrelated failure gets its full retry allowance.
 				n.retryCount = 0
+				// A restart requested while the PC was wedged in have-local-offer
+				// could not be created then (see negotiate). The negotiation that
+				// just succeeded consumed the trigger that came with it, so without
+				// re-triggering here the request would be silently forgotten and the
+				// participant left on a dead ICE path. Now that the PC is stable the
+				// next pass can create the restart offer.
+				if n.iceRestartPending.Load() {
+					n.log.Info("re-triggering negotiation to apply a deferred ICE restart")
+					n.trigger()
+				}
 			}
 		}
 	}
@@ -180,14 +227,37 @@ func (n *negotiator) negotiate(ctx context.Context) error {
 		}
 		n.log.Warn("resending pending offer to recover a stalled negotiation",
 			"signaling_state", n.pc.SignalingState().String(),
+			"ice_restart_pending", n.iceRestartPending.Load(),
 		)
 	} else {
-		offer, err := n.pc.CreateOffer(nil)
+		// Consume the flag only here, where a restart can actually be created:
+		// CreateOffer with ICERestart:true is invalid outside stable, so a request
+		// that lands during the resend branch above stays pending and is applied
+		// after the pending offer is finally answered.
+		var opts *webrtc.OfferOptions
+		if n.iceRestartPending.CompareAndSwap(true, false) {
+			opts = &webrtc.OfferOptions{ICERestart: true}
+			n.log.Info("creating offer with ICE restart")
+		}
+		offer, err := n.pc.CreateOffer(opts)
 		if err != nil {
+			// The restart request is lost with this offer; put it back so the
+			// retry re-attempts it rather than negotiating without a restart.
+			if opts != nil {
+				n.iceRestartPending.Store(true)
+			}
 			return fmt.Errorf("create offer: %w", err)
 		}
 		// SetLocalDescription starts ICE gathering (trickle ICE sends candidates async).
 		if err := n.pc.SetLocalDescription(offer); err != nil {
+			// Same reasoning as the CreateOffer error path above: the restart
+			// this offer would have performed did not happen, so the request
+			// must survive to the retry — otherwise it is silently dropped and
+			// the participant stays on the broken ICE path TriggerICERestart
+			// was asked to fix.
+			if opts != nil {
+				n.iceRestartPending.Store(true)
+			}
 			return fmt.Errorf("set local description: %w", err)
 		}
 	}

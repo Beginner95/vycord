@@ -53,6 +53,28 @@ type JoinedPayload struct {
 	// share, which the app-WS 'screen_share_started' broadcast alone never
 	// delivers to late joiners.
 	SharingPeers []string `json:"sharing_peers"`
+	// ResumeToken lets the client reattach to this exact ParticipantSession —
+	// same PeerConnection, same forwarded tracks — if only its WebSocket dies
+	// later, by reconnecting with resume_token instead of joining fresh. See
+	// ResumedPayload.
+	ResumeToken string `json:"resume_token"`
+}
+
+// ResumedPayload confirms a resume_token reattached successfully. The client
+// keeps its existing RTCPeerConnection untouched and simply resumes signaling
+// over the new WebSocket, instead of the full rejoin (new PC, new jitter
+// buffers for everyone) it would otherwise fall back to.
+//
+// ExistingPeers/SharingPeers carry the same resync purpose as JoinedPayload's:
+// while this participant's previous session sat dead, any participant_joined/
+// participant_left broadcast for someone else was sent to that dead session
+// and silently lost — nothing queues it for later. Without a fresh snapshot
+// here, the resumed client's participant list would stay wrong (missing
+// arrivals, showing departed peers) until a full rejoin.
+type ResumedPayload struct {
+	RoomID        string   `json:"room_id"`
+	ExistingPeers []string `json:"existing_peers"`
+	SharingPeers  []string `json:"sharing_peers"`
 }
 
 type OfferPayload struct {

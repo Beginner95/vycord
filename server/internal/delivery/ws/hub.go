@@ -109,13 +109,13 @@ func (h *Hub) Run() {
 			// Notify all clients about the disconnected user
 			h.notifyAllOnlineUsersAfterDisconnect(client.UserID.String(), currentIDs)
 
-			// Clean up voice-channel presence left behind by an unexpected disconnect.
-			// Dispatched via goroutine: BroadcastVoiceParticipants sends on h.broadcast,
-			// which only Run()'s own select loop drains — calling it synchronously here
-			// would deadlock Run() against itself.
-			if channelID, participants, ok := h.LeaveVoiceChannel(client.UserID); ok {
-				go h.BroadcastVoiceParticipants(channelID, participants)
-			}
+			// Voice-channel presence is deliberately left untouched here (VYC-78
+			// step 4, design doc 8.4): this WebSocket dying says nothing about
+			// whether the user is still in a call — it is the API's own
+			// connection, unrelated to the SFU's. Wiping it was a systematically
+			// false signal (any blip vanished the user from everyone's sidebar).
+			// The presence-reconciliation worker (package presence) now corrects
+			// voice state against the SFU's own ground truth instead.
 
 		case message := <-h.broadcast:
 			// Write lock, not RLock: evicting a slow client mutates the map
@@ -438,6 +438,73 @@ func (h *Hub) LeaveVoiceChannel(userID uuid.UUID) (channelID uuid.UUID, particip
 	}
 
 	return channelID, h.voiceParticipantsLocked(channelID), true
+}
+
+// ReconcileVoicePresence replaces the hub's voice-presence view wholesale with
+// actual (a snapshot from the SFU, the ground truth — VYC-78 step 4, design
+// doc 8.2: "SFU владеет фактом, API — видимостью") and returns the IDs of
+// every channel whose participant set actually changed, so the caller
+// broadcasts only those instead of resending everything on every tick.
+//
+// The derived clientVoiceChannel index is rebuilt wholesale from the result
+// rather than patched incrementally: the SFU snapshot is authoritative by
+// design, so there is no "which is fresher" comparison to make against
+// whatever voice_joined/voice_left last recorded — reconciliation always wins
+// (design doc 8.4: "Сверка их молча перекрывает").
+//
+// Safety: the empty-snapshot guard against wiping live presence when the SFU
+// is unreachable is the CALLER's responsibility (checked once before this
+// runs, see package presence) — this method has no way to distinguish "the
+// SFU legitimately reports zero rooms" from "the fetch came back empty for a
+// bad reason", so it always trusts actual literally.
+func (h *Hub) ReconcileVoicePresence(actual map[uuid.UUID][]uuid.UUID) []uuid.UUID {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	var changed []uuid.UUID
+	seen := make(map[uuid.UUID]bool, len(actual))
+
+	for channelID, userIDs := range actual {
+		seen[channelID] = true
+		desired := make(map[uuid.UUID]struct{}, len(userIDs))
+		for _, id := range userIDs {
+			desired[id] = struct{}{}
+		}
+		if voiceSetEqual(h.voiceChannels[channelID], desired) {
+			continue
+		}
+		h.voiceChannels[channelID] = desired
+		changed = append(changed, channelID)
+	}
+
+	for channelID := range h.voiceChannels {
+		if seen[channelID] {
+			continue
+		}
+		delete(h.voiceChannels, channelID)
+		changed = append(changed, channelID)
+	}
+
+	h.clientVoiceChannel = make(map[uuid.UUID]uuid.UUID, len(h.voiceChannels))
+	for channelID, users := range h.voiceChannels {
+		for id := range users {
+			h.clientVoiceChannel[id] = channelID
+		}
+	}
+
+	return changed
+}
+
+func voiceSetEqual(a, b map[uuid.UUID]struct{}) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for id := range a {
+		if _, ok := b[id]; !ok {
+			return false
+		}
+	}
+	return true
 }
 
 // GetVoiceState returns a snapshot of all non-empty voice channels and their participants.

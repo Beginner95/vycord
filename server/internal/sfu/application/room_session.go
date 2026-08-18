@@ -1,14 +1,24 @@
 package application
 
 import (
+	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"log/slog"
 	"sync"
+	"time"
 
 	"github.com/pion/webrtc/v4"
 
 	"github.com/vycord/server/internal/sfu/domain"
 	sfuwebrtc "github.com/vycord/server/internal/sfu/infrastructure/webrtc"
 )
+
+// defaultGraceTimeout is how long a participant is kept alive — PC open, tracks
+// still forwarding — after its signaling session dies, waiting for a resume
+// before falling back to a normal Leave. 15s covers a WiFi handover or a VPN
+// hiccup; RoomSession.graceTimeout is overridable in tests.
+const defaultGraceTimeout = 15 * time.Second
 
 // RoomSession manages all ParticipantSessions for one room.
 // It is the central coordinator for track routing:
@@ -19,22 +29,54 @@ type RoomSession struct {
 	peerFactory *sfuwebrtc.PeerFactory
 	log         *slog.Logger
 
+	// ctx is the parent every ParticipantSession's own ctx is derived from
+	// (VYC-78 step 2) instead of that participant's signaling session — a dead
+	// WebSocket must no longer be what tears down a participant's PeerConnection
+	// and RTP forwarding. It is cancelled once the domain room reports itself
+	// done, so a room-wide teardown still reaches every participant descended
+	// from it.
+	ctx    context.Context
+	cancel context.CancelFunc
+
+	// graceTimeout is how long StartGrace keeps a participant alive without a
+	// live signaling session. Defaults to defaultGraceTimeout; overridable in
+	// tests.
+	graceTimeout time.Duration
+
 	mu       sync.RWMutex
 	sessions map[string]*ParticipantSession // participantID → session
 	// watchers maps a publisher's participantID to the set of subscriber
 	// participantIDs currently watching their screen share. Only screen-role
 	// tracks are gated by this — camera/mic keep broadcasting to everyone.
 	watchers map[string]map[string]bool
+	// graceTokens maps a resume token (issued once at Join) to the
+	// participantID it can reattach to. Guarded by mu, alongside sessions.
+	graceTokens map[string]string
 }
 
 func NewRoomSession(room *domain.Room, peerFactory *sfuwebrtc.PeerFactory, log *slog.Logger) *RoomSession {
-	return &RoomSession{
-		room:        room,
-		peerFactory: peerFactory,
-		log:         log,
-		sessions:    make(map[string]*ParticipantSession),
-		watchers:    make(map[string]map[string]bool),
+	ctx, cancel := context.WithCancel(context.Background())
+	rs := &RoomSession{
+		room:         room,
+		peerFactory:  peerFactory,
+		log:          log,
+		ctx:          ctx,
+		cancel:       cancel,
+		graceTimeout: defaultGraceTimeout,
+		sessions:     make(map[string]*ParticipantSession),
+		watchers:     make(map[string]map[string]bool),
+		graceTokens:  make(map[string]string),
 	}
+	// room.Done() closes once the domain room empties out for good (see
+	// domain.Room.RemoveParticipant). Cancelling rs.ctx here is a backstop, not
+	// the normal teardown path — participants are torn down explicitly by
+	// finishLeave and RoomManager.Shutdown before that point is ever reached —
+	// but it means nothing descended from rs.ctx can outlive the room itself.
+	go func() {
+		<-room.Done()
+		cancel()
+	}()
+	return rs
 }
 
 // Join creates a new ParticipantSession, adds existing participants' tracks to its PC,
@@ -50,6 +92,7 @@ func (rs *RoomSession) Join(
 	}
 
 	ps := NewParticipantSession(
+		rs.ctx,
 		participant,
 		pc,
 		sigSession,
@@ -122,6 +165,18 @@ func (rs *RoomSession) Join(
 	}
 
 	rs.sessions[participant.ID] = ps
+	if token, err := generateResumeToken(); err != nil {
+		// crypto/rand failing is effectively unreachable in practice; degrade by
+		// letting the join through without resume capability rather than failing
+		// it outright — a dropped WS just falls back to a normal rejoin.
+		rs.log.Warn("failed to generate resume token, participant will not be able to resume a dropped session",
+			"participant_id", participant.ID,
+			"error", err,
+		)
+	} else {
+		ps.resumeToken = token
+		rs.graceTokens[token] = participant.ID
+	}
 	rs.mu.Unlock()
 
 	// The new participant is added to the domain room BEFORE the stale one is
@@ -202,6 +257,9 @@ func (rs *RoomSession) finishLeave(ps *ParticipantSession) {
 	for _, subs := range rs.watchers {
 		delete(subs, ps.Participant.ID)
 	}
+	if token := ps.ResumeToken(); token != "" {
+		delete(rs.graceTokens, token)
+	}
 	rs.mu.Unlock()
 
 	rs.log.Info("participant left room",
@@ -238,6 +296,102 @@ func (rs *RoomSession) finishLeave(ps *ParticipantSession) {
 	rs.broadcastEvent("participant_left", map[string]any{
 		"user_id": ps.Participant.UserID,
 	}, "")
+}
+
+// StartGrace begins the grace window for participantID instead of ending the
+// participant's session immediately when its WebSocket dies: the participant
+// stays in the room — PC alive, tracks still forwarding, no "participant_left"
+// broadcast — for graceTimeout, on the chance the client only lost its
+// signaling socket (TCP breaks far more easily than the UDP media path
+// underneath it) and comes back with the resume token.
+//
+// generation is the value ParticipantSession.Generation() reported when THIS
+// connection attached (captured once, at connect time, by the caller). It is
+// what makes this call safe to run unconditionally from a deferred cleanup: a
+// dying connection cannot know, without asking, whether a newer connection
+// has since resumed the same participant — the client can legitimately
+// reconnect with a fresh resume_token before this server ever notices the old
+// socket died (no read deadline is set; see Resume's cancelGraceTimer
+// comment). If a resume already happened, ps.Generation() has moved past what
+// this call captured, and starting a timer here would be starting one on an
+// already-healthy resumed session — dooming it to die in graceTimeout for a
+// disconnect that was already handled.
+//
+// A participant no longer present is a no-op — this always runs from a
+// deferred cleanup (handler.ServeHTTP), which must tolerate running after an
+// intentional "leave" message already removed the participant via Leave.
+func (rs *RoomSession) StartGrace(participantID string, generation int64) {
+	rs.mu.RLock()
+	ps, ok := rs.sessions[participantID]
+	rs.mu.RUnlock()
+	if !ok {
+		return
+	}
+	started := ps.startGraceTimer(generation, rs.graceTimeout, func() {
+		rs.log.Info("grace window expired, ending participant session",
+			"room_id", rs.room.ID,
+			"user_id", ps.Participant.UserID,
+		)
+		rs.Leave(participantID)
+	})
+	if !started {
+		rs.log.Info("skipping grace: a newer connection has already resumed this participant",
+			"room_id", rs.room.ID,
+			"user_id", ps.Participant.UserID,
+			"connection_generation", generation,
+		)
+	}
+}
+
+// Resume reattaches a reconnecting client to the ParticipantSession its resume
+// token names, instead of the caller falling back to a fresh join.
+//
+// expectedUserID is checked before the grace timer is touched at all: a token
+// that doesn't belong to the caller must never disturb the real owner's
+// pending grace window, so identity is verified strictly before anything with
+// a side effect runs.
+func (rs *RoomSession) Resume(token, expectedUserID string, newSession SignalingSession) (*ParticipantSession, bool) {
+	rs.mu.RLock()
+	participantID, ok := rs.graceTokens[token]
+	if !ok {
+		rs.mu.RUnlock()
+		return nil, false
+	}
+	ps, ok := rs.sessions[participantID]
+	rs.mu.RUnlock()
+	if !ok {
+		return nil, false
+	}
+	if ps.Participant.UserID != expectedUserID {
+		return nil, false
+	}
+
+	if !ps.Resume(newSession) {
+		// A grace timer had already fired (or was firing) when this ran —
+		// finishLeave may be concurrently tearing the participant down, so
+		// there is nothing safe to reattach to. Whether grace had even started
+		// yet is NOT a reason to refuse: the client's own reconnect can
+		// legitimately outrace this server's dead-socket detection, and that
+		// race is exactly what grace-session exists to cover — see Resume's
+		// doc comment.
+		return nil, false
+	}
+
+	rs.log.Info("participant resumed session",
+		"room_id", rs.room.ID,
+		"user_id", ps.Participant.UserID,
+		"participant_id", participantID,
+	)
+	return ps, true
+}
+
+// generateResumeToken returns a random, unguessable hex-encoded token.
+func generateResumeToken() (string, error) {
+	b := make([]byte, 32)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(b), nil
 }
 
 // DeliverAnswer routes a client's SDP answer to their session.

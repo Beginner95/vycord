@@ -17,6 +17,13 @@
 # рождается ДО SFU (транспорт/захват на машине Y). Если же у Y отдача ровная,
 # а слушатели одновременно видят ускорение — всплеск рождается в SFU.
 #
+# С раздела 4.1 спеки к этому добавился watchdog самого SFU-процесса
+# (internal/sfu/diagnostics): отдельная горутина с тикером на 20 мс, которая
+# логирует `runtime stall detected` (уровень WARN, stdout → docker logs), если
+# сама проснулась на 200+ мс позже, чем должна была. Последняя секция этого
+# отчёта сопоставляет её с inbound-accel по времени (±5 с) — у watchdog нет и
+# не может быть roomId/userId, пауза процесса глобальна.
+#
 # Использование:
 #   deploy/vyc76-report.sh [часов]     # по умолчанию 24
 #
@@ -163,3 +170,53 @@ ssh -o BatchMode=yes "$SSH_HOST" \
    | grep -E 'RTP forwarding milestone|track read error' \
    | grep -v 'subscriber_drops=0' | tail -30" \
   || echo "(записей с ненулевыми потерями нет)"
+
+echo
+echo "=== СОПОСТАВЛЕНИЕ (раздел 4.4): runtime stall рядом с inbound-accel ==="
+echo "=== Строка рядом с моментом → пауза процесса SFU подтверждена как причина ==="
+echo "=== Пусто при живых inbound-accel → процесс не вставал, смотреть раздел 4.2 (фанаут) ==="
+echo "=== Оба лога в UTC (GlitchTip timestamp и docker logs у SFU) — приводить не нужно ==="
+
+# Голые эпохи, без \pset border/pager — их же предстоит парсить в цикле ниже,
+# а не читать глазами (человеко-читаемые метки уже есть в секции выше).
+ACCEL_EPOCHS=$(ssh -o BatchMode=yes "$SSH_HOST" \
+  "docker exec vycord-db psql -U \$POSTGRES_USER -d glitchtip -tAc \
+   \"SELECT extract(epoch FROM timestamp)::bigint FROM issue_events_issueevent \
+      WHERE tags->>'module' = 'vyc76' AND tags->>'kind' = 'inbound-accel' \
+        AND timestamp > now() - interval '${HOURS} hours' ORDER BY timestamp\"")
+
+if [[ -z "$ACCEL_EPOCHS" ]]; then
+  echo "(inbound-accel событий за последние ${HOURS}ч нет — сопоставлять нечего)"
+else
+  STALL_LOG=$(ssh -o BatchMode=yes "$SSH_HOST" \
+    "docker logs vycord-sfu --since ${HOURS}h 2>&1 | grep 'runtime stall detected'" || true)
+
+  if [[ -z "$STALL_LOG" ]]; then
+    echo "(watchdog ни разу не сработал за последние ${HOURS}ч — процесс не вставал)"
+  else
+    while IFS= read -r accel_epoch; do
+      [[ -z "$accel_epoch" ]] && continue
+      accel_human=$(date -u -d "@${accel_epoch}" +"%Y-%m-%d %H:%M:%S UTC")
+      window_start=$((accel_epoch - 5))
+      window_end=$((accel_epoch + 5))
+
+      matches=""
+      while IFS= read -r log_line; do
+        [[ -z "$log_line" ]] && continue
+        log_ts=$(grep -oE 'time=[0-9TZ:.-]+' <<< "$log_line" | head -1 | sed 's/^time=//')
+        [[ -z "$log_ts" ]] && continue
+        log_epoch=$(date -u -d "$log_ts" +%s 2>/dev/null) || continue
+        if (( log_epoch >= window_start && log_epoch <= window_end )); then
+          matches+="$log_line"$'\n'
+        fi
+      done <<< "$STALL_LOG"
+
+      if [[ -n "$matches" ]]; then
+        echo "--- inbound-accel @ ${accel_human} — НАЙДЕН runtime stall в окне ±5с ---"
+        printf '%s' "$matches"
+      else
+        echo "--- inbound-accel @ ${accel_human} — stall не найден в окне ±5с ---"
+      fi
+    done <<< "$ACCEL_EPOCHS"
+  fi
+fi

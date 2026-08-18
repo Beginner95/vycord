@@ -24,6 +24,15 @@ type Config struct {
 	TURNURLs               []string
 	TURNTTL                time.Duration
 	UploadDir              string
+	// SFUInternalURL/SFUInternalSecret configure the voice-presence
+	// reconciliation worker (VYC-78 step 4): base URL of the SFU's internal
+	// HTTP API and the shared secret /presence requires (see
+	// httpapi.RequireInternalSecret on the SFU side). Either left empty
+	// disables the worker entirely rather than blocking API startup —
+	// presence reconciliation is a correctness safety net, not core
+	// functionality.
+	SFUInternalURL    string
+	SFUInternalSecret string
 }
 
 func New() (*Config, error) {
@@ -49,6 +58,8 @@ func New() (*Config, error) {
 		TURNURLs:               splitList(getEnv("TURN_URLS", "")),
 		TURNTTL:                parseDuration(getEnv("TURN_CREDENTIAL_TTL", "12h")),
 		UploadDir:              getEnv("UPLOAD_DIR", "./uploads"),
+		SFUInternalURL:         getEnv("SFU_INTERNAL_URL", ""),
+		SFUInternalSecret:      getEnv("SFU_INTERNAL_SECRET", ""),
 	}
 
 	return cfg, nil
