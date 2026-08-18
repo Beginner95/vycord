@@ -5,6 +5,7 @@ import (
 	"io"
 	"log/slog"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/pion/rtcp"
@@ -31,6 +32,15 @@ const (
 	// hiccups (WiFi reconnect, NAT rebinding, mobile handover) while still
 	// cleaning up genuinely disconnected clients well before pion's ~60s timeout.
 	disconnectedTimeout = 30 * time.Second
+
+	// iceRestartMinInterval is the floor between two ICE restarts on one
+	// PeerConnection. Neither trigger is under our control: ICE state can flap
+	// several times a second on a bad path, and request_ice_restart arrives over
+	// the public signaling socket. Without a floor, each restart would re-gather
+	// candidates before the previous attempt had a chance to connect, so the PC
+	// would churn instead of recovering. Three seconds is comfortably longer than
+	// a restart needs to either connect or visibly fail.
+	iceRestartMinInterval = 3 * time.Second
 )
 
 // keyframeRetryDelays is the back-off schedule for the keyframe-retry loop in
@@ -62,8 +72,11 @@ type ParticipantSession struct {
 	Participant *domain.Participant
 	pc          *webrtc.PeerConnection
 	neg         *negotiator
-	session     SignalingSession
-	log         *slog.Logger
+	// session is a *sessionHolder rather than a raw SignalingSession so a
+	// grace-session resume (VYC-78 step 3) can redirect it to a freshly
+	// reconnected client without touching pc, neg, or ctx.
+	session *sessionHolder
+	log     *slog.Logger
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -93,32 +106,72 @@ type ParticipantSession struct {
 	idleTimer *time.Timer
 	// disconnectTimer fires if ICE stays Disconnected longer than disconnectedTimeout.
 	disconnectTimer *time.Timer
+	// lastICERestart is when the last ICE restart was requested; zero if never.
+	// Guarded by timerMu, like the timers it is rate-limiting alongside.
+	lastICERestart time.Time
+	// iceRestartMinInterval is the floor between restarts. Defaults to the
+	// package constant; overridable in tests.
+	iceRestartMinInterval time.Duration
+	// graceTimer runs while this participant's signaling session is dead but the
+	// participant itself is being kept alive, waiting for a resume (VYC-78 step
+	// 3). nil when not in grace.
+	graceTimer *time.Timer
+
+	// resumeToken lets a reconnecting client reattach to this exact
+	// ParticipantSession (same PeerConnection, same forwarded tracks) instead of
+	// joining fresh. Issued once at Join and constant for the session's whole
+	// life — see RoomSession.Join / RoomSession.Resume.
+	resumeToken string
+
+	// generation counts successful Resume() reattachments — 0 for the original
+	// connection from Join, incremented by each resume. A connection captures
+	// the generation current at the moment IT attached and hands it back to
+	// RoomSession.StartGrace when it dies; StartGrace compares that against
+	// the CURRENT generation to recognize a call from a connection that has
+	// since been superseded by a newer resume, and skip starting a timer that
+	// would otherwise doom an already-healthy resumed session to death in
+	// graceTimeout for no reason. See RoomSession.StartGrace.
+	generation atomic.Int64
 
 	// onTrack is invoked by the room session whenever this participant publishes a new track.
 	onTrack func(p *domain.Participant, track *domain.PublishedTrack, remote *webrtc.TrackRemote)
 }
 
+// NewParticipantSession creates a session whose lifetime is governed by
+// parentCtx — the room's context, not the signaling session's. A participant's
+// PeerConnection and RTP forwarding must survive a dead WebSocket (grace-session
+// resume, VYC-78 step 3, reconnects a new session into the same
+// ParticipantSession); parentCtx is what makes that possible. Session death is
+// no longer what ends a participant — only an explicit Close() or parentCtx
+// cancellation does.
 func NewParticipantSession(
+	parentCtx context.Context,
 	participant *domain.Participant,
 	pc *webrtc.PeerConnection,
 	session SignalingSession,
 	log *slog.Logger,
 	onTrack func(*domain.Participant, *domain.PublishedTrack, *webrtc.TrackRemote),
 ) *ParticipantSession {
-	ctx, cancel := context.WithCancel(session.Context())
+	ctx, cancel := context.WithCancel(parentCtx)
+	holder := newSessionHolder(session)
 
 	ps := &ParticipantSession{
-		Participant:    participant,
-		pc:             pc,
-		session:        session,
-		log:            log,
-		ctx:            ctx,
-		cancel:         cancel,
-		onTrack:        onTrack,
-		sendersByTrack: make(map[string]forwardedTrack),
+		Participant:           participant,
+		pc:                    pc,
+		session:               holder,
+		log:                   log,
+		ctx:                   ctx,
+		cancel:                cancel,
+		onTrack:               onTrack,
+		sendersByTrack:        make(map[string]forwardedTrack),
+		iceRestartMinInterval: iceRestartMinInterval,
 	}
 
-	ps.neg = newNegotiator(pc, session, log)
+	// The negotiator holds the same holder (as a plain SignalingSession — the
+	// holder satisfies the interface by delegating), so a future Set() call
+	// redirects both this session's own sends and the negotiator's offers in one
+	// place.
+	ps.neg = newNegotiator(pc, holder, log)
 	ps.neg.onAnswerApplied = ps.flushPendingICE
 
 	pc.OnICECandidate(ps.handleICECandidate)
@@ -197,6 +250,42 @@ func (ps *ParticipantSession) Start() {
 // DeliverAnswer feeds the client's SDP answer to the pending negotiation.
 func (ps *ParticipantSession) DeliverAnswer(sdp webrtc.SessionDescription) {
 	ps.neg.DeliverAnswer(sdp)
+}
+
+// RequestICERestart asks the negotiator to re-gather ICE on this participant's
+// PeerConnection, rate-limited to one restart per iceRestartMinInterval.
+//
+// It is the cheap repair for a broken candidate pair: the media path is rebuilt
+// while the participant stays in the room, so nobody else renegotiates and no
+// jitter buffer is thrown away. Both triggers land here — the SFU's own
+// PeerConnectionStateDisconnected and the client's request_ice_restart — because
+// the client sometimes notices the break first and sometimes we do.
+//
+// reason is logged, not acted on: the two callers are indistinguishable to the
+// negotiator, and knowing which side raised the alarm is what makes the logs
+// readable afterwards.
+func (ps *ParticipantSession) RequestICERestart(reason string) {
+	ps.timerMu.Lock()
+	since := time.Since(ps.lastICERestart)
+	if !ps.lastICERestart.IsZero() && since < ps.iceRestartMinInterval {
+		ps.timerMu.Unlock()
+		ps.log.Info("ICE restart suppressed: too soon after the previous one",
+			"user_id", ps.Participant.UserID,
+			"reason", reason,
+			"since_last", since,
+			"min_interval", ps.iceRestartMinInterval,
+		)
+		return
+	}
+	ps.lastICERestart = time.Now()
+	ps.timerMu.Unlock()
+
+	ps.log.Info("requesting ICE restart",
+		"user_id", ps.Participant.UserID,
+		"reason", reason,
+		"connection_state", ps.pc.ConnectionState().String(),
+	)
+	ps.neg.TriggerICERestart()
 }
 
 // AddICECandidate delivers a client-side ICE candidate to pion.
@@ -640,6 +729,13 @@ func (ps *ParticipantSession) handleConnectionState(state webrtc.PeerConnectionS
 		ps.timerMu.Unlock()
 
 	case webrtc.PeerConnectionStateDisconnected:
+		// First, try to repair the connection instead of waiting out the timer:
+		// re-gather ICE so both sides look for a working candidate pair. Most
+		// 'disconnected' spells are short and would resolve anyway, but the ones
+		// that don't used to cost the participant a full rejoin — and everyone
+		// else in the room a renegotiation.
+		ps.RequestICERestart("pc_disconnected")
+
 		// ICE temporarily lost connectivity (network switch, NAT rebinding).
 		// Start a timer: if not reconnected within disconnectedTimeout, treat
 		// as failed. pion's own ICE timers will also fire, but this gives us
@@ -673,6 +769,82 @@ func (ps *ParticipantSession) stopTimers() {
 		ps.disconnectTimer.Stop()
 		ps.disconnectTimer = nil
 	}
+	if ps.graceTimer != nil {
+		ps.graceTimer.Stop()
+		ps.graceTimer = nil
+	}
+}
+
+// ResumeToken returns the token a reconnecting client presents to reattach to
+// this exact session instead of joining fresh. Constant for the session's
+// whole life.
+func (ps *ParticipantSession) ResumeToken() string {
+	return ps.resumeToken
+}
+
+// startGraceTimer begins the grace window for the participant's CURRENT
+// attachment generation, atomically with respect to a concurrent Resume: the
+// generation check and the timer installation happen under the same lock
+// Resume bumps generation under, so a resume racing in between a caller's own
+// (necessarily separate, necessarily non-atomic) decision to call this and
+// the call actually happening cannot result in a timer being started against
+// a generation that has since moved on. Returns false only when generation is
+// stale (a newer connection has already resumed) — that is the one case the
+// caller must not treat as "grace is now running".
+//
+// A second call for the SAME still-current generation is a no-op returning
+// true — a session can only die once before either resuming or truly leaving,
+// so a repeat call here would indicate a caller bug, not a reason to restart
+// the window.
+func (ps *ParticipantSession) startGraceTimer(generation int64, d time.Duration, onExpire func()) bool {
+	ps.timerMu.Lock()
+	defer ps.timerMu.Unlock()
+	if ps.generation.Load() != generation {
+		return false
+	}
+	if ps.graceTimer == nil {
+		ps.graceTimer = time.AfterFunc(d, onExpire)
+	}
+	return true
+}
+
+// Resume reattaches a freshly reconnected client's SignalingSession in place
+// of the one that died, bumps the attachment generation, and re-triggers
+// negotiation immediately (anything that tried to renegotiate against the
+// dead session during the grace window failed silently and needs a fresh
+// offer sent to the session that can actually receive it now).
+//
+// Cancelling any pending grace timer and bumping generation happen under the
+// same lock startGraceTimer checks under, closing the gap between a caller's
+// (separate, non-atomic) decision to call StartGrace and the call actually
+// running: whichever of the two acquires the lock first is the one that
+// determines the outcome, and the other sees it. Returns false only when a
+// grace timer had already fired (or was firing) — finishLeave may be
+// concurrently tearing the participant down, so there is nothing safe to
+// resume onto; the caller must treat this exactly like an invalid token.
+func (ps *ParticipantSession) Resume(newSession SignalingSession) bool {
+	ps.timerMu.Lock()
+	if ps.graceTimer != nil {
+		if !ps.graceTimer.Stop() {
+			ps.timerMu.Unlock()
+			return false
+		}
+		ps.graceTimer = nil
+	}
+	ps.generation.Add(1)
+	ps.timerMu.Unlock()
+
+	ps.session.Set(newSession)
+	ps.neg.trigger()
+	return true
+}
+
+// Generation returns the current attachment generation: 0 for the original
+// Join, incremented by each successful Resume. A connection captures this
+// once, right after it attaches, and hands it back to RoomSession.StartGrace
+// when it dies.
+func (ps *ParticipantSession) Generation() int64 {
+	return ps.generation.Load()
 }
 
 // readSubscriberRTCP reads RTCP feedback from a subscriber's RTPSender and

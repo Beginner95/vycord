@@ -16,6 +16,7 @@ import (
 	"github.com/vycord/server/internal/delivery/http/handler"
 	"github.com/vycord/server/internal/delivery/http/middleware"
 	"github.com/vycord/server/internal/delivery/ws"
+	presencepkg "github.com/vycord/server/internal/presence"
 	"github.com/vycord/server/internal/repository/postgres"
 	"github.com/vycord/server/internal/usecase"
 	"github.com/vycord/server/pkg/filestorage"
@@ -103,6 +104,22 @@ func main() {
 	hub := ws.NewHub(log)
 	hub.SetVoiceAudienceResolver(serverUseCase.GetChannelAudience)
 	go hub.Run()
+
+	// Voice-presence reconciliation against the SFU's own /presence snapshot
+	// (VYC-78 step 4) — corrects drift in hub.voiceChannels instead of trusting
+	// client-driven voice_joined/voice_left as the sole source of truth. Both
+	// vars empty just means the worker doesn't run: this is a correctness
+	// safety net, not something API startup should ever depend on.
+	presenceCtx, stopPresenceWorker := context.WithCancel(context.Background())
+	defer stopPresenceWorker()
+	if cfg.SFUInternalURL != "" && cfg.SFUInternalSecret != "" {
+		fetcher := presencepkg.NewHTTPFetcher(cfg.SFUInternalURL, cfg.SFUInternalSecret)
+		presenceWorker := presencepkg.NewWorker(fetcher, hub, log)
+		go presenceWorker.Run(presenceCtx)
+		log.Info("voice-presence reconciliation started", "sfu_url", cfg.SFUInternalURL, "interval", presencepkg.DefaultInterval)
+	} else {
+		log.Warn("SFU_INTERNAL_URL or SFU_INTERNAL_SECRET not set — voice-presence reconciliation disabled")
+	}
 
 	// Initialize handlers
 	authHandler := handler.NewAuthHandler(authUseCase, log)

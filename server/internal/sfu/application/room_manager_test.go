@@ -3,6 +3,7 @@ package application
 import (
 	"io"
 	"log/slog"
+	"sort"
 	"testing"
 	"time"
 
@@ -51,4 +52,80 @@ func TestRoomManagerJoinSoloReconnect(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("stale alice session was not closed on rejoin")
 	}
+}
+
+// TestPresenceReportsRoomIDToUserIDsAcrossRooms is the SFU-side half of VYC-78
+// step 4: the API's reconciliation worker needs a ground truth of who is
+// actually in each room, keyed the same way the client and API already key
+// voice channels — room_id here IS channel_id there (handleJoinGroupCall
+// passes the same identifier into both).
+func TestPresenceReportsRoomIDToUserIDsAcrossRooms(t *testing.T) {
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	pf, err := sfuwebrtc.NewPeerFactory([]string{}, "")
+	if err != nil {
+		t.Fatalf("NewPeerFactory: %v", err)
+	}
+	mgr := NewRoomManager(pf, log)
+
+	if _, _, err := mgr.Join("room1", "p1", "alice", &fakeSignalingSession{}); err != nil {
+		t.Fatalf("alice join room1: %v", err)
+	}
+	if _, _, err := mgr.Join("room1", "p2", "bob", &fakeSignalingSession{}); err != nil {
+		t.Fatalf("bob join room1: %v", err)
+	}
+	if _, _, err := mgr.Join("room2", "p3", "carol", &fakeSignalingSession{}); err != nil {
+		t.Fatalf("carol join room2: %v", err)
+	}
+
+	got := mgr.Presence()
+
+	sort.Strings(got["room1"])
+	if want := []string{"alice", "bob"}; !equalStrings(got["room1"], want) {
+		t.Fatalf("Presence()[\"room1\"] = %v, want %v", got["room1"], want)
+	}
+	if want := []string{"carol"}; !equalStrings(got["room2"], want) {
+		t.Fatalf("Presence()[\"room2\"] = %v, want %v", got["room2"], want)
+	}
+	if _, ok := got["room3"]; ok {
+		t.Fatal("Presence() reported a room nobody ever joined")
+	}
+}
+
+// TestPresenceIncludesParticipantInGrace: the whole point of grace (VYC-78 step
+// 3) is that a participant with a dead WebSocket is still genuinely in the
+// call — media flowing, PC alive. The presence snapshot must reflect that, or
+// the reconciliation worker built on top of it would flicker a mid-hiccup
+// participant out of everyone else's sidebar for the length of the grace
+// window, which is exactly what step 3 exists to prevent.
+func TestPresenceIncludesParticipantInGrace(t *testing.T) {
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	pf, err := sfuwebrtc.NewPeerFactory([]string{}, "")
+	if err != nil {
+		t.Fatalf("NewPeerFactory: %v", err)
+	}
+	mgr := NewRoomManager(pf, log)
+
+	rs, ps, err := mgr.Join("room1", "p1", "alice", &fakeSignalingSession{})
+	if err != nil {
+		t.Fatalf("alice join: %v", err)
+	}
+	rs.graceTimeout = time.Hour // must not fire during this test
+	rs.StartGrace("p1", ps.Generation())
+
+	got := mgr.Presence()
+	if want := []string{"alice"}; !equalStrings(got["room1"], want) {
+		t.Fatalf("Presence()[\"room1\"] while alice is in grace = %v, want %v", got["room1"], want)
+	}
+}
+
+func equalStrings(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }

@@ -1,6 +1,7 @@
 import { noiseCancellationService } from './noiseCancellation';
 import { echoCancellationService } from './echoCancellation';
 import { getIceServers, STUN_SERVERS } from './iceConfig';
+import { ConnectionRecovery } from './connectionRecovery';
 import { computeQualityLevel, type ConnectionQualityMetrics } from '@/utils/callQuality';
 import { apiService, apiErrorText } from './api';
 import { logger } from '@/utils/logger';
@@ -83,6 +84,20 @@ interface JoinedPayload {
   // 'screen_share_started' broadcast is fire-and-forget and late joiners miss it,
   // so this snapshot is the only way a viewer learns about an already-active share.
   sharing_peers?: string[];
+  // Lets a later dropped WebSocket reattach to this exact PeerConnection
+  // (no renegotiation, no jitter-buffer reset for anyone else) instead of a
+  // full rejoin — see attemptResume / the 'resumed' message.
+  resume_token?: string;
+}
+
+// ResumedPayload confirms a resume_token reattached successfully. existing_peers/
+// sharing_peers resync the participant list against changes missed while this
+// session sat dead in grace (participant_joined/left broadcasts sent to a dead
+// session are lost — nothing queues them for replay) — see onPeerSnapshot.
+interface ResumedPayload {
+  room_id: string;
+  existing_peers: string[];
+  sharing_peers?: string[];
 }
 
 interface OfferPayload {
@@ -119,6 +134,14 @@ export interface GroupCallCallbacks {
   // Consumers that notify the user must react only to 'live'.
   onPeerJoined: (userId: string, source: 'snapshot' | 'live') => void;
   onPeerLeft: (userId: string) => void;
+  // Fired after a successful resume (attemptResume) with the authoritative
+  // full participant list at that moment — a normal reconnect re-announces
+  // everyone via a fresh 'joined', but resume deliberately skips that (nobody
+  // else needs to renegotiate for a resume), so this is the only signal that
+  // corrects anyone who joined or left while this session sat dead in grace.
+  // The UI layer must diff its own list against this, not just add: someone
+  // present in its old list but absent here left during the grace window.
+  onPeerSnapshot?: (userIds: string[]) => void;
   onCallEnded: () => void;
   onError: (error: string) => void;
   // Called when the OS screen-capture source is closed by the user (e.g. stop button in Chrome bar).
@@ -149,6 +172,11 @@ type RemoteStreams = Map<string, MediaStream>;
 class GroupCallService {
   private ws: WebSocket | null = null;
   private pc: RTCPeerConnection | null = null;
+  // Lets a dropped WebSocket reattach to the SAME ParticipantSession server-side
+  // (VYC-78 step 3) instead of a full rejoin. Issued in 'joined', constant for
+  // the life of one call; cleared on teardown so a later, unrelated call never
+  // carries a stale one.
+  private resumeToken: string | null = null;
   // Refreshed on every joinGroupCall; TURN entries carry ephemeral credentials.
   private iceServers: RTCIceServer[] = STUN_SERVERS;
   private localStream: MediaStream | null = null;
@@ -218,16 +246,36 @@ class GroupCallService {
   // WebSocket that can clobber `this.ws`/fire a spurious onError onto an
   // already-healthy call (VYC-74).
   private sessionEpoch = 0;
-  // Started when the PC goes 'disconnected'; fires reconnect if it doesn't
-  // recover — the browser can sit in 'disconnected' for tens of seconds
-  // before 'failed' while the WS hangs half-open (VPN case).
-  private disconnectedTimer: ReturnType<typeof setTimeout> | null = null;
+  // Escalation ladder for a PC that goes 'disconnected': let ICE heal itself,
+  // then ask the SFU for an ICE restart, and only then rejoin the room. The
+  // browser can sit in 'disconnected' for tens of seconds before 'failed' while
+  // the WS hangs half-open (VPN case), so we can't simply wait for 'failed'.
+  private recovery: ConnectionRecovery | null = null;
   // Screen track waiting to be re-attached to the new PC after reconnect.
   private pendingScreenRestore: MediaStreamTrack | null = null;
   // Periodic uplink connection-quality sampler (separate from the debug stats logger below).
   private qualityIntervalId: ReturnType<typeof setInterval> | null = null;
   private lastBytesSent = 0;
   private lastBytesSentAt = 0;
+  // VYC-76 uplink pacing diagnostics — previous sample, for per-tick deltas.
+  private lastPacingAt = 0;
+  private lastAudioPacketsSent = 0;
+  private lastPacketSendDelay = 0;
+  private lastSamplesDuration = 0;
+  // Throttle state for VYC-76 GlitchTip reports, keyed by anomaly kind.
+  // The samplers tick every 2-3s; an anomaly that lasts a while would otherwise
+  // fire a report per tick per remote track and flood the issue.
+  private vyc76LastReportAt = new Map<string, number>();
+  private vyc76ReportCount = 0;
+  // Selected ICE candidate pair, as "localType/proto → remoteType/proto".
+  // Empty until the first sample; used to detect mid-call path moves.
+  private lastIcePath = '';
+  private icePathChanges = 0;
+  // VYC-76 fast uplink sampler: 500ms pps samples covering one 3s pacing tick.
+  private uplinkFastIntervalId: ReturnType<typeof setInterval> | null = null;
+  private uplinkPpsWindow: number[] = [];
+  private lastFastPacketsSent = 0;
+  private lastFastSampleAt = 0;
 
   // Timestamps for mobile diagnostic metrics (milliseconds since epoch).
   private joinedAt = 0;
@@ -339,6 +387,13 @@ class GroupCallService {
       ? this.screenStream?.getVideoTracks()[0] ?? null
       : null;
 
+    if (await this.attemptResume(mySession)) {
+      this.reconnecting = false;
+      gcLog(this.currentUserId, 'reconnect: resumed the existing PeerConnection over a new WebSocket');
+      this.callbacks?.onReconnected?.();
+      return;
+    }
+
     this.partialTeardown();
 
     // ~30s total.
@@ -383,6 +438,157 @@ class GroupCallService {
     this.teardown();
   }
 
+  // attemptResume tries the cheap path before reconnect() falls back to a full
+  // rejoin: dial a NEW WebSocket carrying resumeToken, and if the server
+  // confirms with 'resumed', keep the EXISTING PeerConnection exactly as it
+  // was — no new PC, no renegotiation, no jitter-buffer reset for anyone else
+  // in the room. Returns false for anything that isn't a clean success
+  // (no token, dead PC, server fell back to a fresh join, network failure,
+  // timeout) — the caller's existing full-reconnect loop is the fallback and
+  // needs no help distinguishing why.
+  private async attemptResume(mySession: number): Promise<boolean> {
+    if (!this.resumeToken || !this.pc) return false;
+    // A PeerConnection that has already failed or closed has nothing left to
+    // resume onto — only a fresh PC (the normal reconnect path) can recover it.
+    if (this.pc.connectionState === 'failed' || this.pc.connectionState === 'closed') return false;
+
+    const roomId = this.currentRoomId;
+    const userId = this.currentUserId;
+    const resumeToken = this.resumeToken;
+
+    let token: string;
+    try {
+      const resp = await apiService.getVoiceToken(roomId);
+      token = resp.token;
+    } catch (err) {
+      gcLog(userId, 'resume: failed to obtain voice token', { error: String(err) });
+      return false;
+    }
+
+    if (mySession !== this.sessionEpoch) return false;
+
+    const url = `${SFU_URL}/ws?room_id=${encodeURIComponent(roomId)}&token=${encodeURIComponent(token)}&resume_token=${encodeURIComponent(resumeToken)}`;
+    const socket = new WebSocket(url);
+
+    return new Promise<boolean>((resolve) => {
+      let resolved = false;
+      const settle = (v: boolean) => {
+        if (resolved) return;
+        resolved = true;
+        clearTimeout(resumeTimeout);
+        resolve(v);
+      };
+      const abandon = () => {
+        socket.onclose = null;
+        socket.onerror = null;
+        socket.onmessage = null;
+        socket.close();
+      };
+
+      // A message can legitimately arrive before we know whether this
+      // connection is resuming or falling back to a fresh join — the server
+      // sends 'resumed' synchronously in ServeHTTP right after Resume()
+      // succeeds, but Resume() already reattached the session and triggered
+      // the negotiator by then, so an offer/answer/ICE-candidate exchange can
+      // start racing ahead of that 'resumed' notify over the same goroutine
+      // scheduling that makes 'offer before joined' possible on a fresh join
+      // too. The two cases need OPPOSITE handling of anything queued here: a
+      // resume must replay it (it belongs to the OLD pc we are keeping), a
+      // fallback join must discard it (it would belong to a PC this client
+      // never creates on this socket — this.pc still points at the old one).
+      // So nothing in between can be acted on until we know which; only
+      // 'resumed' or 'joined' resolves the ambiguity.
+      const pending: SignalingMessage[] = [];
+
+      // Resume must be fast — the server only holds the grace window open for
+      // a bounded time (15s by default) — so a hung dial falls back to the
+      // ordinary reconnect loop rather than eating into that budget.
+      const resumeTimeout = setTimeout(() => {
+        gcLog(userId, 'resume: timed out');
+        abandon();
+        settle(false);
+      }, 5000);
+
+      socket.onmessage = (e) => {
+        const msg = JSON.parse(e.data as string) as SignalingMessage;
+        if (msg.type === 'resumed') {
+          if (mySession !== this.sessionEpoch) {
+            gcLog(userId, 'resume: superseded by a new join, abandoning');
+            abandon();
+            settle(false);
+            return;
+          }
+          gcLog(userId, 'resume: succeeded');
+          const resumed = msg.payload as ResumedPayload;
+          const peers = (resumed.existing_peers ?? []).filter((uid) => uid !== userId);
+          this.callbacks?.onPeerSnapshot?.(peers);
+          // Unlike 'joined' (which skips this when empty), always forward it
+          // here even when empty: onSharingPeers' current UI-layer
+          // implementation only ever unions IDs in, so an empty call is a
+          // no-op today rather than a clear — but should the union ever
+          // become a replace (matching its own doc comment), resume must
+          // already be feeding it the authoritative current set.
+          const sharingPeers = (resumed.sharing_peers ?? []).filter((uid) => uid !== userId);
+          this.callbacks?.onSharingPeers?.(sharingPeers);
+          this.ws = socket;
+          // Replay anything that arrived while we didn't yet know this would
+          // resolve as a resume, in the order it arrived, now that this.ws
+          // correctly points here — before this point, an answer or ICE
+          // candidate handleMessage tried to send would have silently found
+          // this.ws still pointing at the OLD (dead) socket and gone nowhere.
+          for (const queued of pending) void this.handleMessage(queued);
+          socket.onmessage = (ev) => {
+            if (this.ws !== socket) return;
+            const m = JSON.parse(ev.data as string) as SignalingMessage;
+            gcLog(userId, 'WS message', { type: m.type });
+            void this.handleMessage(m);
+          };
+          socket.onclose = (ev) => {
+            gcLog(userId, 'WS closed', { code: ev.code, reason: ev.reason });
+            if (this.ws !== socket) return;
+            if (this.reconnecting) return;
+            if (this.inCall && !this.intentionalLeave) {
+              void this.reconnect('ws_closed');
+              return;
+            }
+            this.inCall = false;
+            this.callbacks?.onCallEnded();
+            this.teardown();
+          };
+          socket.onerror = () => {
+            gcLog(userId, 'WS ERROR (resumed session)');
+            if (this.ws !== socket) return;
+            if (!this.reconnecting) this.callbacks?.onError('SFU connection failed');
+          };
+          settle(true);
+          return;
+        }
+        if (msg.type === 'joined') {
+          // The server fell back to a fresh join instead of resuming (token
+          // expired mid-flight, grace window lapsed). This socket is now a
+          // stranger's view of a brand-new participant slot we don't want —
+          // abandon it and let the caller's own reconnect loop start clean.
+          gcLog(userId, 'resume: server issued a fresh join instead of resuming');
+          abandon();
+          settle(false);
+          return;
+        }
+        // An offer or ICE candidate can arrive interleaved before 'resumed' OR
+        // 'joined' — queue it until we know which (see the comment on
+        // `pending` above); handling it immediately, the way connectSignaling
+        // does before 'joined', would be wrong here specifically because it
+        // might turn out to belong to a fallback join instead.
+        pending.push(msg);
+      };
+
+      socket.onclose = () => settle(false);
+      socket.onerror = () => {
+        gcLog(userId, 'resume: WS error');
+        settle(false);
+      };
+    });
+  }
+
   // Transport-only teardown for reconnect: closes PC/WS and clears remote
   // state, but keeps local capture (mic/camera/screen tracks, AudioContext,
   // noise cancellation) alive so rejoin doesn't re-prompt or rebuild audio.
@@ -395,10 +601,8 @@ class GroupCallService {
       this.ws.close();
       this.ws = null;
     }
-    if (this.disconnectedTimer !== null) {
-      clearTimeout(this.disconnectedTimer);
-      this.disconnectedTimer = null;
-    }
+    this.recovery?.cancel();
+    this.recovery = null;
     this.stopQualitySampler();
     this.pc?.close();
     this.pc = null;
@@ -416,16 +620,92 @@ class GroupCallService {
     this.inCall = false;
   }
 
+  // VYC-76: fast uplink sampler, 500ms. Exists because the 3s pacing tick
+  // measures only the AVERAGE rate and is blind to the failure we actually see.
+  //
+  // In the 2026-08-15 episodes the sick inbound track carried ~50 pps on
+  // average while swinging 32–69 between ticks, i.e. the sender was emitting in
+  // waves. Averaged over 3s that reads as a healthy 50 and the [35,70] guard
+  // never fires. Sampling 6x faster and reporting the SPREAD (not the mean) is
+  // what makes such a wave visible from the sending side.
+  //
+  // Deliberately sender-scoped rather than pc.getStats(): the microphone sender
+  // is the only thing being judged here, and per-sender stats stay small as the
+  // room grows.
+  private startUplinkFastSampler(): void {
+    this.stopUplinkFastSampler();
+    this.uplinkPpsWindow = [];
+    this.lastFastPacketsSent = 0;
+    this.lastFastSampleAt = 0;
+    this.uplinkFastIntervalId = setInterval(() => {
+      void this.sampleUplinkFast();
+    }, 500);
+  }
+
+  private stopUplinkFastSampler(): void {
+    if (this.uplinkFastIntervalId !== null) {
+      clearInterval(this.uplinkFastIntervalId);
+      this.uplinkFastIntervalId = null;
+    }
+  }
+
+  private async sampleUplinkFast(): Promise<void> {
+    if (!this.pc || this.pc.connectionState !== 'connected') return;
+    // The mic sender is the FIRST audio sender: transceiver slot [0] is the
+    // microphone and slot [3] is screen-audio (see NewParticipantSession on the
+    // server for the fixed ordering). Measuring screen-audio here would report
+    // a dummy silent track's pacing instead of the voice we care about.
+    const sender = this.pc.getSenders().find((s) => s.track?.kind === 'audio');
+    if (!sender) return;
+    try {
+      const stats = await sender.getStats();
+      let packetsSent = 0;
+      stats.forEach((r) => {
+        if (r.type === 'outbound-rtp' && (r as any).kind === 'audio') {
+          packetsSent = ((r as any).packetsSent as number | undefined) ?? 0;
+        }
+      });
+      const now = Date.now();
+      if (this.lastFastSampleAt > 0 && packetsSent >= this.lastFastPacketsSent) {
+        const dSec = (now - this.lastFastSampleAt) / 1000;
+        if (dSec > 0.1) {
+          const pps = (packetsSent - this.lastFastPacketsSent) / dSec;
+          this.uplinkPpsWindow.push(pps);
+          // Keep one 3s pacing window's worth, so the spread reported alongside
+          // a pacing tick describes exactly that tick's interval.
+          if (this.uplinkPpsWindow.length > 6) this.uplinkPpsWindow.shift();
+        }
+      }
+      this.lastFastPacketsSent = packetsSent;
+      this.lastFastSampleAt = now;
+    } catch {
+      // getStats throws on a closing pc — same handling as sampleQuality.
+    }
+  }
+
   private startQualitySampler(): void {
     this.stopQualitySampler();
+    this.startUplinkFastSampler();
     this.lastBytesSent = 0;
     this.lastBytesSentAt = 0;
+    // Reset the VYC-76 baselines too: a rejoin builds a new PeerConnection, so
+    // its counters restart at zero and a stale baseline would report one huge
+    // bogus negative delta on the first tick of every reconnect.
+    this.lastPacingAt = 0;
+    this.lastAudioPacketsSent = 0;
+    this.lastPacketSendDelay = 0;
+    this.lastSamplesDuration = 0;
+    this.vyc76LastReportAt.clear();
+    this.vyc76ReportCount = 0;
+    this.lastIcePath = '';
+    this.icePathChanges = 0;
     this.qualityIntervalId = setInterval(() => {
       void this.sampleQuality();
     }, 3000);
   }
 
   private stopQualitySampler(): void {
+    this.stopUplinkFastSampler();
     if (this.qualityIntervalId !== null) {
       clearInterval(this.qualityIntervalId);
       this.qualityIntervalId = null;
@@ -444,6 +724,22 @@ class GroupCallService {
       let hasData = false;
       let bytesSent = 0;
       let candidateRttMs = 0;
+      // ── VYC-76 uplink diagnostics ────────────────────────────────────────
+      // The reported bug ("one participant sounds sped up TO EVERYONE, a
+      // rejoin fixes it") means the burst is created upstream of the SFU's
+      // per-subscriber fan-out — so it must be visible here, on the
+      // publisher's own send path. These three groups separate the candidates:
+      //   mic/NC chain  → media-source.totalSamplesDuration vs wall clock
+      //   encoder/pacer → outbound-rtp packet rate + totalPacketSendDelay
+      //   transport     → candidate-pair protocol (TURN over TCP head-of-line
+      //                   blocking stalls, then flushes a burst)
+      let audioPacketsSent = 0;
+      let totalPacketSendDelay = 0;
+      let samplesDuration = 0;
+      let selectedPairId = '';
+      let localCandId = '';
+      let remoteCandId = '';
+      const candidates = new Map<string, RTCStats>();
 
       stats.forEach((report) => {
         if (report.type === 'remote-inbound-rtp' && report.kind === 'audio') {
@@ -454,13 +750,35 @@ class GroupCallService {
           if (typeof rtt === 'number') rttMs = rtt * 1000;
         } else if (report.type === 'outbound-rtp' && !report.isRemote) {
           bytesSent += (report.bytesSent as number | undefined) ?? 0;
+          if (report.kind === 'audio') {
+            audioPacketsSent += ((report as any).packetsSent as number | undefined) ?? 0;
+            totalPacketSendDelay += ((report as any).totalPacketSendDelay as number | undefined) ?? 0;
+          }
+        } else if (report.type === 'media-source' && (report as any).kind === 'audio') {
+          samplesDuration = ((report as any).totalSamplesDuration as number | undefined) ?? 0;
         } else if (report.type === 'candidate-pair' && report.state === 'succeeded') {
           const crtt = report.currentRoundTripTime as number | undefined;
           if (typeof crtt === 'number') candidateRttMs = crtt * 1000;
+          // Prefer the nominated pair; fall back to any succeeded one.
+          if (!selectedPairId || (report as any).nominated) {
+            selectedPairId = report.id;
+            localCandId = ((report as any).localCandidateId as string) ?? '';
+            remoteCandId = ((report as any).remoteCandidateId as string) ?? '';
+          }
+        } else if (report.type === 'local-candidate' || report.type === 'remote-candidate') {
+          candidates.set(report.id, report);
         }
       });
 
       if (rttMs === 0 && candidateRttMs > 0) rttMs = candidateRttMs;
+
+      this.logUplinkPacing({
+        audioPacketsSent,
+        totalPacketSendDelay,
+        samplesDuration,
+        localCand: candidates.get(localCandId),
+        remoteCand: candidates.get(remoteCandId),
+      });
 
       const now = Date.now();
       let bitrateKbps = 0;
@@ -482,6 +800,210 @@ class GroupCallService {
     } catch {
       // getStats может кинуть на закрывающемся pc — игнорируем.
     }
+  }
+
+  // VYC-76: forwards one measured anomaly to GlitchTip, rate-limited.
+  //
+  // The console line is emitted by the caller either way; this only governs
+  // what escapes the machine. Two limits, because the samplers tick every 2-3s
+  // against every remote track: a per-kind cooldown so one sustained anomaly
+  // reports once rather than continuously, and a per-call ceiling so a
+  // persistently bad call cannot dominate the project's event quota.
+  //
+  // Every report carries selfUserId/peerUserId/roomId (first 8 chars — enough
+  // to correlate, not enough to be an identifier on its own) so the listener's
+  // report and the publisher's report can be joined against each other: that
+  // join is the whole experiment, since it tells us whether the burst existed
+  // before it reached the SFU.
+  private reportVyc76(
+    kind: string,
+    message: string,
+    extra: Record<string, unknown>,
+    cooldownMs = 60_000,
+  ): void {
+    const MAX_PER_CALL = 10;
+    if (this.vyc76ReportCount >= MAX_PER_CALL) return;
+    const now = Date.now();
+    const last = this.vyc76LastReportAt.get(kind) ?? 0;
+    if (now - last < cooldownMs) return;
+    this.vyc76LastReportAt.set(kind, now);
+    this.vyc76ReportCount++;
+
+    logger.report(
+      message,
+      { module: 'vyc76', kind, ...(typeof extra.path === 'string' ? { path: extra.path } : {}) },
+      {
+        ...extra,
+        selfUserId: this.currentUserId.slice(0, 8),
+        roomId: this.currentRoomId.slice(0, 8),
+        elapsedFromJoinMs: this.joinedAt ? now - this.joinedAt : -1,
+        reportIndexInCall: this.vyc76ReportCount,
+      },
+    );
+  }
+
+  // VYC-76: logs the publisher's own send pacing as per-tick deltas, so a stall
+  // followed by a burst is visible as a rate spike. Cumulative totals cannot
+  // show it. Each field isolates one layer of the send path:
+  //
+  //   samplesDurationDrift — wall-clock seconds elapsed minus seconds of audio
+  //     the capture chain actually produced. Persistently negative means the
+  //     mic → NC AudioContext → MediaStreamDestination chain is starving (the
+  //     worklet underruns without ever catching up), so the encoder is fed less
+  //     than real time. Near zero exonerates the capture chain.
+  //
+  //   pps — audio packets/sec leaving the encoder. Opus at 20ms ptime is 50.
+  //     A tick near 0 followed by a tick well above 50 IS the burst, and proves
+  //     it forms on this machine, before any packet reaches the SFU.
+  //
+  //   sendDelayMsPerPkt — totalPacketSendDelay delta / packets delta: how long
+  //     each packet sat in the pacer/transport queue. Rises sharply when the
+  //     transport backs up; the single clearest signal for TURN-over-TCP
+  //     head-of-line blocking.
+  //
+  //   path — candidate types + protocol. `relay` with protocol `tcp`/`tls` is
+  //     the configuration under suspicion (see TURN_URLS in .env.prod.example,
+  //     which offers transport=tcp and turns:5349 alongside UDP).
+  private logUplinkPacing(s: {
+    audioPacketsSent: number;
+    totalPacketSendDelay: number;
+    samplesDuration: number;
+    localCand?: RTCStats;
+    remoteCand?: RTCStats;
+  }): void {
+    const now = Date.now();
+    if (this.lastPacingAt > 0) {
+      const dSec = (now - this.lastPacingAt) / 1000;
+      const dPackets = s.audioPacketsSent - this.lastAudioPacketsSent;
+      const dSendDelay = s.totalPacketSendDelay - this.lastPacketSendDelay;
+      const dSamples = s.samplesDuration - this.lastSamplesDuration;
+      const pps = dSec > 0 ? dPackets / dSec : 0;
+      const sendDelayMsPerPkt = dPackets > 0 ? (dSendDelay / dPackets) * 1000 : -1;
+      const local = s.localCand as any;
+      const remote = s.remoteCand as any;
+      const path =
+        local || remote
+          ? `${local?.candidateType ?? '?'}/${local?.relayProtocol ?? local?.protocol ?? '?'}` +
+            ` → ${remote?.candidateType ?? '?'}/${remote?.protocol ?? '?'}`
+          : 'unknown';
+      // Spread across the 500ms samples inside this tick, computed ONLY over
+      // samples that carry actual speech.
+      //
+      // The filter is not optional. When the speaker pauses, the rate collapses
+      // toward comfort-noise levels, so a window straddling a speech boundary
+      // mixes ~50 pps with near-zero and yields a spread near 2 — on every
+      // sentence break, from a perfectly healthy sender. Unfiltered, this
+      // detector would burn the 10-report budget within the first half-minute
+      // of any call and never report the wave it exists to catch.
+      //
+      // 20 pps sits well below the ~50 of continuous speech and well above
+      // comfort noise. The sick track's own low point was 32 pps, so a genuine
+      // wave survives the filter intact.
+      const SPEECH_PPS_FLOOR = 20;
+      const win = this.uplinkPpsWindow.filter((p) => p >= SPEECH_PPS_FLOOR);
+      let ppsMin = -1;
+      let ppsMax = -1;
+      let ppsSpread = -1;
+      // Require most of the window to be speech: 3 of 6 surviving samples could
+      // otherwise straddle a pause and still report a spread built from its edge.
+      if (win.length >= 5) {
+        ppsMin = Math.min(...win);
+        ppsMax = Math.max(...win);
+        const mean = win.reduce((a, b) => a + b, 0) / win.length;
+        if (mean > 1) ppsSpread = (ppsMax - ppsMin) / mean;
+      }
+
+      const fields = {
+        pps: pps.toFixed(1),
+        ppsMin: ppsMin >= 0 ? ppsMin.toFixed(1) : 'N/A',
+        ppsMax: ppsMax >= 0 ? ppsMax.toFixed(1) : 'N/A',
+        ppsSpread: ppsSpread >= 0 ? ppsSpread.toFixed(2) : 'N/A',
+        sendDelayMsPerPkt: sendDelayMsPerPkt >= 0 ? sendDelayMsPerPkt.toFixed(1) : 'N/A',
+        samplesDurationDrift: (dSamples - dSec).toFixed(3),
+        path,
+        elapsedFromJoinMs: this.joinedAt ? now - this.joinedAt : -1,
+      };
+
+      // ── VYC-76: ICE path census ──────────────────────────────────────────
+      // Two questions this answers, both needed BEFORE touching TURN_URLS:
+      //
+      //   1. How often does the selected pair move mid-call? A move to a TCP
+      //      relay is the only звено in this setup that can hold packets back
+      //      and then release them in a burst, which is what the receiving
+      //      side measured. Counting the moves measures the actual cause.
+      //
+      //   2. Is a TCP relay ever someone's ONLY working path — i.e. would
+      //      dropping transport=tcp from TURN_URLS cut them off entirely?
+      //      A client that starts on relay/tcp and never leaves it is exactly
+      //      that case. Without this census, removing TCP is a blind change.
+      //
+      // 'unknown' is skipped: getStats occasionally reports a succeeded pair
+      // whose candidate rows haven't landed in the same snapshot, and treating
+      // that as a transition would invent moves that never happened.
+      if (path !== 'unknown') {
+        if (this.lastIcePath === '') {
+          this.lastIcePath = path;
+          this.reportVyc76('ice-path-initial', 'VYC-76 ICE path selected', {
+            path,
+            isRelay: path.startsWith('relay'),
+            isTcpRelay: path.startsWith('relay/tcp') || path.startsWith('relay/tls'),
+          });
+        } else if (path !== this.lastIcePath) {
+          const from = this.lastIcePath;
+          this.lastIcePath = path;
+          this.icePathChanges++;
+          gcLog(this.currentUserId, '[VYC-76] ICE PATH CHANGED', { from, to: path });
+          // Shorter cooldown than the default: a call that flaps repeatedly is
+          // the most informative case there is, and at 60s we would record one
+          // move and silently drop the rest of the pattern.
+          this.reportVyc76(
+            'ice-path-change',
+            'VYC-76 ICE path changed mid-call',
+            {
+              from,
+              to: path,
+              changeIndex: this.icePathChanges,
+              toTcpRelay: path.startsWith('relay/tcp') || path.startsWith('relay/tls'),
+              ...fields,
+            },
+            15_000,
+          );
+        }
+      }
+      // Two independent triggers, because they catch different failures:
+      //
+      //   rate  — mean outside [35,70]: a stall, or the burst draining it.
+      //   spread — the 500ms samples inside this tick disagree by more than 60%
+      //            of their mean. This is the one the old detector lacked. The
+      //            sick track on 2026-08-15 averaged a healthy ~50 pps while
+      //            swinging 32–69, so only the spread test can see it.
+      //
+      // 0.6 sits above ordinary DTX behaviour (speech onsets move the rate but
+      // not that far within 3s) and well below the observed wave, whose spread
+      // computes to roughly 0.7.
+      const rateBad = pps < 35 || pps > 70;
+      const spreadBad = ppsSpread >= 0.6;
+      if (dSec > 0 && (rateBad || spreadBad)) {
+        gcLog(this.currentUserId, '[VYC-76] UPLINK PACING ANOMALY', fields);
+        this.reportVyc76('uplink-pacing', 'VYC-76 uplink pacing anomaly', {
+          ...fields,
+          trigger: spreadBad && rateBad ? 'rate+spread' : spreadBad ? 'spread' : 'rate',
+          ppsNum: Number(pps.toFixed(1)),
+          ppsMinNum: ppsMin,
+          ppsMaxNum: ppsMax,
+          ppsSpreadNum: ppsSpread,
+          sendDelayMsPerPktNum: sendDelayMsPerPkt,
+          samplesDurationDriftNum: dSamples - dSec,
+          tickSec: dSec,
+        });
+      } else {
+        gcLog(this.currentUserId, '[VYC-76] uplink pacing', fields);
+      }
+    }
+    this.lastPacingAt = now;
+    this.lastAudioPacketsSent = s.audioPacketsSent;
+    this.lastPacketSendDelay = s.totalPacketSendDelay;
+    this.lastSamplesDuration = s.samplesDuration;
   }
 
   private restoreScreenShare(screenTrack: MediaStreamTrack | null): void {
@@ -1050,6 +1572,7 @@ class GroupCallService {
           this.joinedAt = Date.now();
           const joined = msg.payload as JoinedPayload;
           gcLog(userId, 'joined room', { existingPeers: joined.existing_peers ?? [] });
+          this.resumeToken = joined.resume_token ?? null;
           // Notify the UI about participants who are already in the room.
           // Stale self entry may be present during reconnect: the server snapshots
           // existing peers before evicting our old session, so it can still include us —
@@ -1104,6 +1627,26 @@ class GroupCallService {
     this.pcCreatedAt = Date.now();
     const pc = new RTCPeerConnection({
       iceServers: this.iceServers,
+    });
+
+    // One ladder per PeerConnection: it holds timers that must not outlive the PC
+    // they were started for.
+    this.recovery = new ConnectionRecovery({
+      // The SFU is the offerer, so the restart has to be asked for over signaling
+      // rather than performed locally. No socket, no restart — the ladder then
+      // skips straight to a rejoin.
+      requestIceRestart: () => {
+        if (this.ws?.readyState !== WebSocket.OPEN) return false;
+        this.ws.send(JSON.stringify({ type: 'request_ice_restart', payload: {} }));
+        return true;
+      },
+      fullReconnect: () => {
+        void this.reconnect('pc_disconnected_ladder');
+      },
+      isConnected: () => this.pc?.connectionState === 'connected',
+      onStep: (step) => {
+        gcLog(this.currentUserId, 'recovery step', { step, state: this.pc?.connectionState ?? 'no-pc' });
+      },
     });
 
     // Add local tracks before the first offer arrives.
@@ -1264,6 +1807,18 @@ class GroupCallService {
         const trackIdShort = event.track.id.slice(0, 8);
         let firstFrameSeen = false;
 
+        // VYC-76 diagnostics: previous sample, so every counter below can be
+        // reported as a per-tick DELTA. Cumulative totals are useless here —
+        // the bug is a transient burst, and a burst is only visible as a spike
+        // in a rate.
+        let prevAt = 0;
+        let prevPacketsReceived = 0;
+        let prevAccelSamples = 0;
+        let prevDecelSamples = 0;
+        let prevConcealed = 0;
+        let prevJbDelay = 0;
+        let prevJbEmitted = 0;
+
         const monitorId = setInterval(async () => {
           if (!this.pc || this.pc.connectionState !== 'connected') {
             clearInterval(monitorId);
@@ -1278,6 +1833,14 @@ class GroupCallService {
             let jitter = 0;
             let audioLevel: number | undefined;
             let totalAudioEnergy: number | undefined;
+            // VYC-76: NetEq counters. removedSamplesForAcceleration is literally
+            // "how many samples NetEq deleted by time-compressing playout" — i.e.
+            // the "he suddenly talked fast" symptom, measured directly.
+            let accelSamples = 0;
+            let decelSamples = 0;
+            let concealed = 0;
+            let jbDelay = 0;
+            let jbEmitted = 0;
             stats.forEach((r) => {
               if (r.type === 'inbound-rtp') {
                 packetsReceived = (r.packetsReceived as number) ?? 0;
@@ -1286,8 +1849,87 @@ class GroupCallService {
                 jitter = (r.jitter as number) ?? 0;
                 audioLevel = (r as any).audioLevel;
                 totalAudioEnergy = (r as any).totalAudioEnergy;
+                accelSamples = ((r as any).removedSamplesForAcceleration as number) ?? 0;
+                decelSamples = ((r as any).insertedSamplesForDeceleration as number) ?? 0;
+                concealed = ((r as any).concealedSamples as number) ?? 0;
+                jbDelay = ((r as any).jitterBufferDelay as number) ?? 0;
+                jbEmitted = ((r as any).jitterBufferEmittedCount as number) ?? 0;
               }
             });
+
+            // ── VYC-76 burst/acceleration detector ───────────────────────────
+            const nowMs = Date.now();
+            if (prevAt > 0) {
+              const dSec = (nowMs - prevAt) / 1000;
+              const dPackets = packetsReceived - prevPacketsReceived;
+              const dAccel = accelSamples - prevAccelSamples;
+              const dDecel = decelSamples - prevDecelSamples;
+              const dConcealed = concealed - prevConcealed;
+              const dJbDelay = jbDelay - prevJbDelay;
+              const dJbEmitted = jbEmitted - prevJbEmitted;
+              // Packets/sec. Opus at 20ms ptime is 50 pps in steady state; a
+              // burst released after an upstream stall shows up as a large
+              // overshoot, a stall as a large undershoot.
+              const pps = dSec > 0 ? dPackets / dSec : 0;
+              // Current jitter-buffer depth in ms, averaged over this tick only.
+              const jbMs = dJbEmitted > 0 ? (dJbDelay / dJbEmitted) * 1000 : -1;
+              // Playout speed-up over this tick: samples NetEq deleted, as a
+              // fraction of what it should have emitted. 0.05 = played 5% fast.
+              const accelRatio = dJbEmitted > 0 ? dAccel / dJbEmitted : 0;
+              const fields = {
+                streamId: streamId.slice(0, 8),
+                trackId: trackIdShort,
+                pps: pps.toFixed(1),
+                jitterBufferMs: jbMs >= 0 ? jbMs.toFixed(0) : 'N/A',
+                accelSamplesDelta: dAccel,
+                accelPct: (accelRatio * 100).toFixed(2),
+                decelSamplesDelta: dDecel,
+                concealedDelta: dConcealed,
+                jitterMs: (jitter * 1000).toFixed(1),
+                elapsedFromJoinMs: this.joinedAt ? nowMs - this.joinedAt : -1,
+              };
+              // 1% time-compression over a whole tick is well past "inaudible
+              // NetEq housekeeping" and into the reported symptom.
+              // Two thresholds, deliberately far apart.
+              //
+              // NetEq time-compresses a little all the time; at 1% over a tick
+              // that is housekeeping, not the bug. The console line is free and
+              // rides along in breadcrumbs, so it stays sensitive at 1% and
+              // gives the full run-up to any event we do send.
+              //
+              // The GlitchTip report must be much stricter: reports are capped
+              // at 10 per call, so anything that fires on background behaviour
+              // burns the whole budget in the first half-minute and the real
+              // burst never leaves the machine. The reported symptom — a full
+              // second of speech compressed away — is ~50% over a 2s tick, so
+              // 5% is still an order of magnitude below it while sitting well
+              // clear of the noise floor.
+              if (accelRatio > 0.01) {
+                gcLog(this.currentUserId, '[VYC-76] PLAYOUT ACCELERATED (NetEq time-compression)', fields);
+              } else {
+                gcLog(this.currentUserId, '[VYC-76] inbound pacing', fields);
+              }
+              if (accelRatio > 0.05) {
+                // peerUserId is the PUBLISHER whose voice sped up — the join key
+                // against that publisher's own uplink-pacing report.
+                this.reportVyc76('inbound-accel', 'VYC-76 playout accelerated (NetEq time-compression)', {
+                  ...fields,
+                  peerUserId: ownerUserId.slice(0, 8),
+                  accelPctNum: accelRatio * 100,
+                  ppsNum: Number(pps.toFixed(1)),
+                  jitterBufferMsNum: jbMs,
+                  packetsLost,
+                  tickSec: dSec,
+                });
+              }
+            }
+            prevAt = nowMs;
+            prevPacketsReceived = packetsReceived;
+            prevAccelSamples = accelSamples;
+            prevDecelSamples = decelSamples;
+            prevConcealed = concealed;
+            prevJbDelay = jbDelay;
+            prevJbEmitted = jbEmitted;
 
             if (!firstFrameSeen && packetsReceived > 0) {
               firstFrameSeen = true;
@@ -1433,21 +2075,15 @@ class GroupCallService {
     pc.onconnectionstatechange = () => {
       gcLog(this.currentUserId, 'PC connectionState', { state: pc.connectionState });
       if (pc.connectionState === 'failed') {
+        // ICE has given up entirely — there is no path left to restart onto.
+        this.recovery?.cancel();
         void this.reconnect('pc_failed');
       }
-      if (pc.connectionState === 'disconnected' && this.disconnectedTimer === null) {
-        this.disconnectedTimer = setTimeout(() => {
-          this.disconnectedTimer = null;
-          if (this.pc && this.pc.connectionState !== 'connected') {
-            void this.reconnect('pc_disconnected_3s');
-          }
-        }, 3000);
+      if (pc.connectionState === 'disconnected') {
+        this.recovery?.onDisconnected();
       }
       if (pc.connectionState === 'connected') {
-        if (this.disconnectedTimer !== null) {
-          clearTimeout(this.disconnectedTimer);
-          this.disconnectedTimer = null;
-        }
+        this.recovery?.onConnected();
         this.pcConnectedAt = Date.now();
         gcLog(this.currentUserId, '[METRIC] pc-connected', {
           elapsedFromJoinMs: this.joinedAt ? this.pcConnectedAt - this.joinedAt : -1,
@@ -1779,6 +2415,7 @@ class GroupCallService {
     this.stopQualitySampler();
     this.pc?.close();
     this.pc = null;
+    this.resumeToken = null;
 
     this.screenAecDetach?.();
     this.screenAecDetach = null;
@@ -1822,10 +2459,8 @@ class GroupCallService {
     this.pcCreatedAt = 0;
     this.pcConnectedAt = 0;
     this.firstAudioFrameAt.clear();
-    if (this.disconnectedTimer !== null) {
-      clearTimeout(this.disconnectedTimer);
-      this.disconnectedTimer = null;
-    }
+    this.recovery?.cancel();
+    this.recovery = null;
     this.pendingScreenRestore = null;
     // Detach handlers before dropping the reference: a late onclose from the
     // last retry attempt's socket must not re-fire onCallEnded/teardown.
