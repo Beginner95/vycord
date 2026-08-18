@@ -78,6 +78,36 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	sigSession := NewSession(ctx, conn, h.log)
 	defer sigSession.Close()
 
+	// A resume_token means this connection is not a fresh join but a client
+	// whose previous WebSocket died reattaching to the same ParticipantSession —
+	// same PeerConnection, same forwarded tracks, no renegotiation for anyone
+	// else in the room. An empty, garbage, expired, or wrong-user token all fall
+	// through identically to the ordinary join below (VYC-78 step 3, section 7):
+	// resume is a fast path, never a hard requirement.
+	if resumeToken := r.URL.Query().Get("resume_token"); resumeToken != "" {
+		if rs, ps, ok := h.manager.Resume(roomID, userID, resumeToken, sigSession); ok {
+			h.log.Info("client resumed session",
+				"user_id", userID,
+				"room_id", roomID,
+				"participant_id", ps.Participant.ID,
+			)
+			h.watchParticipantDone(ctx, ps, sigSession)
+			defer rs.StartGrace(ps.Participant.ID, ps.Generation())
+
+			_ = sigSession.Notify("resumed", ResumedPayload{
+				RoomID:        roomID,
+				ExistingPeers: rs.ExistingParticipants(),
+				SharingPeers:  rs.ExistingSharingPeers(),
+			})
+			h.readPump(conn, rs, ps, userID, roomID)
+			return
+		}
+		h.log.Warn("resume_token invalid or expired, falling back to a fresh join",
+			"user_id", userID,
+			"room_id", roomID,
+		)
+	}
+
 	participantID := uuid.New().String()
 
 	// Get existing peers before joining (for the joined notification).
@@ -98,35 +128,21 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		_ = sigSession.Notify("error", ErrorPayload{Code: "join_failed", Message: err.Error()})
 		return
 	}
-	defer rs.Leave(participantID)
+	// A dead WebSocket no longer means the participant leaves outright: it
+	// starts a grace window (VYC-78 step 3) that Resume can cancel from a new
+	// connection. An intentional "leave" message calls rs.Leave directly
+	// (routeMessage), which makes this StartGrace a no-op by the time it runs —
+	// see RoomSession.StartGrace.
+	defer rs.StartGrace(participantID, ps.Generation())
 
-	// When the participant session is cancelled server-side (ICE timeout,
-	// disconnected timeout, PC failure, eviction by a rejoin), close the
-	// session rather than the raw conn: sigSession.Close() lets writePump flush
-	// queued notifications first — most importantly "session_replaced", which
-	// the evicted client needs to see BEFORE the socket dies, or it will
-	// auto-rejoin and evict the replacement right back (endless ping-pong
-	// between two devices of one user). writePump then closes the underlying
-	// conn (bounded by writeWait), which unblocks readPump's ReadMessage;
-	// ServeHTTP exits and the remaining defers fire.
-	//
-	// We close the connection rather than using SetReadDeadline because
-	// gorilla/websocket v1.5+ permanently stores the first read error in
-	// c.readErr; a deadline timeout makes every subsequent ReadMessage return
-	// immediately, spinning 1000+ times until gorilla panics.
-	go func() {
-		select {
-		case <-ps.Done():
-			sigSession.Close()
-		case <-ctx.Done():
-		}
-	}()
+	h.watchParticipantDone(ctx, ps, sigSession)
 
 	// Notify the joining client about the room state.
 	_ = sigSession.Notify("joined", JoinedPayload{
 		RoomID:        roomID,
 		ExistingPeers: existingPeers,
 		SharingPeers:  sharingPeers,
+		ResumeToken:   ps.ResumeToken(),
 	})
 
 	// Notify existing participants.
@@ -134,6 +150,32 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	// Read pump -- drives all client -> server messages.
 	h.readPump(conn, rs, ps, userID, roomID)
+}
+
+// watchParticipantDone closes sigSession once the participant session ends
+// server-side (ICE timeout, disconnected timeout, PC failure, eviction by a
+// rejoin, or a grace window expiring) — shared by both the join and resume
+// paths in ServeHTTP.
+//
+// Closing the session rather than the raw conn lets writePump flush whatever is
+// already queued first — most importantly "session_replaced", which an evicted
+// client needs to see BEFORE the socket dies, or it will auto-rejoin and evict
+// the replacement right back (endless ping-pong between two devices of one
+// user). writePump then closes the underlying conn (bounded by writeWait),
+// which unblocks readPump's ReadMessage; ServeHTTP exits and its defers fire.
+//
+// We close the connection rather than using SetReadDeadline because
+// gorilla/websocket v1.5+ permanently stores the first read error in
+// c.readErr; a deadline timeout makes every subsequent ReadMessage return
+// immediately, spinning 1000+ times until gorilla panics.
+func (h *Handler) watchParticipantDone(ctx context.Context, ps *application.ParticipantSession, sigSession *Session) {
+	go func() {
+		select {
+		case <-ps.Done():
+			sigSession.Close()
+		case <-ctx.Done():
+		}
+	}()
 }
 
 func (h *Handler) readPump(
@@ -177,6 +219,16 @@ func (h *Handler) routeMessage(
 	case "request_keyframe":
 		h.handleRequestKeyframe(ps, userID)
 
+	case "request_ice_restart":
+		// The client noticed its media path break. It often sees this before the
+		// SFU does — pion's ICE timers are slower than the browser's — and the
+		// signaling socket is usually still alive when it happens, which is what
+		// makes repairing the existing PeerConnection possible at all.
+		// Rate-limited inside RequestICERestart: this arrives from the public
+		// socket and a client could otherwise ask on a loop.
+		h.log.Info("ICE restart requested by client", "user_id", userID, "room_id", roomID)
+		ps.RequestICERestart("client_request")
+
 	case "watch_share":
 		h.handleWatchShare(rs, ps, msg, userID)
 
@@ -200,9 +252,13 @@ func (h *Handler) routeMessage(
 		h.log.Info("screen share stopped", "user_id", userID)
 
 	case "leave":
-		// The deferred Leave() in ServeHTTP handles cleanup;
-		// closing the connection triggers readPump to return.
+		// An intentional leave ends the participant immediately — unlike an
+		// unannounced WebSocket death, there is nothing to hold a grace window
+		// open for. The deferred StartGrace in ServeHTTP still runs afterward
+		// (when the client closes its socket), but by then rs.Leave has already
+		// removed the participant, so it finds nothing and is a no-op.
 		h.log.Info("client requested leave", "user_id", userID, "room_id", roomID)
+		rs.Leave(ps.Participant.ID)
 
 	default:
 		h.log.Warn("unknown message type", "type", msg.Type, "user_id", userID)

@@ -13,7 +13,9 @@ import (
 	"github.com/joho/godotenv"
 
 	"github.com/vycord/server/internal/sfu/application"
+	"github.com/vycord/server/internal/sfu/diagnostics"
 	sfuwebrtc "github.com/vycord/server/internal/sfu/infrastructure/webrtc"
+	"github.com/vycord/server/internal/sfu/transport/httpapi"
 	"github.com/vycord/server/internal/sfu/transport/signaling"
 	"github.com/vycord/server/pkg/logger"
 )
@@ -62,6 +64,24 @@ func main() {
 	manager := application.NewRoomManager(peerFactory, log)
 	handler := signaling.NewHandler(manager, log, jwtSecret)
 
+	// Diagnostic-only (VYC-78 §4.1): detects whether the SFU process itself is
+	// being scheduled on time. Logs "runtime stall detected" (grep-able) when
+	// its own 20ms ticker fires 200ms+ late — see deploy/vyc76-report.sh's
+	// correlation section for how this is cross-referenced against client-side
+	// inbound-accel reports.
+	watchdogCtx, stopWatchdog := context.WithCancel(context.Background())
+	defer stopWatchdog()
+	go diagnostics.New(log).Run(watchdogCtx)
+
+	// Guards /stats and /presence: with network_mode: host (required for
+	// WebRTC ICE) the SFU's HTTP listens on ":"+port, i.e. every interface —
+	// confirmed reachable from the open internet unauthenticated (VYC-78 8.3).
+	// /ws stays public (JWT-protected); /health stays public (reveals nothing).
+	internalSecret := os.Getenv("SFU_INTERNAL_SECRET")
+	if internalSecret == "" {
+		log.Warn("SFU_INTERNAL_SECRET not set — /stats and /presence are locked and unreachable until it is configured")
+	}
+
 	mux := http.NewServeMux()
 	mux.Handle("/ws", handler)
 	mux.HandleFunc("/health", func(w http.ResponseWriter, _ *http.Request) {
@@ -69,13 +89,24 @@ func main() {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`{"status":"ok"}`))
 	})
-	mux.HandleFunc("/stats", func(w http.ResponseWriter, _ *http.Request) {
+	mux.HandleFunc("/stats", httpapi.RequireInternalSecret(internalSecret, func(w http.ResponseWriter, _ *http.Request) {
 		stats := manager.Stats()
 		w.Header().Set("Content-Type", "application/json")
 		if err := json.NewEncoder(w).Encode(stats); err != nil {
 			http.Error(w, "encode error", http.StatusInternalServerError)
 		}
-	})
+	}))
+	// /presence backs the API's voice-presence reconciliation worker (VYC-78
+	// step 4): room_id → user IDs currently in it, source of truth for who is
+	// actually in a call versus what the API's own client-driven voice_joined/
+	// voice_left bookkeeping believes.
+	mux.HandleFunc("/presence", httpapi.RequireInternalSecret(internalSecret, func(w http.ResponseWriter, _ *http.Request) {
+		presence := manager.Presence()
+		w.Header().Set("Content-Type", "application/json")
+		if err := json.NewEncoder(w).Encode(presence); err != nil {
+			http.Error(w, "encode error", http.StatusInternalServerError)
+		}
+	}))
 
 	srv := &http.Server{
 		Addr:    ":" + port,

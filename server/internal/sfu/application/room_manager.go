@@ -153,6 +153,45 @@ func (m *RoomManager) Join(
 	return rs, ps, nil
 }
 
+// Presence returns a snapshot of every non-empty room and the user IDs
+// currently in it — room_id is the same identifier the API calls channel_id
+// (handleJoinGroupCall passes one value into both), so this is directly
+// comparable against the API's own voice-channel state. A participant whose
+// signaling session is dead but who is still in a grace window (VYC-78 step 3)
+// is included: they are genuinely still in the call, media still flowing.
+func (m *RoomManager) Presence() map[string][]string {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	out := make(map[string][]string, len(m.rooms))
+	for roomID, rs := range m.rooms {
+		// A room briefly lingers in m.rooms with zero sessions between its last
+		// participant leaving and the reaper goroutine (GetOrCreateRoom's
+		// `go func` on rs.Done()) evicting it — skip it rather than reporting an
+		// empty roster for a room nobody is in.
+		if participants := rs.ExistingParticipants(); len(participants) > 0 {
+			out[roomID] = participants
+		}
+	}
+	return out
+}
+
+// Resume routes a resume_token to whichever room it names and hands off to
+// RoomSession.Resume. Unlike Join, it never creates a room: an unknown room ID
+// and an invalid/expired/wrong-user token both simply mean "cannot resume" —
+// the caller (handler.ServeHTTP) falls back to a fresh join either way.
+func (m *RoomManager) Resume(roomID, userID, token string, session SignalingSession) (*RoomSession, *ParticipantSession, bool) {
+	rs, ok := m.GetRoom(roomID)
+	if !ok {
+		return nil, nil, false
+	}
+	ps, ok := rs.Resume(token, userID, session)
+	if !ok {
+		return nil, nil, false
+	}
+	return rs, ps, true
+}
+
 // evictClosedRoom removes rs from the room map if it is still the current
 // session registered for roomID. Guards against racing with a concurrent
 // GetOrCreateRoom/reaper that may have already replaced or removed it.

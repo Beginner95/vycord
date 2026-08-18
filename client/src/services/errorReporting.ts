@@ -28,6 +28,12 @@ export function initErrorReporting(): void {
     environment: 'production',
     release: __APP_VERSION__,
     tracesSampleRate: 0,
+    // The default 100 is not enough for call diagnostics: groupCall.ts logs a
+    // stats sample per remote track every 2s, so in a 4-person call 100 crumbs
+    // cover well under a minute — and the whole point of attaching them is to
+    // see the minutes leading UP to an anomaly, not just the instant of it.
+    // Crumbs are held in memory and only uploaded alongside an actual event.
+    maxBreadcrumbs: 200,
     beforeBreadcrumb(breadcrumb) {
       const url = breadcrumb.data?.url;
       if (typeof url === 'string') {

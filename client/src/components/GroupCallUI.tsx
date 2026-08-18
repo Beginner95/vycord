@@ -556,6 +556,22 @@ export function GroupCallUI({
         // and closes the window where a newly-joined peer doesn't know it yet.
         wsService.send(isMutedRef.current ? 'mic_muted' : 'mic_unmuted', {});
       },
+      onPeerSnapshot: (userIds) => {
+        // Fired once, right after a successful resume (VYC-78 step 3): while
+        // this session sat dead in grace, participant_joined/left broadcasts
+        // for anyone else were sent to the dead session and lost — this is
+        // the only correction that ever arrives, so it must be a real diff
+        // against the authoritative list, not just an add like onPeerJoined's
+        // 'snapshot' source (which only ever runs on a blank-slate join/full
+        // reconnect, where there is nothing stale to remove).
+        const idSet = new Set(userIds);
+        setParticipants((prev) => {
+          const kept = prev.filter((p) => idSet.has(p.userId));
+          const keptIds = new Set(kept.map((p) => p.userId));
+          const added = userIds.filter((uid) => !keptIds.has(uid)).map((uid) => ({ userId: uid, stream: null }));
+          return [...kept, ...added];
+        });
+      },
       onPeerLeft: (userId) => {
         // A genuinely live participant_left for someone else's userId always means a real
         // departure. It can also fire with OUR OWN userId when the server evicts a stale

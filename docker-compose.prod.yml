@@ -51,6 +51,12 @@ services:
       REDIS_HOST: redis
     ports:
       - "127.0.0.1:8080:8080"
+    extra_hosts:
+      # api lives in this compose file's bridge network; sfu runs with
+      # network_mode: host (required for WebRTC ICE) and so has no bridge
+      # address at all. This is how api's voice-presence reconciliation
+      # worker (VYC-78 step 4, SFU_INTERNAL_URL) reaches sfu's HTTP API.
+      - "host.docker.internal:host-gateway"
     volumes:
       # Uploaded avatars/stickers (UPLOAD_DIR in .env.prod) must live on the
       # host, not the container's writable layer — otherwise every rebuild

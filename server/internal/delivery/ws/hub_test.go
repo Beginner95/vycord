@@ -184,7 +184,17 @@ func TestRegisterClient_VoiceStateSnapshotExcludesChannelOnResolverError(t *test
 		"channel must be excluded when its audience cannot be resolved")
 }
 
-func TestUnregisterClient_LeavesVoiceChannel(t *testing.T) {
+// TestUnregisterClient_DoesNotClearVoicePresence is VYC-78 step 4 (8.4): a
+// client's app-level WebSocket dying is not the same fact as "left the voice
+// call" — it is exactly the SFU-side "WS died but the participant is still in
+// the room" case grace-session (step 3) exists to not act on prematurely, just
+// on the API's own connection instead of the SFU's. Wiping voice presence here
+// used to be a systematically false signal (VYC-78 design doc 8.4): any blip in
+// the API WebSocket — unrelated to whether the call itself is still live —
+// silently vanished the user from everyone else's sidebar. The reconciliation
+// worker (package presence) now owns correcting the REVERSE case: a call that
+// actually ended while this WS somehow lived on.
+func TestUnregisterClient_DoesNotClearVoicePresence(t *testing.T) {
 	h := newTestHub()
 	go h.Run()
 
@@ -198,42 +208,12 @@ func TestUnregisterClient_LeavesVoiceChannel(t *testing.T) {
 	h.JoinVoiceChannel(userID, channelID)
 	h.UnregisterClient(client)
 
-	assert.Eventually(t, func() bool {
-		_, ok := h.GetVoiceState()[channelID]
-		return !ok
-	}, time.Second, 10*time.Millisecond, "disconnect should remove the user from its voice channel")
-}
+	assert.Eventually(t, func() bool { return !h.IsOnline(userID) }, time.Second, 10*time.Millisecond,
+		"the client must actually be gone from the online-clients map")
 
-func TestUnregister_BroadcastsVoiceParticipantsToOtherClients(t *testing.T) {
-	h := newTestHub()
-	go h.Run()
-
-	channelID := uuid.New()
-	userA := uuid.New()
-	userB := uuid.New()
-
-	clientA := &Client{UserID: userA, Send: make(chan []byte, 8)}
-	clientB := &Client{UserID: userB, Send: make(chan []byte, 8)}
-	h.RegisterClient(clientA)
-	h.RegisterClient(clientB)
-	assert.Eventually(t, func() bool { return h.IsOnline(userA) && h.IsOnline(userB) },
-		time.Second, 10*time.Millisecond)
-
-	h.JoinVoiceChannel(userA, channelID)
-	h.UnregisterClient(clientA)
-
-	found := false
-	deadline := time.After(time.Second)
-	for !found {
-		select {
-		case msg := <-clientB.Send:
-			if strings.Contains(string(msg), `"voice_participants"`) && strings.Contains(string(msg), channelID.String()) {
-				found = true
-			}
-		case <-deadline:
-			t.Fatal("client B did not receive a voice_participants broadcast after A disconnected")
-		}
-	}
+	state := h.GetVoiceState()
+	assert.ElementsMatch(t, []uuid.UUID{userID}, state[channelID],
+		"voice presence must survive an app-WS disconnect")
 }
 
 func TestBroadcastUserUpdate_SendsToAllClients(t *testing.T) {
@@ -524,4 +504,72 @@ func TestBroadcastVoiceParticipants_ResolverError_FailsClosed(t *testing.T) {
 		}
 	case <-time.After(200 * time.Millisecond):
 	}
+}
+
+// --- VYC-78 step 4: ReconcileVoicePresence ---
+
+// TestReconcileVoicePresence_AddsMissingParticipant covers the case
+// reconciliation exists for: a channel the SFU says has someone in it, that the
+// hub's own client-driven voice_joined bookkeeping never recorded (a missed
+// event, or a grace-session resume that never re-announced).
+func TestReconcileVoicePresence_AddsMissingParticipant(t *testing.T) {
+	h := newTestHub()
+	channelID := uuid.New()
+	userID := uuid.New()
+
+	changed := h.ReconcileVoicePresence(map[uuid.UUID][]uuid.UUID{channelID: {userID}})
+
+	assert.Equal(t, []uuid.UUID{channelID}, changed)
+	assert.ElementsMatch(t, []uuid.UUID{userID}, h.GetVoiceState()[channelID])
+}
+
+// TestReconcileVoicePresence_RemovesGhostParticipant covers the reverse: the
+// hub believes someone is in a channel the SFU no longer reports them in at
+// all (their call ended some other way — e.g. they never sent voice_left).
+func TestReconcileVoicePresence_RemovesGhostParticipant(t *testing.T) {
+	h := newTestHub()
+	channelID := uuid.New()
+	userID := uuid.New()
+	h.JoinVoiceChannel(userID, channelID)
+
+	changed := h.ReconcileVoicePresence(map[uuid.UUID][]uuid.UUID{})
+
+	assert.Equal(t, []uuid.UUID{channelID}, changed)
+	_, stillThere := h.GetVoiceState()[channelID]
+	assert.False(t, stillThere, "channel the SFU no longer reports must be cleared")
+}
+
+// TestReconcileVoicePresence_LeavesMatchingChannelsUnreported: the caller uses
+// the returned list to decide which channels to broadcast for. A channel that
+// already matches must not be reported as changed — the whole point is to
+// broadcast only what actually needs correcting, not resend everything on
+// every tick.
+func TestReconcileVoicePresence_LeavesMatchingChannelsUnreported(t *testing.T) {
+	h := newTestHub()
+	channelID := uuid.New()
+	userID := uuid.New()
+	h.JoinVoiceChannel(userID, channelID)
+
+	changed := h.ReconcileVoicePresence(map[uuid.UUID][]uuid.UUID{channelID: {userID}})
+
+	assert.Empty(t, changed, "a channel that already matches the SFU's snapshot must not be reported as changed")
+}
+
+// TestReconcileVoicePresence_PopulatesClientVoiceChannelIndex proves
+// reconciliation keeps the derived clientVoiceChannel index consistent, not
+// just the public voiceChannels map: LeaveVoiceChannel depends on it to know
+// which channel a user is in, and a user added purely by reconciliation (who
+// never went through JoinVoiceChannel — e.g. their voice_joined was missed but
+// the SFU always knew they were there) must still be leavable correctly.
+func TestReconcileVoicePresence_PopulatesClientVoiceChannelIndex(t *testing.T) {
+	h := newTestHub()
+	channelID := uuid.New()
+	userID := uuid.New()
+
+	h.ReconcileVoicePresence(map[uuid.UUID][]uuid.UUID{channelID: {userID}})
+
+	gotChannelID, participants, ok := h.LeaveVoiceChannel(userID)
+	assert.True(t, ok, "a user added purely by reconciliation must still be leavable")
+	assert.Equal(t, channelID, gotChannelID)
+	assert.Empty(t, participants)
 }

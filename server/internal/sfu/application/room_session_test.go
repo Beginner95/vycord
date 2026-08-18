@@ -627,6 +627,244 @@ func TestLeavingSubscriberReleasesFanoutSink(t *testing.T) {
 	}
 }
 
+// --- VYC-78 step 3: grace-session ---
+
+// TestStartGraceKeepsParticipantInRoomWithoutEndingSession is the point of
+// grace: a dead WebSocket alone must not end the participant. Before this, any
+// signaling drop meant an immediate Leave — full teardown, a "participant_left"
+// broadcast to everyone else, and a rejoin from scratch, for what is often just
+// a TCP hiccup while the UDP media path underneath is still carrying RTP fine.
+func TestStartGraceKeepsParticipantInRoomWithoutEndingSession(t *testing.T) {
+	rs, _ := joinTestRoom(t)
+	rs.graceTimeout = time.Hour // long enough that this test can't race its own timer
+
+	aliceSig := &fakeSignalingSession{}
+	alicePS, err := rs.Join(domain.NewParticipant("p1", "alice", "room1"), aliceSig)
+	if err != nil {
+		t.Fatalf("alice join: %v", err)
+	}
+	bobSig := &fakeSignalingSession{}
+	if _, err := rs.Join(domain.NewParticipant("p2", "bob", "room1"), bobSig); err != nil {
+		t.Fatalf("bob join: %v", err)
+	}
+
+	rs.StartGrace("p1", alicePS.Generation())
+
+	if isDone(alicePS.Done()) {
+		t.Fatal("StartGrace ended the participant session outright")
+	}
+	if rs.participantCount() != 2 {
+		t.Fatalf("participant count = %d, want 2 (grace must not remove the participant)", rs.participantCount())
+	}
+	if bobSig.received("participant_left") {
+		t.Fatal("bob was notified participant_left while alice was only in grace, not gone")
+	}
+}
+
+// TestGraceExpiryEndsParticipantAndBroadcastsLeft is the other half: if nobody
+// resumes within the window, the participant must still end up gone exactly the
+// way an immediate Leave used to — including the broadcast everyone else relies
+// on to update their participant list.
+func TestGraceExpiryEndsParticipantAndBroadcastsLeft(t *testing.T) {
+	rs, _ := joinTestRoom(t)
+	rs.graceTimeout = 30 * time.Millisecond
+
+	alicePS, err := rs.Join(domain.NewParticipant("p1", "alice", "room1"), &fakeSignalingSession{})
+	if err != nil {
+		t.Fatalf("alice join: %v", err)
+	}
+	bobSig := &fakeSignalingSession{}
+	if _, err := rs.Join(domain.NewParticipant("p2", "bob", "room1"), bobSig); err != nil {
+		t.Fatalf("bob join: %v", err)
+	}
+
+	rs.StartGrace("p1", alicePS.Generation())
+
+	// Poll for the broadcast itself, not just Done(): finishLeave closes the
+	// session (Done()) before it reaches the broadcast a few lines later in
+	// the same call, so asserting on the broadcast right after Done() alone
+	// would be racy against that same goroutine still finishing the rest of
+	// finishLeave.
+	waitFor(t, 2*time.Second, "bob to be notified participant_left once alice's grace window expires", func() bool {
+		return bobSig.received("participant_left")
+	})
+	if !isDone(alicePS.Done()) {
+		t.Fatal("bob was notified participant_left but alice's own session was not ended")
+	}
+	if rs.participantCount() != 1 {
+		t.Fatalf("participant count after grace expiry = %d, want 1 (only bob)", rs.participantCount())
+	}
+}
+
+// TestResumeReattachesSessionAndCancelsGrace is the reconnect half of grace:
+// presenting the resume token issued at join swaps in the new SignalingSession
+// on the SAME ParticipantSession — same PeerConnection, same forwarded tracks —
+// and stops the pending grace timer from ever ending the session.
+func TestResumeReattachesSessionAndCancelsGrace(t *testing.T) {
+	rs, _ := joinTestRoom(t)
+	rs.graceTimeout = 200 * time.Millisecond
+
+	oldSig := &fakeSignalingSession{}
+	alicePS, err := rs.Join(domain.NewParticipant("p1", "alice", "room1"), oldSig)
+	if err != nil {
+		t.Fatalf("alice join: %v", err)
+	}
+	token := alicePS.ResumeToken()
+	if token == "" {
+		t.Fatal("Join did not issue a resume token")
+	}
+
+	rs.StartGrace("p1", alicePS.Generation())
+
+	newSig := &fakeSignalingSession{}
+	resumedPS, ok := rs.Resume(token, "alice", newSig)
+	if !ok {
+		t.Fatal("Resume rejected a valid token from the right user")
+	}
+	if resumedPS != alicePS {
+		t.Fatal("Resume returned a different ParticipantSession than the one grace was started on")
+	}
+
+	// The grace timer must be dead: waiting past the original window must not
+	// end the session.
+	time.Sleep(rs.graceTimeout + 200*time.Millisecond)
+	if isDone(alicePS.Done()) {
+		t.Fatal("participant session ended after a successful Resume — the grace timer was not cancelled")
+	}
+
+	if err := alicePS.session.Notify("probe", nil); err != nil {
+		t.Fatalf("Notify after resume: %v", err)
+	}
+	if !newSig.received("probe") {
+		t.Fatal("a Notify sent after Resume did not reach the new session")
+	}
+	if oldSig.received("probe") {
+		t.Fatal("a Notify sent after Resume still reached the old, dead session")
+	}
+}
+
+// TestResumeRejectsWrongUserWithoutDisturbingGrace guards the token against
+// being usable by anyone but the participant it was issued to. Critically, a
+// rejected attempt must leave the real owner's grace window completely intact —
+// checking identity has to happen before the timer is touched at all.
+func TestResumeRejectsWrongUserWithoutDisturbingGrace(t *testing.T) {
+	rs, _ := joinTestRoom(t)
+	rs.graceTimeout = 100 * time.Millisecond
+
+	alicePS, err := rs.Join(domain.NewParticipant("p1", "alice", "room1"), &fakeSignalingSession{})
+	if err != nil {
+		t.Fatalf("alice join: %v", err)
+	}
+	token := alicePS.ResumeToken()
+	rs.StartGrace("p1", alicePS.Generation())
+
+	if _, ok := rs.Resume(token, "mallory", &fakeSignalingSession{}); ok {
+		t.Fatal("Resume accepted alice's token for a different user")
+	}
+
+	// The real owner's grace window must still expire normally afterward.
+	waitFor(t, 2*time.Second, "alice's own grace window to still expire after the rejected attempt", func() bool {
+		return isDone(alicePS.Done())
+	})
+}
+
+// TestResumeSucceedsBeforeGraceHasStarted covers the race a code review caught
+// after step 3 first shipped: StartGrace only runs once THIS server notices
+// the old WebSocket died (handler.go's deferred cleanup, which waits on
+// readPump — and the SFU deliberately sets no read deadline, so a silent
+// network drop can go unnoticed here for a long time). The client's own
+// reconnect is not ordered against that at all — on a real network handover
+// (the primary case grace-session exists for) the client routinely notices
+// its side is broken and redials with resume_token BEFORE this server's
+// readPump ever returns. Requiring a grace timer to already be running before
+// Resume can succeed would make resume fail in exactly the scenario it exists
+// to cover, silently falling back to the old stale-session-eviction Join path
+// (a full PC rebuild for everyone in the room) every time the client wins
+// that race — which, for a silent drop, it usually does.
+func TestResumeSucceedsBeforeGraceHasStarted(t *testing.T) {
+	rs, _ := joinTestRoom(t)
+
+	oldSig := &fakeSignalingSession{}
+	alicePS, err := rs.Join(domain.NewParticipant("p1", "alice", "room1"), oldSig)
+	if err != nil {
+		t.Fatalf("alice join: %v", err)
+	}
+	token := alicePS.ResumeToken()
+
+	// No StartGrace call here — simulates the client resuming before this
+	// server's own dead-socket detection has run.
+	newSig := &fakeSignalingSession{}
+	resumedPS, ok := rs.Resume(token, "alice", newSig)
+	if !ok {
+		t.Fatal("Resume failed even though the participant is still live and correctly identified — this is the primary scenario grace-session exists to cover")
+	}
+	if resumedPS != alicePS {
+		t.Fatal("Resume returned a different ParticipantSession than the one that was joined")
+	}
+
+	if err := alicePS.session.Notify("probe", nil); err != nil {
+		t.Fatalf("Notify after resume: %v", err)
+	}
+	if !newSig.received("probe") {
+		t.Fatal("a Notify sent after Resume did not reach the new session")
+	}
+}
+
+// TestStartGraceIsNoOpForSupersededGeneration is the other half of the fix
+// above: once TestResumeSucceedsBeforeGraceHasStarted's early resume has
+// happened, the ORIGINAL (now-dead, now-superseded) connection's OWN deferred
+// StartGrace call still runs eventually (handler.go's defer always fires).
+// Without the generation guard, that call would find no timer running (this
+// participant was never put in grace) and start one now — on an already
+// healthy, actively-resumed session — dooming it to die in graceTimeout for a
+// disconnect that was already handled.
+func TestStartGraceIsNoOpForSupersededGeneration(t *testing.T) {
+	rs, _ := joinTestRoom(t)
+	rs.graceTimeout = 30 * time.Millisecond
+
+	alicePS, err := rs.Join(domain.NewParticipant("p1", "alice", "room1"), &fakeSignalingSession{})
+	if err != nil {
+		t.Fatalf("alice join: %v", err)
+	}
+	staleGeneration := alicePS.Generation() // captured "at connect time", before the resume below
+
+	token := alicePS.ResumeToken()
+	if _, ok := rs.Resume(token, "alice", &fakeSignalingSession{}); !ok {
+		t.Fatal("setup: resume failed")
+	}
+
+	// The original connection's deferred cleanup runs after the resume,
+	// exactly as it would in production — carrying the generation it captured
+	// BEFORE the resume happened.
+	rs.StartGrace("p1", staleGeneration)
+
+	time.Sleep(rs.graceTimeout + 100*time.Millisecond)
+	if isDone(alicePS.Done()) {
+		t.Fatal("a stale StartGrace call (superseded by an earlier resume) still ended the participant")
+	}
+	if rs.participantCount() != 1 {
+		t.Fatalf("participant count = %d, want 1 (alice, still resumed and healthy)", rs.participantCount())
+	}
+}
+
+// TestStartGraceIsNoOpAfterExplicitLeave covers the intentional-leave path: the
+// "leave" message calls rs.Leave immediately, and the deferred StartGrace that
+// follows the WebSocket actually closing must find nothing left to do.
+func TestStartGraceIsNoOpAfterExplicitLeave(t *testing.T) {
+	rs, _ := joinTestRoom(t)
+
+	if _, err := rs.Join(domain.NewParticipant("p1", "alice", "room1"), &fakeSignalingSession{}); err != nil {
+		t.Fatalf("alice join: %v", err)
+	}
+	rs.Leave("p1")
+
+	rs.StartGrace("p1", 0) // must not panic, must not resurrect anything
+
+	if rs.participantCount() != 0 {
+		t.Fatalf("participant count = %d, want 0", rs.participantCount())
+	}
+}
+
 // A closed session must refuse new forwarding. WatchShare and SetSharingActive
 // both capture the subscriber session under rs.mu and release it before calling
 // AddRemoteTrack, so one can land after Close() has already drained

@@ -1,11 +1,15 @@
 import type { WSMessage } from '@/types';
 import { logger } from '@/utils/logger';
+import { computeBackoffDelay } from '@/services/backoff';
 
 const WS_URL = import.meta.env.VITE_WS_URL || 'ws://localhost:8080';
 
 class WebSocketService {
   private ws: WebSocket | null = null;
   private reconnectTimer: number | null = null;
+  // Consecutive failed attempts since the last successful open — grows the
+  // backoff ceiling computeBackoffDelay draws from, reset to 0 on 'open'.
+  private reconnectAttempt = 0;
   private listeners: Map<string, Set<(payload: unknown) => void>> = new Map();
   private token: string | null = null;
   private isConnected = false;
@@ -44,6 +48,7 @@ class WebSocketService {
 
       this.ws.onopen = () => {
         this.isConnected = true;
+        this.reconnectAttempt = 0;
         this.ws?.addEventListener('message', this.handleMessage);
         this.ws?.addEventListener('close', this.handleClose);
         this.ws?.addEventListener('error', this.handleError);
@@ -63,12 +68,11 @@ class WebSocketService {
       this.ws.onerror = () => {
         if (!settled) {
           settled = true;
-          // Schedule retry after 3 seconds
-          this.reconnectTimer = window.setTimeout(() => {
+          this.scheduleReconnect(() => {
             if (this.token) {
               this.connect(this.token).catch(() => {});
             }
-          }, 3000);
+          });
           reject(new Error('WebSocket connection failed'));
         }
       };
@@ -77,6 +81,7 @@ class WebSocketService {
 
   disconnect(): void {
     this.cleanup();
+    this.reconnectAttempt = 0;
   }
 
   /**
@@ -121,13 +126,27 @@ class WebSocketService {
 
   private handleClose = (): void => {
     this.isConnected = false;
-    // Attempt to reconnect after 3 seconds
-    this.reconnectTimer = window.setTimeout(() => {
+    this.scheduleReconnect(() => {
       if (this.token) {
         this.connect(this.token).catch((err) => logger.error('WebSocket reconnect failed:', err, { module: 'ws' }));
       }
-    }, 3000);
+    });
   };
+
+  // Schedules onFire after an exponential-backoff-with-full-jitter delay
+  // (computeBackoffDelay), bumping reconnectAttempt so the ceiling keeps
+  // growing across consecutive failures. Replaces a fixed 3-second delay:
+  // after a server drop, every client used to hammer it again on the exact
+  // same cadence — full jitter spreads that out immediately, and the growing
+  // ceiling stops hammering a server that stays down.
+  private scheduleReconnect(onFire: () => void): void {
+    const delay = computeBackoffDelay(this.reconnectAttempt);
+    this.reconnectAttempt++;
+    this.reconnectTimer = window.setTimeout(() => {
+      this.reconnectTimer = null;
+      onFire();
+    }, delay);
+  }
 
   private handleError = (error: Event): void => {
     const socket = error.target as WebSocket | null;
