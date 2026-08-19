@@ -12,9 +12,55 @@
   overflow: hidden;
 }
 
-/* During a group call the call UI (GroupCallUI, flex:1) replaces ChatArea in the
-   content slot, so hide the channel chat area while a call is active. */
-.app-layout[data-in-call="true"] .chat-area {
+/* ── Сплит канала: сцена звонка сверху, чат снизу ──
+   Чат больше не прячется во время звонка — они делят одну колонку по
+   вертикали, а высоту сцены задаёт перетаскиваемый разделитель. */
+.channel-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.channel-body .call-stage {
+  height: var(--call-stage-height, 55%);
+  min-height: 120px;
+  flex-shrink: 0;
+  overflow: hidden;
+}
+
+.call-split-handle {
+  height: 6px;
+  flex-shrink: 0;
+  cursor: row-resize;
+  background: var(--bg-elevated);
+  /* Без touch-action браузер уводит вертикальный свайп по разделителю в скролл
+     и глушит драг ещё до первого pointermove. */
+  touch-action: none;
+  user-select: none;
+}
+
+.call-split-handle:hover {
+  background: var(--brand-color);
+}
+
+.channel-body .chat-area {
+  flex: 1;
+  min-height: 0;
+}
+
+/* Фуллскрин в Electron разворачивает окно ОС, но сцена осталась бы высотой в
+   свои 20-80% колонки, и «на весь экран» ничего бы не дало. Пока внутри сцены
+   активен фуллскрин-режим, она забирает всю колонку, а разделитель и чат
+   уходят. Чистый CSS: класс is-fullscreen на .screen-share-main уже есть. */
+.channel-body:has(.screen-share-main.is-fullscreen) .call-stage {
+  height: 100%;
+  flex: 1 1 auto;
+}
+
+.channel-body:has(.screen-share-main.is-fullscreen) > .call-split-handle,
+.channel-body:has(.screen-share-main.is-fullscreen) > .chat-area {
   display: none;
 }
 
@@ -359,9 +405,8 @@
 
   .app-layout .server-list,
   .app-layout .channel-sidebar,
-  .app-layout .chat-area,
-  .app-layout .user-list,
-  .app-layout .group-call-overlay {
+  .app-layout .channel-body,
+  .app-layout .user-list {
     display: none;
     width: 100vw;
     min-width: 100vw;
@@ -370,13 +415,29 @@
 
   .app-layout[data-mobile-panel="servers"] .server-list { display: flex; }
   .app-layout[data-mobile-panel="channels"] .channel-sidebar { display: flex; }
-  .app-layout[data-mobile-panel="chat"] .chat-area { display: flex; }
-  .app-layout[data-mobile-panel="members"] .user-list { display: flex; }
-
-  /* In a call the call UI lives in the chat panel on mobile. */
-  .app-layout[data-in-call="true"][data-mobile-panel="chat"] .group-call-overlay {
+  /* На мобильном сплита нет: сцена звонка и чат — две отдельные панели,
+     переключаемые через data-mobile-panel, но обе живут внутри одного
+     .channel-body (десктопный сплит-контейнер), поэтому его самого нужно
+     показывать в обоих режимах — конкретную панель внутри выбирают правила
+     ниже. */
+  .app-layout[data-mobile-panel="chat"] .channel-body,
+  .app-layout[data-mobile-panel="call"] .channel-body {
     display: flex;
   }
+
+  .app-layout[data-mobile-panel="call"] .channel-body .call-stage {
+    height: 100%;
+    flex: 1 1 auto;
+  }
+
+  .app-layout[data-mobile-panel="call"] .channel-body .chat-area,
+  .app-layout[data-mobile-panel="call"] .channel-body .call-split-handle,
+  .app-layout[data-mobile-panel="chat"] .channel-body .call-stage,
+  .app-layout[data-mobile-panel="chat"] .channel-body .call-split-handle {
+    display: none;
+  }
+
+  .app-layout[data-mobile-panel="members"] .user-list { display: flex; }
 
   .sidebar-gutter {
     display: none;

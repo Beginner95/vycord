@@ -180,10 +180,10 @@ echo "=== Оба лога в UTC (GlitchTip timestamp и docker logs у SFU) —
 # Голые эпохи, без \pset border/pager — их же предстоит парсить в цикле ниже,
 # а не читать глазами (человеко-читаемые метки уже есть в секции выше).
 ACCEL_EPOCHS=$(ssh -o BatchMode=yes "$SSH_HOST" \
-  "docker exec vycord-db psql -U \$POSTGRES_USER -d glitchtip -tAc \
-   \"SELECT extract(epoch FROM timestamp)::bigint FROM issue_events_issueevent \
+  "docker exec vycord-db sh -lc \"psql -U \\\$POSTGRES_USER -d glitchtip -tAc \
+   \\\"SELECT extract(epoch FROM timestamp)::bigint FROM issue_events_issueevent \
       WHERE tags->>'module' = 'vyc76' AND tags->>'kind' = 'inbound-accel' \
-        AND timestamp > now() - interval '${HOURS} hours' ORDER BY timestamp\"")
+        AND timestamp > now() - interval '${HOURS} hours' ORDER BY timestamp\\\"\"")
 
 if [[ -z "$ACCEL_EPOCHS" ]]; then
   echo "(inbound-accel событий за последние ${HOURS}ч нет — сопоставлять нечего)"

@@ -258,8 +258,7 @@ func (h *ServerHandler) DeleteServer(w http.ResponseWriter, r *http.Request) {
 }
 
 type CreateChannelRequest struct {
-	Name string             `json:"name"`
-	Type domain.ChannelType `json:"type"`
+	Name string `json:"name"`
 }
 
 func (h *ServerHandler) CreateChannel(w http.ResponseWriter, r *http.Request) {
@@ -281,13 +280,9 @@ func (h *ServerHandler) CreateChannel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if req.Type == "" {
-		req.Type = domain.ChannelTypeText
-	}
-
 	userID := r.Context().Value("user_id").(uuid.UUID)
 
-	channel, err := h.serverUseCase.CreateChannel(serverID, userID, req.Name, req.Type)
+	channel, err := h.serverUseCase.CreateChannel(serverID, userID, req.Name)
 	if err != nil {
 		h.writeUseCaseError(w, r, err)
 		return

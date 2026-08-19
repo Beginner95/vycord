@@ -26,8 +26,8 @@ func (r *channelRepository) Create(channel *domain.Channel) error {
 	defer cancel()
 
 	query := `
-		INSERT INTO channels (id, server_id, name, type, position, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
+		INSERT INTO channels (id, server_id, name, position, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6)
 		RETURNING id
 	`
 
@@ -37,7 +37,6 @@ func (r *channelRepository) Create(channel *domain.Channel) error {
 		channel.ID,
 		channel.ServerID,
 		channel.Name,
-		channel.Type,
 		channel.Position,
 		channel.CreatedAt,
 		channel.UpdatedAt,
@@ -55,7 +54,7 @@ func (r *channelRepository) GetByID(id uuid.UUID) (*domain.Channel, error) {
 	defer cancel()
 
 	query := `
-		SELECT id, server_id, name, type, position, created_at, updated_at
+		SELECT id, server_id, name, position, created_at, updated_at
 		FROM channels
 		WHERE id = $1
 	`
@@ -65,7 +64,6 @@ func (r *channelRepository) GetByID(id uuid.UUID) (*domain.Channel, error) {
 		&channel.ID,
 		&channel.ServerID,
 		&channel.Name,
-		&channel.Type,
 		&channel.Position,
 		&channel.CreatedAt,
 		&channel.UpdatedAt,
@@ -86,7 +84,7 @@ func (r *channelRepository) GetByServerID(serverID uuid.UUID) ([]*domain.Channel
 	defer cancel()
 
 	query := `
-		SELECT id, server_id, name, type, position, created_at, updated_at
+		SELECT id, server_id, name, position, created_at, updated_at
 		FROM channels
 		WHERE server_id = $1
 		ORDER BY position ASC
@@ -101,7 +99,7 @@ func (r *channelRepository) GetByServerID(serverID uuid.UUID) ([]*domain.Channel
 	var channels []*domain.Channel
 	for rows.Next() {
 		c := &domain.Channel{}
-		if err := rows.Scan(&c.ID, &c.ServerID, &c.Name, &c.Type, &c.Position, &c.CreatedAt, &c.UpdatedAt); err != nil {
+		if err := rows.Scan(&c.ID, &c.ServerID, &c.Name, &c.Position, &c.CreatedAt, &c.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("failed to scan channel: %w", err)
 		}
 		channels = append(channels, c)

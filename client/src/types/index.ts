@@ -24,13 +24,10 @@ export interface Channel {
   id: string;
   server_id: string;
   name: string;
-  type: ChannelType;
   position: number;
   created_at: string;
   updated_at: string;
 }
-
-export type ChannelType = 'text' | 'voice';
 
 export interface Invite {
   code: string;
