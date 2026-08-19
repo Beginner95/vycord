@@ -134,6 +134,8 @@ export const en: Dictionary = {
 
     // Header and banners
     groupCallTitle: 'Group Call',
+    resizeSplit: 'Resize call area',
+    showCall: 'Call',
     screenSharingActive: 'Screen sharing active',
     isSharingScreen: '{{name}} is sharing their screen',
     view: 'View',
@@ -144,12 +146,6 @@ export const en: Dictionary = {
     fullscreen: 'Fullscreen',
     backToGrid: 'Back to grid',
 
-    // In-call chat panel
-    chatFallback: 'Chat',
-    channelFallback: 'channel',
-    noMessagesYet: 'No messages yet',
-    send: 'Send',
-
     // Call control buttons
     micUnavailable: 'Microphone unavailable',
     micOn: 'Turn on microphone',
@@ -159,8 +155,6 @@ export const en: Dictionary = {
     cameraOff: 'Turn off camera',
     stopScreenShare: 'Stop screen sharing',
     shareScreen: 'Share screen',
-    hideChat: 'Hide chat',
-    showChat: 'Show chat',
     leaveCall: 'Leave call',
 
     // Screen share errors
@@ -174,6 +168,12 @@ export const en: Dictionary = {
     // Split up because the name and the channel are wrapped in <strong>.
     invitesTo: 'is calling you to',
     joinCall: 'Join',
+
+    // Voice join button in the chat header
+    joinVoice: 'Join voice',
+    inThisCall: 'You are in this call',
+    goToCall: 'Go to call',
+    inCallAt: 'In call',
 
     // 1:1 call (CallUI)
     incomingCall: 'Incoming Call',
@@ -310,8 +310,7 @@ export const en: Dictionary = {
   },
   channel: {
     noServerHint: 'Select or create a server to get started',
-    textChannels: 'Text Channels',
-    voiceChannels: 'Voice Channels',
+    channels: 'Channels',
 
     // Context menu
     editMenu: 'Edit',
@@ -325,7 +324,6 @@ export const en: Dictionary = {
     createTitle: 'Create channel',
     createChannelMenu: 'Create channel',
     createButton: 'Create',
-    typeLabel: 'Channel Type',
   },
   update: {
     downloading: 'Downloading update {{version}}… it will install automatically',

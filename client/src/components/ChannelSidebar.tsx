@@ -1,12 +1,14 @@
 import { useState, useEffect, useMemo } from 'react';
-import type { Server, Channel, ChannelType, User, MemberWithUser } from '@/types';
+import type { Server, Channel, User, MemberWithUser } from '@/types';
 import { Settings } from '@/components/Settings';
 import { Avatar } from '@/components/Avatar';
 import { ContextMenu } from '@/components/ContextMenu';
 import { EditChannelModal } from '@/components/EditChannelModal';
 import { CreateChannelModal } from '@/components/CreateChannelModal';
+import { CallDock } from '@/components/CallDock';
 import { apiService, apiErrorText } from '@/services/api';
 import { useServerStore } from '@/stores/serverStore';
+import { useCallStore } from '@/stores/callStore';
 import { noiseCancellationService } from '@/services/noiseCancellation';
 import { can, PERMISSIONS } from '@/utils/permissions';
 import { useT } from '@/i18n';
@@ -17,12 +19,14 @@ interface ChannelSidebarProps {
   channels: Channel[];
   currentChannel: Channel | null;
   onSelectChannel: (channel: Channel) => void;
+  onJoinVoice: (channel: Channel) => void;
   user: User | null;
   onLogout: () => void;
   onMobileBack?: () => void;
   voiceParticipants?: Map<string, string[]>;
   members: MemberWithUser[];
   onChannelDeleted: (channelId: string) => void;
+  onGoToCall: (serverId: string | null, channelId: string) => void;
 }
 
 export function ChannelSidebar({
@@ -30,20 +34,23 @@ export function ChannelSidebar({
   channels,
   currentChannel,
   onSelectChannel,
+  onJoinVoice,
   user,
   onLogout,
   onMobileBack,
   voiceParticipants,
   members,
   onChannelDeleted,
+  onGoToCall,
 }: ChannelSidebarProps) {
   const t = useT();
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [ncEnabled, setNcEnabled] = useState(false);
   const [channelMenu, setChannelMenu] = useState<{ x: number; y: number; channel: Channel } | null>(null);
   const [editingChannel, setEditingChannel] = useState<Channel | null>(null);
-  const [creatingChannelType, setCreatingChannelType] = useState<ChannelType | null>(null);
+  const [creatingChannel, setCreatingChannel] = useState(false);
   const [confirmLogout, setConfirmLogout] = useState(false);
+  const callChannelId = useCallStore((s) => s.callChannelId);
 
   const permissions = useServerStore((s) => (server ? s.permissions.get(server.id) : undefined));
   const canManageChannels = can(permissions, PERMISSIONS.MANAGE_CHANNELS);
@@ -81,9 +88,6 @@ export function ChannelSidebar({
     return unsub;
   }, []);
 
-  const textChannels = channels.filter((c) => c.type === 'text');
-  const voiceChannels = channels.filter((c) => c.type === 'voice');
-
   if (!server) {
     return (
       <nav className="channel-sidebar">
@@ -98,6 +102,7 @@ export function ChannelSidebar({
         <div className="no-server-message">
           <p>{t('channel.noServerHint')}</p>
         </div>
+        <CallDock onGoToCall={onGoToCall} />
       </nav>
     );
   }
@@ -114,25 +119,26 @@ export function ChannelSidebar({
       </div>
 
       <div className="channel-list">
-        {(textChannels.length > 0 || canManageChannels) && (
-          <>
-            <div className="channel-category">
-              <span>{t('channel.textChannels')}</span>
-              {canManageChannels && (
-                <button
-                  type="button"
-                  className="channel-category-add"
-                  title={t('channel.createChannelMenu')}
-                  onClick={() => setCreatingChannelType('text')}
-                >
-                  +
-                </button>
-              )}
-            </div>
-            {textChannels.map((channel) => (
+        <div className="channel-category">
+          <span>{t('channel.channels')}</span>
+          {canManageChannels && (
+            <button
+              type="button"
+              className="channel-category-add"
+              title={t('channel.createChannelMenu')}
+              onClick={() => setCreatingChannel(true)}
+            >
+              +
+            </button>
+          )}
+        </div>
+        {channels.map((channel) => {
+          const participantIds = voiceParticipants?.get(channel.id) ?? [];
+          const isCallChannel = callChannelId === channel.id;
+          return (
+            <div key={channel.id} className="voice-channel-group">
               <div
-                key={channel.id}
-                className={`channel ${currentChannel?.id === channel.id ? 'active' : ''}`}
+                className={`channel${currentChannel?.id === channel.id ? ' active' : ''}${isCallChannel ? ' in-call' : ''}`}
                 onClick={() => onSelectChannel(channel)}
                 onContextMenu={(e) => {
                   if (!canManageChannels) return;
@@ -140,69 +146,54 @@ export function ChannelSidebar({
                   setChannelMenu({ x: e.clientX, y: e.clientY, channel });
                 }}
               >
-                {channel.name}
-              </div>
-            ))}
-          </>
-        )}
-
-        {(voiceChannels.length > 0 || canManageChannels) && (
-          <>
-            <div className="channel-category">
-              <span>{t('channel.voiceChannels')}</span>
-              {canManageChannels && (
-                <button
-                  type="button"
-                  className="channel-category-add"
-                  title={t('channel.createChannelMenu')}
-                  onClick={() => setCreatingChannelType('voice')}
-                >
-                  +
-                </button>
-              )}
-            </div>
-            {voiceChannels.map((channel) => {
-              const participantIds = voiceParticipants?.get(channel.id) ?? [];
-              return (
-                <div key={channel.id} className="voice-channel-group">
-                  <div
-                    className={`channel voice ${currentChannel?.id === channel.id ? 'active' : ''}`}
-                    onClick={() => onSelectChannel(channel)}
-                    onContextMenu={(e) => {
-                      if (!canManageChannels) return;
-                      e.preventDefault();
-                      setChannelMenu({ x: e.clientX, y: e.clientY, channel });
+                <span className="channel-name">{channel.name}</span>
+                {participantIds.length > 0 && (
+                  <span className="voice-count">({participantIds.length})</span>
+                )}
+                {!isCallChannel && (
+                  <button
+                    type="button"
+                    className="channel-join-voice"
+                    title={t('call.joinVoice')}
+                    aria-label={t('call.joinVoice')}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onJoinVoice(channel);
                     }}
                   >
-                    {channel.name}
-                    {participantIds.length > 0 && (
-                      <span className="voice-count">({participantIds.length})</span>
-                    )}
-                  </div>
-                  {participantIds.length > 0 && (
-                    <div className="voice-participant-list">
-                      {participantIds.map((userId) => (
-                        <div
-                          key={userId}
-                          className={`voice-participant ${userId === user?.id ? 'is-self' : ''}`}
-                          onClick={() => onSelectChannel(channel)}
-                        >
-                          <Avatar
-                            url={resolveAvatarUrl(userId)}
-                            username={resolveUsername(userId)}
-                            className="voice-participant-avatar"
-                          />
-                          <span className="voice-participant-name">{resolveUsername(userId)}</span>
-                        </div>
-                      ))}
+                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <path d="M3 18v-6a9 9 0 0 1 18 0v6"/>
+                      <path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3z"/>
+                      <path d="M3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3z"/>
+                    </svg>
+                    <span className="channel-join-voice-label">{t('call.joinVoice')}</span>
+                  </button>
+                )}
+              </div>
+              {participantIds.length > 0 && (
+                <div className="voice-participant-list">
+                  {participantIds.map((userId) => (
+                    <div
+                      key={userId}
+                      className={`voice-participant ${userId === user?.id ? 'is-self' : ''}`}
+                      onClick={() => onSelectChannel(channel)}
+                    >
+                      <Avatar
+                        url={resolveAvatarUrl(userId)}
+                        username={resolveUsername(userId)}
+                        className="voice-participant-avatar"
+                      />
+                      <span className="voice-participant-name">{resolveUsername(userId)}</span>
                     </div>
-                  )}
+                  ))}
                 </div>
-              );
-            })}
-          </>
-        )}
+              )}
+            </div>
+          );
+        })}
       </div>
+
+      <CallDock onGoToCall={onGoToCall} />
 
       <div className="user-panel">
         <div className="user-info">
@@ -275,12 +266,8 @@ export function ChannelSidebar({
         />
       )}
 
-      {creatingChannelType && server && (
-        <CreateChannelModal
-          serverId={server.id}
-          defaultType={creatingChannelType}
-          onClose={() => setCreatingChannelType(null)}
-        />
+      {creatingChannel && server && (
+        <CreateChannelModal serverId={server.id} onClose={() => setCreatingChannel(false)} />
       )}
     </nav>
   );

@@ -17,21 +17,13 @@ type Server struct {
 }
 
 type Channel struct {
-	ID        uuid.UUID   `json:"id"`
-	ServerID  uuid.UUID   `json:"server_id"`
-	Name      string      `json:"name"`
-	Type      ChannelType `json:"type"`
-	Position  int         `json:"position"`
-	CreatedAt time.Time   `json:"created_at"`
-	UpdatedAt time.Time   `json:"updated_at"`
+	ID        uuid.UUID `json:"id"`
+	ServerID  uuid.UUID `json:"server_id"`
+	Name      string    `json:"name"`
+	Position  int       `json:"position"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
 }
-
-type ChannelType string
-
-const (
-	ChannelTypeText  ChannelType = "text"
-	ChannelTypeVoice ChannelType = "voice"
-)
 
 type Member struct {
 	ServerID uuid.UUID `json:"server_id"`

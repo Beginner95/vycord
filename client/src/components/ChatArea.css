@@ -416,12 +416,14 @@
 
 /* ── Mobile ── */
 .mobile-back-btn,
+.mobile-call-btn,
 .mobile-members-btn {
   display: none;
 }
 
 @media (max-width: 768px) {
   .mobile-back-btn,
+  .mobile-call-btn,
   .mobile-members-btn {
     display: flex;
     align-items: center;
@@ -431,25 +433,29 @@
     color: var(--text-secondary);
     cursor: pointer;
     padding: 6px;
+    font-size: 16px;
     border-radius: var(--radius-sm);
     transition: all var(--transition);
     flex-shrink: 0;
   }
 
   .mobile-back-btn:hover,
+  .mobile-call-btn:hover,
   .mobile-members-btn:hover {
     background: var(--bg-hover);
     color: var(--text-primary);
   }
 
-  .mobile-members-btn {
-    margin-left: auto;
-  }
-
-  /* На мобильном auto-margin остаётся только у крайней правой кнопки
-     (участники), чтобы иконка поиска не "отрывалась" от неё. */
+  /* На мобильном auto-margin остаётся только у первой кнопки правой группы
+     (звонок, если он идёт в этом канале, иначе участники), чтобы иконка
+     поиска не "отрывалась" от неё, а звонок и участники шли вплотную. */
   .chat-search-btn {
     margin-left: 0;
+  }
+
+  .chat-search-btn + .mobile-call-btn,
+  .chat-search-btn + .mobile-members-btn {
+    margin-left: auto;
   }
 
   .chat-header {
@@ -569,6 +575,30 @@
 
 .floating-quote-btn:hover {
   background: var(--bg-hover);
+}
+
+.chat-voice-btn {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border: none;
+  border-radius: 4px;
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.chat-voice-btn:hover:not(:disabled) {
+  background: var(--brand-color);
+  color: #fff;
+}
+
+.chat-voice-btn:disabled {
+  opacity: 0.6;
+  cursor: default;
 }
 
 /* ── Message Search integration ── */

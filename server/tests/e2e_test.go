@@ -235,7 +235,7 @@ func TestRolePermissionsFlow(t *testing.T) {
 
 	// Без роли участник не может создать канал.
 	status, _ := doJSON(t, http.MethodPost, "/api/v1/servers/"+serverID+"/channels",
-		memberToken, map[string]any{"name": "нельзя", "type": "text"})
+		memberToken, map[string]any{"name": "нельзя"})
 	require.Equal(t, http.StatusForbidden, status, "участник без MANAGE_CHANNELS не создаёт каналы")
 
 	// Владелец создаёт роль с MANAGE_CHANNELS (бит 8) и назначает её участнику.
@@ -284,7 +284,7 @@ func TestRolePermissionsFlow(t *testing.T) {
 
 	// Теперь то же действие проходит.
 	status, _ = doJSON(t, http.MethodPost, "/api/v1/servers/"+serverID+"/channels",
-		memberToken, map[string]any{"name": "можно", "type": "text"})
+		memberToken, map[string]any{"name": "можно"})
 	require.Equal(t, http.StatusCreated, status, "участник с MANAGE_CHANNELS создаёт каналы")
 
 	// Эффективные права участника содержат выданный бит.
@@ -305,7 +305,7 @@ func TestRolePermissionsFlow(t *testing.T) {
 	require.Equal(t, http.StatusNoContent, status)
 
 	status, _ = doJSON(t, http.MethodPost, "/api/v1/servers/"+serverID+"/channels",
-		memberToken, map[string]any{"name": "снова нельзя", "type": "text"})
+		memberToken, map[string]any{"name": "снова нельзя"})
 	assert.Equal(t, http.StatusForbidden, status, "после снятия роли право пропадает")
 }
 

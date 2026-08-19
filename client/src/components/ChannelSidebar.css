@@ -93,6 +93,134 @@
   transition: all var(--transition);
 }
 
+.channel-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ── Join Voice Button ──
+   Покой: приглушённая круглая иконка-кнопка (видна всегда, в т.ч. на тач).
+   Наведение на строку канала / фокус: раскрывается в зелёную пилюлю с подписью. */
+.channel-join-voice {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0;
+  height: 24px;
+  min-width: 24px;
+  padding: 0 5px;
+  border: none;
+  border-radius: 999px; /* не var(--radius-full): 50% на широкой пилюле даёт эллипс */
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1;
+  opacity: 0.65;
+  transition: background var(--transition), color var(--transition),
+              opacity var(--transition), gap var(--transition),
+              padding var(--transition), transform var(--transition);
+}
+
+.channel-join-voice svg {
+  flex-shrink: 0;
+}
+
+.channel-join-voice-label {
+  max-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  opacity: 0;
+  transition: max-width var(--transition), opacity var(--transition);
+}
+
+.channel:hover .channel-join-voice,
+.channel-join-voice:focus-visible {
+  opacity: 1;
+  gap: 6px;
+  padding: 0 10px 0 8px;
+  background: var(--green-500);
+  color: var(--text-inverse);
+}
+
+.channel:hover .channel-join-voice .channel-join-voice-label,
+.channel-join-voice:focus-visible .channel-join-voice-label {
+  max-width: 110px;
+  opacity: 1;
+}
+
+.channel:hover .channel-join-voice:hover {
+  background: var(--green-600);
+}
+
+.channel-join-voice:active {
+  transform: scale(0.96);
+}
+
+.channel-join-voice:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--bg-primary), 0 0 0 4px var(--green-500);
+}
+
+/* В тёмной теме --text-muted почти сливается с фоном — иконка в покое тускнеет. */
+[data-theme="dark"] .channel-join-voice {
+  color: var(--text-secondary);
+  opacity: 0.5;
+}
+
+/* В тёмной теме белый текст на #22C55E читается плохо — берём тон темнее. */
+[data-theme="dark"] .channel:hover .channel-join-voice,
+[data-theme="dark"] .channel-join-voice:focus-visible {
+  background: var(--green-600);
+}
+
+[data-theme="dark"] .channel:hover .channel-join-voice:hover {
+  background: var(--green-500);
+}
+
+/* Тач-устройства: hover'а нет, поэтому пилюля сразу раскрыта. */
+@media (hover: none) {
+  .channel-join-voice {
+    height: 28px;
+    gap: 6px;
+    padding: 0 10px 0 8px;
+    background: var(--green-500);
+    color: var(--text-inverse);
+    opacity: 1;
+  }
+
+  .channel-join-voice-label {
+    max-width: 110px;
+    opacity: 1;
+  }
+
+  /* перебиваем правило покоя тёмной темы — оно той же специфичности, но выше по файлу */
+  [data-theme="dark"] .channel-join-voice {
+    background: var(--green-600);
+    color: var(--text-inverse);
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .channel-join-voice,
+  .channel-join-voice-label {
+    transition: none;
+  }
+
+  .channel-join-voice:active {
+    transform: none;
+  }
+}
+
+.channel.in-call {
+  box-shadow: inset 3px 0 0 var(--green-color, #23a55a);
+}
+
 .channel::before {
   content: '#';
   font-size: 16px;
@@ -115,32 +243,6 @@
 .channel.active::before {
   opacity: 1;
   color: var(--brand-color);
-}
-
-.channel.voice::before {
-  content: '';
-  opacity: 1;
-  font-size: 14px;
-}
-
-.channel.voice {
-  color: var(--text-secondary);
-}
-
-.channel.voice::after {
-  content: '🎙';
-  margin-left: auto;
-  font-size: 13px;
-  opacity: 0.7;
-}
-
-.channel.voice:hover::after,
-.channel.voice.active::after {
-  opacity: 1;
-}
-
-.channel.voice.active {
-  color: var(--green-600);
 }
 
 /* ── User Panel ── */

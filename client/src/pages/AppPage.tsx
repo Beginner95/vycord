@@ -11,13 +11,14 @@ import { ChatArea } from '@/components/ChatArea';
 import { UserList } from '@/components/UserList';
 import { TitleBar } from '@/components/TitleBar';
 import { CallUI } from '@/components/CallUI';
-import { GroupCallUI } from '@/components/GroupCallUI';
+import { CallStage } from '@/components/CallStage';
 import { groupCallService } from '@/services/groupCall';
+import { useCallStore, initCallBridge } from '@/stores/callStore';
 import { useT } from '@/i18n';
 import type { Server, Channel, Message, MemberWithUser } from '@/types';
 import './AppPage.css';
 
-type MobilePanel = 'servers' | 'channels' | 'chat' | 'members';
+type MobilePanel = 'servers' | 'channels' | 'chat' | 'call' | 'members';
 
 interface CallNotif {
   channelId: string;
@@ -94,8 +95,57 @@ export function AppPage() {
       return next;
     });
   };
-  const [inGroupCall, setInGroupCall] = useState(false);
-  const [showCallMembers, setShowCallMembers] = useState(false);
+  const callChannelId = useCallStore((s) => s.callChannelId);
+
+  // Мобильная панель «Звонок» существует только пока CallStage реально
+  // смонтирована (см. рендер ниже). Если звонок завершается — сам, по
+  // кику, по обрыву связи — или открытый канал меняется, пока эта панель
+  // активна, CallStage размонтируется, а панель «Звонок» осталась бы
+  // пустой: чат для неё скрыт CSS-правилами мобильного режима, а сцены
+  // больше нет. Откатываемся на чат, как только эта комбинация перестаёт
+  // выполняться.
+  useEffect(() => {
+    if (mobilePanel === 'call' && !(callChannelId && callChannelId === currentChannel?.id)) {
+      setMobilePanel('chat');
+    }
+  }, [mobilePanel, callChannelId, currentChannel]);
+
+  // Высота сцены звонка в сплите «звонок сверху, чат снизу». Проценты, а не
+  // пиксели: окно можно менять в размерах, а доля экрана под звонок — это то,
+  // что пользователь на самом деле выбирает.
+  const [stageHeight, setStageHeight] = useState<number>(() => {
+    const saved = Number(window.localStorage.getItem('vycord.callStageHeight'));
+    return Number.isFinite(saved) && saved >= 20 && saved <= 80 ? saved : 55;
+  });
+
+  const handleSplitDragStart = (e: React.PointerEvent<HTMLDivElement>) => {
+    const container = e.currentTarget.parentElement;
+    if (!container) return;
+    e.currentTarget.setPointerCapture(e.pointerId);
+    const rect = container.getBoundingClientRect();
+
+    const onMove = (ev: PointerEvent) => {
+      const pct = ((ev.clientY - rect.top) / rect.height) * 100;
+      const clamped = Math.min(80, Math.max(20, pct));
+      setStageHeight(clamped);
+    };
+    // Одна функция очистки на pointerup И pointercancel: на мобильном браузер
+    // может увести вертикальный свайп в скролл — тогда pointerup не придёт
+    // вовсе, и слушатели остались бы на window навсегда, стакаясь с каждым
+    // следующим перетаскиванием.
+    const stopDrag = () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', stopDrag);
+      window.removeEventListener('pointercancel', stopDrag);
+      setStageHeight((h) => {
+        window.localStorage.setItem('vycord.callStageHeight', String(Math.round(h)));
+        return h;
+      });
+    };
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', stopDrag);
+    window.addEventListener('pointercancel', stopDrag);
+  };
   const stopRingtoneRef = useRef<(() => void) | null>(null);
   const callNotifRef = useRef<CallNotif | null>(null);
   const handledRemovalsRef = useRef<Set<string>>(new Set());
@@ -124,6 +174,14 @@ export function AppPage() {
   useEffect(() => {
     // Load servers
     loadServers();
+  }, []);
+
+  // Подписка на groupCallService живёт в модуле стора, а не в компоненте сцены
+  // звонка: сцена размонтируется при уходе в другой канал, а обработка входящих
+  // стримов, реконнекта и метрик обязана это пережить. initCallBridge()
+  // идемпотентна — повторные вызовы (StrictMode, ремаунт) ничего не делают.
+  useEffect(() => {
+    initCallBridge();
   }, []);
 
   useEffect(() => {
@@ -270,28 +328,37 @@ export function AppPage() {
       .catch((err) => console.error('Failed to load server permissions:', err));
   };
 
-  const callLeaveGroupCall = () => {
-    const w = window as unknown as Record<string, unknown>;
-    (w.leaveGroupCall as (() => void) | undefined)?.();
-  };
+  const callLeaveGroupCall = () => useCallStore.getState().leave();
 
-  const handleInCallChange = (active: boolean) => {
-    setInGroupCall(active);
-    setShowCallMembers(false);
+  const handleJoinVoice = (channel: Channel) => {
+    if (!user) return;
+    const server = useServerStore.getState().currentServer;
+    void useCallStore.getState().join({
+      channelId: channel.id,
+      channelName: channel.name,
+      serverId: server?.id ?? null,
+      serverName: server?.name ?? null,
+      userId: user.id,
+      userName: user.username,
+    });
   };
 
   const handleServerRemoved = (removedServerId: string) => {
     if (handledRemovalsRef.current.has(removedServerId)) return;
     handledRemovalsRef.current.add(removedServerId);
 
-    if (currentServer?.id !== removedServerId) return;
-
-    if (
-      groupCallService.isInGroupCallState &&
-      channels.some((c) => c.id === groupCallService.currentRoomIdState)
-    ) {
+    // Звонок больше не привязан к навигации: сервер со звонком может быть
+    // удалён, пока мы смотрим другой сервер. Сервер шлёт один server_delete
+    // без каскадных channel_delete, поэтому звонок нужно проверить и
+    // завершить здесь — ДО раннего выхода по «смотрю другой сервер» — иначе
+    // он повиснет без канала, к которому уже нет доступа. callServerId из
+    // useCallStore — источник правды о том, в каком сервере идёт звонок,
+    // независимо от того, какой сервер сейчас открыт в UI.
+    if (useCallStore.getState().callServerId === removedServerId) {
       callLeaveGroupCall();
     }
+
+    if (currentServer?.id !== removedServerId) return;
 
     const remaining = useServerStore.getState().servers;
     if (remaining.length > 0) {
@@ -309,16 +376,17 @@ export function AppPage() {
     if (handledRemovalsRef.current.has(removedChannelId)) return;
     handledRemovalsRef.current.add(removedChannelId);
 
-    if (groupCallService.isInGroupCallState && groupCallService.currentRoomIdState === removedChannelId) {
+    // Звонок и открытый канал независимы: удаление может задеть один, оба или ни одного.
+    if (useCallStore.getState().callChannelId === removedChannelId) {
       callLeaveGroupCall();
     }
 
     if (currentChannel?.id !== removedChannelId) return;
 
     const remaining = useServerStore.getState().channels;
-    const textChannel = remaining.find((c) => c.type === 'text');
-    if (textChannel) {
-      handleSelectChannel(textChannel);
+    const nextChannel = remaining[0];
+    if (nextChannel) {
+      handleSelectChannel(nextChannel);
     } else {
       setCurrentChannel(null);
       setMessages([]);
@@ -365,9 +433,9 @@ export function AppPage() {
             }
           }
 
-          const textChannel = channelsData.find((c) => c.type === 'text');
-          if (textChannel) {
-            handleSelectChannel(textChannel);
+          const nextChannel = channelsData[0];
+          if (nextChannel) {
+            handleSelectChannel(nextChannel);
           } else {
             setCurrentChannel(null);
             setMessages([]);
@@ -419,9 +487,14 @@ export function AppPage() {
       setChannels(data);
       loadServerMembers(server.id);
       loadServerPermissions(server.id);
-      const textChannel = data.find((c) => c.type === 'text');
-      if (textChannel) {
-        handleSelectChannel(textChannel);
+      // Если в этом сервере идёт звонок — открыть именно его канал, а не первый
+      // попавшийся, чтобы переход из CallDock (или обратно на сервер со звонком)
+      // приземлял ровно на канал звонка.
+      const callChannelId = useCallStore.getState().callChannelId;
+      const callChannel = callChannelId ? data.find((c) => c.id === callChannelId) : undefined;
+      const nextChannel = callChannel ?? data[0];
+      if (nextChannel) {
+        handleSelectChannel(nextChannel);
       } else {
         setCurrentChannel(null);
         setMessages([]);
@@ -442,30 +515,21 @@ export function AppPage() {
     const currentSrv = useServerStore.getState().currentServer;
     apiService.updateLastVisited(currentSrv?.id ?? null, channel.id).catch(() => {});
 
-    // If voice channel, join the group call; ring only if no one else is in the room yet.
-    if (channel.type === 'voice' && user) {
-      const joinGroupCall = (window as unknown as Record<string, unknown>).joinGroupCall as
-        ((id: string) => Promise<boolean>) | undefined;
-      if (typeof joinGroupCall === 'function') {
-        const isFirst = await joinGroupCall(channel.id);
-        if (isFirst) {
-          wsService.send('voice_call_ring', {
-            channel_id: channel.id,
-            server_id: currentSrv?.id,
-            caller_id: user.id,
-            caller_name: user.username,
-            channel_name: channel.name,
-          });
-        }
-      }
-    }
-
     try {
       const data = await apiService.getMessages(channel.id);
       setMessages(data as Message[]);
     } catch (err) {
       logger.error('Failed to load messages:', err, { module: 'app' });
     }
+  };
+
+  const handleGoToCall = (serverId: string | null, channelId: string) => {
+    const targetServer = servers.find((s) => s.id === serverId);
+    if (targetServer && targetServer.id !== currentServer?.id) {
+      handleSelectServer(targetServer);
+    }
+    const channel = useServerStore.getState().channels.find((c) => c.id === channelId);
+    if (channel) handleSelectChannel(channel);
   };
 
   const handleLogout = () => {
@@ -494,7 +558,7 @@ logger.error('Failed to create server:', err, { module: 'app' });
   return (
     <div className="app-page">
       <TitleBar />
-      <div className="app-layout" data-mobile-panel={mobilePanel} data-in-call={inGroupCall ? 'true' : 'false'} data-left-sidebar={leftSidebarHidden ? 'hidden' : 'shown'}>
+      <div className="app-layout" data-mobile-panel={mobilePanel} data-left-sidebar={leftSidebarHidden ? 'hidden' : 'shown'}>
         <button
           className="sidebar-gutter"
           onClick={toggleLeftSidebar}
@@ -520,30 +584,48 @@ logger.error('Failed to create server:', err, { module: 'app' });
           channels={channels}
           currentChannel={currentChannel}
           onSelectChannel={handleSelectChannel}
+          onJoinVoice={handleJoinVoice}
           user={user}
           onLogout={handleLogout}
           onMobileBack={() => setMobilePanel('servers')}
           voiceParticipants={voiceParticipants}
           members={members}
           onChannelDeleted={handleChannelRemoved}
+          onGoToCall={handleGoToCall}
         />
 
-        <ChatArea
-          channel={currentChannel}
-          user={user}
-          onMobileBack={() => setMobilePanel('channels')}
-          onShowMembers={() => setMobilePanel('members')}
-        />
+        {/* Сцена звонка показывается только в том канале, где идёт звонок:
+            уход в другой канал размонтирует её, а сам звонок продолжается —
+            его состояние и подписки живут в сторе. */}
+        <div className="channel-body" style={{ '--call-stage-height': `${stageHeight}%` } as React.CSSProperties}>
+          {callChannelId && callChannelId === currentChannel?.id && (
+            <>
+              <CallStage onMobileBackToChat={() => setMobilePanel('chat')} />
+              <div
+                className="call-split-handle"
+                onPointerDown={handleSplitDragStart}
+                role="separator"
+                aria-label={t('call.resizeSplit')}
+              />
+            </>
+          )}
+          <ChatArea
+            channel={currentChannel}
+            user={user}
+            onMobileBack={() => setMobilePanel('channels')}
+            onShowMembers={() => setMobilePanel('members')}
+            onJoinVoice={handleJoinVoice}
+            onShowCall={
+              callChannelId && callChannelId === currentChannel?.id
+                ? () => setMobilePanel('call')
+                : undefined
+            }
+          />
+        </div>
 
-        <GroupCallUI
-          onInCallChange={handleInCallChange}
-          showMembers={showCallMembers}
-          onToggleMembers={() => setShowCallMembers((v) => !v)}
-        />
-
-        {(!inGroupCall || showCallMembers) && (
-          <UserList onMobileBack={() => setMobilePanel('chat')} />
-        )}
+        {/* Список участников виден всегда, включая звонок: чат и сцена теперь
+            делят колонку, и прятать соседнюю панель больше не за чем. */}
+        <UserList onMobileBack={() => setMobilePanel('chat')} />
       </div>
 
       {showCreateServer && (
@@ -601,7 +683,7 @@ logger.error('Failed to create server:', err, { module: 'app' });
               stopRingtoneRef.current?.();
               stopRingtoneRef.current = null;
               const ch = channels.find((c) => c.id === callNotif.channelId);
-              if (ch) handleSelectChannel(ch);
+              if (ch) { handleSelectChannel(ch); handleJoinVoice(ch); }
               setCallNotif(null);
             }}
           >

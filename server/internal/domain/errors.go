@@ -9,8 +9,6 @@ var (
 	// ErrChannelForbidden — пользователю запрещён доступ к приватному каналу
 	// (не владелец канала/сервера, не администратор, не приглашён).
 	ErrChannelForbidden = errors.New("channel access denied")
-	// ErrChannelNotVoice — попытка получить voice-токен для текстового канала.
-	ErrChannelNotVoice = errors.New("channel is not a voice channel")
 	// ErrChannelNotFound — канал с указанным ID не существует.
 	ErrChannelNotFound = errors.New("channel not found")
 	// ErrMessageNotFound — сообщение с указанным ID не существует или не принадлежит каналу из URL.

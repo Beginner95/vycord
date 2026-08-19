@@ -139,6 +139,8 @@ export const ru = {
 
     // Заголовок и баннеры
     groupCallTitle: 'Групповой звонок',
+    resizeSplit: 'Изменить высоту звонка',
+    showCall: 'Звонок',
     screenSharingActive: 'Идёт демонстрация экрана',
     isSharingScreen: '{{name}} показывает экран',
     view: 'Смотреть',
@@ -149,12 +151,6 @@ export const ru = {
     fullscreen: 'На весь экран',
     backToGrid: 'Вернуться к сетке',
 
-    // Панель чата в звонке
-    chatFallback: 'Чат',
-    channelFallback: 'канал',
-    noMessagesYet: 'Сообщений пока нет',
-    send: 'Отправить',
-
     // Кнопки управления звонком
     micUnavailable: 'Микрофон недоступен',
     micOn: 'Включить микрофон',
@@ -164,8 +160,6 @@ export const ru = {
     cameraOff: 'Выключить камеру',
     stopScreenShare: 'Остановить демонстрацию',
     shareScreen: 'Демонстрировать экран',
-    hideChat: 'Скрыть чат',
-    showChat: 'Показать чат',
     leaveCall: 'Покинуть звонок',
 
     // Ошибки демонстрации экрана
@@ -179,6 +173,12 @@ export const ru = {
     // Разбит на части, потому что имя и канал в разметке обёрнуты в <strong>.
     invitesTo: 'зовёт в',
     joinCall: 'Войти',
+
+    // Кнопка входа в звонок в шапке чата
+    joinVoice: 'Подключиться',
+    inThisCall: 'Вы в звонке',
+    goToCall: 'Перейти',
+    inCallAt: 'В звонке',
 
     // Одиночный звонок (CallUI)
     incomingCall: 'Входящий звонок',
@@ -315,8 +315,7 @@ export const ru = {
   },
   channel: {
     noServerHint: 'Выберите сервер или создайте новый, чтобы начать',
-    textChannels: 'Текстовые каналы',
-    voiceChannels: 'Голосовые каналы',
+    channels: 'Каналы',
 
     // Контекстное меню
     editMenu: 'Редактировать',
@@ -330,7 +329,6 @@ export const ru = {
     createTitle: 'Создать канал',
     createChannelMenu: 'Создать канал',
     createButton: 'Создать',
-    typeLabel: 'Тип канала',
   },
   update: {
     downloading: 'Скачивание обновления {{version}}... установится автоматически',

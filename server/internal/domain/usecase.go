@@ -49,7 +49,7 @@ type ServerUseCase interface {
 	JoinServer(serverID, userID uuid.UUID) error
 	LeaveServer(serverID, userID uuid.UUID) error
 	SearchServers(query string, limit int) ([]*Server, error)
-	CreateChannel(serverID, userID uuid.UUID, name string, channelType ChannelType) (*Channel, error)
+	CreateChannel(serverID, userID uuid.UUID, name string) (*Channel, error)
 	GetChannels(serverID, userID uuid.UUID) ([]*Channel, error)
 	GetMembers(serverID, userID uuid.UUID) ([]*MemberWithUser, error)
 	UpdateServer(serverID, userID uuid.UUID, name string, isPrivate *bool) (*Server, error)
@@ -83,7 +83,7 @@ type VoiceTokenUseCase interface {
 	// IssueToken mints a short-lived JWT scoped to a single SFU room after
 	// verifying userID may access channelID (server membership plus
 	// PermViewChannels; a private server's non-members already resolve to
-	// zero permissions upstream). Requires channelID to be a voice channel.
+	// zero permissions upstream).
 	IssueToken(channelID, userID uuid.UUID) (string, error)
 }
 

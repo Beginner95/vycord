@@ -1,0 +1,61 @@
+.call-dock {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-top: 1px solid var(--bg-elevated);
+  background: var(--bg-secondary);
+}
+
+.call-dock-target {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  border: none;
+  background: transparent;
+  color: var(--text-primary);
+  cursor: pointer;
+  text-align: left;
+}
+
+.call-dock-status {
+  font-size: 11px;
+  color: var(--green-color);
+}
+
+.call-dock-channel {
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+
+.call-dock-server {
+  opacity: 0.7;
+}
+
+.call-dock-actions {
+  display: flex;
+  gap: 4px;
+}
+
+.call-dock-btn {
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font-size: 15px;
+  line-height: 1;
+  padding: 4px;
+}
+
+.call-dock-btn.off {
+  opacity: 0.5;
+}
+
+.call-dock-btn.danger:hover {
+  background: var(--red-color);
+  border-radius: 4px;
+}

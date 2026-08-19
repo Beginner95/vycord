@@ -68,8 +68,8 @@ func (m *mockServerUseCase) SearchServers(query string, limit int) ([]*domain.Se
 	return s, args.Error(1)
 }
 
-func (m *mockServerUseCase) CreateChannel(serverID, userID uuid.UUID, name string, channelType domain.ChannelType) (*domain.Channel, error) {
-	args := m.Called(serverID, userID, name, channelType)
+func (m *mockServerUseCase) CreateChannel(serverID, userID uuid.UUID, name string) (*domain.Channel, error) {
+	args := m.Called(serverID, userID, name)
 	ch, _ := args.Get(0).(*domain.Channel)
 	return ch, args.Error(1)
 }
@@ -439,8 +439,8 @@ func TestCreateChannel_NoLongerAcceptsIsPrivate(t *testing.T) {
 	h, uc, _, _ := newTestServerHandler(t)
 	userID, serverID, channelID := uuid.New(), uuid.New(), uuid.New()
 
-	uc.On("CreateChannel", serverID, userID, "general", domain.ChannelTypeText).
-		Return(&domain.Channel{ID: channelID, ServerID: serverID, Name: "general", Type: domain.ChannelTypeText}, nil)
+	uc.On("CreateChannel", serverID, userID, "general").
+		Return(&domain.Channel{ID: channelID, ServerID: serverID, Name: "general"}, nil)
 	uc.On("GetServerAudience", serverID).Return(nil, nil)
 
 	req := serverRequest(http.MethodPost, "/api/v1/servers/"+serverID.String()+"/channels", userID, `{"name":"general","is_private":true}`)
@@ -450,7 +450,7 @@ func TestCreateChannel_NoLongerAcceptsIsPrivate(t *testing.T) {
 
 	assert.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
 	// is_private в теле игнорируется — вызов usecase не принимает такой параметр вовсе.
-	uc.AssertCalled(t, "CreateChannel", serverID, userID, "general", domain.ChannelTypeText)
+	uc.AssertCalled(t, "CreateChannel", serverID, userID, "general")
 }
 
 func TestUpdateChannel_Success(t *testing.T) {
