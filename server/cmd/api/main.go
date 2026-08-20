@@ -140,6 +140,13 @@ func main() {
 	// Middleware
 	authMid := middleware.NewAuthMiddleware(authUseCase, log)
 
+	// Health check for uptime monitoring
+	router.HandleFunc("GET /health", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"status":"ok"}`))
+	})
+
 	// Auth routes
 	router.HandleFunc("POST /api/v1/auth/register", authHandler.Register)
 	router.HandleFunc("POST /api/v1/auth/login", authHandler.Login)
