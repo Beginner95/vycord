@@ -30,6 +30,14 @@
   --rail:         #171B29;
   --rail-item:    rgba(255, 255, 255, 0.07);
   --rail-line:    rgba(255, 255, 255, 0.14);
+  --rail-ink:        #E4E7F0;
+  --rail-muted:      #C9CFDE;
+  --rail-item-hover: rgba(255, 255, 255, 0.12);
+  --rail-create-bg:  rgba(18, 183, 106, 0.16);
+  --rail-create-ink: #4ADE96;
+  --row-hover:       rgba(255, 255, 255, 0.6);
+  --avatar-offline:  #E3E6EF;
+  --white:           #FFFFFF;
 
   /* ── Status ── */
   --online:      #12B76A;
@@ -43,16 +51,6 @@
   --stage:        #0E1017;
   --stage-tile:   #1A1E2B;
   --stage-tile-2: #20252F;
-
-  /* ── Avatar palette (deterministic hash, see utils/avatarColor.ts) ── */
-  --avatar-1: #4F46E5;
-  --avatar-2: #E8590C;
-  --avatar-3: #0F766E;
-  --avatar-4: #B4145A;
-  --avatar-5: #1D4ED8;
-  --avatar-6: #7C3AED;
-  --avatar-7: #0E7490;
-  --avatar-8: #A16207;
 
   /* ── Shadows ── */
   --shadow-row:     0 1px 2px rgba(16, 19, 34, 0.06);
@@ -109,6 +107,7 @@
   --canvas-3:     #131722; /* refine in M6 */
   --composer:     #171B26;
   --rail:         #0A0C12;
+  --row-hover: rgba(255, 255, 255, 0.05); /* board: nav hover in dark */
 
   --online:      #4ADE96;
   --online-soft: rgba(18, 183, 106, 0.14);

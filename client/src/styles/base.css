@@ -1,3 +1,15 @@
+/* ── Type scale (spec §4.1; handoff typography table). In-between handoff
+   values (12.5px, 13px, 10.5px…) stay literal in component CSS. ── */
+:root {
+  --fs-title:   19px;   /* modal title · 800 · lh 1.25 */
+  --fs-heading: 15.5px; /* screen/channel/server name · 700 */
+  --fs-body:    14px;   /* message body · 400 · lh 1.55 */
+  --fs-label:   13.5px; /* list item, button label · 500–700 */
+  --fs-caption: 11.5px; /* caption, description, time · 500 */
+  --fs-group:   11px;   /* group label · 700 · caps */
+  --ls-group:   0.09em; /* group label letter-spacing */
+}
+
 /* ── Reset ── */
 *, *::before, *::after {
   margin: 0;

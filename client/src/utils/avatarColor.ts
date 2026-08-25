@@ -1,5 +1,6 @@
 // Deterministic username → color mapping (design handoff, option 2b).
-// Same 8 hex values as the --avatar-1..8 tokens in styles/tokens.css.
+// SINGLE SOURCE OF TRUTH for the 8-color avatar palette (M1 decision:
+// the former --avatar-1..8 tokens were unconsumed and deleted).
 export const AVATAR_COLORS = [
   '#4F46E5',
   '#E8590C',

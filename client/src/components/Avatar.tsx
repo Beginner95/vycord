@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import type { CSSProperties } from 'react';
 import { API_BASE_URL } from '@/services/api';
 import { avatarColor } from '@/utils/avatarColor';
 
@@ -26,7 +27,14 @@ export function Avatar({ url, username, className }: AvatarProps) {
   return (
     <div
       className={className}
-      style={{ background: avatarColor(username), color: '#FFFFFF', fontWeight: 700 }}
+      style={
+        {
+          '--avatar-color': avatarColor(username),
+          background: 'var(--avatar-bg, var(--avatar-color))',
+          color: 'var(--avatar-ink, #FFFFFF)',
+          fontWeight: 700,
+        } as CSSProperties
+      }
     >
       {username.charAt(0).toUpperCase() || '?'}
     </div>
