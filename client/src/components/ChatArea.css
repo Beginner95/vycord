@@ -353,39 +353,6 @@
   box-shadow: 0 0 0 3px var(--brand-subtle), var(--shadow-md);
 }
 
-/* ── Title Bar ── */
-.title-bar {
-  height: 40px;
-  background: var(--bg-primary);
-  border-bottom: 1px solid var(--border-subtle);
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  -webkit-app-region: drag;
-}
-
-.title-bar button {
-  -webkit-app-region: no-drag;
-  background: none;
-  border: none;
-  color: var(--text-muted);
-  width: 46px;
-  height: 40px;
-  cursor: pointer;
-  font-size: 13px;
-  transition: all var(--transition);
-}
-
-.title-bar button:hover {
-  background: var(--bg-hover);
-  color: var(--text-primary);
-}
-
-.title-bar button.close:hover {
-  background: var(--red-500);
-  color: white;
-}
-
 /* ── Error Toast ── */
 .error-toast {
   position: fixed;

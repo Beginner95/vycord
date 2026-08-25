@@ -1,4 +1,6 @@
+import { Minus, Square, X } from 'lucide-react';
 import { useT } from '@/i18n';
+import './TitleBar.css';
 
 export function TitleBar() {
   const t = useT();
@@ -20,9 +22,15 @@ export function TitleBar() {
     <div className="title-bar">
       {isElectron && (
         <>
-          <button onClick={handleMinimize} title={t('common.minimize')}>─</button>
-          <button onClick={handleMaximize} title={t('common.maximize')}>□</button>
-          <button className="close" onClick={handleClose} title={t('common.close')}>✕</button>
+          <button onClick={handleMinimize} title={t('common.minimize')}>
+            <Minus size={15} strokeWidth={1.8} />
+          </button>
+          <button onClick={handleMaximize} title={t('common.maximize')}>
+            <Square size={13} strokeWidth={1.8} />
+          </button>
+          <button className="close" onClick={handleClose} title={t('common.close')}>
+            <X size={15} strokeWidth={1.8} />
+          </button>
         </>
       )}
     </div>

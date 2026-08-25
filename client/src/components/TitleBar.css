@@ -1,0 +1,35 @@
+/* Height is fixed at 40px — UpdateBanner.css positions itself at top: 40px
+   against this, and AppPage.css hides .title-bar on mobile. Keep in sync. */
+.title-bar {
+  height: 40px;
+  background: var(--canvas);
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  -webkit-app-region: drag;
+}
+
+.title-bar button {
+  -webkit-app-region: no-drag;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  color: var(--muted-2);
+  width: 46px;
+  height: 40px;
+  cursor: pointer;
+  transition: background var(--transition), color var(--transition);
+}
+
+.title-bar button:hover {
+  background: var(--canvas-2);
+  color: var(--ink);
+}
+
+.title-bar button.close:hover {
+  background: var(--danger);
+  color: #FFFFFF;
+}
