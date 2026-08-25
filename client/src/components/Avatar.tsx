@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { API_BASE_URL } from '@/services/api';
+import { avatarColor } from '@/utils/avatarColor';
 
 interface AvatarProps {
   url?: string;
@@ -22,5 +23,12 @@ export function Avatar({ url, username, className }: AvatarProps) {
     return <img className={className} src={resolveAvatarUrl(url)} alt={username} onError={() => setFailed(true)} />;
   }
 
-  return <div className={className}>{username.charAt(0).toUpperCase() || '?'}</div>;
+  return (
+    <div
+      className={className}
+      style={{ background: avatarColor(username), color: '#FFFFFF', fontWeight: 700 }}
+    >
+      {username.charAt(0).toUpperCase() || '?'}
+    </div>
+  );
 }
