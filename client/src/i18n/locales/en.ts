@@ -286,6 +286,7 @@ export const en: Dictionary = {
     privateLabel: 'Private server',
     privateHint: 'New members can only join via an invite link — "Invite" in the server menu.',
     inviteMenu: 'Invite',
+    serverMenu: 'Server menu',
 
     // Invites
     invites: {

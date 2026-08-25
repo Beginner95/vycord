@@ -110,7 +110,7 @@
   transition: background var(--transition), color var(--transition);
 }
 
-.channel-hash {
+.channel .channel-hash {
   flex-shrink: 0;
   color: var(--muted-2);
 }
@@ -194,6 +194,11 @@
   opacity: 0.5;
 }
 
+[data-theme="dark"] .channel-join-voice:focus-visible {
+  color: var(--white);
+  opacity: 1;
+}
+
 /* Тач-устройства: hover'а нет, поэтому пилюля сразу раскрыта. */
 @media (hover: none) {
   .channel-join-voice {
@@ -207,6 +212,14 @@
 
   .channel-join-voice-label {
     max-width: 110px;
+    opacity: 1;
+  }
+
+  /* Перебивает правило покоя тёмной темы: оно (0,2,0), а правило выше — (0,1,0),
+     медиазапрос специфичности не добавляет. Без этого пилюля на тач-устройствах
+     остаётся приглушённой поверх акцентного фона. */
+  [data-theme="dark"] .channel-join-voice {
+    color: var(--white);
     opacity: 1;
   }
 }
@@ -242,14 +255,6 @@
 [data-theme="dark"] .channel.active {
   background: var(--accent-soft);
   box-shadow: none;
-}
-
-.channel.in-call {
-  box-shadow: inset 3px 0 0 var(--online);
-}
-
-[data-theme="dark"] .channel.in-call {
-  box-shadow: inset 3px 0 0 var(--online);
 }
 
 /* ── User Panel (footer) ── */
