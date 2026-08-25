@@ -1,0 +1,194 @@
+/* ═══════════════════════════════════════════════════════
+   VYCORD — Design tokens (handoff: design_handoff_discord_redesign/README.md)
+   ═══════════════════════════════════════════════════════ */
+
+:root {
+  /* ── Accent ── */
+  --accent:        #4F46E5;
+  --accent-hover:  #4338CA;
+  --accent-text:   #4F46E5;
+  --accent-soft:   #EEF2FF;
+  --accent-border: #DDE2FF;
+  --own-msg-bg:    #F4F5FE;
+
+  /* ── Text ── */
+  --ink:     #101322;
+  --muted:   #5A6178;
+  --muted-2: #8A90A2;
+  --faint:   #A8AEBF;
+
+  /* ── Lines & surfaces ── */
+  --line:         #E5E8F0;
+  --line-strong:  #D8DCE7;
+  --panel:        #EBEEF6;
+  --panel-line:   #DCE1EE;
+  --panel-footer: #E2E6F1;
+  --canvas:       #FFFFFF;
+  --canvas-2:     #F6F7FB;
+  --canvas-3:     #FBFCFE;
+  --composer:     #FFFFFF;
+  --rail:         #171B29;
+  --rail-item:    rgba(255, 255, 255, 0.07);
+  --rail-line:    rgba(255, 255, 255, 0.14);
+
+  /* ── Status ── */
+  --online:      #12B76A;
+  --online-soft: #ECFDF3;
+  --online-text: #067647;
+  --danger:      #E7444A;
+  --danger-soft: #FEF0F0;
+  --danger-text: #C1272D;
+
+  /* ── Call stage ── */
+  --stage:        #0E1017;
+  --stage-tile:   #1A1E2B;
+  --stage-tile-2: #20252F;
+
+  /* ── Avatar palette (deterministic hash, see utils/avatarColor.ts) ── */
+  --avatar-1: #4F46E5;
+  --avatar-2: #E8590C;
+  --avatar-3: #0F766E;
+  --avatar-4: #B4145A;
+  --avatar-5: #1D4ED8;
+  --avatar-6: #7C3AED;
+  --avatar-7: #0E7490;
+  --avatar-8: #A16207;
+
+  /* ── Shadows ── */
+  --shadow-row:     0 1px 2px rgba(16, 19, 34, 0.06);
+  --shadow-card:    0 2px 10px rgba(16, 19, 34, 0.07);
+  --shadow-popover: 0 4px 14px rgba(16, 19, 34, 0.10);
+  --shadow-menu:    0 14px 34px rgba(16, 19, 34, 0.14);
+  --shadow-modal:   0 18px 46px rgba(16, 19, 34, 0.14);
+  --shadow-palette: 0 22px 50px rgba(16, 19, 34, 0.16);
+
+  /* ── Radii ── */
+  --radius-chip:     6px;
+  --radius-row:      9px;
+  --radius-btn:      10px;
+  --radius-card:     11px;
+  --radius-tile:     13px;
+  --radius-composer: 14px;
+  --radius-modal:    16px;
+  --radius-bar:      18px;
+  --radius-pill:     999px;
+
+  /* ── Focus ── */
+  --focus-ring: 0 0 0 3px rgba(79, 70, 229, 0.13);
+
+  /* ── Motion ── */
+  --ease-out:   cubic-bezier(0.16, 1, 0.3, 1);
+  --transition: 0.16s var(--ease-out);
+
+  /* ── Fonts ── */
+  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, Consolas, monospace;
+}
+
+/* ── Dark theme (board option 2d; values marked refine-in-M6 are interpolations) ── */
+[data-theme="dark"] {
+  --accent:        #6366F1;
+  --accent-hover:  #818CF8;
+  --accent-text:   #A5B4FC;
+  --accent-soft:   rgba(99, 102, 241, 0.14);
+  --accent-border: rgba(99, 102, 241, 0.35);
+  --own-msg-bg:    rgba(99, 102, 241, 0.12); /* refine in M6 */
+
+  --ink:     #E4E7F0;
+  --muted:   #9AA2B4;
+  --muted-2: #8A93A8; /* refine in M6 */
+  --faint:   #6E778C;
+
+  --line:         rgba(255, 255, 255, 0.07);
+  --line-strong:  rgba(255, 255, 255, 0.12);
+  --panel:        #131722;
+  --panel-line:   rgba(255, 255, 255, 0.08);
+  --panel-footer: #0F131D;
+  --canvas:       #0E1017;
+  --canvas-2:     #151926; /* refine in M6 */
+  --canvas-3:     #131722; /* refine in M6 */
+  --composer:     #171B26;
+  --rail:         #0A0C12;
+
+  --online:      #4ADE96;
+  --online-soft: rgba(18, 183, 106, 0.14);
+  --online-text: #5BE39B;
+  --danger-soft: rgba(231, 68, 74, 0.14);  /* refine in M6 */
+  --danger-text: #F87A7E;                  /* refine in M6 */
+
+  --shadow-row:     0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-card:    0 2px 10px rgba(0, 0, 0, 0.35);
+  --shadow-popover: 0 4px 14px rgba(0, 0, 0, 0.4);
+  --shadow-menu:    0 14px 34px rgba(0, 0, 0, 0.5);
+  --shadow-modal:   0 18px 46px rgba(0, 0, 0, 0.5);
+  --shadow-palette: 0 22px 50px rgba(0, 0, 0, 0.55);
+
+  --focus-ring: 0 0 0 3px rgba(99, 102, 241, 0.25);
+}
+
+/* ═══════════════════════════════════════════════════════
+   LEGACY ALIASES — DELETE IN M6.
+   Every pre-redesign token name maps onto the new system so
+   not-yet-migrated CSS keeps rendering coherently.
+   ═══════════════════════════════════════════════════════ */
+:root, [data-theme="dark"] {
+  --bg-base:      var(--canvas-2);
+  --bg-primary:   var(--canvas);
+  --bg-secondary: var(--panel);
+  --bg-tertiary:  var(--line);
+  --bg-elevated:  var(--canvas);
+  --bg-hover:     var(--canvas-2);
+  --bg-active:    var(--accent-soft);
+
+  --brand-color:  var(--accent);
+  --brand-hover:  var(--accent-hover);
+  --brand-subtle: rgba(79, 70, 229, 0.10);
+  --brand-50:     var(--accent-soft);
+  --brand-100:    #E0E7FF;
+  --brand-200:    var(--accent-border);
+  --brand-300:    #A5B4FC;
+  --brand-400:    #818CF8;
+  --brand-500:    #6366F1;
+  --brand-600:    var(--accent);
+  --brand-700:    #4338CA;
+
+  --green-50:    var(--online-soft);
+  --green-500:   var(--online);
+  --green-600:   var(--online-text);
+  --green-color: var(--online);
+  --red-50:      var(--danger-soft);
+  --red-500:     var(--danger);
+  --red-600:     var(--danger-text);
+  --red-color:   var(--danger);
+  --yellow-50:   #FFFBEB;
+  --yellow-500:  #F59E0B;
+  --yellow-color:#F59E0B;
+  --blue-500:    #3B82F6;
+  --blue-color:  #3B82F6;
+
+  --text-primary:   var(--ink);
+  --text-secondary: var(--muted);
+  --text-muted:     var(--muted-2);
+  --text-link:      var(--accent);
+  --text-inverse:   #FFFFFF;
+
+  --border-color:  var(--line-strong);
+  --border-subtle: var(--line);
+
+  --shadow-sm: var(--shadow-row);
+  --shadow-md: var(--shadow-card);
+  --shadow-lg: var(--shadow-menu);
+  --shadow-xl: var(--shadow-modal);
+
+  --radius-sm:   6px;
+  --radius-md:   9px;
+  --radius-lg:   12px;
+  --radius-xl:   16px;
+  --radius-full: 999px;
+}
+
+[data-theme="dark"] {
+  --brand-100:    rgba(99, 102, 241, 0.20);
+  --brand-subtle: rgba(99, 102, 241, 0.15);
+  --yellow-50:    rgba(245, 158, 11, 0.1);
+}
