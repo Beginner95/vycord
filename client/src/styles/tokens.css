@@ -187,6 +187,8 @@
   --radius-full: 999px;
 }
 
+/* Still part of the LEGACY ALIASES block above — dark-theme overrides for
+   legacy names only. Delete together with that block in M6. */
 [data-theme="dark"] {
   --brand-100:    rgba(99, 102, 241, 0.20);
   --brand-subtle: rgba(99, 102, 241, 0.15);

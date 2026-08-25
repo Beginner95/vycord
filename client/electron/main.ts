@@ -31,6 +31,10 @@ if (!isDev && SENTRY_DSN !== 'REPLACE_WITH_GLITCHTIP_DSN') {
 // недоступен, поэтому renderer зеркалит выбор темы в ui-prefs.json (IPC
 // 'theme:changed' ниже). До первой записи — системная тема (nativeTheme),
 // как и getInitialTheme() в stores/themeStore.ts.
+// Цвета ниже ('#0E1017' / '#FFFFFF') — это значения --canvas (тёмная/светлая
+// тема) из src/styles/tokens.css. Держать в синхронности вручную: при любом
+// изменении --canvas в tokens.css (в т.ч. в рамках доработки тёмной темы в
+// M6) обновить и эти значения.
 function windowBackgroundColor(): string {
   const prefsPath = path.join(app.getPath('userData'), 'ui-prefs.json');
   try {

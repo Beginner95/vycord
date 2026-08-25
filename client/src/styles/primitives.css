@@ -265,7 +265,7 @@
   padding: 0;
   margin: 0;
   border: 1.5px solid var(--line-strong);
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-chip);
   background: var(--canvas);
   cursor: pointer;
   appearance: none;

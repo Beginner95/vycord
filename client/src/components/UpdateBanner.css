@@ -1,6 +1,6 @@
 .update-banner {
   position: fixed;
-  /* Sits below the custom titlebar (ChatArea.css .title-bar, height 40px,
+  /* Sits below the custom titlebar (TitleBar.css .title-bar, height 40px,
      -webkit-app-region: drag), not on top of it. At top:0 the banner visually
      covered the window's minimize/maximize/close buttons, and on Wayland
      -webkit-app-region: no-drag did not reliably punch a hole through the

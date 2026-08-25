@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, type ReactNode } from 'react';
 import { apiService, apiErrorText } from '@/services/api';
 import type { Channel, MessageWithAuthor, MessageSearchResponse } from '@/types';
 import { useT, useTp, useDateFormat } from '@/i18n';
+import { avatarColor } from '@/utils/avatarColor';
 import './MessageSearch.css';
 
 const MIN_QUERY_LEN = 2;
@@ -177,7 +178,10 @@ export function MessageSearch({ channel, onJumpToMessage, onClose }: MessageSear
                 className="message-search-result"
                 onClick={() => onJumpToMessage(msg.id)}
               >
-                <div className="message-search-result-avatar">
+                <div
+                  className="message-search-result-avatar"
+                  style={{ background: avatarColor(msg.username) }}
+                >
                   {msg.username.charAt(0).toUpperCase()}
                 </div>
                 <div className="message-search-result-main">
