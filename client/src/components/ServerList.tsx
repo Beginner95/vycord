@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Home, Plus, Search } from 'lucide-react';
 import type { Server, User, InvitePreview } from '@/types';
 import { apiService, apiErrorText, resolveUploadUrl } from '@/services/api';
 import { useServerStore } from '@/stores/serverStore';
@@ -114,7 +115,7 @@ export function ServerList({
           className={`server-icon home ${!currentServer ? 'active' : ''}`}
           title={t('server.home')}
         >
-          <span className="server-icon-symbol">🏠</span>
+          <span className="server-icon-symbol"><Home size={21} strokeWidth={1.8} /></span>
           <span className="server-icon-name">{t('server.home')}</span>
         </div>
         <div className="server-divider" />
@@ -141,13 +142,15 @@ export function ServerList({
             <span className="server-icon-name">{server.name}</span>
           </div>
         ))}
-        <div className="server-icon add" onClick={onCreateServer} title={t('server.create')}>
-          <span className="server-icon-symbol">+</span>
-          <span className="server-icon-name">{t('server.create')}</span>
-        </div>
-        <div className="server-icon search" onClick={() => setSearchOpen(true)} title={t('server.explore')}>
-          <span className="server-icon-symbol">🔍</span>
-          <span className="server-icon-name">{t('server.explore')}</span>
+        <div className="rail-bottom">
+          <div className="server-icon add" onClick={onCreateServer} title={t('server.create')}>
+            <span className="server-icon-symbol"><Plus size={20} strokeWidth={1.8} /></span>
+            <span className="server-icon-name">{t('server.create')}</span>
+          </div>
+          <div className="server-icon search" onClick={() => setSearchOpen(true)} title={t('server.explore')}>
+            <span className="server-icon-symbol"><Search size={18} strokeWidth={1.8} /></span>
+            <span className="server-icon-name">{t('server.explore')}</span>
+          </div>
         </div>
       </aside>
 

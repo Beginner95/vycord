@@ -1,43 +1,50 @@
 .server-list {
-  width: 72px;
-  min-width: 72px;
-  background: var(--bg-secondary);
+  width: 76px;
+  min-width: 76px;
+  background: var(--rail);
   display: flex;
   flex-direction: column;
   align-items: center;
-  padding: 14px 0;
-  gap: 6px;
+  padding: 12px 0 14px;
+  gap: 8px;
   overflow-y: auto;
-  border-right: 1px solid var(--border-subtle);
 }
 
 .server-icon {
-  width: 48px;
-  height: 48px;
-  border-radius: var(--radius-full);
-  background: var(--bg-primary);
-  color: var(--text-secondary);
+  width: 46px;
+  height: 46px;
+  min-height: 46px;
+  border-radius: 14px;
+  background: var(--rail-item);
+  color: var(--rail-muted);
   display: flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  transition: all var(--transition);
+  position: relative;
   font-size: 17px;
   font-weight: 700;
-  position: relative;
-  box-shadow: var(--shadow-sm);
-  overflow: hidden;
+  transition: background var(--transition), color var(--transition);
 }
 
+.server-icon-symbol {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Active indicator bar: 4×30, white, sticks out left of the tile. */
 .server-icon::before {
   content: '';
   position: absolute;
-  left: -16px;
+  left: -13px;
+  top: 50%;
+  translate: 0 -50%;
   width: 4px;
   height: 0;
-  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
-  background: var(--brand-color);
-  transition: height 0.25s var(--ease-out);
+  border-radius: 0 4px 4px 0;
+  background: var(--white);
+  transition: height 0.2s var(--ease-out);
 }
 
 .server-icon:hover::before {
@@ -45,51 +52,59 @@
 }
 
 .server-icon.active::before {
-  height: 36px;
+  height: 30px;
 }
 
 .server-icon:hover {
-  border-radius: var(--radius-lg);
-  background: var(--brand-color);
-  color: var(--text-inverse);
-  transform: translateY(-1px);
-  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.25);
+  background: var(--rail-item-hover);
+  color: var(--rail-ink);
 }
 
 .server-icon.active {
-  border-radius: var(--radius-lg);
-  background: var(--brand-color);
-  color: var(--text-inverse);
-  box-shadow: 0 4px 14px rgba(99, 102, 241, 0.3);
+  background: var(--accent);
+  color: var(--white);
+  box-shadow: 0 0 0 3px var(--rail-line);
 }
 
 .server-icon.home {
-  background: var(--bg-primary);
-  color: var(--brand-color);
+  color: var(--rail-ink);
 }
 
-.server-icon.home:hover,
 .server-icon.home.active {
-  background: var(--brand-color);
-  color: var(--text-inverse);
+  background: var(--accent);
+  color: var(--white);
+}
+
+/* Bottom group: create + search, pinned, separated by a hairline. */
+.rail-bottom {
+  margin-top: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  width: 46px;
+  padding-top: 8px;
+  border-top: 1px solid var(--rail-line);
 }
 
 .server-icon.add {
-  background: var(--bg-primary);
-  color: var(--green-color);
-  font-size: 22px;
-  font-weight: 300;
+  background: var(--rail-create-bg);
+  color: var(--rail-create-ink);
+}
+
+.server-icon.add:hover {
+  background: var(--rail-create-bg);
+  filter: brightness(1.2);
 }
 
 .server-icon.search {
-  background: var(--bg-primary);
-  color: var(--blue-color);
+  background: var(--rail-item);
+  color: var(--rail-muted);
 }
 
 .server-icon.search:hover {
-  background: var(--blue-color);
-  color: white;
-  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.25);
+  background: var(--rail-item-hover);
+  color: var(--rail-ink);
 }
 
 /* ── Server Search Modal ── */
@@ -243,11 +258,11 @@
 }
 
 .server-divider {
-  width: 32px;
-  height: 2px;
-  background: var(--border-color);
-  border-radius: var(--radius-full);
-  margin: 2px 0;
+  width: 30px;
+  height: 1px;
+  min-height: 1px;
+  background: var(--rail-line);
+  margin: 3px 0;
 }
 
 .server-icon-name {
@@ -282,6 +297,15 @@
     position: sticky;
     top: 0;
     z-index: 10;
+  }
+
+  .rail-bottom {
+    margin-top: 0;
+    width: 100%;
+    padding-top: 0;
+    border-top: 0;
+    gap: 0;
+    align-items: stretch;
   }
 
   .server-divider {
