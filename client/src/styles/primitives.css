@@ -104,6 +104,57 @@
   color: var(--muted);
 }
 
+/* ── Panel icon button (sidebar footer, call dock): 30×30, r9, white ── */
+.panel-icon-btn {
+  width: 30px;
+  height: 30px;
+  min-width: 30px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-row);
+  background: var(--canvas);
+  color: var(--muted);
+  box-shadow: var(--shadow-row);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background var(--transition), color var(--transition);
+}
+
+.panel-icon-btn:hover {
+  color: var(--ink);
+}
+
+.panel-icon-btn.is-off {
+  background: var(--danger-soft);
+  color: var(--danger-text);
+}
+
+.panel-icon-btn.danger:hover {
+  background: var(--danger);
+  color: var(--white);
+}
+
+/* ── Avatar wrapper with presence dot (pseudo-elements can't attach to <img>) ── */
+.user-avatar-wrap {
+  position: relative;
+  flex-shrink: 0;
+  display: flex;
+}
+
+.user-avatar-wrap.online::after {
+  content: '';
+  position: absolute;
+  right: -2px;
+  bottom: -2px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--online);
+  border: 2px solid var(--presence-ring, var(--canvas));
+}
+
 /* ── Modal ── */
 .modal-overlay {
   position: fixed;

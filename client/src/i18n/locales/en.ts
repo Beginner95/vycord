@@ -312,6 +312,7 @@ export const en: Dictionary = {
   channel: {
     noServerHint: 'Select or create a server to get started',
     channels: 'Channels',
+    ncOn: 'NC on',
 
     // Context menu
     editMenu: 'Edit',

@@ -2,9 +2,9 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 8px 10px;
-  border-top: 1px solid var(--bg-elevated);
-  background: var(--bg-secondary);
+  padding: 10px;
+  border-top: 1px solid var(--panel-line);
+  background: var(--panel-footer);
 }
 
 .call-dock-target {
@@ -13,49 +13,36 @@
   display: flex;
   flex-direction: column;
   align-items: flex-start;
+  gap: 1px;
+  padding: 0;
   border: none;
   background: transparent;
-  color: var(--text-primary);
   cursor: pointer;
   text-align: left;
 }
 
 .call-dock-status {
   font-size: 11px;
-  color: var(--green-color);
+  font-weight: 600;
+  color: var(--online-text);
 }
 
 .call-dock-channel {
+  max-width: 100%;
   font-size: 13px;
+  font-weight: 700;
+  color: var(--ink);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  max-width: 100%;
 }
 
 .call-dock-server {
-  opacity: 0.7;
+  font-weight: 500;
+  color: var(--muted-2);
 }
 
 .call-dock-actions {
   display: flex;
-  gap: 4px;
-}
-
-.call-dock-btn {
-  border: none;
-  background: transparent;
-  cursor: pointer;
-  font-size: 15px;
-  line-height: 1;
-  padding: 4px;
-}
-
-.call-dock-btn.off {
-  opacity: 0.5;
-}
-
-.call-dock-btn.danger:hover {
-  background: var(--red-color);
-  border-radius: 4px;
+  gap: 6px;
 }

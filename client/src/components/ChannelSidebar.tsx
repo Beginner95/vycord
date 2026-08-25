@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, type MouseEvent } from 'react';
-import { ChevronDown, Hash, Plus, Mic, MicOff, Volume2, Headphones } from 'lucide-react';
+import { ChevronDown, Hash, Plus, Mic, MicOff, Volume2, Headphones, Settings as SettingsIcon, LogOut } from 'lucide-react';
 import type { Server, Channel, User, MemberWithUser } from '@/types';
 import { Settings } from '@/components/Settings';
 import { Avatar } from '@/components/Avatar';
@@ -263,26 +263,32 @@ export function ChannelSidebar({
       <CallDock onGoToCall={onGoToCall} />
 
       <div className="user-panel">
-        <div className="user-info">
+        <span className="user-avatar-wrap online">
           <Avatar url={user?.avatar_url} username={user?.username ?? ''} className="user-avatar small" />
-          <div className="user-details">
-            <span className="user-tag">{user?.username}</span>
-            <span className="user-status-text">
-              {t('server.online')}
-              {ncEnabled && <span className="nc-badge">🔇 NC</span>}
-            </span>
-          </div>
+        </span>
+        <div className="user-details">
+          <span className="user-tag">{user?.username}</span>
+          <span className="user-status-text">
+            {t('server.online')}
+            {ncEnabled && ` · ${t('channel.ncOn')}`}
+          </span>
         </div>
         <div className="user-actions">
-          <button onClick={() => setSettingsOpen(true)} title={t('settings.title')} className="settings-btn">
-            ⚙
+          <button
+            type="button"
+            className="panel-icon-btn"
+            onClick={() => setSettingsOpen(true)}
+            title={t('settings.title')}
+          >
+            <SettingsIcon size={16} strokeWidth={1.8} />
           </button>
-          <button onClick={() => setConfirmLogout(true)} title={t('common.logout')} className="logout-btn">
-            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
-              <polyline points="16 17 21 12 16 7"/>
-              <line x1="21" y1="12" x2="9" y2="12"/>
-            </svg>
+          <button
+            type="button"
+            className="panel-icon-btn danger"
+            onClick={() => setConfirmLogout(true)}
+            title={t('common.logout')}
+          >
+            <LogOut size={16} strokeWidth={1.8} />
           </button>
         </div>
       </div>

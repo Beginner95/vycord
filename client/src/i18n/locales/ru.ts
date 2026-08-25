@@ -317,6 +317,7 @@ export const ru = {
   channel: {
     noServerHint: 'Выберите сервер или создайте новый, чтобы начать',
     channels: 'Каналы',
+    ncOn: 'NC вкл.',
 
     // Контекстное меню
     editMenu: 'Редактировать',
