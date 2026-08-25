@@ -280,6 +280,7 @@ export const en: Dictionary = {
     online: 'Online',
     offline: 'Offline',
     callUser: 'Call {{name}}',
+    inVoice: 'in voice · {{channel}}',
 
     // Privacy
     privateLabel: 'Private server',

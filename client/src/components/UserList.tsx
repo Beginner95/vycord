@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
+import { Phone } from 'lucide-react';
 import { useAuthStore } from '@/stores/authStore';
 import { useServerStore } from '@/stores/serverStore';
 import { apiService } from '@/services/api';
@@ -6,12 +7,14 @@ import { wsService } from '@/services/websocket';
 import { callService } from '@/services/call';
 import { Avatar } from '@/components/Avatar';
 import { logger } from '@/utils/logger';
+import { voiceChannelNameFor } from '@/utils/voiceMembership';
 import type { User, MemberWithUser } from '@/types';
 import { useT } from '@/i18n';
 import './UserList.css';
 
 interface UserListProps {
   onMobileBack?: () => void;
+  voiceParticipants?: Map<string, string[]>;
 }
 
 function sortByUsername(members: MemberWithUser[]): MemberWithUser[] {
@@ -20,10 +23,10 @@ function sortByUsername(members: MemberWithUser[]): MemberWithUser[] {
   );
 }
 
-export function UserList({ onMobileBack }: UserListProps) {
+export function UserList({ onMobileBack, voiceParticipants }: UserListProps) {
   const t = useT();
   const { user: currentUser } = useAuthStore();
-  const { members } = useServerStore();
+  const { members, channels } = useServerStore();
   const [onlineIds, setOnlineIds] = useState<Set<string>>(new Set());
 
   useEffect(() => {
@@ -64,25 +67,29 @@ export function UserList({ onMobileBack }: UserListProps) {
     return { onlineMembers: sortByUsername(online), offlineMembers: sortByUsername(offline) };
   }, [members, onlineIds]);
 
-  const renderMember = (m: MemberWithUser, online: boolean) => (
-    <div key={m.user_id} className={`user-item${online ? '' : ' offline'}`}>
-      <Avatar
-        url={m.avatar_url}
-        username={m.username}
-        className={`user-avatar list ${online ? 'online' : 'offline'}`}
-      />
-      <span className="username">{m.username}</span>
-      {online && currentUser && m.user_id !== currentUser.id && (
-        <button
-          className="call-user-btn"
-          onClick={() => handleCallUser(m.user_id)}
-          title={t('server.callUser', { name: m.username })}
-        >
-          📞
-        </button>
-      )}
-    </div>
-  );
+  const renderMember = (m: MemberWithUser, online: boolean) => {
+    const voiceName = online ? voiceChannelNameFor(m.user_id, voiceParticipants, channels) : null;
+    return (
+      <div key={m.user_id} className={`user-item${online ? '' : ' offline'}`}>
+        <span className={`user-avatar-wrap${online ? ' online' : ''}`}>
+          <Avatar url={m.avatar_url} username={m.username} className="user-avatar list" />
+        </span>
+        <div className="user-item-text">
+          <span className="username">{m.username}</span>
+          {voiceName && <span className="user-item-sub">{t('server.inVoice', { channel: voiceName })}</span>}
+        </div>
+        {online && currentUser && m.user_id !== currentUser.id && (
+          <button
+            className="call-user-btn"
+            onClick={() => handleCallUser(m.user_id)}
+            title={t('server.callUser', { name: m.username })}
+          >
+            <Phone size={15} strokeWidth={1.8} />
+          </button>
+        )}
+      </div>
+    );
+  };
 
   return (
     <aside className="user-list">
@@ -94,16 +101,16 @@ export function UserList({ onMobileBack }: UserListProps) {
         )}
         <span>{t('chat.members')}</span>
       </div>
-
-      <div className="user-category">
-        {t('server.online')} — {onlineMembers.length}
+      <div className="user-list-scroll">
+        <div className="user-category online-label">
+          {t('server.online')} — {onlineMembers.length}
+        </div>
+        {onlineMembers.map((m) => renderMember(m, true))}
+        <div className="user-category">
+          {t('server.offline')} — {offlineMembers.length}
+        </div>
+        {offlineMembers.map((m) => renderMember(m, false))}
       </div>
-      {onlineMembers.map((m) => renderMember(m, true))}
-
-      <div className="user-category">
-        {t('server.offline')} — {offlineMembers.length}
-      </div>
-      {offlineMembers.map((m) => renderMember(m, false))}
     </aside>
   );
 }

@@ -626,7 +626,7 @@ logger.error('Failed to create server:', err, { module: 'app' });
 
         {/* Список участников виден всегда, включая звонок: чат и сцена теперь
             делят колонку, и прятать соседнюю панель больше не за чем. */}
-        <UserList onMobileBack={() => setMobilePanel('chat')} />
+        <UserList onMobileBack={() => setMobilePanel('chat')} voiceParticipants={voiceParticipants} />
       </div>
 
       {showCreateServer && (

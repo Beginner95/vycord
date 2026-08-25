@@ -285,6 +285,7 @@ export const ru = {
     online: 'В сети',
     offline: 'Не в сети',
     callUser: 'Позвонить {{name}}',
+    inVoice: 'в голосовом · {{channel}}',
 
     // Приватность
     privateLabel: 'Приватный сервер',

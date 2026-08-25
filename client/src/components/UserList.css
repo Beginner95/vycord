@@ -1,104 +1,136 @@
 .user-list {
-  width: 240px;
-  min-width: 240px;
-  background: var(--bg-primary);
-  border-left: 1px solid var(--border-subtle);
-  padding: 16px 10px;
+  width: 236px;
+  min-width: 236px;
+  background: var(--panel);
+  border-left: 1px solid var(--panel-line);
+  display: flex;
+  flex-direction: column;
+  padding: 16px 12px;
+}
+
+.user-list-scroll {
+  flex: 1;
+  min-height: 0;
   overflow-y: auto;
 }
 
 .user-category {
-  padding: 6px 8px;
-  color: var(--text-muted);
-  font-size: 11px;
+  padding: 0 4px 6px;
+  color: var(--muted-2);
+  font-size: var(--fs-group);
   font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.05em;
-  margin-bottom: 8px;
+  letter-spacing: var(--ls-group);
+}
+
+.user-category.online-label {
+  color: var(--online-text);
+}
+
+.user-category + .user-category,
+.user-item + .user-category {
+  margin-top: 14px;
 }
 
 .user-item {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 8px;
-  border-radius: var(--radius-md);
-  cursor: pointer;
-  transition: all var(--transition);
+  gap: 9px;
+  padding: 6px 8px;
+  margin-bottom: 4px;
+  border-radius: var(--radius-row);
   position: relative;
 }
 
-.user-item:hover {
-  background: var(--bg-hover);
+.user-item:not(.offline) {
+  background: var(--canvas);
+  box-shadow: var(--shadow-row);
+}
+
+.user-item.offline:hover {
+  background: var(--row-hover);
 }
 
 .user-avatar.list {
-  width: 34px;
-  height: 34px;
-  min-width: 34px;
-  border-radius: var(--radius-full);
-  background: linear-gradient(135deg, var(--brand-200), var(--brand-400));
+  width: 30px;
+  height: 30px;
+  min-width: 30px;
+  border-radius: 11px;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 13px;
-  font-weight: 700;
-  color: var(--text-inverse);
-  position: relative;
+  font-size: 12px;
+  overflow: hidden;
   object-fit: cover;
 }
 
-.user-avatar.list.online::after {
-  content: '';
-  position: absolute;
-  bottom: -1px;
-  right: -1px;
+.user-item .user-avatar-wrap.online::after {
   width: 11px;
   height: 11px;
-  border-radius: var(--radius-full);
-  background: var(--green-color);
-  border: 2.5px solid var(--bg-primary);
-  box-shadow: 0 0 0 1px var(--green-color);
 }
 
-.user-avatar.list.offline::after {
-  content: '';
-  position: absolute;
-  bottom: -1px;
-  right: -1px;
-  width: 11px;
-  height: 11px;
-  border-radius: var(--radius-full);
-  background: var(--text-muted);
-  border: 2.5px solid var(--bg-primary);
-}
-
-.user-item.offline .user-avatar.list,
-.user-item.offline .username {
-  opacity: 0.5;
+.user-item-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
 }
 
 .username {
   font-size: 13px;
-  font-weight: 500;
-  color: var(--text-primary);
-  flex: 1;
-  min-width: 0;
+  font-weight: 700;
+  color: var(--ink);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
+.user-item.offline .username {
+  font-weight: 500;
+  color: var(--muted);
+}
+
+.user-item-sub {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--muted-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Offline avatar: light = neutral grey tile; dark = the user's hash hue
+   at ~30% alpha with a light tint initial (spec §4.3 / board 2b). */
+.user-item.offline .user-avatar.list {
+  --avatar-bg: var(--avatar-offline);
+  --avatar-ink: var(--muted-2);
+}
+
+[data-theme="dark"] .user-item.offline .user-avatar.list {
+  --avatar-bg: color-mix(in srgb, var(--avatar-color) 30%, transparent);
+  --avatar-ink: color-mix(in srgb, var(--avatar-color) 55%, var(--white));
+}
+
+.user-item.offline img.user-avatar.list {
+  opacity: 0.5;
+}
+
 .call-user-btn {
-  margin-left: auto;
-  background: none;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
   border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--muted-2);
   cursor: pointer;
-  font-size: 14px;
-  padding: 5px 7px;
-  border-radius: var(--radius-sm);
   opacity: 0;
-  transition: all var(--transition);
+  transition: opacity var(--transition), background var(--transition), color var(--transition);
 }
 
 .user-item:hover .call-user-btn {
@@ -106,8 +138,8 @@
 }
 
 .call-user-btn:hover {
-  background: var(--green-50);
-  transform: scale(1.1);
+  background: var(--online-soft);
+  color: var(--online-text);
 }
 
 .user-list-mobile-header {
