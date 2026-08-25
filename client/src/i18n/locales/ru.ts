@@ -176,6 +176,7 @@ export const ru = {
 
     // Кнопка входа в звонок в шапке чата
     joinVoice: 'Подключиться',
+    joinChannel: 'Войти в канал',
     inThisCall: 'Вы в звонке',
     goToCall: 'Перейти',
     inCallAt: 'В звонке',

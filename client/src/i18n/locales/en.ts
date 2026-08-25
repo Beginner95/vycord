@@ -171,6 +171,7 @@ export const en: Dictionary = {
 
     // Voice join button in the chat header
     joinVoice: 'Join voice',
+    joinChannel: 'Join channel',
     inThisCall: 'You are in this call',
     goToCall: 'Go to call',
     inCallAt: 'In call',

@@ -1,5 +1,5 @@
-import { useState, useEffect, useMemo } from 'react';
-import { ChevronDown, Hash, Plus } from 'lucide-react';
+import { useState, useEffect, useMemo, type MouseEvent } from 'react';
+import { ChevronDown, Hash, Plus, Mic, MicOff, Volume2, Headphones } from 'lucide-react';
 import type { Server, Channel, User, MemberWithUser } from '@/types';
 import { Settings } from '@/components/Settings';
 import { Avatar } from '@/components/Avatar';
@@ -59,6 +59,8 @@ export function ChannelSidebar({
   const [editingServer, setEditingServer] = useState(false);
   const [invitingServer, setInvitingServer] = useState(false);
   const callChannelId = useCallStore((s) => s.callChannelId);
+  const isMuted = useCallStore((s) => s.isMuted);
+  const remoteMicMuted = useCallStore((s) => s.remoteMicMuted);
 
   const permissions = useServerStore((s) => (server ? s.permissions.get(server.id) : undefined));
   const canManageChannels = can(permissions, PERMISSIONS.MANAGE_CHANNELS);
@@ -112,6 +114,13 @@ export function ChannelSidebar({
     });
     return unsub;
   }, []);
+
+  // 'on' | 'off' | null; null = state unknown (channel we're not in) → no icon.
+  const micStateFor = (channelId: string, userId: string): 'on' | 'off' | null => {
+    if (callChannelId !== channelId) return null;
+    if (userId === user?.id) return isMuted ? 'off' : 'on';
+    return remoteMicMuted.get(userId) ? 'off' : 'on';
+  };
 
   if (!server) {
     return (
@@ -173,60 +182,79 @@ export function ChannelSidebar({
         {channels.map((channel) => {
           const participantIds = voiceParticipants?.get(channel.id) ?? [];
           const isCallChannel = callChannelId === channel.id;
-          return (
-            <div key={channel.id} className="voice-channel-group">
+          const isActive = currentChannel?.id === channel.id;
+          const openMenu = (e: MouseEvent) => {
+            if (!canManageChannels) return;
+            e.preventDefault();
+            setChannelMenu({ x: e.clientX, y: e.clientY, channel });
+          };
+
+          if (participantIds.length > 0) {
+            // Активная голосовая сессия — карточка (board 1c, адаптация VYC-77:
+            // карточку получает ЛЮБОЙ канал с участниками, типа каналов нет).
+            return (
               <div
-                className={`channel${currentChannel?.id === channel.id ? ' active' : ''}${isCallChannel ? ' in-call' : ''}`}
-                onClick={() => onSelectChannel(channel)}
-                onContextMenu={(e) => {
-                  if (!canManageChannels) return;
-                  e.preventDefault();
-                  setChannelMenu({ x: e.clientX, y: e.clientY, channel });
-                }}
+                key={channel.id}
+                className={`voice-card${isActive ? ' current' : ''}`}
+                onContextMenu={openMenu}
               >
-                <Hash size={16} strokeWidth={1.8} className="channel-hash" />
-                <span className="channel-name">{channel.name}</span>
-                {participantIds.length > 0 && (
-                  <span className="voice-count">({participantIds.length})</span>
-                )}
+                <div className="voice-card-row" onClick={() => onSelectChannel(channel)}>
+                  <Volume2 size={16} strokeWidth={1.8} className="voice-card-icon" />
+                  <span className="voice-card-name">{channel.name}</span>
+                  <span className="voice-card-count">{participantIds.length}</span>
+                </div>
+                <div className="voice-card-participants">
+                  {participantIds.map((userId) => {
+                    const mic = micStateFor(channel.id, userId);
+                    return (
+                      <div
+                        key={userId}
+                        className={`voice-participant${userId === user?.id ? ' is-self' : ''}`}
+                        onClick={() => onSelectChannel(channel)}
+                      >
+                        <Avatar
+                          url={resolveAvatarUrl(userId)}
+                          username={resolveUsername(userId)}
+                          className="voice-participant-avatar"
+                        />
+                        <span className="voice-participant-name">{resolveUsername(userId)}</span>
+                        {mic === 'on' && <Mic size={14} strokeWidth={1.8} className="voice-participant-mic" />}
+                        {mic === 'off' && <MicOff size={14} strokeWidth={1.8} className="voice-participant-mic off" />}
+                      </div>
+                    );
+                  })}
+                </div>
                 {!isCallChannel && (
-                  <button
-                    type="button"
-                    className="channel-join-voice"
-                    title={t('call.joinVoice')}
-                    aria-label={t('call.joinVoice')}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onJoinVoice(channel);
-                    }}
-                  >
-                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                      <path d="M3 18v-6a9 9 0 0 1 18 0v6"/>
-                      <path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3z"/>
-                      <path d="M3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3z"/>
-                    </svg>
-                    <span className="channel-join-voice-label">{t('call.joinVoice')}</span>
+                  <button type="button" className="voice-card-join" onClick={() => onJoinVoice(channel)}>
+                    {t('call.joinChannel')}
                   </button>
                 )}
               </div>
-              {participantIds.length > 0 && (
-                <div className="voice-participant-list">
-                  {participantIds.map((userId) => (
-                    <div
-                      key={userId}
-                      className={`voice-participant ${userId === user?.id ? 'is-self' : ''}`}
-                      onClick={() => onSelectChannel(channel)}
-                    >
-                      <Avatar
-                        url={resolveAvatarUrl(userId)}
-                        username={resolveUsername(userId)}
-                        className="voice-participant-avatar"
-                      />
-                      <span className="voice-participant-name">{resolveUsername(userId)}</span>
-                    </div>
-                  ))}
-                </div>
-              )}
+            );
+          }
+
+          return (
+            <div
+              key={channel.id}
+              className={`channel${isActive ? ' active' : ''}`}
+              onClick={() => onSelectChannel(channel)}
+              onContextMenu={openMenu}
+            >
+              <Hash size={16} strokeWidth={1.8} className="channel-hash" />
+              <span className="channel-name">{channel.name}</span>
+              <button
+                type="button"
+                className="channel-join-voice"
+                title={t('call.joinVoice')}
+                aria-label={t('call.joinVoice')}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onJoinVoice(channel);
+                }}
+              >
+                <Headphones size={14} strokeWidth={1.8} />
+                <span className="channel-join-voice-label">{t('call.joinVoice')}</span>
+              </button>
             </div>
           );
         })}

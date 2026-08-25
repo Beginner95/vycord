@@ -124,7 +124,7 @@
 
 /* ── Join Voice Button ──
    Покой: приглушённая круглая иконка-кнопка (видна всегда, в т.ч. на тач).
-   Наведение на строку канала / фокус: раскрывается в зелёную пилюлю с подписью. */
+   Наведение на строку канала / фокус: раскрывается в акцентную пилюлю с подписью. */
 .channel-join-voice {
   flex-shrink: 0;
   display: flex;
@@ -137,7 +137,7 @@
   border: none;
   border-radius: 999px; /* не var(--radius-full): 50% на широкой пилюле даёт эллипс */
   background: transparent;
-  color: var(--text-muted);
+  color: var(--muted-2);
   cursor: pointer;
   font-size: 12px;
   font-weight: 600;
@@ -165,8 +165,8 @@
   opacity: 1;
   gap: 6px;
   padding: 0 10px 0 8px;
-  background: var(--green-500);
-  color: var(--text-inverse);
+  background: var(--accent);
+  color: var(--white);
 }
 
 .channel:hover .channel-join-voice .channel-join-voice-label,
@@ -176,7 +176,7 @@
 }
 
 .channel:hover .channel-join-voice:hover {
-  background: var(--green-600);
+  background: var(--accent-hover);
 }
 
 .channel-join-voice:active {
@@ -185,23 +185,13 @@
 
 .channel-join-voice:focus-visible {
   outline: none;
-  box-shadow: 0 0 0 2px var(--bg-primary), 0 0 0 4px var(--green-500);
+  box-shadow: 0 0 0 2px var(--panel), 0 0 0 4px var(--accent);
 }
 
-/* В тёмной теме --text-muted почти сливается с фоном — иконка в покое тускнеет. */
+/* В тёмной теме --muted-2 почти сливается с фоном — иконка в покое тускнеет. */
 [data-theme="dark"] .channel-join-voice {
-  color: var(--text-secondary);
+  color: var(--muted);
   opacity: 0.5;
-}
-
-/* В тёмной теме белый текст на #22C55E читается плохо — берём тон темнее. */
-[data-theme="dark"] .channel:hover .channel-join-voice,
-[data-theme="dark"] .channel-join-voice:focus-visible {
-  background: var(--green-600);
-}
-
-[data-theme="dark"] .channel:hover .channel-join-voice:hover {
-  background: var(--green-500);
 }
 
 /* Тач-устройства: hover'а нет, поэтому пилюля сразу раскрыта. */
@@ -210,20 +200,13 @@
     height: 28px;
     gap: 6px;
     padding: 0 10px 0 8px;
-    background: var(--green-500);
-    color: var(--text-inverse);
+    background: var(--accent);
+    color: var(--white);
     opacity: 1;
   }
 
   .channel-join-voice-label {
     max-width: 110px;
-    opacity: 1;
-  }
-
-  /* перебиваем правило покоя тёмной темы — оно той же специфичности, но выше по файлу */
-  [data-theme="dark"] .channel-join-voice {
-    background: var(--green-600);
-    color: var(--text-inverse);
     opacity: 1;
   }
 }
@@ -425,59 +408,117 @@
   }
 }
 
-/* ── Voice Participants ── */
-.voice-count {
-  margin-left: 4px;
-  font-size: 12px;
-  font-weight: 600;
-  opacity: 0.6;
-}
-
-.voice-participant-list {
+/* ── Voice card (channel with an active voice session) ── */
+.voice-card {
+  margin: 2px 0;
+  padding: 8px 10px;
+  border-radius: var(--radius-row);
+  background: var(--accent-soft);
+  border: 1px solid var(--accent-border);
   display: flex;
   flex-direction: column;
-  padding: 2px 0 6px 30px;
-  gap: 2px;
+  gap: 8px;
+}
+
+.voice-card.current {
+  box-shadow: var(--shadow-row);
+}
+
+.voice-card-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+
+.voice-card-icon {
+  flex-shrink: 0;
+  color: var(--accent);
+}
+
+.voice-card-name {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--fs-label);
+  font-weight: 700;
+  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.voice-card-count {
+  flex-shrink: 0;
+  font-size: var(--fs-caption);
+  font-weight: 600;
+  color: var(--accent-text);
+}
+
+.voice-card-participants {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding-left: 25px;
 }
 
 .voice-participant {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 4px 8px;
-  border-radius: var(--radius-sm);
   cursor: pointer;
-  transition: all var(--transition);
-}
-
-.voice-participant:hover {
-  background: var(--bg-hover);
 }
 
 .voice-participant-avatar {
   width: 20px;
   height: 20px;
   min-width: 20px;
-  border-radius: var(--radius-full);
-  background: linear-gradient(135deg, var(--brand-300), var(--brand-500));
+  border-radius: 10px;
   display: flex;
   align-items: center;
   justify-content: center;
   font-size: 10px;
-  font-weight: 700;
-  color: var(--text-inverse);
+  overflow: hidden;
   object-fit: cover;
 }
 
 .voice-participant-name {
-  font-size: 13px;
-  color: var(--text-secondary);
+  flex: 1;
+  min-width: 0;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--muted);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
 .voice-participant.is-self .voice-participant-name {
-  color: var(--brand-600);
+  color: var(--ink);
   font-weight: 700;
+}
+
+.voice-participant-mic {
+  flex-shrink: 0;
+  color: var(--online);
+}
+
+.voice-participant-mic.off {
+  color: var(--danger);
+}
+
+.voice-card-join {
+  width: 100%;
+  height: 32px;
+  border: none;
+  border-radius: 8px;
+  background: var(--accent);
+  color: var(--white);
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background var(--transition);
+}
+
+.voice-card-join:hover {
+  background: var(--accent-hover);
 }
