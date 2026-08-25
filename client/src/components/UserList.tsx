@@ -86,10 +86,16 @@ export function UserList({ onMobileBack, voiceParticipants }: UserListProps) {
     let inv = invite;
     if (!inv) {
       setInviteBusy(true);
+      const createdFor = currentServer.id;
       try {
-        inv = await apiService.createInvite(currentServer.id);
-        setInvite(inv);
+        const created = await apiService.createInvite(createdFor);
+        // Пользователь мог переключить сервер, пока запрос был в полёте —
+        // тогда инвайт чужой, и показывать (а тем более копировать) его нельзя.
+        if (useServerStore.getState().currentServer?.id !== createdFor) return;
+        inv = created;
+        setInvite(created);
       } catch (err) {
+        if (useServerStore.getState().currentServer?.id !== createdFor) return;
         setInviteError(apiErrorText(err, t));
         return;
       } finally {
