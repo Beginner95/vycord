@@ -24,6 +24,9 @@ export interface ElectronAPI {
   // Опционально: в веб-сборке electronAPI нет вовсе, а у клиентов,
   // собранных до появления локализации, нет этого метода.
   setLocale?: (locale: Locale) => void;
+  // Опционально по той же причине, что и setLocale: старые сборки клиента
+  // и веб-сборка этого метода не имеют.
+  setTheme?: (theme: string) => void;
   update: {
     onAvailable: (cb: (version: string) => void) => void;
     onReady: (cb: (version: string) => void) => void;

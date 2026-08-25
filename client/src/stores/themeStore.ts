@@ -6,6 +6,7 @@ const THEME_KEY = 'vycord_theme';
 
 function applyTheme(theme: Theme) {
   document.documentElement.setAttribute('data-theme', theme);
+  window.electronAPI?.setTheme?.(theme);
 }
 
 function getInitialTheme(): Theme {
