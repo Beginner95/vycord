@@ -1,28 +1,53 @@
 .channel-sidebar {
-  width: 260px;
-  min-width: 260px;
-  background: var(--bg-primary);
+  width: 252px;
+  min-width: 252px;
+  background: var(--panel);
   display: flex;
   flex-direction: column;
-  border-right: 1px solid var(--border-subtle);
+  border-right: 1px solid var(--panel-line);
 }
 
 .channel-header {
-  height: 56px;
-  padding: 0 20px;
+  height: 58px;
+  min-height: 58px;
+  padding: 0 16px;
   display: flex;
   align-items: center;
-  border-bottom: 1px solid var(--border-subtle);
+  gap: 6px;
+  border-bottom: 1px solid var(--panel-line);
 }
 
 .channel-header h2 {
-  font-size: 16px;
+  flex: 1;
+  min-width: 0;
+  font-size: var(--fs-heading);
   font-weight: 700;
-  color: var(--text-primary);
+  color: var(--ink);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
   letter-spacing: -0.01em;
+}
+
+.channel-header-menu {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--muted-2);
+  cursor: pointer;
+  transition: background var(--transition), color var(--transition);
+}
+
+.channel-header-menu:hover {
+  background: var(--row-hover);
+  color: var(--ink);
 }
 
 .no-server-message {
@@ -35,7 +60,7 @@
 
 .channel-list {
   flex: 1;
-  padding: 12px 10px;
+  padding: 16px 10px;
   overflow-y: auto;
 }
 
@@ -43,12 +68,12 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 12px 8px 6px;
-  color: var(--text-muted);
-  font-size: 11px;
+  padding: 0 6px 6px;
+  color: var(--muted-2);
+  font-size: var(--fs-group);
   font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.05em;
+  letter-spacing: var(--ls-group);
 }
 
 .channel-category-add {
@@ -59,38 +84,35 @@
   height: 20px;
   padding: 0;
   border: none;
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-chip);
   background: transparent;
-  color: var(--text-muted);
-  font-size: 16px;
-  font-weight: 600;
-  line-height: 1;
+  color: var(--muted-2);
   cursor: pointer;
-  opacity: 1;
-  transition: all var(--transition);
+  transition: background var(--transition), color var(--transition);
 }
 
 .channel-category-add:hover {
-  background: var(--bg-hover);
-  color: var(--brand-color);
-}
-
-.channel-category-add:active {
-  transform: scale(0.92);
+  background: var(--row-hover);
+  color: var(--ink);
 }
 
 .channel {
-  padding: 7px 10px;
+  padding: 8px 10px;
   margin: 2px 0;
-  border-radius: var(--radius-sm);
-  color: var(--text-secondary);
+  border-radius: var(--radius-row);
+  color: var(--muted);
   cursor: pointer;
-  font-size: 14px;
+  font-size: var(--fs-label);
   font-weight: 500;
   display: flex;
   align-items: center;
   gap: 8px;
-  transition: all var(--transition);
+  transition: background var(--transition), color var(--transition);
+}
+
+.channel-hash {
+  flex-shrink: 0;
+  color: var(--muted-2);
 }
 
 .channel-name {
@@ -217,32 +239,34 @@
   }
 }
 
-.channel.in-call {
-  box-shadow: inset 3px 0 0 var(--green-color, #23a55a);
-}
-
-.channel::before {
-  content: '#';
-  font-size: 16px;
-  font-weight: 600;
-  opacity: 0.5;
-  flex-shrink: 0;
-}
-
 .channel:hover {
-  background: var(--bg-hover);
-  color: var(--text-primary);
+  background: var(--row-hover);
+  color: var(--ink);
 }
 
 .channel.active {
-  background: var(--bg-active);
-  color: var(--brand-600);
-  font-weight: 600;
+  background: var(--canvas);
+  box-shadow: var(--shadow-row);
+  color: var(--ink);
+  font-weight: 700;
 }
 
-.channel.active::before {
-  opacity: 1;
-  color: var(--brand-color);
+.channel.active .channel-hash {
+  color: var(--accent);
+}
+
+/* Board 2d: dark active nav uses accent-soft, not canvas. */
+[data-theme="dark"] .channel.active {
+  background: var(--accent-soft);
+  box-shadow: none;
+}
+
+.channel.in-call {
+  box-shadow: inset 3px 0 0 var(--online);
+}
+
+[data-theme="dark"] .channel.in-call {
+  box-shadow: inset 3px 0 0 var(--online);
 }
 
 /* ── User Panel ── */

@@ -592,6 +592,7 @@ logger.error('Failed to create server:', err, { module: 'app' });
           members={members}
           onChannelDeleted={handleChannelRemoved}
           onGoToCall={handleGoToCall}
+          onServerDeleted={handleServerRemoved}
         />
 
         {/* Сцена звонка показывается только в том канале, где идёт звонок:

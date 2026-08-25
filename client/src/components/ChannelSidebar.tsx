@@ -1,10 +1,13 @@
 import { useState, useEffect, useMemo } from 'react';
+import { ChevronDown, Hash, Plus } from 'lucide-react';
 import type { Server, Channel, User, MemberWithUser } from '@/types';
 import { Settings } from '@/components/Settings';
 import { Avatar } from '@/components/Avatar';
 import { ContextMenu } from '@/components/ContextMenu';
 import { EditChannelModal } from '@/components/EditChannelModal';
 import { CreateChannelModal } from '@/components/CreateChannelModal';
+import { EditServerModal } from '@/components/EditServerModal';
+import { ManageInvitesModal } from '@/components/ManageInvitesModal';
 import { CallDock } from '@/components/CallDock';
 import { apiService, apiErrorText } from '@/services/api';
 import { useServerStore } from '@/stores/serverStore';
@@ -27,6 +30,7 @@ interface ChannelSidebarProps {
   members: MemberWithUser[];
   onChannelDeleted: (channelId: string) => void;
   onGoToCall: (serverId: string | null, channelId: string) => void;
+  onServerDeleted: (serverId: string) => void;
 }
 
 export function ChannelSidebar({
@@ -42,6 +46,7 @@ export function ChannelSidebar({
   members,
   onChannelDeleted,
   onGoToCall,
+  onServerDeleted,
 }: ChannelSidebarProps) {
   const t = useT();
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -50,10 +55,30 @@ export function ChannelSidebar({
   const [editingChannel, setEditingChannel] = useState<Channel | null>(null);
   const [creatingChannel, setCreatingChannel] = useState(false);
   const [confirmLogout, setConfirmLogout] = useState(false);
+  const [serverMenu, setServerMenu] = useState<{ x: number; y: number } | null>(null);
+  const [editingServer, setEditingServer] = useState(false);
+  const [invitingServer, setInvitingServer] = useState(false);
   const callChannelId = useCallStore((s) => s.callChannelId);
 
   const permissions = useServerStore((s) => (server ? s.permissions.get(server.id) : undefined));
   const canManageChannels = can(permissions, PERMISSIONS.MANAGE_CHANNELS);
+  const canManageServer = can(permissions, PERMISSIONS.MANAGE_SERVER) || server?.owner_id === user?.id;
+  const canInvite = can(permissions, PERMISSIONS.CREATE_INVITE);
+  const isOwner = server?.owner_id === user?.id;
+  const hasServerMenu = canManageServer || canInvite || isOwner;
+
+  const handleDeleteServer = async () => {
+    if (!server) return;
+    if (!window.confirm(t('server.deleteConfirm', { name: server.name }))) return;
+    try {
+      await apiService.deleteServer(server.id);
+      useServerStore.getState().removeServer(server.id);
+      onServerDeleted(server.id);
+    } catch (err) {
+      console.error('Failed to delete server:', err);
+      alert(apiErrorText(err, t));
+    }
+  };
 
   const handleDeleteChannel = async (channel: Channel) => {
     if (!server) return;
@@ -116,6 +141,19 @@ export function ChannelSidebar({
           </button>
         )}
         <h2>{server.name}</h2>
+        {hasServerMenu && (
+          <button
+            type="button"
+            className="channel-header-menu"
+            aria-label={t('server.editMenu')}
+            onClick={(e) => {
+              const r = e.currentTarget.getBoundingClientRect();
+              setServerMenu({ x: r.left, y: r.bottom + 4 });
+            }}
+          >
+            <ChevronDown size={18} strokeWidth={1.8} />
+          </button>
+        )}
       </div>
 
       <div className="channel-list">
@@ -128,7 +166,7 @@ export function ChannelSidebar({
               title={t('channel.createChannelMenu')}
               onClick={() => setCreatingChannel(true)}
             >
-              +
+              <Plus size={15} strokeWidth={1.8} />
             </button>
           )}
         </div>
@@ -146,6 +184,7 @@ export function ChannelSidebar({
                   setChannelMenu({ x: e.clientX, y: e.clientY, channel });
                 }}
               >
+                <Hash size={16} strokeWidth={1.8} className="channel-hash" />
                 <span className="channel-name">{channel.name}</span>
                 {participantIds.length > 0 && (
                   <span className="voice-count">({participantIds.length})</span>
@@ -269,6 +308,21 @@ export function ChannelSidebar({
       {creatingChannel && server && (
         <CreateChannelModal serverId={server.id} onClose={() => setCreatingChannel(false)} />
       )}
+
+      {serverMenu && server && (
+        <ContextMenu
+          x={serverMenu.x}
+          y={serverMenu.y}
+          onClose={() => setServerMenu(null)}
+          items={[
+            ...(canInvite ? [{ label: t('server.inviteMenu'), onClick: () => setInvitingServer(true) }] : []),
+            ...(canManageServer ? [{ label: t('server.editMenu'), onClick: () => setEditingServer(true) }] : []),
+            ...(isOwner ? [{ label: t('server.deleteMenu'), danger: true, onClick: handleDeleteServer }] : []),
+          ]}
+        />
+      )}
+      {editingServer && server && <EditServerModal server={server} onClose={() => setEditingServer(false)} />}
+      {invitingServer && server && <ManageInvitesModal serverId={server.id} onClose={() => setInvitingServer(false)} />}
     </nav>
   );
 }
