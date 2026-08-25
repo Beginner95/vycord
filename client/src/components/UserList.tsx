@@ -2,13 +2,15 @@ import { useState, useEffect, useMemo } from 'react';
 import { Phone } from 'lucide-react';
 import { useAuthStore } from '@/stores/authStore';
 import { useServerStore } from '@/stores/serverStore';
-import { apiService } from '@/services/api';
+import { apiService, apiErrorText } from '@/services/api';
 import { wsService } from '@/services/websocket';
 import { callService } from '@/services/call';
 import { Avatar } from '@/components/Avatar';
 import { logger } from '@/utils/logger';
 import { voiceChannelNameFor } from '@/utils/voiceMembership';
-import type { User, MemberWithUser } from '@/types';
+import { can, PERMISSIONS } from '@/utils/permissions';
+import { inviteExpiry } from '@/utils/inviteExpiry';
+import type { User, MemberWithUser, Invite } from '@/types';
 import { useT } from '@/i18n';
 import './UserList.css';
 
@@ -56,6 +58,47 @@ export function UserList({ onMobileBack, voiceParticipants }: UserListProps) {
 
   const handleCallUser = async (userId: string) => {
     await callService.startCall(userId);
+  };
+
+  const currentServer = useServerStore((s) => s.currentServer);
+  const invitePerms = useServerStore((s) =>
+    s.currentServer ? s.permissions.get(s.currentServer.id) : undefined
+  );
+  const canInvite =
+    !!currentServer &&
+    (can(invitePerms, PERMISSIONS.CREATE_INVITE) || currentServer.owner_id === currentUser?.id);
+
+  const [invite, setInvite] = useState<Invite | null>(null);
+  const [inviteBusy, setInviteBusy] = useState(false);
+  const [inviteError, setInviteError] = useState('');
+  const [inviteCopied, setInviteCopied] = useState(false);
+
+  // Смена сервера — карточка начинает с чистого листа.
+  useEffect(() => {
+    setInvite(null);
+    setInviteError('');
+    setInviteCopied(false);
+  }, [currentServer?.id]);
+
+  const handleCopyInvite = async () => {
+    if (!currentServer) return;
+    setInviteError('');
+    let inv = invite;
+    if (!inv) {
+      setInviteBusy(true);
+      try {
+        inv = await apiService.createInvite(currentServer.id);
+        setInvite(inv);
+      } catch (err) {
+        setInviteError(apiErrorText(err, t));
+        return;
+      } finally {
+        setInviteBusy(false);
+      }
+    }
+    navigator.clipboard?.writeText(inv.code).catch(() => {});
+    setInviteCopied(true);
+    setTimeout(() => setInviteCopied(false), 2000);
   };
 
   const { onlineMembers, offlineMembers } = useMemo(() => {
@@ -111,6 +154,29 @@ export function UserList({ onMobileBack, voiceParticipants }: UserListProps) {
         </div>
         {offlineMembers.map((m) => renderMember(m, false))}
       </div>
+      {canInvite && currentServer && (
+        <div className="invite-card">
+          <span className="invite-card-title">{t('server.inviteCard.title')}</span>
+          <p className="invite-card-sub">
+            {(() => {
+              if (!invite) return t('server.inviteCard.hint');
+              const exp = inviteExpiry(invite.expires_at);
+              return exp.kind === 'never'
+                ? t('server.inviteCard.noExpiry')
+                : t('server.inviteCard.expiresDays', { days: String(exp.days) });
+            })()}
+          </p>
+          {inviteError && <p className="invite-card-error">{inviteError}</p>}
+          <button
+            type="button"
+            className="btn btn-secondary invite-card-btn"
+            onClick={handleCopyInvite}
+            disabled={inviteBusy}
+          >
+            {inviteCopied ? t('server.invites.copied') : t('server.inviteCard.copyLink')}
+          </button>
+        </div>
+      )}
     </aside>
   );
 }

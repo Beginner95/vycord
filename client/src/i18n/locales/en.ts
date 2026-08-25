@@ -298,6 +298,15 @@ export const en: Dictionary = {
       usesCount: 'uses: {{count}}',
     },
 
+    // Invite card at the bottom of the member list
+    inviteCard: {
+      title: 'Invite friends',
+      hint: 'Bring your friends to this server',
+      noExpiry: 'Link never expires',
+      expiresDays: 'Link lives for {{days}} d.',
+      copyLink: 'Copy link',
+    },
+
     // Join by code
     joinByCode: {
       label: 'Have an invite code?',
