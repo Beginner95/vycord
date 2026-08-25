@@ -1,0 +1,344 @@
+/* ═══════════════════════════════════════════════════════
+   VYCORD — Shared primitives (buttons, inputs, modal shell)
+   Four button roles + one disabled state, per design handoff.
+   ═══════════════════════════════════════════════════════ */
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 34px;
+  padding: 0 14px;
+  border-radius: var(--radius-btn);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  font-weight: 600;
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: background var(--transition), border-color var(--transition), color var(--transition);
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+.btn-primary {
+  background: var(--accent);
+  color: #FFFFFF;
+}
+
+.btn-primary:hover {
+  background: var(--accent-hover);
+}
+
+.btn-secondary {
+  background: var(--canvas);
+  color: var(--ink);
+  border-color: var(--line-strong);
+}
+
+.btn-secondary:hover {
+  background: var(--canvas-2);
+}
+
+.btn-ghost {
+  background: transparent;
+  color: var(--muted);
+}
+
+.btn-ghost:hover {
+  background: var(--canvas-2);
+  color: var(--ink);
+}
+
+.btn-danger-soft {
+  background: var(--danger-soft);
+  color: var(--danger-text);
+}
+
+.btn-danger-soft:hover {
+  background: var(--danger);
+  color: #FFFFFF;
+}
+
+.btn-danger {
+  background: var(--danger);
+  color: #FFFFFF;
+}
+
+.btn-danger:hover {
+  filter: brightness(0.94);
+}
+
+.input {
+  width: 100%;
+  padding: 11px 14px;
+  border: 1.5px solid var(--line-strong);
+  border-radius: var(--radius-card);
+  background: var(--canvas);
+  color: var(--ink);
+  font-size: 14px;
+  outline: none;
+  transition: border-color var(--transition), box-shadow var(--transition);
+}
+
+.input::placeholder {
+  color: var(--faint);
+}
+
+.input:focus {
+  border-color: var(--accent);
+  box-shadow: var(--focus-ring);
+}
+
+.kbd {
+  display: inline-block;
+  padding: 2px 6px;
+  border-radius: var(--radius-chip);
+  background: var(--canvas-2);
+  border: 1px solid var(--line);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--muted);
+}
+
+/* ── Modal ── */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(16, 19, 34, 0.5);
+  backdrop-filter: blur(6px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  animation: fadeIn 0.18s var(--ease-out);
+}
+
+/* fadeIn / scaleIn are shared animation vocabulary — also used by
+   Settings.css, AvatarCropModal.css, ContextMenu.css and CallUI.css.
+   Do not delete in a future cleanup without checking those files first. */
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes scaleIn {
+  from { opacity: 0; transform: scale(0.95); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+.modal {
+  background: var(--canvas);
+  border-radius: var(--radius-modal);
+  padding: 24px;
+  width: 90%;
+  max-width: 440px;
+  box-shadow: var(--shadow-modal);
+  border: 1px solid var(--line);
+  animation: modalIn 0.18s var(--ease-out);
+}
+
+@keyframes modalIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.modal h2 {
+  font-size: 19px;
+  font-weight: 800;
+  line-height: 1.25;
+  letter-spacing: -0.01em;
+  margin-bottom: 20px;
+  color: var(--ink);
+}
+
+.modal .form-group {
+  margin-bottom: 18px;
+}
+
+.modal .form-group label {
+  display: block;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--muted);
+  margin-bottom: 6px;
+}
+
+.modal .form-group input {
+  width: 100%;
+  padding: 11px 14px;
+  border: 1.5px solid var(--line-strong);
+  border-radius: var(--radius-row);
+  background: var(--canvas-3);
+  color: var(--ink);
+  font-size: 14px;
+  outline: none;
+  transition: border-color var(--transition), box-shadow var(--transition);
+}
+
+.modal .form-group input:focus {
+  border-color: var(--accent);
+  box-shadow: var(--focus-ring);
+  background: var(--canvas);
+}
+
+/* ── Custom checkbox (e.g. "private server" toggle) ── */
+.modal .channel-type-options {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.modal .channel-type-options label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: var(--radius-row);
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--ink);
+  cursor: pointer;
+  user-select: none;
+  transition: background var(--transition);
+}
+
+.modal .channel-type-options label:hover {
+  background: var(--canvas-2);
+}
+
+.modal .channel-type-options input[type="radio"] {
+  width: 18px;
+  height: 18px;
+  min-width: 18px;
+  padding: 0;
+  margin: 0;
+  border: 1.5px solid var(--line-strong);
+  border-radius: 50%;
+  background: var(--canvas);
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: all var(--transition);
+}
+
+.modal .channel-type-options input[type="radio"]:hover {
+  border-color: var(--accent);
+}
+
+.modal .channel-type-options input[type="radio"]:checked {
+  border-color: var(--accent);
+}
+
+.modal .channel-type-options input[type="radio"]:checked::after {
+  content: '';
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: modalIn 0.15s var(--ease-out);
+}
+
+.modal .form-group.form-checkbox label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 0;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--ink);
+  cursor: pointer;
+  user-select: none;
+}
+
+.modal .form-checkbox input[type="checkbox"] {
+  width: 20px;
+  height: 20px;
+  min-width: 20px;
+  padding: 0;
+  margin: 0;
+  border: 1.5px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  background: var(--canvas);
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+  flex-shrink: 0;
+  transition: all var(--transition);
+}
+
+.modal .form-checkbox input[type="checkbox"]:hover {
+  border-color: var(--accent);
+}
+
+.modal .form-checkbox input[type="checkbox"]:checked {
+  background: var(--accent);
+  border-color: var(--accent);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='20 6 9 17 4 12'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: 12px;
+}
+
+.modal .form-checkbox input[type="checkbox"]:checked:hover {
+  background-color: var(--accent-hover);
+  border-color: var(--accent-hover);
+}
+
+.modal .modal-hint {
+  margin-top: 8px;
+  margin-bottom: 0;
+  font-size: 13px;
+  color: var(--muted-2);
+  line-height: 1.5;
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 24px;
+}
+
+.modal-actions button {
+  background: var(--canvas);
+  color: var(--ink);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-btn);
+  font-size: 13px;
+  font-weight: 600;
+  padding: 0 14px;
+  height: 34px;
+  cursor: pointer;
+  transition: all var(--transition);
+}
+
+.modal-actions button:not(.primary):hover {
+  background: var(--canvas-2);
+}
+
+.modal-actions button.primary {
+  background: var(--accent);
+  color: #FFFFFF;
+  border: 1px solid var(--accent);
+}
+
+.modal-actions button.primary:hover {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+  box-shadow: none;
+}
+
+.modal-error {
+  color: var(--danger-text);
+  font-size: 13px;
+  margin-top: -8px;
+  margin-bottom: 12px;
+}

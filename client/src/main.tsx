@@ -9,6 +9,7 @@ import '@fontsource/inter/800.css';
 import '@fontsource/jetbrains-mono/500.css';
 import './styles/tokens.css';
 import './styles/base.css';
+import './styles/primitives.css';
 import './stores/themeStore';
 import './stores/localeStore';
 import { initErrorReporting } from './services/errorReporting';
