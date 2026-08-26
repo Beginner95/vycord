@@ -114,8 +114,8 @@
   --online:      #4ADE96;
   --online-soft: rgba(18, 183, 106, 0.14);
   --online-text: #5BE39B;
-  --danger-soft: rgba(231, 68, 74, 0.14);  /* refine in M6 */
-  --danger-text: #F87A7E;                  /* refine in M6 */
+  --danger-soft: rgba(231, 68, 74, 0.18);
+  --danger-text: #FCA5A5;
 
   --shadow-row:     0 1px 2px rgba(0, 0, 0, 0.3);
   --shadow-card:    0 2px 10px rgba(0, 0, 0, 0.35);

@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
-import { Pencil, Trash2, Quote } from 'lucide-react';
+import { Pencil, Trash2, Quote, Clock } from 'lucide-react';
 import { Avatar } from '@/components/Avatar';
 import { FormattingToolbar } from '@/components/FormattingToolbar';
 import { MentionDropdown } from '@/components/MentionDropdown';
@@ -155,6 +155,16 @@ export function MessageRow(props: MessageRowProps) {
             : msg.sticker_id
               ? <div className="msg-body">{t('chat.stickerRemoved')}</div>
               : <div className="msg-body">{renderMessageBody(msg.content, props.members, t, props.currentUserId)}</div>}
+        {!isEditing && msg.deliveryState === 'sending' && (
+          <span className="msg-delivery is-sending">
+            <Clock size={12} strokeWidth={1.8} /> {t('chat.sending')}
+          </span>
+        )}
+        {!isEditing && msg.deliveryState === 'failed' && (
+          <button type="button" className="msg-delivery is-failed" onClick={props.onRetry}>
+            {t('chat.sendFailed')} · {t('chat.retry')}
+          </button>
+        )}
       </div>
       {!isEditing && !msg.deliveryState && (
         <div className="msg-actions">

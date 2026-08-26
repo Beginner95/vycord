@@ -108,6 +108,9 @@ export const en: Dictionary = {
     formatting: 'Formatting',
     send: 'Send',
     composerHint: 'Enter — send · Shift+Enter — new line',
+    sending: 'sending',
+    sendFailed: 'not sent',
+    retry: 'retry',
   },
   call: {
     participants: plural({

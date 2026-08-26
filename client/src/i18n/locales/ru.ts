@@ -111,6 +111,9 @@ export const ru = {
     formatting: 'Форматирование',
     send: 'Отправить',
     composerHint: 'Enter — отправить · Shift+Enter — новая строка',
+    sending: 'отправляется',
+    sendFailed: 'не отправлено',
+    retry: 'повторить',
   },
   call: {
     participants: plural({

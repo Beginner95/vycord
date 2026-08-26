@@ -144,13 +144,43 @@
   border-radius: 12px;
 }
 
-/* Optimistic-send states (wired in Task 11). */
-.msg-row.is-sending {
-  opacity: 0.6;
+/* Optimistic-send states (Task 11). Opacity is scoped to the row's gutter
+   and content — not `.msg-row` itself — because `.msg-row` is what the
+   `msg-in` enter animation below animates `opacity` on. Putting a declared
+   0.75 on the same element the animation targets means the two fight: the
+   animated value wins while it runs, the declared 0.75 reapplies the instant
+   it ends, then reconciling removes the class and pops to 1 — two visible
+   snaps per send. Scoping the dim to the row's children leaves `.msg-row`'s
+   opacity untouched by delivery state, so the entrance animation is never in
+   competition with it (see task-11 report, Correction 2). */
+.msg-row.is-sending .msg-gutter,
+.msg-row.is-sending .msg-content,
+.msg-row.is-failed .msg-gutter,
+.msg-row.is-failed .msg-content {
+  opacity: 0.75;
 }
 
-.msg-row.is-failed .msg-body {
+.msg-delivery {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 2px;
+  padding: 2px 6px;
+  border-radius: 6px;
+  font-size: 10.5px;
+  font-weight: 600;
+}
+
+.msg-delivery.is-sending {
+  background: var(--canvas-2);
+  color: var(--muted-2);
+}
+
+.msg-delivery.is-failed {
+  border: none;
+  background: var(--danger-soft);
   color: var(--danger-text);
+  cursor: pointer;
 }
 
 /* ═══ Hover action popover — top −14 / right 10, 120ms fade ═══ */

@@ -58,11 +58,12 @@ interface ComposerProps {
   members: MemberWithUser[];
   canMentionEveryone: boolean;
   /**
-   * Sends `content`. Resolves `true` once the message is accepted — the field
-   * is only cleared then, so a failed send keeps the user's text (ChatArea
-   * surfaces the error). Task 11 turns this optimistic.
+   * Sends `content`. Task 11: sending is optimistic — the row is rendered by
+   * ChatArea immediately, so the field clears synchronously here too. Any
+   * failure surfaces later as the message row's own `danger` chip, not a
+   * value this callback returns.
    */
-  onSend: (content: string) => Promise<boolean>;
+  onSend: (content: string) => void;
   serverStickers: ServerSticker[];
   /** Resolves `true` on success; the picker stays open on failure. */
   onSendSticker: (sticker: ServerSticker) => Promise<boolean>;
@@ -81,6 +82,14 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
 ) {
   const t = useT();
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  // Guards a same-task double-Enter (verified empirically: two keydowns
+  // dispatched back to back, with no task boundary between them, both still
+  // read the pre-clear `input` closure — React's state update from the first
+  // hasn't committed yet, so `if (!content) return` alone doesn't catch it).
+  // Reset on a microtask, which always resolves before the next real macro-
+  // task (the earliest a second, distinct keypress could ever land), so a
+  // legitimate quick second send is never blocked.
+  const submittingRef = useRef(false);
   const [input, setInput] = useState('');
   const [caretInQuoteLine, setCaretInQuoteLine] = useState(false);
   const [fmtOpen, setFmtOpen] = useState(false);
@@ -142,21 +151,25 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
     focus: () => inputRef.current?.focus(),
   }));
 
-  const handleSubmit = async (e: FormEvent) => {
+  const handleSubmit = (e: FormEvent) => {
     e.preventDefault();
+    if (submittingRef.current) return;
     const content = input.trim();
     if (!content) return;
-    if (await onSend(content)) {
-      setInput('');
-      setCaretInQuoteLine(false);
-    }
+    submittingRef.current = true;
+    queueMicrotask(() => { submittingRef.current = false; });
+    // Clear synchronously, before onSend does anything async — the field is
+    // empty well before any real second keypress could land.
+    setInput('');
+    setCaretInQuoteLine(false);
+    onSend(content);
   };
 
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     if (mention.handleKeyDown(e)) return;
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
-      void handleSubmit(e as unknown as FormEvent);
+      handleSubmit(e as unknown as FormEvent);
     }
   };
 

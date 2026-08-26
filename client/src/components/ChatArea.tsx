@@ -1,6 +1,6 @@
 import { Fragment, useState, useEffect, useRef, useCallback, type ReactNode } from 'react';
 import { ArrowDown, ChevronLeft, Hash, Headphones, Mic, Plus, Search, Users } from 'lucide-react';
-import { useMessageStore } from '@/stores/messageStore';
+import { useMessageStore, type ChatMessage } from '@/stores/messageStore';
 import { useUnreadStore, firstUnreadId } from '@/stores/unreadStore';
 import { StickerManager } from '@/components/StickerManager';
 import type { Message } from '@/types';
@@ -54,12 +54,13 @@ export function ChatArea({ channel, user, onMobileBack, onShowMembers, onJoinVoi
   const callChannelId = useCallStore((s) => s.callChannelId);
   const t = useT();
   const { formatFullDate } = useDateFormat();
-  const { messages, loading, setMessages, addMessage, updateMessage, removeMessage } = useMessageStore();
+  const { messages, loading, setMessages, addMessage, updateMessage, replaceMessage, removeMessage } = useMessageStore();
   const { members, currentServer } = useServerStore();
   const servers = useServerStore((s) => s.servers);
   const serversLoaded = useServerStore((s) => s.serversLoaded);
   const [sendError, setSendError] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const pendingSeqRef = useRef(0);
   const composerRef = useRef<ComposerHandle>(null);
   const chatMessagesRef = useRef<HTMLDivElement>(null);
   const [searchOpen, setSearchOpen] = useState(false);
@@ -153,6 +154,32 @@ export function ChatArea({ channel, user, onMobileBack, onShowMembers, onJoinVoi
   useEffect(() => {
     const ids = messages.map((m) => m.id);
     const prev = prevIdsRef.current;
+
+    // Task 11 Correction 1: `replaceMessage(tempId, serverMsg)` (optimistic
+    // send reconciling on the HTTP response) is a same-length array whose id
+    // at exactly one position changes — the shape test below reads that as a
+    // list replacement and wipes `enteredIds` entirely, which would strip the
+    // is-entering class off any OTHER row still mid-fade (e.g. a second
+    // message sent moments later). A single-position id swap at unchanged
+    // length is a reconciliation, not a replacement: advance the tracking ref
+    // and leave `enteredIds` untouched — the reconciled row remounts under
+    // its new id (Fragment key={msg.id} below) with no entering class either
+    // way, so it always mounts already at full opacity (one deliberate
+    // "delivered" pop, not a second fade-in — see task-11 report).
+    if (ids.length === prev.length && ids.length > 0) {
+      let diffCount = 0;
+      for (let i = 0; i < ids.length; i++) {
+        if (ids[i] !== prev[i]) {
+          diffCount++;
+          if (diffCount > 1) break;
+        }
+      }
+      if (diffCount === 1) {
+        prevIdsRef.current = ids;
+        return;
+      }
+    }
+
     prevIdsRef.current = ids;
     const isAppend =
       (prev.length > 0 || ids.length === 1) &&
@@ -327,17 +354,49 @@ logger.error('Failed to jump to message:', err, { module: 'chat' });
     setTimeout(() => setSendError(null), 5000);
   };
 
-  /** Composer's send callback. `false` keeps the user's draft in the field. */
-  const sendMessage = async (content: string): Promise<boolean> => {
-    if (!channel || !user) return false;
+  /**
+   * Composer's send callback (Task 11: optimistic). The row is added right
+   * away at `deliveryState: 'sending'`; the HTTP response reconciles it in
+   * place (`replaceMessage`) or, on failure, flips it to `'failed'` so
+   * MessageRow's own chip — not a toast — carries the error and the retry.
+   */
+  const sendMessage = async (content: string) => {
+    if (!channel || !user) return;
+    const tempId = `pending-${Date.now()}-${pendingSeqRef.current++}`;
+    const now = new Date().toISOString();
+    addMessage({
+      id: tempId, channel_id: channel.id, user_id: user.id,
+      content, created_at: now, updated_at: now, deliveryState: 'sending',
+    });
     try {
       const msg = await apiService.createMessage(channel.id, content) as Message;
-      addMessage(msg);
-      return true;
+      replaceMessage(tempId, msg);
     } catch (err) {
       logger.error('Failed to send message:', err, { module: 'chat' });
-      showSendError(err);
-      return false;
+      updateMessage(tempId, { deliveryState: 'failed' });
+    }
+  };
+
+  const retrySend = async (msg: ChatMessage) => {
+    if (!channel) return;
+    // Guards a same-task double-click on the retry chip the same way the
+    // composer's submittingRef guards double-Enter (verified empirically:
+    // without this, two synchronous clicks fired two real POSTs — a real
+    // duplicate persisted server-side even though the UI only ever showed
+    // one row, since the second `replaceMessage(msg.id, ...)` silently
+    // no-ops once the first response already swapped `msg.id` away). Zustand
+    // writes are synchronous (unlike React state), so reading the live store
+    // here — not the `msg` closure — sees the first click's 'sending' write
+    // immediately, before the second click's handler runs.
+    const current = useMessageStore.getState().messages.find((m) => m.id === msg.id);
+    if (!current || current.deliveryState !== 'failed') return;
+    updateMessage(msg.id, { deliveryState: 'sending' });
+    try {
+      const saved = await apiService.createMessage(channel.id, msg.content) as Message;
+      replaceMessage(msg.id, saved);
+    } catch (err) {
+      logger.error('Failed to send message:', err, { module: 'chat' });
+      updateMessage(msg.id, { deliveryState: 'failed' });
     }
   };
 
@@ -581,6 +640,7 @@ logger.error('Failed to jump to message:', err, { module: 'chat' });
                   onSaveEdit={(content) => saveEdit(msg.id, content)}
                   onDelete={() => setConfirmDeleteId(msg.id)}
                   onQuote={() => insertQuoteIntoCompose(msg.content)}
+                  onRetry={() => retrySend(msg)}
                 />
               </Fragment>
             );
