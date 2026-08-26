@@ -14,20 +14,7 @@ export function fireTestEvent(key: string, type: string, event: unknown = {}): v
   listeners.get(`${key}:${type}`)?.forEach((listener) => listener(event));
 }
 
-globalThis.window = {
-  electronAPI: undefined,
-  addEventListener: (type: string, listener: (event: unknown) => void) => addListener('window', type, listener),
-  removeEventListener: () => {},
-} as unknown as Window & typeof globalThis;
-
-globalThis.document = {
-  documentElement: { setAttribute: () => {} },
-  visibilityState: 'visible',
-  addEventListener: (type: string, listener: (event: unknown) => void) => addListener('document', type, listener),
-  removeEventListener: () => {},
-} as unknown as Document;
-
-globalThis.localStorage = {
+const localStorageImpl = {
   getItem: (key: string) => store.get(key) ?? null,
   setItem: (key: string, value: string) => void store.set(key, String(value)),
   removeItem: (key: string) => void store.delete(key),
@@ -37,6 +24,22 @@ globalThis.localStorage = {
     return store.size;
   },
 };
+
+globalThis.window = {
+  electronAPI: undefined,
+  addEventListener: (type: string, listener: (event: unknown) => void) => addListener('window', type, listener),
+  removeEventListener: () => {},
+  localStorage: localStorageImpl as any,
+} as unknown as Window & typeof globalThis;
+
+globalThis.document = {
+  documentElement: { setAttribute: () => {} },
+  visibilityState: 'visible',
+  addEventListener: (type: string, listener: (event: unknown) => void) => addListener('document', type, listener),
+  removeEventListener: () => {},
+} as unknown as Document;
+
+globalThis.localStorage = localStorageImpl;
 
 beforeEach(() => {
   store.clear();
