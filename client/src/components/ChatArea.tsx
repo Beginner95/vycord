@@ -212,6 +212,7 @@ export function ChatArea({ channel, user, onMobileBack, onShowMembers, onJoinVoi
     setSearchOpen(false);
     setHistoryMode(false);
     setHighlightedId(null);
+    setConfirmDeleteId(null);
   }, [channel?.id]);
 
   const refreshStickers = useCallback(() => {
