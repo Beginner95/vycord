@@ -1,0 +1,81 @@
+/* Emoji picker popover — canvas-bg popover shell shared in shape with
+   StickerPicker.css. Anchors to the nearest `position: relative` ancestor:
+   `.composer-root` from the composer, `.msg-edit` from the inline editor. */
+.emoji-picker {
+  position: absolute;
+  right: 12px;
+  bottom: calc(100% + 8px);
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  width: 264px;
+  max-height: 240px;
+  overflow: hidden;
+  background: var(--canvas);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  box-shadow: var(--shadow-popover);
+  animation: fadeIn 0.12s var(--ease-out);
+}
+
+.emoji-picker-grid {
+  display: grid;
+  flex: 1;
+  grid-template-columns: repeat(var(--emoji-cols, 8), 1fr);
+  gap: 2px;
+  padding: 8px;
+  overflow-y: auto;
+}
+
+.emoji-cell {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  font-size: 18px;
+  line-height: 1;
+  background: none;
+  border: none;
+  border-radius: 7px;
+  cursor: pointer;
+  transition: background var(--transition);
+}
+
+.emoji-cell:hover {
+  background: var(--canvas-2);
+}
+
+.emoji-picker-tabs {
+  display: flex;
+  gap: 2px;
+  padding: 6px 8px;
+  overflow-x: auto;
+  background: var(--canvas);
+  border-top: 1px solid var(--line);
+}
+
+.emoji-tab {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 28px;
+  height: 28px;
+  padding: 0 4px;
+  font-size: 16px;
+  line-height: 1;
+  background: none;
+  border: none;
+  border-radius: 7px;
+  cursor: pointer;
+  transition: background var(--transition);
+}
+
+.emoji-tab:hover {
+  background: var(--canvas-2);
+}
+
+.emoji-tab.is-active {
+  background: var(--accent-soft);
+}

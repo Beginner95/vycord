@@ -3,6 +3,7 @@ import { useT, type TKey } from '@/i18n';
 import { apiService, apiErrorText, resolveUploadUrl } from '@/services/api';
 import type { Sticker } from '@/types';
 import { validateStickerFile, ALLOWED_STICKER_TYPES } from '@/utils/stickerUpload';
+import './StickerManager.css';
 
 interface StickerManagerProps {
   serverId: string;
@@ -108,7 +109,7 @@ export function StickerManager({ serverId, onClose, onStickersChanged }: Sticker
           className="sticker-file-input-hidden"
         />
         <div
-          className={`sticker-dropzone${dragOver ? ' active' : ''}${error ? ' error' : ''}`}
+          className={`sticker-dropzone${dragOver ? ' is-active' : ''}${error ? ' is-error' : ''}`}
           onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
           onDragLeave={() => setDragOver(false)}
           onDrop={handleDrop}
