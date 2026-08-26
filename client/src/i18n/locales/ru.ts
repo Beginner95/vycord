@@ -58,6 +58,8 @@ export const ru = {
     insert: 'Вставить',
     cancel: 'Отмена',
     deleteConfirm: 'Удалить сообщение?',
+    deleteTitle: 'Удалить сообщение?',
+    deleteBody: 'Сообщение будет удалено навсегда. Это действие нельзя отменить.',
     back: 'Назад',
     welcomeTitle: 'Добро пожаловать в Vy Cord!',
     welcomeSubtitle: 'Выберите канал, чтобы начать общение',

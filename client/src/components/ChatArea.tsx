@@ -22,6 +22,7 @@ import { useFloatingSelectionToolbar } from '@/hooks/useFloatingSelectionToolbar
 import { MessageSearch } from '@/components/MessageSearch';
 import { Avatar } from '@/components/Avatar';
 import { DayDivider } from '@/components/DayDivider';
+import { ConfirmModal } from '@/components/ConfirmModal';
 import type { Channel, User, MemberWithUser } from '@/types';
 import type { Sticker } from '@/types';
 import { useT, useDateFormat, isSameCalendarDay, type TFunc } from '@/i18n';
@@ -677,9 +678,12 @@ logger.error('Failed to update message:', err, { module: 'chat' });
     }
   };
 
-  const handleDelete = async (messageId: string) => {
-    if (!channel) return;
-    if (!window.confirm(t('chat.deleteConfirm'))) return;
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+
+  const confirmDelete = async () => {
+    const messageId = confirmDeleteId;
+    setConfirmDeleteId(null);
+    if (!channel || !messageId) return;
     try {
       await apiService.deleteMessage(channel.id, messageId);
       removeMessage(messageId);
@@ -915,7 +919,7 @@ logger.error('Failed to update message:', err, { module: 'chat' });
                         type="button"
                         className="message-action-btn message-action-btn--danger"
                         aria-label={t('common.delete')}
-                        onClick={() => handleDelete(msg.id)}
+                        onClick={() => setConfirmDeleteId(msg.id)}
                       >
                         <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
                       </button>
@@ -1066,6 +1070,14 @@ logger.error('Failed to update message:', err, { module: 'chat' });
           onStickersChanged={refreshStickers}
         />
       )}
+      <ConfirmModal
+        open={confirmDeleteId !== null}
+        title={t('chat.deleteTitle')}
+        body={t('chat.deleteBody')}
+        confirmLabel={t('common.delete')}
+        onConfirm={confirmDelete}
+        onCancel={() => setConfirmDeleteId(null)}
+      />
     </main>
   );
 }
