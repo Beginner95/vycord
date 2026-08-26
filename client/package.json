@@ -22,7 +22,8 @@
     "test:watch": "vitest",
     "test:e2e": "bash e2e/run.sh",
     "smoke:aec3": "node scripts/smoke-test-aec3.mjs",
-    "check:i18n": "node scripts/check-i18n.mjs"
+    "check:i18n": "node scripts/check-i18n.mjs",
+    "lint:css": "stylelint \"src/**/*.css\""
   },
   "dependencies": {
     "@fontsource/inter": "^5.3.0",
@@ -46,6 +47,9 @@
     "cross-env": "^10.1.0",
     "electron": "^41.2.0",
     "electron-builder": "^26.8.1",
+    "stylelint": "17.14.1",
+    "stylelint-config-standard": "40.0.0",
+    "stylelint-value-no-unknown-custom-properties": "6.1.1",
     "typescript": "~6.0.2",
     "vite": "^8.0.4",
     "vitest": "^4.1.10",
