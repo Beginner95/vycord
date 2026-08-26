@@ -1,12 +1,11 @@
 import { Fragment, useState, useEffect, useRef, useCallback, type FormEvent, type KeyboardEvent, type ChangeEvent, type ClipboardEvent } from 'react';
-import type { RefObject } from 'react';
 import { ArrowDown, ChevronLeft, Hash, Headphones, Mic, Quote, Search, Users } from 'lucide-react';
 import { useMessageStore } from '@/stores/messageStore';
 import { LinkDialog } from '@/components/LinkDialog';
 import { EmojiPicker } from '@/components/EmojiPicker';
 import { StickerPicker } from '@/components/StickerPicker';
 import { StickerManager } from '@/components/StickerManager';
-import { toggleQuote, toggleBullet, toggleNumbered, toggleWrap, type LineToggle } from '@/utils/textTransforms';
+import { toggleQuote, toggleBullet, toggleNumbered, applyLineToggle, applyWrap, insertAtCaret, linkToken } from '@/utils/textTransforms';
 import { isUnsafeUrl } from '@/utils/markdown';
 import type { Message } from '@/types';
 import { apiService, apiErrorText, ApiError } from '@/services/api';
@@ -72,17 +71,6 @@ function FloatingQuoteButton({ x, y, onConfirm }: { x: number; y: number; onConf
   );
 }
 
-function insertEmojiAtCaret(el: HTMLTextAreaElement, setValue: (v: string) => void, emoji: string) {
-  const start = el.selectionStart ?? el.value.length;
-  const end = el.selectionEnd ?? el.value.length;
-  const next = el.value.slice(0, start) + emoji + el.value.slice(end);
-  setValue(next);
-  requestAnimationFrame(() => {
-    el.focus();
-    el.setSelectionRange(start + emoji.length, start + emoji.length);
-  });
-}
-
 export function ChatArea({ channel, user, onMobileBack, onShowMembers, onJoinVoice, onShowCall }: ChatAreaProps) {
   const callChannelId = useCallStore((s) => s.callChannelId);
   const t = useT();
@@ -138,30 +126,38 @@ export function ChatArea({ channel, user, onMobileBack, onShowMembers, onJoinVoi
     setConfirmDeleteId(null);
   }, [channel?.id]);
 
-  // Rows appended after the initial channel render animate in (220ms);
-  // the initial batch must not stagger-flash on channel switch.
-  const initialIdsRef = useRef<Set<string> | null>(null);
+  // Only rows *appended* to the list already on screen animate in (220ms).
+  // "Appended" is derived from the list itself rather than from explicit reset
+  // calls at every setMessages site: a channel switch, a jump-to-message, a
+  // back-to-latest, a delete, or a stale fetch landing after the user has moved
+  // on all produce a list whose predecessor is not a prefix of it, and each of
+  // those must re-seed the baseline silently instead of stagger-flashing the
+  // whole batch. Growing a previously EMPTY list only animates a single-message
+  // append (the first message in a fresh channel) — a bulk fill of an empty
+  // list is the initial channel load, not something the user just did.
+  const prevIdsRef = useRef<string[]>([]);
   const [enteredIds, setEnteredIds] = useState<Set<string>>(new Set());
-  // Any wholesale list replacement (channel switch, jump-to-message, back to
-  // latest) re-seeds the baseline; without this the whole replacement batch
-  // counts as "fresh" and stagger-flashes.
-  const resetEnterTracking = () => { initialIdsRef.current = null; setEnteredIds(new Set()); };
-  useEffect(() => { resetEnterTracking(); }, [channel?.id]);
   useEffect(() => {
-    if (loading) return;
-    if (initialIdsRef.current === null) {
-      initialIdsRef.current = new Set(messages.map((m) => m.id));
+    const ids = messages.map((m) => m.id);
+    const prev = prevIdsRef.current;
+    prevIdsRef.current = ids;
+    const isAppend =
+      (prev.length > 0 || ids.length === 1) &&
+      ids.length >= prev.length &&
+      prev.every((id, i) => id === ids[i]);
+    if (!isAppend) {
+      setEnteredIds((current) => (current.size ? new Set() : current));
       return;
     }
-    const fresh = messages.filter((m) => !initialIdsRef.current!.has(m.id));
+    const fresh = ids.slice(prev.length);
     if (fresh.length) {
-      setEnteredIds((prev) => {
-        const next = new Set(prev);
-        fresh.forEach((m) => { next.add(m.id); initialIdsRef.current!.add(m.id); });
+      setEnteredIds((current) => {
+        const next = new Set(current);
+        fresh.forEach((id) => next.add(id));
         return next;
       });
     }
-  }, [messages, loading]);
+  }, [messages]);
 
   const refreshStickers = useCallback(() => {
     const sid = currentServer?.id;
@@ -294,7 +290,6 @@ export function ChatArea({ channel, user, onMobileBack, onShowMembers, onJoinVoi
     try {
       const context = await apiService.getMessagesAround(channel.id, messageId) as Message[];
       setHistoryMode(true);
-      resetEnterTracking();
       setMessages(context);
       setHighlightedId(messageId);
       requestAnimationFrame(() => {
@@ -316,7 +311,6 @@ logger.error('Failed to jump to message:', err, { module: 'chat' });
       const latest = await apiService.getMessages(channel.id) as Message[];
       setHistoryMode(false);
       setHighlightedId(null);
-      resetEnterTracking();
       setMessages(latest);
     } catch (err) {
       logger.error('Failed to load latest messages:', err, { module: 'chat' });
@@ -371,41 +365,7 @@ logger.error('Failed to jump to message:', err, { module: 'chat' });
     updateQuoteButtonActive(e.target.value, e.target.selectionStart ?? undefined);
   };
 
-  const applyRangeToggle = (
-    value: string,
-    setValue: (v: string) => void,
-    ref: RefObject<HTMLTextAreaElement | null>,
-    fn: (v: string, s: number, e: number) => LineToggle,
-  ) => {
-    const el = ref.current;
-    if (!el) return;
-    const s = el.selectionStart ?? value.length;
-    const e = el.selectionEnd ?? value.length;
-    const r = fn(value, s, e);
-    setValue(r.value);
-    requestAnimationFrame(() => {
-      el.focus();
-      el.setSelectionRange(r.start, r.end);
-    });
-  };
-
-  const wrapSelection = (
-    value: string,
-    setValue: (v: string) => void,
-    ref: RefObject<HTMLTextAreaElement | null>,
-    marker: string,
-  ) => {
-    const el = ref.current;
-    if (!el) return;
-    const s = el.selectionStart ?? value.length;
-    const e = el.selectionEnd ?? value.length;
-    const r = toggleWrap(value, s, e, marker);
-    setValue(r.value);
-    requestAnimationFrame(() => {
-      el.focus();
-      el.setSelectionRange(r.start, r.end);
-    });
-  };
+  const composeTarget = { ref: inputRef, value: input, setValue: setInput };
 
   const toggleQuotePrefixRange = (start: number, end: number) => {
     const el = inputRef.current;
@@ -425,26 +385,16 @@ logger.error('Failed to jump to message:', err, { module: 'chat' });
     toggleQuotePrefixRange(start, end);
   };
 
-  const composeWrap = (marker: string) => wrapSelection(input, setInput, inputRef, marker);
-  const composeBullet = () => applyRangeToggle(input, setInput, inputRef, toggleBullet);
-  const composeNumbered = () => applyRangeToggle(input, setInput, inputRef, toggleNumbered);
+  const composeWrap = (marker: string) => applyWrap(composeTarget, marker);
+  const composeBullet = () => applyLineToggle(composeTarget, toggleBullet);
+  const composeNumbered = () => applyLineToggle(composeTarget, toggleNumbered);
 
   const [linkOpen, setLinkOpen] = useState(false);
   const [emojiPickerOpen, setEmojiPickerOpen] = useState(false);
 
   const insertLink = (label: string, url: string) => {
-    const el = inputRef.current;
-    if (!el) return;
-    const text = label || url;
-    const token = `[${text}](${url})`;
-    const start = el.selectionStart ?? input.length;
-    const end = el.selectionEnd ?? input.length;
-    setInput(input.slice(0, start) + token + input.slice(end));
+    insertAtCaret(composeTarget, linkToken(label, url));
     setLinkOpen(false);
-    requestAnimationFrame(() => {
-      el.focus();
-      el.setSelectionRange(start + token.length, start + token.length);
-    });
   };
 
   const handleComposePaste = (e: ClipboardEvent<HTMLTextAreaElement>) => {
@@ -768,7 +718,7 @@ logger.error('Failed to jump to message:', err, { module: 'chat' });
         </form>
         {emojiPickerOpen && (
           <EmojiPicker
-            onSelect={(e) => { insertEmojiAtCaret(inputRef.current!, setInput, e); setEmojiPickerOpen(false); }}
+            onSelect={(e) => { insertAtCaret(composeTarget, e); setEmojiPickerOpen(false); }}
             onClose={() => setEmojiPickerOpen(false)}
           />
         )}

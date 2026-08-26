@@ -108,6 +108,29 @@
   padding-left: 1.4em;
 }
 
+/* Inline mentions inside a rendered body. MessageRow is their sole emitter, so
+   they live here rather than in ChatArea.css — a component must not depend on
+   its parent's stylesheet. Named msg-* because the mention- namespace belongs
+   to MentionDropdown.css (one namespace, one owner file). */
+.msg-mention {
+  padding: 0 2px;
+  font-weight: 500;
+  color: var(--accent-text);
+  background: var(--accent-soft);
+  border-radius: 4px;
+}
+
+.msg-mention-self {
+  font-weight: 600;
+  background: var(--accent-border);
+}
+
+.msg-mention-everyone {
+  font-weight: 600;
+  color: var(--danger);
+  background: var(--accent-soft);
+}
+
 .msg-quote-block {
   display: block;
   padding-left: 10px;

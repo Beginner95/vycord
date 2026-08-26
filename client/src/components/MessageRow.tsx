@@ -6,7 +6,7 @@ import { MentionDropdown } from '@/components/MentionDropdown';
 import { EmojiPicker } from '@/components/EmojiPicker';
 import { LinkDialog } from '@/components/LinkDialog';
 import { useMentionAutocomplete } from '@/hooks/useMentionAutocomplete';
-import { toggleWrap, toggleBullet, toggleNumbered, type LineToggle } from '@/utils/textTransforms';
+import { toggleBullet, toggleNumbered, applyLineToggle, applyWrap, insertAtCaret, linkToken } from '@/utils/textTransforms';
 import { tokenizeMentions, LEGACY_ROLE_KEYS } from '@/utils/mentions';
 import { parseInline, blockify, normalizeLinkHref, type MdInlineNode } from '@/utils/markdown';
 import { resolveUploadUrl } from '@/services/api';
@@ -22,14 +22,14 @@ function renderMessageContent(content: string, members: MemberWithUser[], t: TFu
     }
     if (token.type === 'role') {
       return (
-        <span key={i} className="mention mention-role">
+        <span key={i} className="msg-mention msg-mention-role">
           @{t(LEGACY_ROLE_KEYS[token.value])}
         </span>
       );
     }
     if (token.type === 'everyone') {
       return (
-        <span key={i} className="mention mention-everyone">
+        <span key={i} className="msg-mention msg-mention-everyone">
           @everyone
         </span>
       );
@@ -37,7 +37,7 @@ function renderMessageContent(content: string, members: MemberWithUser[], t: TFu
     const member = members.find((m) => m.user_id === token.value);
     const isSelf = token.value === currentUserId;
     return (
-      <span key={i} className={`mention${isSelf ? ' mention-self' : ''}`}>
+      <span key={i} className={`msg-mention${isSelf ? ' msg-mention-self' : ''}`}>
         @{member?.username ?? 'unknown-user'}
       </span>
     );
@@ -192,11 +192,6 @@ function MessageEditor({ initial, members, canMentionEveryone, onCancelEdit, onS
   const [emojiOpen, setEmojiOpen] = useState(false);
   const [linkOpen, setLinkOpen] = useState(false);
   const inputRef = useRef<HTMLTextAreaElement>(null);
-  // Clicking inside the link dialog or the emoji grid blurs the textarea before
-  // its click handler runs — cancelling the edit would eat the very action the
-  // user asked for, so blur only cancels while no popover is open.
-  const popoverOpenRef = useRef(false);
-  popoverOpenRef.current = linkOpen || emojiOpen;
 
   const mention = useMentionAutocomplete({ value, setValue, inputRef, members, canMentionEveryone });
 
@@ -207,43 +202,7 @@ function MessageEditor({ initial, members, canMentionEveryone, onCancelEdit, onS
     el.style.height = `${el.scrollHeight}px`;
   }, [value]);
 
-  const applyRangeToggle = (fn: (v: string, s: number, e: number) => LineToggle) => {
-    const el = inputRef.current;
-    if (!el) return;
-    const s = el.selectionStart ?? value.length;
-    const e = el.selectionEnd ?? value.length;
-    const r = fn(value, s, e);
-    setValue(r.value);
-    requestAnimationFrame(() => {
-      el.focus();
-      el.setSelectionRange(r.start, r.end);
-    });
-  };
-
-  const wrap = (marker: string) => {
-    const el = inputRef.current;
-    if (!el) return;
-    const s = el.selectionStart ?? value.length;
-    const e = el.selectionEnd ?? value.length;
-    const r = toggleWrap(value, s, e, marker);
-    setValue(r.value);
-    requestAnimationFrame(() => {
-      el.focus();
-      el.setSelectionRange(r.start, r.end);
-    });
-  };
-
-  const insertAtCaret = (text: string) => {
-    const el = inputRef.current;
-    if (!el) return;
-    const start = el.selectionStart ?? value.length;
-    const end = el.selectionEnd ?? value.length;
-    setValue(value.slice(0, start) + text + value.slice(end));
-    requestAnimationFrame(() => {
-      el.focus();
-      el.setSelectionRange(start + text.length, start + text.length);
-    });
-  };
+  const target = { ref: inputRef, value, setValue };
 
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     if (mention.handleKeyDown(e)) return;
@@ -264,15 +223,18 @@ function MessageEditor({ initial, members, canMentionEveryone, onCancelEdit, onS
         value={value}
         onChange={mention.handleChange}
         onKeyDown={handleKeyDown}
-        onBlur={() => { if (!popoverOpenRef.current) onCancelEdit(); }}
+        // Clicking inside the link dialog or the emoji grid blurs the textarea
+        // before its click handler runs — cancelling the edit would eat the very
+        // action the user asked for, so blur only cancels with no popover open.
+        onBlur={() => { if (!linkOpen && !emojiOpen) onCancelEdit(); }}
         maxLength={2000}
         rows={1}
         autoFocus
       />
       <FormattingToolbar
-        onWrap={wrap}
-        onBullet={() => applyRangeToggle(toggleBullet)}
-        onNumbered={() => applyRangeToggle(toggleNumbered)}
+        onWrap={(marker) => applyWrap(target, marker)}
+        onBullet={() => applyLineToggle(target, toggleBullet)}
+        onNumbered={() => applyLineToggle(target, toggleNumbered)}
         onLink={() => setLinkOpen(true)}
         onEmojiToggle={() => setEmojiOpen((open) => !open)}
         emojiOpen={emojiOpen}
@@ -280,14 +242,14 @@ function MessageEditor({ initial, members, canMentionEveryone, onCancelEdit, onS
       <MentionDropdown mention={mention} />
       {emojiOpen && (
         <EmojiPicker
-          onSelect={(emoji) => { insertAtCaret(emoji); setEmojiOpen(false); }}
+          onSelect={(emoji) => { insertAtCaret(target, emoji); setEmojiOpen(false); }}
           onClose={() => setEmojiOpen(false)}
         />
       )}
       <LinkDialog
         open={linkOpen}
         onClose={() => setLinkOpen(false)}
-        onInsert={(label, url) => { insertAtCaret(`[${label || url}](${url})`); setLinkOpen(false); }}
+        onInsert={(label, url) => { insertAtCaret(target, linkToken(label, url)); setLinkOpen(false); }}
       />
     </div>
   );
