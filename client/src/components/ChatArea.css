@@ -32,6 +32,23 @@
   white-space: nowrap;
 }
 
+/* Mobile-only two-line title (name + server/participants subtitle) — the
+   sibling .chat-header-name above is the desktop one-liner and stays put;
+   this wrapper is dead chrome on desktop, turned on in the mobile block. */
+.chat-header-title {
+  display: none;
+  min-width: 0;
+}
+
+.chat-header-sub {
+  overflow: hidden;
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--muted-2);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .chat-header-actions {
   display: flex;
   gap: 8px;
@@ -333,7 +350,7 @@
 /* The floating "quote selection" affordance both selection surfaces render
    lives in FloatingQuoteButton.tsx / .css (.quote-float-btn). */
 
-/* ═══ Mobile ═══ */
+/* ═══ Mobile (board 1f) ═══ */
 @media (width <= 768px) {
   .chat-back-btn,
   .chat-call-btn {
@@ -341,8 +358,67 @@
   }
 
   .chat-header {
-    gap: 6px;
-    padding: 0 12px;
+    height: 56px;
+    min-height: 56px;
+    gap: 8px;
+    padding: 0 10px;
+  }
+
+  /* flex-shrink: 0 on every fixed-size header control — without it the row's
+     only other shrinkable item (.chat-header-title, min-width: 0 for its own
+     ellipsis) doesn't absorb 100% of an overflow; the flexbox algorithm was
+     observed stealing ~2px off .chat-back-btn instead, dropping it under the
+     40px hit-target floor. Title/subtitle text is what should truncate here,
+     never the tap targets. */
+  .chat-back-btn {
+    flex-shrink: 0;
+    width: 40px;
+    height: 40px;
+    border-radius: 11px;
+  }
+
+  /* The desktop one-line name hides; the two-line title+subtitle wrapper
+     (a sibling further down the header, not nested under it) takes over. */
+  .chat-header > .chat-header-name {
+    display: none;
+  }
+
+  .chat-header-title {
+    display: block;
+  }
+
+  .chat-header-actions {
+    flex-shrink: 0;
+  }
+
+  .chat-search-btn,
+  .chat-members-btn,
+  .chat-call-btn {
+    width: 40px;
+    height: 40px;
+    border-radius: 11px;
+  }
+
+  .chat-search-btn {
+    background: var(--canvas-2);
+    border: none;
+  }
+
+  .chat-voice-btn {
+    gap: 0;
+    width: 40px;
+    height: 40px;
+    padding: 0;
+    border-radius: 11px;
+  }
+
+  .chat-header-actions .chat-voice-btn {
+    color: var(--accent-text);
+    background: var(--accent-soft);
+  }
+
+  .chat-voice-btn span {
+    display: none;
   }
 
   .chat-messages {

@@ -123,13 +123,33 @@
   margin-bottom: 6px;
 }
 
-/* ═══ Mobile — safe-area inset + 16px field (iOS zooms below 16px) ═══ */
+/* ═══ Mobile (board 1f) — safe-area inset + 16px field (iOS zooms below 16px) ═══ */
 @media (width <= 768px) {
   .composer-root {
-    padding: 10px 12px calc(12px + env(safe-area-inset-bottom, 0px));
+    padding: 8px 10px calc(10px + env(safe-area-inset-bottom, 0px));
+  }
+
+  .composer-field {
+    border-radius: 13px;
   }
 
   .composer-input {
     font-size: 16px;
+  }
+
+  .composer-aa,
+  .composer-icon-btn {
+    width: 40px;
+    height: 40px;
+  }
+
+  .composer-send {
+    width: 44px;
+    height: 44px;
+    border-radius: 13px;
+  }
+
+  .composer-hint {
+    display: none;
   }
 }

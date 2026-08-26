@@ -22,7 +22,7 @@ import { DayDivider } from '@/components/DayDivider';
 import { ConfirmModal } from '@/components/ConfirmModal';
 import type { Channel, User } from '@/types';
 import type { Sticker } from '@/types';
-import { useT, useDateFormat, isSameCalendarDay } from '@/i18n';
+import { useT, useTp, useDateFormat, isSameCalendarDay } from '@/i18n';
 import './ChatArea.css';
 
 // Shared card recipe for the three ChatArea empty states (board 2a): quiet
@@ -53,6 +53,7 @@ interface ChatAreaProps {
 export function ChatArea({ channel, user, onMobileBack, onShowMembers, onJoinVoice, onShowCall, onCreateServer }: ChatAreaProps) {
   const callChannelId = useCallStore((s) => s.callChannelId);
   const t = useT();
+  const tp = useTp();
   const { formatFullDate } = useDateFormat();
   const { messages, loading, setMessages, addMessage, updateMessage, replaceMessage, removeMessage } = useMessageStore();
   const { members, currentServer } = useServerStore();
@@ -523,6 +524,15 @@ logger.error('Failed to jump to message:', err, { module: 'chat' });
         )}
         <Hash size={17} strokeWidth={1.8} className="chat-header-hash" />
         <h3 className="chat-header-name">{channel.name}</h3>
+        {/* Mobile-only two-line title (board 1f): the plain .chat-header-name
+            above hides on mobile, this wrapper (hidden on desktop) takes over
+            with the channel name plus a server/participants subtitle. */}
+        <div className="chat-header-title">
+          <h3 className="chat-header-name">{channel.name}</h3>
+          <div className="chat-header-sub">
+            {currentServer?.name} · {tp('call.participants', members.length)}
+          </div>
+        </div>
         <div className="chat-header-actions">
           {onJoinVoice && (
             <button

@@ -201,6 +201,25 @@
   pointer-events: none;
 }
 
+/* Touch has no :hover — never leave the quote/edit/delete actions unreachable
+   (the M1 dark+touch join pill lesson). Declared *before* the hover-enable
+   rule below: @media adds no specificity, so a lower-specificity `.msg-actions`
+   override placed after `.msg-row:hover .msg-actions` (0,3,0) would trip
+   no-descending-specificity — ordering ascending here keeps the file at 0
+   problems instead of discovering it at the lint gate. `grid-column: 2` pulls
+   the popover out of the 42px avatar-gutter track (col 1) it would otherwise
+   land in once `position: static` makes it a real grid item. */
+@media (hover: none) {
+  .msg-actions {
+    position: static;
+    grid-column: 2;
+    justify-self: start;
+    margin-top: 4px;
+    opacity: 0.9;
+    pointer-events: auto;
+  }
+}
+
 .msg-row:hover .msg-actions,
 .msg-row:focus-within .msg-actions {
   opacity: 1;
@@ -286,4 +305,19 @@
   outline: none;
   box-shadow: var(--focus-ring);
   resize: none;
+}
+
+/* ═══ Mobile (board 1f) ═══ */
+@media (width <= 768px) {
+  .msg-row {
+    grid-template-columns: 36px 1fr;
+    gap: 0 10px;
+    padding: 4px 6px;
+  }
+
+  .msg-avatar {
+    width: 32px;
+    height: 32px;
+    border-radius: 11px;
+  }
 }
