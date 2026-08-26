@@ -91,6 +91,7 @@ export const en: Dictionary = {
     quietTitle: 'It’s quiet here',
     quietBody: 'Start the conversation in #{{channel}} — write the first message.',
     writeFirst: 'Write the first message',
+    newMessages: 'New messages',
     noServersTitle: 'No servers yet',
     noServersBody: 'Create a server — or find an existing one via the search in the left rail.',
     noStickers: 'No stickers in this server yet',

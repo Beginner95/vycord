@@ -136,6 +136,34 @@
   overflow-y: auto;
 }
 
+/* ═══ Unread divider (board 2b, spec §4.4) — anchor pinned per channel
+   entry by ChatArea, not restyled/moved by this stylesheet. ═══ */
+.unread-divider {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 10px 0 6px;
+}
+
+.unread-divider-line {
+  flex: 1;
+  height: 1px;
+  background: var(--danger);
+  opacity: 0.5;
+}
+
+.unread-divider-pill {
+  flex-shrink: 0;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--danger-soft);
+  color: var(--danger-text);
+  font-size: 10.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
 /* ═══ Skeleton loading — avatar circle + two bars, 1.2s shimmer ═══ */
 @keyframes chat-shimmer {
   0%,
