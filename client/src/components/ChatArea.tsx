@@ -1,5 +1,5 @@
 import { Fragment, useState, useEffect, useRef, useCallback } from 'react';
-import { ArrowDown, ChevronLeft, Hash, Headphones, Mic, Quote, Search, Users } from 'lucide-react';
+import { ArrowDown, ChevronLeft, Hash, Headphones, Mic, Search, Users } from 'lucide-react';
 import { useMessageStore } from '@/stores/messageStore';
 import { StickerManager } from '@/components/StickerManager';
 import type { Message } from '@/types';
@@ -16,6 +16,7 @@ import { useFloatingSelectionToolbar } from '@/hooks/useFloatingSelectionToolbar
 import { MessageSearch } from '@/components/MessageSearch';
 import { MessageRow } from '@/components/MessageRow';
 import { Composer, type ComposerHandle } from '@/components/Composer';
+import { FloatingQuoteButton } from '@/components/FloatingQuoteButton';
 import { DayDivider } from '@/components/DayDivider';
 import { ConfirmModal } from '@/components/ConfirmModal';
 import type { Channel, User } from '@/types';
@@ -30,25 +31,6 @@ interface ChatAreaProps {
   onShowMembers?: () => void;
   onJoinVoice?: (channel: Channel) => void;
   onShowCall?: () => void;
-}
-
-function FloatingQuoteButton({ x, y, onConfirm }: { x: number; y: number; onConfirm: () => void }) {
-  const t = useT();
-  return (
-    <button
-      type="button"
-      className="chat-quote-float"
-      style={{ left: x, top: y }}
-      aria-label={t('chat.quote')}
-      title={t('chat.quote')}
-      onMouseDown={(e) => {
-        e.preventDefault();
-        onConfirm();
-      }}
-    >
-      <Quote size={16} strokeWidth={1.8} />
-    </button>
-  );
 }
 
 export function ChatArea({ channel, user, onMobileBack, onShowMembers, onJoinVoice, onShowCall }: ChatAreaProps) {

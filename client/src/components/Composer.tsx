@@ -9,8 +9,9 @@ import {
   type FormEvent,
   type KeyboardEvent,
 } from 'react';
-import { Quote, SendHorizontal, Smile, Sticker } from 'lucide-react';
+import { SendHorizontal, Smile, Sticker } from 'lucide-react';
 import { FormattingToolbar } from '@/components/FormattingToolbar';
+import { FloatingQuoteButton } from '@/components/FloatingQuoteButton';
 import { MentionDropdown } from '@/components/MentionDropdown';
 import { EmojiPicker } from '@/components/EmojiPicker';
 import { StickerPicker } from '@/components/StickerPicker';
@@ -43,26 +44,6 @@ function lineRangeForSelection(value: string, start: number, end: number) {
   const endIdx = value.indexOf('\n', searchFrom);
   const lineEnd = endIdx === -1 ? value.length : endIdx;
   return { lineStart, lineEnd };
-}
-
-/** Floating "quote this selection" affordance shown over a text selection. */
-function FloatingQuoteButton({ x, y, onConfirm }: { x: number; y: number; onConfirm: () => void }) {
-  const t = useT();
-  return (
-    <button
-      type="button"
-      className="chat-quote-float"
-      style={{ left: x, top: y }}
-      aria-label={t('chat.quote')}
-      title={t('chat.quote')}
-      onMouseDown={(e) => {
-        e.preventDefault();
-        onConfirm();
-      }}
-    >
-      <Quote size={16} strokeWidth={1.8} />
-    </button>
-  );
 }
 
 export interface ComposerHandle {
