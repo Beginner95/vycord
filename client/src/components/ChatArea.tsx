@@ -56,6 +56,7 @@ export function ChatArea({ channel, user, onMobileBack, onShowMembers, onJoinVoi
   const { messages, loading, setMessages, addMessage, updateMessage, removeMessage } = useMessageStore();
   const { members, currentServer } = useServerStore();
   const servers = useServerStore((s) => s.servers);
+  const serversLoaded = useServerStore((s) => s.serversLoaded);
   const [sendError, setSendError] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const composerRef = useRef<ComposerHandle>(null);
@@ -380,7 +381,7 @@ logger.error('Failed to jump to message:', err, { module: 'chat' });
             </button>
           )}
         </div>
-        {servers.length === 0 ? (
+        {!serversLoaded ? null : servers.length === 0 ? (
           <ChatEmptyCard
             tile={
               <div className="chat-empty-tiles">

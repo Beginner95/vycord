@@ -75,7 +75,7 @@ function startCallRingtone(): () => void {
 export function AppPage() {
   const t = useT();
   const { user, accessToken, logout } = useAuthStore();
-  const { servers, setServers, setCurrentServer, currentServer, setChannels, channels, currentChannel, setCurrentChannel, setMembers, members, setPermissions } = useServerStore();
+  const { servers, setServers, setServersLoaded, setCurrentServer, currentServer, setChannels, channels, currentChannel, setCurrentChannel, setMembers, members, setPermissions } = useServerStore();
   const { setMessages } = useMessageStore();
   const [showCreateServer, setShowCreateServer] = useState(false);
   const [newServerName, setNewServerName] = useState('');
@@ -453,6 +453,10 @@ export function AppPage() {
       handleSelectServer(data[0]);
     } catch (err) {
       logger.error('Failed to load servers:', err, { module: 'app' });
+    } finally {
+      // Lands true on failure too, so a failed fetch doesn't leave ChatArea's
+      // no-servers gate hanging open forever (board 2a follow-up fix).
+      setServersLoaded(true);
     }
   };
 
