@@ -1,7 +1,7 @@
 /* ── Search Panel ── */
 .message-search {
   position: absolute;
-  top: 56px; /* высота .chat-header */
+  top: 58px; /* высота .chat-header */
   right: 0;
   bottom: 0;
   width: 360px;

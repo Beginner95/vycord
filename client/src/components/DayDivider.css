@@ -3,21 +3,21 @@
   align-items: center;
   justify-content: center;
   gap: 12px;
-  margin: 24px 0 6px;
+  margin: 14px 0 10px;
 }
 
-.date-divider__line {
+.date-divider-line {
   flex: 1;
   height: 1px;
-  background: var(--border-subtle);
+  background: var(--line);
 }
 
-.date-divider__label {
+.date-divider-label {
   flex-shrink: 0;
   padding: 0 8px;
-  font-size: 13px;
+  font-size: 11.5px;
   font-weight: 600;
-  color: var(--text-muted);
+  color: var(--muted-2);
   letter-spacing: 0.01em;
-  background: var(--bg-base);
+  background: var(--canvas);
 }

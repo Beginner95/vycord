@@ -10,6 +10,7 @@
   --accent-soft:   #EEF2FF;
   --accent-border: #DDE2FF;
   --own-msg-bg:    #F4F5FE;
+  --own-chip-bg:   #E9ECF5;
 
   /* ── Text ── */
   --ink:     #101322;
@@ -91,6 +92,7 @@
   --accent-soft:   rgba(99, 102, 241, 0.14);
   --accent-border: rgba(99, 102, 241, 0.35);
   --own-msg-bg:    rgba(99, 102, 241, 0.12); /* refine in M6 */
+  --own-chip-bg:   rgba(255, 255, 255, 0.08);
 
   --ink:     #E4E7F0;
   --muted:   #9AA2B4;

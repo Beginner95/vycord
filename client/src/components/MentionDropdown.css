@@ -1,0 +1,31 @@
+/* Mention autocomplete popover — shared by the composer and the message editor. */
+.mention-dropdown {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 0;
+  z-index: 30;
+  min-width: 220px;
+  max-height: 240px;
+  padding: 6px;
+  overflow-y: auto;
+  list-style: none;
+  background: var(--canvas);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  box-shadow: var(--shadow-popover);
+}
+
+.mention-item {
+  padding: 7px 10px;
+  font-size: 13.5px;
+  font-weight: 500;
+  color: var(--ink);
+  border-radius: 7px;
+  cursor: pointer;
+}
+
+.mention-item:hover,
+.mention-item.is-active {
+  color: var(--accent-text);
+  background: var(--accent-soft);
+}

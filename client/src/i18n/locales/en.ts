@@ -100,6 +100,8 @@ export const en: Dictionary = {
     stickerFormats: 'PNG, JPG or GIF · max 2 MB',
     stickerRemoveFile: 'Remove file',
     stickerUpload: 'Upload sticker',
+    youChip: 'you',
+    formatting: 'Formatting',
   },
   call: {
     participants: plural({

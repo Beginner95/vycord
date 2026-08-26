@@ -427,8 +427,13 @@ export function AppPage() {
             if (channel) {
               setCurrentChannel(channel);
               wsService.send('join_channel', { channel_id: channel.id });
-              const messages = await apiService.getMessages(channel.id);
-              setMessages(messages as Message[]);
+              useMessageStore.getState().setLoading(true);
+              try {
+                const messages = await apiService.getMessages(channel.id);
+                setMessages(messages as Message[]);
+              } finally {
+                useMessageStore.getState().setLoading(false);
+              }
               return;
             }
           }
@@ -515,11 +520,14 @@ export function AppPage() {
     const currentSrv = useServerStore.getState().currentServer;
     apiService.updateLastVisited(currentSrv?.id ?? null, channel.id).catch(() => {});
 
+    useMessageStore.getState().setLoading(true);
     try {
       const data = await apiService.getMessages(channel.id);
       setMessages(data as Message[]);
     } catch (err) {
       logger.error('Failed to load messages:', err, { module: 'app' });
+    } finally {
+      useMessageStore.getState().setLoading(false);
     }
   };
 

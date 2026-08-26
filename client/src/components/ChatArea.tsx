@@ -1,5 +1,6 @@
-import { useState, useEffect, useRef, useCallback, type FormEvent, type KeyboardEvent, type ChangeEvent, type ClipboardEvent } from 'react';
+import { Fragment, useState, useEffect, useRef, useCallback, type FormEvent, type KeyboardEvent, type ChangeEvent, type ClipboardEvent } from 'react';
 import type { RefObject } from 'react';
+import { ArrowDown, ChevronLeft, Hash, Headphones, Mic, Quote, Search, Users } from 'lucide-react';
 import { useMessageStore } from '@/stores/messageStore';
 import { LinkDialog } from '@/components/LinkDialog';
 import { EmojiPicker } from '@/components/EmojiPicker';
@@ -8,26 +9,25 @@ import { StickerManager } from '@/components/StickerManager';
 import { toggleQuote, toggleBullet, toggleNumbered, toggleWrap, type LineToggle } from '@/utils/textTransforms';
 import { isUnsafeUrl } from '@/utils/markdown';
 import type { Message } from '@/types';
-import { apiService, apiErrorText, resolveUploadUrl, ApiError } from '@/services/api';
+import { apiService, apiErrorText, ApiError } from '@/services/api';
 import { wsService } from '@/services/websocket';
 import { audioService } from '@/services/audio';
 import { useServerStore } from '@/stores/serverStore';
 import { useCallStore } from '@/stores/callStore';
-import { tokenizeMentions, LEGACY_ROLE_KEYS } from '@/utils/mentions';
 import { logger } from '@/utils/logger';
 import { collectUnresolvedUserIds } from '@/utils/userCache';
+import { isContinuation } from '@/utils/messageGroups';
 import { useMentionAutocomplete } from '@/hooks/useMentionAutocomplete';
 import { can, PERMISSIONS } from '@/utils/permissions';
 import { useFloatingSelectionToolbar } from '@/hooks/useFloatingSelectionToolbar';
 import { MessageSearch } from '@/components/MessageSearch';
-import { Avatar } from '@/components/Avatar';
+import { MessageRow } from '@/components/MessageRow';
+import { MentionDropdown } from '@/components/MentionDropdown';
 import { DayDivider } from '@/components/DayDivider';
 import { ConfirmModal } from '@/components/ConfirmModal';
-import type { Channel, User, MemberWithUser } from '@/types';
+import type { Channel, User } from '@/types';
 import type { Sticker } from '@/types';
-import { useT, useDateFormat, isSameCalendarDay, type TFunc } from '@/i18n';
-import { Fragment, type ReactNode } from 'react';
-import { parseInline, blockify, normalizeLinkHref, type MdInlineNode } from '@/utils/markdown';
+import { useT, useDateFormat, isSameCalendarDay } from '@/i18n';
 import './ChatArea.css';
 
 interface ChatAreaProps {
@@ -53,89 +53,12 @@ function lineRangeForSelection(value: string, start: number, end: number) {
   return { lineStart, lineEnd };
 }
 
-function renderMessageContent(content: string, members: MemberWithUser[], t: TFunc, currentUserId?: string) {
-  return tokenizeMentions(content).map((token, i) => {
-    if (token.type === 'text') {
-      return token.value;
-    }
-    if (token.type === 'role') {
-      return (
-        <span key={i} className="mention mention-role">
-          @{t(LEGACY_ROLE_KEYS[token.value])}
-        </span>
-      );
-    }
-    if (token.type === 'everyone') {
-      return (
-        <span key={i} className="mention mention-everyone">
-          @everyone
-        </span>
-      );
-    }
-    const member = members.find((m) => m.user_id === token.value);
-    const isSelf = token.value === currentUserId;
-    return (
-      <span key={i} className={`mention${isSelf ? ' mention-self' : ''}`}>
-        @{member?.username ?? 'unknown-user'}
-      </span>
-    );
-  });
-}
-
-function renderInlineNodes(nodes: MdInlineNode[], members: MemberWithUser[], t: TFunc, currentUserId?: string): ReactNode {
-  return nodes.map((n, i) => {
-    switch (n.type) {
-      case 'text':
-        return <Fragment key={i}>{renderMessageContent(n.text, members, t, currentUserId)}</Fragment>;
-      case 'strong':
-        return <strong key={i}>{renderInlineNodes(n.children, members, t, currentUserId)}</strong>;
-      case 'em':
-        return <em key={i}>{renderInlineNodes(n.children, members, t, currentUserId)}</em>;
-      case 'u':
-        return <u key={i}>{renderInlineNodes(n.children, members, t, currentUserId)}</u>;
-      case 'link':
-        return (
-          <a key={i} href={normalizeLinkHref(n.url)} target="_blank" rel="noopener noreferrer">
-            {renderInlineNodes(n.label, members, t, currentUserId)}
-          </a>
-        );
-    }
-  });
-}
-
-function renderMessageBody(content: string, members: MemberWithUser[], t: TFunc, currentUserId?: string) {
-  return blockify(content).map((b, i) => {
-    switch (b.kind) {
-      case 'plain':
-        return <span key={i}>{renderInlineNodes(parseInline(b.text), members, t, currentUserId)}</span>;
-      case 'quote':
-        return <span key={i} className="message-quote">{renderInlineNodes(parseInline(b.text), members, t, currentUserId)}</span>;
-      case 'ol':
-        return (
-          <ol key={i}>
-            {b.items.map((it, j) => (
-              <li key={j}>{renderInlineNodes(parseInline(it), members, t, currentUserId)}</li>
-            ))}
-          </ol>
-        );
-      case 'ul':
-        return (
-          <ul key={i}>
-            {b.items.map((it, j) => (
-              <li key={j}>{renderInlineNodes(parseInline(it), members, t, currentUserId)}</li>
-            ))}
-          </ul>
-        );
-    }
-  });
-}
-
 function FloatingQuoteButton({ x, y, onConfirm }: { x: number; y: number; onConfirm: () => void }) {
   const t = useT();
   return (
     <button
       type="button"
-      className="floating-quote-btn"
+      className="chat-quote-float"
       style={{ left: x, top: y }}
       aria-label={t('chat.quote')}
       title={t('chat.quote')}
@@ -144,7 +67,7 @@ function FloatingQuoteButton({ x, y, onConfirm }: { x: number; y: number; onConf
         onConfirm();
       }}
     >
-      <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 21c3 0 7-1 7-8V5c0-1.25-.756-2.017-2-2H4c-1.25 0-2 .75-2 1.972V11c0 1.25.75 2 2 2 1 0 1 0 1 1v1c0 1-1 2-2 2s-1 .008-1 1.031V20c0 1 0 1 1 1z"/><path d="M15 21c3 0 7-1 7-8V5c0-1.25-.757-2.017-2-2h-4c-1.25 0-2 .75-2 1.972V11c0 1.25.75 2 2 2h.75c0 2.25.25 4-2.75 4v3c0 1 0 1 1 1z"/></svg>
+      <Quote size={16} strokeWidth={1.8} />
     </button>
   );
 }
@@ -163,8 +86,8 @@ function insertEmojiAtCaret(el: HTMLTextAreaElement, setValue: (v: string) => vo
 export function ChatArea({ channel, user, onMobileBack, onShowMembers, onJoinVoice, onShowCall }: ChatAreaProps) {
   const callChannelId = useCallStore((s) => s.callChannelId);
   const t = useT();
-  const { formatTime, formatFullDate } = useDateFormat();
-  const { messages, setMessages, addMessage, updateMessage, removeMessage } = useMessageStore();
+  const { formatFullDate } = useDateFormat();
+  const { messages, loading, setMessages, addMessage, updateMessage, removeMessage } = useMessageStore();
   const { members, currentServer } = useServerStore();
   const [input, setInput] = useState('');
   const [caretInQuoteLine, setCaretInQuoteLine] = useState(false);
@@ -207,13 +130,38 @@ export function ChatArea({ channel, user, onMobileBack, onShowMembers, onJoinVoi
   useEffect(() => {
     inputRef.current?.focus();
     composeMention.reset();
-    editMention.reset();
+    setEditingId(null);
     setCaretInQuoteLine(false);
     setSearchOpen(false);
     setHistoryMode(false);
     setHighlightedId(null);
     setConfirmDeleteId(null);
   }, [channel?.id]);
+
+  // Rows appended after the initial channel render animate in (220ms);
+  // the initial batch must not stagger-flash on channel switch.
+  const initialIdsRef = useRef<Set<string> | null>(null);
+  const [enteredIds, setEnteredIds] = useState<Set<string>>(new Set());
+  // Any wholesale list replacement (channel switch, jump-to-message, back to
+  // latest) re-seeds the baseline; without this the whole replacement batch
+  // counts as "fresh" and stagger-flashes.
+  const resetEnterTracking = () => { initialIdsRef.current = null; setEnteredIds(new Set()); };
+  useEffect(() => { resetEnterTracking(); }, [channel?.id]);
+  useEffect(() => {
+    if (loading) return;
+    if (initialIdsRef.current === null) {
+      initialIdsRef.current = new Set(messages.map((m) => m.id));
+      return;
+    }
+    const fresh = messages.filter((m) => !initialIdsRef.current!.has(m.id));
+    if (fresh.length) {
+      setEnteredIds((prev) => {
+        const next = new Set(prev);
+        fresh.forEach((m) => { next.add(m.id); initialIdsRef.current!.add(m.id); });
+        return next;
+      });
+    }
+  }, [messages, loading]);
 
   const refreshStickers = useCallback(() => {
     const sid = currentServer?.id;
@@ -346,6 +294,7 @@ export function ChatArea({ channel, user, onMobileBack, onShowMembers, onJoinVoi
     try {
       const context = await apiService.getMessagesAround(channel.id, messageId) as Message[];
       setHistoryMode(true);
+      resetEnterTracking();
       setMessages(context);
       setHighlightedId(messageId);
       requestAnimationFrame(() => {
@@ -367,6 +316,7 @@ logger.error('Failed to jump to message:', err, { module: 'chat' });
       const latest = await apiService.getMessages(channel.id) as Message[];
       setHistoryMode(false);
       setHighlightedId(null);
+      resetEnterTracking();
       setMessages(latest);
     } catch (err) {
       logger.error('Failed to load latest messages:', err, { module: 'chat' });
@@ -479,29 +429,18 @@ logger.error('Failed to jump to message:', err, { module: 'chat' });
   const composeBullet = () => applyRangeToggle(input, setInput, inputRef, toggleBullet);
   const composeNumbered = () => applyRangeToggle(input, setInput, inputRef, toggleNumbered);
 
-  const editWrap = (marker: string) => wrapSelection(editValue, setEditValue, editInputRef, marker);
-  const editBullet = () => applyRangeToggle(editValue, setEditValue, editInputRef, toggleBullet);
-  const editNumbered = () => applyRangeToggle(editValue, setEditValue, editInputRef, toggleNumbered);
-
-  const [linkTarget, setLinkTarget] = useState<'compose' | 'edit' | null>(null);
-  const openLinkFor = (target: 'compose' | 'edit') => setLinkTarget(target);
+  const [linkOpen, setLinkOpen] = useState(false);
   const [emojiPickerOpen, setEmojiPickerOpen] = useState(false);
-  const [editEmojiPickerOpen, setEditEmojiPickerOpen] = useState(false);
 
   const insertLink = (label: string, url: string) => {
-    const isEdit = linkTarget === 'edit';
-    const value = isEdit ? editValue : input;
-    const ref = isEdit ? editInputRef : inputRef;
-    const setValue = isEdit ? setEditValue : setInput;
-    const el = ref.current;
+    const el = inputRef.current;
     if (!el) return;
     const text = label || url;
     const token = `[${text}](${url})`;
-    const start = el.selectionStart ?? value.length;
-    const end = el.selectionEnd ?? value.length;
-    const next = value.slice(0, start) + token + value.slice(end);
-    setValue(next);
-    setLinkTarget(null);
+    const start = el.selectionStart ?? input.length;
+    const end = el.selectionEnd ?? input.length;
+    setInput(input.slice(0, start) + token + input.slice(end));
+    setLinkOpen(false);
     requestAnimationFrame(() => {
       el.focus();
       el.setSelectionRange(start + token.length, start + token.length);
@@ -586,96 +525,25 @@ logger.error('Failed to jump to message:', err, { module: 'chat' });
     },
   });
 
+  // Which message is open in the inline editor; the edit session's own state
+  // (draft value, mentions, pickers) lives inside <MessageRow>'s MessageEditor.
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [editValue, setEditValue] = useState('');
-  const editInputRef = useRef<HTMLTextAreaElement>(null);
-  const editMention = useMentionAutocomplete({
-    value: editValue,
-    setValue: setEditValue,
-    inputRef: editInputRef,
-    members,
-    canMentionEveryone,
-  });
 
-  useEffect(() => {
-    const el = editInputRef.current;
-    if (!el) return;
-    el.style.height = 'auto';
-    el.style.height = `${el.scrollHeight}px`;
-  }, [editValue, editingId]);
-
-  const toggleEditQuotePrefixRange = (start: number, end: number) => {
-    const el = editInputRef.current;
-    const r = toggleQuote(editValue, start, end);
-    setEditValue(r.value);
-    requestAnimationFrame(() => {
-      el?.focus();
-      el?.setSelectionRange(r.start, r.end);
-    });
-  };
-
-  const editSelectionToolbar = useFloatingSelectionToolbar({
-    containerRef: editInputRef,
-    resubscribeKey: editingId,
-    getSelectionInfo: (e) => {
-      const el = editInputRef.current;
-      const start = el?.selectionStart;
-      const end = el?.selectionEnd;
-      if (!el || start == null || end == null || start === end) return null;
-      const text = el.value.slice(start, end);
-      if (e) return { text, x: e.clientX, y: e.clientY + 16 };
-      const rect = el.getBoundingClientRect();
-      return { text, x: rect.left + 24, y: rect.top - 8 };
-    },
-    onConfirm: () => {
-      const el = editInputRef.current;
-      const start = el?.selectionStart;
-      const end = el?.selectionEnd;
-      if (!el || start == null || end == null) return;
-      toggleEditQuotePrefixRange(start, end);
-    },
-  });
-
-  const startEdit = (msg: Message) => {
-    if (msg.sticker_id) return;
-    setEditingId(msg.id);
-    setEditValue(msg.content);
-    editMention.reset();
-  };
-
-  const cancelEdit = () => {
-    if (linkTarget === 'edit') return;
-    setEditingId(null);
-    setEditValue('');
-    editMention.reset();
-  };
-
-  const saveEdit = async (messageId: string) => {
-    if (!channel || !editValue.trim()) return;
+  const saveEdit = async (messageId: string, content: string) => {
+    if (!channel || !content) return;
     const original = messages.find((m) => m.id === messageId);
-    if (original && editValue.trim() === original.content) {
-      cancelEdit();
+    if (original && content === original.content) {
+      setEditingId(null);
       return;
     }
     try {
-      const updated = await apiService.updateMessage(channel.id, messageId, editValue.trim()) as Message;
+      const updated = await apiService.updateMessage(channel.id, messageId, content) as Message;
       updateMessage(messageId, updated);
-      cancelEdit();
+      setEditingId(null);
     } catch (err) {
-logger.error('Failed to update message:', err, { module: 'chat' });
+      logger.error('Failed to update message:', err, { module: 'chat' });
       setSendError(apiErrorText(err, t));
       setTimeout(() => setSendError(null), 5000);
-    }
-  };
-
-  const handleEditKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>, messageId: string) => {
-    if (editMention.handleKeyDown(e)) return;
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      saveEdit(messageId);
-    } else if (e.key === 'Escape') {
-      e.preventDefault();
-      cancelEdit();
     }
   };
 
@@ -704,14 +572,14 @@ logger.error('Failed to update message:', err, { module: 'chat' });
   if (!channel) {
     return (
       <main className="chat-area">
-        <div className="chat-header chat-header--empty">
+        <div className="chat-header">
           {onMobileBack && (
-            <button className="mobile-back-btn" onClick={onMobileBack} aria-label={t('chat.back')}>
-              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+            <button type="button" className="chat-back-btn" onClick={onMobileBack} aria-label={t('chat.back')}>
+              <ChevronLeft size={18} strokeWidth={1.8} />
             </button>
           )}
         </div>
-        <div className="chat-empty">
+        <div className="chat-welcome">
           <h2>{t('chat.welcomeTitle')}</h2>
           <p>{t('chat.welcomeSubtitle')}</p>
         </div>
@@ -723,61 +591,75 @@ logger.error('Failed to update message:', err, { module: 'chat' });
     <main className="chat-area">
       <div className="chat-header">
         {onMobileBack && (
-          <button className="mobile-back-btn" onClick={onMobileBack} aria-label={t('chat.back')}>
-            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+          <button type="button" className="chat-back-btn" onClick={onMobileBack} aria-label={t('chat.back')}>
+            <ChevronLeft size={18} strokeWidth={1.8} />
           </button>
         )}
-        <span className="channel-hash">#</span>
-        <h3>{channel.name}</h3>
-        {onJoinVoice && (
+        <Hash size={17} strokeWidth={1.8} className="chat-header-hash" />
+        <h3 className="chat-header-name">{channel.name}</h3>
+        <div className="chat-header-actions">
+          {onJoinVoice && (
+            <button
+              type="button"
+              className={`chat-voice-btn${callChannelId === channel.id ? ' is-in-call' : ''}`}
+              onClick={() => {
+                if (callChannelId === channel.id) return;
+                onJoinVoice(channel);
+              }}
+              disabled={callChannelId === channel.id}
+              title={
+                callChannelId === channel.id
+                  ? t('call.inThisCall')
+                  : callChannelId
+                    ? t('call.goToCall')
+                    : t('call.joinVoice')
+              }
+            >
+              <Headphones size={16} strokeWidth={1.8} />
+              <span>
+                {callChannelId === channel.id
+                  ? t('call.inThisCall')
+                  : callChannelId
+                    ? t('call.goToCall')
+                    : t('call.joinVoice')}
+              </span>
+            </button>
+          )}
           <button
             type="button"
-            className={`chat-voice-btn${callChannelId === channel.id ? ' in-call' : ''}`}
-            onClick={() => {
-              if (callChannelId === channel.id) return;
-              onJoinVoice(channel);
-            }}
-            disabled={callChannelId === channel.id}
-            title={
-              callChannelId === channel.id
-                ? t('call.inThisCall')
-                : callChannelId
-                  ? t('call.goToCall')
-                  : t('call.joinVoice')
-            }
+            className={`chat-search-btn${searchOpen ? ' is-active' : ''}`}
+            onClick={() => setSearchOpen((open) => !open)}
+            aria-label={t('chat.searchMessages')}
+            title={t('chat.searchHint')}
           >
-            🎧{' '}
-            {callChannelId === channel.id
-              ? t('call.inThisCall')
-              : callChannelId
-                ? t('call.goToCall')
-                : t('call.joinVoice')}
+            <Search size={17} strokeWidth={1.8} />
           </button>
-        )}
-        <button
-          type="button"
-          className={`chat-search-btn${searchOpen ? ' active' : ''}`}
-          onClick={() => setSearchOpen((open) => !open)}
-          aria-label={t('chat.searchMessages')}
-          title={t('chat.searchHint')}
-        >
-          <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-        </button>
-        {onShowCall && (
-          <button className="mobile-call-btn" onClick={onShowCall} aria-label={t('call.showCall')} title={t('call.showCall')}>
-            🎙
-          </button>
-        )}
-        {onShowMembers && (
-          <button className="mobile-members-btn" onClick={onShowMembers} aria-label={t('chat.members')}>
-            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
-          </button>
-        )}
+          {onShowCall && (
+            <button type="button" className="chat-call-btn" onClick={onShowCall} aria-label={t('call.showCall')} title={t('call.showCall')}>
+              <Mic size={17} strokeWidth={1.8} />
+            </button>
+          )}
+          {onShowMembers && (
+            <button type="button" className="chat-members-btn" onClick={onShowMembers} aria-label={t('chat.members')} title={t('chat.members')}>
+              <Users size={17} strokeWidth={1.8} />
+            </button>
+          )}
+        </div>
       </div>
 
       <div className="chat-messages" ref={chatMessagesRef}>
-        {messages.length === 0 ? (
-          <div className="welcome-message">
+        {loading ? (
+          Array.from({ length: 6 }, (_, i) => (
+            <div className="chat-skel-row" key={i} aria-hidden="true">
+              <div className="chat-skel-avatar" />
+              <div>
+                <div className="chat-skel-line chat-skel-line-short" />
+                <div className="chat-skel-line chat-skel-line-long" />
+              </div>
+            </div>
+          ))
+        ) : messages.length === 0 ? (
+          <div className="chat-welcome-intro">
             <h1>{t('chat.emptyChannelTitle', { channel: channel.name })}</h1>
             <p>{t('chat.emptyChannelSubtitle', { channel: channel.name })}</p>
           </div>
@@ -786,147 +668,37 @@ logger.error('Failed to update message:', err, { module: 'chat' });
             {messages.map((msg, idx) => {
               const prevMsg = messages[idx - 1];
               const msgDate = new Date(msg.created_at);
-              const dayChanged =
-                !prevMsg ||
-                !isSameCalendarDay(msgDate, new Date(prevMsg.created_at));
-              const isFromMe = msg.user_id === user?.id;
-              const isCompact =
-                !!prevMsg &&
-                !dayChanged &&
-                prevMsg.user_id === msg.user_id &&
-                new Date(msg.created_at).getTime() - new Date(prevMsg.created_at).getTime() < 420000;
-
+              const dayChanged = !prevMsg || !isSameCalendarDay(msgDate, new Date(prevMsg.created_at));
+              const isOwn = msg.user_id === user?.id;
+              const continuation = !dayChanged && isContinuation(prevMsg, msg);
               // Username/avatar: server member list first (kept live via
               // user_updated WS events, see AppPage), then the per-message
               // fetch cache as fallback for authors who left the server.
-              const member = !isFromMe ? members.find((m) => m.user_id === msg.user_id) : undefined;
-              const cached = !isFromMe ? userCache.get(msg.user_id) : undefined;
-              const displayName = isFromMe
-                ? user!.username
-                : (member?.username ?? cached?.username ?? msg.user_id.slice(0, 8));
-              const avatarUrl = isFromMe ? user?.avatar_url : (member?.avatar_url ?? cached?.avatar_url);
-
-              const isEdited = msg.updated_at !== msg.created_at;
-              const isEditing = editingId === msg.id;
-
+              const member = !isOwn ? members.find((m) => m.user_id === msg.user_id) : undefined;
+              const cached = !isOwn ? userCache.get(msg.user_id) : undefined;
+              const displayName = isOwn ? user!.username : (member?.username ?? cached?.username ?? msg.user_id.slice(0, 8));
+              const avatarUrl = isOwn ? user?.avatar_url : (member?.avatar_url ?? cached?.avatar_url);
               return (
                 <Fragment key={msg.id}>
                   {dayChanged && <DayDivider label={formatFullDate(msgDate)} />}
-                  <div
-                    data-message-id={msg.id}
-                    className={`message ${isCompact ? 'compact' : ''} ${isFromMe ? 'self' : 'other'}${highlightedId === msg.id ? ' jump-highlight' : ''}`}
-                  >
-                  {!isCompact && !isFromMe && (
-                    <Avatar url={avatarUrl} username={displayName} className="message-avatar" />
-                  )}
-                  <div className="message-content">
-                    {!isCompact && !isFromMe && (
-                      <div className="message-header">
-                        <span className="message-author">{displayName}</span>
-                        <span className="message-timestamp">
-                          {formatTime(new Date(msg.created_at))}
-                          {isEdited && t('chat.edited')}
-                        </span>
-                      </div>
-                    )}
-                    {!isCompact && isFromMe && (
-                      <div className="message-header self">
-                        <span className="message-timestamp">
-                          {formatTime(new Date(msg.created_at))}
-                          {isEdited && t('chat.edited')}
-                        </span>
-                        <span className="message-author">{displayName}</span>
-                      </div>
-                    )}
-                    {isEditing ? (
-                      <div className="message-edit-wrapper">
-                        <textarea
-                          ref={editInputRef}
-                          className="message-edit-input"
-                          value={editValue}
-                          onChange={editMention.handleChange}
-                          onKeyDown={(e) => handleEditKeyDown(e, msg.id)}
-                          onBlur={cancelEdit}
-                          maxLength={2000}
-                          rows={1}
-                          autoFocus
-                        />
-                        <div className="chat-input-toolbar">
-                          <button type="button" onMouseDown={(e) => e.preventDefault()} className="toolbar-btn" aria-label={t('chat.bold')} title={t('chat.bold')} onClick={() => editWrap('**')}><strong className="toolbar-txt">B</strong></button>
-                          <button type="button" onMouseDown={(e) => e.preventDefault()} className="toolbar-btn" aria-label={t('chat.italic')} title={t('chat.italic')} onClick={() => editWrap('*')}><em className="toolbar-txt">I</em></button>
-                          <button type="button" onMouseDown={(e) => e.preventDefault()} className="toolbar-btn" aria-label={t('chat.underline')} title={t('chat.underline')} onClick={() => editWrap('__')}><u className="toolbar-txt">U</u></button>
-                          <button type="button" onMouseDown={(e) => e.preventDefault()} className="toolbar-btn" aria-label={t('chat.link')} title={t('chat.link')} onClick={() => openLinkFor('edit')}>
-                            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
-                          </button>
-                          <button type="button" onMouseDown={(e) => e.preventDefault()} className="toolbar-btn" aria-label={t('chat.numberedList')} title={t('chat.numberedList')} onClick={editNumbered}>
-                            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 6h12"/><path d="M4 12h12"/><path d="M4 18h12"/><path d="M15 7.5l2.5-2.5 1.5 1.5L17.5 9z"/><path d="M15 14l2.5-2.5 1.5 1.5L17.5 15.5z"/><path d="M15 20.5l2.5-2.5 1.5 1.5L17.5 22z"/></svg>
-                          </button>
-                          <button type="button" onMouseDown={(e) => e.preventDefault()} className="toolbar-btn" aria-label={t('chat.bulletedList')} title={t('chat.bulletedList')} onClick={editBullet}>
-                            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 6h11M9 12h11M9 18h11"/><path d="M4 6h.01M4 12h.01M4 18h.01"/></svg>
-                          </button>
-                          <button type="button" onMouseDown={(e) => e.preventDefault()} className={`toolbar-btn${editEmojiPickerOpen ? ' active' : ''}`} aria-label={t('chat.emoji')} title={t('chat.emoji')} onClick={() => setEditEmojiPickerOpen((open) => !open)}>
-                            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/></svg>
-                          </button>
-                        </div>
-                        {editMention.mentionQuery !== null && editMention.mentionEntries.length > 0 && (
-                          <ul className="mention-dropdown">
-                            {editMention.mentionEntries.map((entry, i) => (
-                              <li
-                                key={editMention.entryKey(entry)}
-                                className={i === editMention.mentionIndex ? 'active' : ''}
-                                onMouseDown={(e) => {
-                                  e.preventDefault();
-                                  editMention.selectEntry(entry);
-                                }}
-                              >
-                                @{entry.label}
-                              </li>
-                            ))}
-                          </ul>
-                        )}
-                        {editEmojiPickerOpen && (
-                          <EmojiPicker
-                            onSelect={(e) => { insertEmojiAtCaret(editInputRef.current!, setEditValue, e); setEditEmojiPickerOpen(false); }}
-                            onClose={() => setEditEmojiPickerOpen(false)}
-                          />
-                        )}
-                      </div>
-                    ) : msg.sticker_id && msg.sticker ? (
-                      <div className="message-sticker-wrap">
-                        <img className="message-sticker" src={resolveUploadUrl(msg.sticker.image_url)} alt={msg.sticker.name} />
-                      </div>
-                    ) : msg.sticker_id ? (
-                      <div className="message-text">{t('chat.stickerRemoved')}</div>
-                    ) : (
-                      <div className="message-text">{renderMessageBody(msg.content, members, t, user?.id)}</div>
-                    )}
-                  </div>
-                  {!isCompact && isFromMe && (
-                    <Avatar url={avatarUrl} username={displayName} className="message-avatar self" />
-                  )}
-                  {isFromMe && !isEditing && (
-                    <div className="message-actions">
-                      {!msg.sticker_id && (
-                      <button
-                        type="button"
-                        className="message-action-btn"
-                        aria-label={t('common.edit')}
-                        onClick={() => startEdit(msg)}
-                      >
-                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg>
-                      </button>
-                      )}
-                      <button
-                        type="button"
-                        className="message-action-btn message-action-btn--danger"
-                        aria-label={t('common.delete')}
-                        onClick={() => setConfirmDeleteId(msg.id)}
-                      >
-                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
-                      </button>
-                    </div>
-                  )}
-                  </div>
+                  <MessageRow
+                    msg={msg}
+                    isOwn={isOwn}
+                    isContinuation={continuation}
+                    displayName={displayName}
+                    avatarUrl={avatarUrl}
+                    isEditing={editingId === msg.id}
+                    highlighted={highlightedId === msg.id}
+                    entered={enteredIds.has(msg.id)}
+                    members={members}
+                    currentUserId={user?.id}
+                    canMentionEveryone={canMentionEveryone}
+                    onStartEdit={() => setEditingId(msg.id)}
+                    onCancelEdit={() => setEditingId(null)}
+                    onSaveEdit={(content) => saveEdit(msg.id, content)}
+                    onDelete={() => setConfirmDeleteId(msg.id)}
+                    onQuote={() => insertQuoteIntoCompose(msg.content)}
+                  />
                 </Fragment>
               );
             })}
@@ -936,7 +708,7 @@ logger.error('Failed to update message:', err, { module: 'chat' });
       </div>
 
       {sendError && (
-        <div className="error-toast">
+        <div className="chat-error-toast">
           {sendError}
         </div>
       )}
@@ -962,7 +734,7 @@ logger.error('Failed to update message:', err, { module: 'chat' });
           <button type="button" className="toolbar-btn" aria-label={t('chat.underline')} title={t('chat.underline')} onClick={() => composeWrap('__')}>
             <u className="toolbar-txt">U</u>
           </button>
-          <button type="button" className="toolbar-btn" aria-label={t('chat.link')} title={t('chat.link')} onClick={() => openLinkFor('compose')}>
+          <button type="button" className="toolbar-btn" aria-label={t('chat.link')} title={t('chat.link')} onClick={() => setLinkOpen(true)}>
             <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
           </button>
           <button type="button" className="toolbar-btn" aria-label={t('chat.numberedList')} title={t('chat.numberedList')} onClick={composeNumbered}>
@@ -992,22 +764,7 @@ logger.error('Failed to update message:', err, { module: 'chat' });
             maxLength={2000}
             rows={1}
           />
-          {composeMention.mentionQuery !== null && composeMention.mentionEntries.length > 0 && (
-            <ul className="mention-dropdown">
-              {composeMention.mentionEntries.map((entry, i) => (
-                <li
-                  key={composeMention.entryKey(entry)}
-                  className={i === composeMention.mentionIndex ? 'active' : ''}
-                  onMouseDown={(e) => {
-                    e.preventDefault();
-                    composeMention.selectEntry(entry);
-                  }}
-                >
-                  @{entry.label}
-                </li>
-              ))}
-            </ul>
-          )}
+          <MentionDropdown mention={composeMention} />
         </form>
         {emojiPickerOpen && (
           <EmojiPicker
@@ -1032,13 +789,6 @@ logger.error('Failed to update message:', err, { module: 'chat' });
           onConfirm={composeSelectionToolbar.confirm}
         />
       )}
-      {editSelectionToolbar.visible && (
-        <FloatingQuoteButton
-          x={editSelectionToolbar.x}
-          y={editSelectionToolbar.y}
-          onConfirm={editSelectionToolbar.confirm}
-        />
-      )}
       {chatSelectionToolbar.visible && (
         <FloatingQuoteButton
           x={chatSelectionToolbar.x}
@@ -1054,14 +804,14 @@ logger.error('Failed to update message:', err, { module: 'chat' });
         />
       )}
       {historyMode && (
-        <button type="button" className="back-to-latest-btn" onClick={backToLatest}>
-          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><polyline points="19 12 12 19 5 12"/></svg>
+        <button type="button" className="chat-jump-btn" onClick={backToLatest}>
+          <ArrowDown size={16} strokeWidth={1.8} />
           <span>{t('chat.jumpToLatest')}</span>
         </button>
       )}
       <LinkDialog
-        open={linkTarget !== null}
-        onClose={() => setLinkTarget(null)}
+        open={linkOpen}
+        onClose={() => setLinkOpen(false)}
         onInsert={insertLink}
       />
       {stickerManagerOpen && channel && (
