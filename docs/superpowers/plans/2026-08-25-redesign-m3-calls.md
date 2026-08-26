@@ -22,8 +22,8 @@
 - Class names: multi-segment kebab-case with a component prefix; state modifiers `is-*`/`has-*`; **never** BEM `--`/`__` (the current CallStage/CallUI classes are full of both — all renamed). Singles allowlist is only `btn|input|kbd|modal|mention`.
 - New/rewritten CSS files must use media-query **range syntax** (`(width <= 768px)`) — `media-feature-range-notation` requires it (closeout ruling 17; the Safari <16.4 exposure is an accepted, human-surfaced risk M6 resolves).
 - JS-injected custom properties are invisible to stylelint's `importFrom` — every CSS reference to `--speak-level` (new, set inline from JSX) must be `var(--speak-level, 0)`.
-- **Raw-value rule for M3-owned files:** after M3, `rg -n '#[0-9a-fA-F]{3,8}\b|rgba?\(' CallStage.css CallUI.css ScreenSharePicker.css VoiceBanner.css VolumeControlPopover.css` must return **zero** rows — these files hold the largest raw-value concentrations in the codebase (20 hex + 40 rgba / 21 rgba) and M6's alias-deletion audit requires the codebase-wide grep outside `tokens.css` to come up empty.
-- Visual verification: CDP harness `tools/smoke.mjs` (Task 1 copies it into this milestone's workspace). Flags: `--out --theme --anon --click --after --type-into/--type-text --fake-electron --probe --preload --push-ws --touch --fake-media`. `--fake-media` (synthetic mic/camera + auto-granted permission + autoplay) lets a smoke run **actually join a voice channel**; the fake mic emits a tone, so the local speaking path is live-verifiable. `--touch` = `setTouchEmulationEnabled` + `setDeviceMetricsOverride {mobile:true}`. WS injection uses `dispatchEvent`. Probe scripts may be async. Dev server: `cd client && npm run dev:vite` → http://localhost:3000 **exactly** (prod CORS allowlist; the 3001 fallback fails login with a CORS error that is not a bug). Test account `redesign_smoke@vycord.local` / `RedesignSmoke2026!`, throwaway server «Redesign Smoke» — production API, destructive testing only there. A **stale dev server invalidates visual evidence** — compare server start time against HEAD's commit timestamp before trusting any screenshot.
+- **Raw-value rule for M3-owned files:** after M3, `rg -n '#[0-9a-fA-F]{3,8}\b|rgba?\(' CallStage.css CallUI.css ScreenSharePicker.css VoiceBanner.css VolumeControlPopover.css` must return **zero rows, literally** (the overlay scrim is tokenized — decision 21). CallStage.css (20 hex + 40 rgba) and CallUI.css (21 rgba) are the largest raw-value concentrations in the codebase; VolumeControlPopover.css is already raw-value-free and is rewritten only to swap legacy aliases for canonical tokens. M6's alias-deletion audit requires the codebase-wide grep outside `tokens.css` to come up empty.
+- Visual verification: CDP harness `tools/smoke.mjs` (Task 1 copies it into this milestone's workspace). Flags: `--out --theme --anon --click --after --type-into/--type-text --fake-electron --probe --preload --push-ws --touch --fake-media --size WxH` (default 1440x900; `--touch --size 390x844` composes — `--touch` re-applies metrics at the given size). `--fake-media` (synthetic mic/camera + auto-granted permission + autoplay) makes joining voice *possible* headlessly — it does **not** join by itself; every call-surface run must drive the join explicitly with `--click .chat-voice-btn --after 6000` (`ChatArea.tsx:549`; the button is disabled only when already in this channel's call). Once joined, the fake mic emits a tone, so the local speaking path is live-verifiable. `--touch` = `setTouchEmulationEnabled` + `setDeviceMetricsOverride {mobile:true}`. WS injection uses `dispatchEvent`, requires `--preload` (bare `--push-ws` prints `NO __pushWS` and does nothing), and fires **before** `--click`/`--probe` in the harness pipeline. Probe scripts may be async, and must **throw** on a missing selector — never record a boolean and move on. Dev server: `cd client && npm run dev:vite` → http://localhost:3000 **exactly** (prod CORS allowlist; the 3001 fallback fails login with a CORS error that is not a bug). Test account `redesign_smoke@vycord.local` / `RedesignSmoke2026!`, throwaway server «Redesign Smoke» — production API, destructive testing only there. A **stale dev server invalidates visual evidence** — compare server start time against HEAD's commit timestamp before trusting any screenshot.
 - **Fail-first probes (M2's process lesson, mandatory):** every verification probe must be written and run against the **pre-task** state first and must fail **loudly** there (e.g. "selector `.stage-grid` not found"), before its post-task pass is trusted. Six M2 probes gave false passes because their design never exercised the path under test. A probe that quietly records a string/null for a missing selector is broken — assert and throw.
 - Electron cannot launch (npm 11 skipped its postinstall) — Electron-only paths (`api.toggleFullscreen`, `getScreenSources` source picker) are verified statically.
 
@@ -33,7 +33,7 @@
 2. **Class namespaces.** `CallStage.css` owns `stage-*`; the root class **`.call-stage` is retained as a documented exception** — it is the cross-file contract with `AppPage.css`'s split/fullscreen/mobile rules (lines 26, 57, 194–204) and is lint-legal; renaming it buys nothing and risks the split. `ScreenSharePicker.css` (new) owns `screen-picker-*` + `screen-quality-*` (two-segment namespaces, same precedent as M2's `sticker-picker-`). `CallUI.css` owns `p2p-*` (the 1:1 peer-call overlay). `CallDock.css` (`call-dock-*`) and `VolumeControlPopover.css` (`volume-popover-*`) keep their names. The current cross-file duplicates between CallStage.css and CallUI.css (`.mic-badge`, `.control-btn`, `.call-controls`, `.mic-btn-wrap`, `.speaking`, `.local-video`, `.end-call`) all disappear with the renames.
 3. **Control-bar recipe is duplicated, not lifted to primitives.** CallUI's active-call control bar reuses the stage recipe's *values* under `p2p-*` names (~30 duplicated lines). `primitives.css` is not touched — M2's ruling 13 holds it flat at 21 violations, and M4 owns that layer; the T8 error-toast lift was a forced exception, this is not.
 4. **Grid columns are class-driven, not inline-styled.** Board: 1 column ≤1 participant, 2 columns ≤4, 3 beyond. `stageGridClass(total)` (Task 2) returns `'is-solo' | '' | 'is-many'`; the inline `gridTemplateColumns` style is deleted. Adaptation: `@media (width <= 640px)` forces 1 column (two 16:9 tiles side-by-side at 390px would be unusably small; the board's `1e` is desktop-only).
-5. **Timer needs `callStore.startedAt`** (`number | null`, set `Date.now()` on successful join, reset to `null` by `idle()`). Same authorized-scope-addition class as M2's `serversLoaded`. `stores/` is not `services/` — the constraint is untouched. CallUI's 1:1 timer keeps its existing local seconds counter (its call state never enters `callStore`).
+5. **Timer needs `callStore.startedAt`** (`number | null`, set `Date.now()` on successful join, reset to `null` by `idle()`). Same authorized-scope-addition class as M2's `serversLoaded`. `stores/` is not `services/` — the constraint is untouched. CallUI's 1:1 timer keeps its existing local seconds counter (its call state never enters `callStore`). Note: `onReconnected` (`callStore.ts:340-342`) sets `status: 'connected'` via a targeted `setState` that does **not** touch `startedAt`, so the timer correctly survives a reconnect instead of restarting — intended; do not "fix" it.
 6. **The speaking ring is level-driven via a CSS custom property.** Each tile sets `style={{'--speak-level': Math.min(1, level)}}` from the **existing** `useMicLevel` value and gets `is-speaking` at the existing `> 0.05` threshold. Ring: `box-shadow: 0 0 0 calc(2px + var(--speak-level, 0) * 4px) var(--speak-ring)` — the board's "ring radius maps level 0→1 to 2→6px" production note, implemented with zero new audio code. The board's 1.4s `ring` keyframe is the static-board fallback and is **not** shipped. The 3-bar equalizer in the name plate animates `stage-eq-bar` 0.7s staggered .12s (board-sanctioned loop).
 7. **`useMicLevel` is extracted to `hooks/useMicLevel.ts`** — it is duplicated verbatim-modulo-one-dead-ref between CallStage.tsx and CallUI.tsx today. Extraction is a move of existing detection, not new audio code (CallStage's copy wins; CallUI's has an unused `ctxRef`). Both files import it.
 8. **The mic-level halo on the mic button (`.mic-btn-wrap::before`) is dropped** in both CallStage and CallUI. The board's control bar has no halo; speaking feedback lives on the tiles (ring + equalizer + plate). The floating circular `.mic-badge` is absorbed into the name plate (mic icon / equalizer / `MicOff`).
@@ -49,6 +49,14 @@
 18. **CallUI restyle scope:** incoming modal per the modal system (r16, `--shadow-modal`, 180ms `modalIn` entrance replacing the 0.3s `scaleIn`; 74px r26 `--accent-soft` squircle tile with a lucide `Phone`, pulse loop kept as kebab `p2p-pulse`); accept = solid `--online` `Phone`, reject = solid `--danger` `PhoneOff`, both 52px circles (round is correct — these are actions, not avatars); active overlay on `--stage`, local PiP 220×160 r14, plates + level-driven speaking rings identical in recipe to the stage, control bar = stage recipe minus the screen toggle. `top: 40px` (TitleBar) unchanged.
 19. **Mobile voice banner (board `1f`), adapted to unified channels (spec §2):** shows in ChatArea (mobile widths only, CSS-gated) when the **current channel** has an active voice session (`voiceParticipants.get(channel.id)` non-empty). Button: «Войти» → `onJoinVoice(channel)` when not in this call; «К звонку» → `onShowCall()` when already in it. Desktop keeps the sidebar voice card + header join button; the banner is `display: none` above 768px.
 20. **Rebase check, not rebase:** spec §8 wants a rebase on `main` at each milestone boundary; `main` has not moved since branch creation. Task 1 verifies `git log redesign..main` is empty and records that; no rebase task.
+
+**Decisions 21–25 were added after the Opus grand-review of this plan (findings C1–C3, I1–I7 + minors, all applied inline below):**
+
+21. **The overlay scrim is a token.** `--scrim: rgb(16 19 34 / 50%)` lands in Task 1's token block — the value matches `primitives.css`'s `.modal-overlay` (`rgba(16, 19, 34, 0.5)`), and `backdrop-filter: blur(6px)` is the app-wide pairing. The ScreenSharePicker backdrop and CallUI's incoming overlay use `var(--scrim)`; the raw-value grep over M3-owned files must return **zero rows, literally** — no sanctioned exception.
+22. **The ≥40px touch floor binds the mobile stage.** At `(width <= 768px)`: `.stage-fullscreen-btn`, `.stage-focus-btn`, `.stage-volume-btn`, `.stage-share-banner-dismiss` become 40×40 and the hover-revealed tile chips become always-visible (`opacity: 1`). Disclosed exemption: thumb-scale chips in the focused strip (20px inside a ~167px thumb) stay small — 40px would cover the thumbnail; recorded for M6. The equal-specificity mobile overrides are placed **before** the `:hover` rules in source order so `no-descending-specificity` never fires (`@media` adds no specificity — M2 ruling 16(b)'s exact trap).
+23. **Both screen pickers gain an Escape-to-cancel handler in Task 5** (the `VolumeControlPopover.tsx:23-24` pattern). Today neither has one — the verification probe asserts Esc closes, so the behavior must exist, not be assumed.
+24. **Fullscreen state is a target enum, not a boolean.** `fullscreenTarget: 'stage' | 'focus' | null` replaces `isFullscreen` — one shared boolean would spray `is-fullscreen` onto both `.call-stage` and `.stage-focus-main` at once, spuriously hiding the focus label during whole-stage fullscreen. Task 3 introduces the state (`'stage'` from the top bar); Task 4 wires `'focus'`.
+25. **Deliberate deviations + known dark-theme note (record all in the ledger):** (a) control-bar labels use `--stage-muted` (#C9CFDE), not the board's `muted-2` — #8A90A2 fails contrast on the dark bar; (b) the new stage tokens intentionally duplicate values of theme-variant tokens (`--stage-ink`≡`--white`, `--stage-muted`≡`--rail-muted`, `--warning`≡legacy `--yellow-500`, live-pill ≡ dark `--online-soft`/`--online-text`) — theme-invariance is the point, M6's naming pass must not merge them; (c) VoiceBanner's avatar ring (`--accent-soft`) composites as a visible seam in dark (translucent ring over a translucent banner) — known, deferred to M6's dark-parity pass; (d) Tasks 3–5 transiently change CallUI's active-call control bar (CallStage.css's same-named `.call-controls`/`.control-btn`/`.mic-badge` rules currently win source-order ties over CallUI's; T3 deletes them, so CallUI's own rules apply alone until T6 rewrites the file) — cosmetic, self-healing; (e) VoiceBanner names the channel the user is already reading — redundant under unified channels but board-faithful; adaptation, not defect.
 
 ## File structure after M3
 
@@ -109,17 +117,19 @@ git log --oneline redesign..main       # must be empty (decision 20); if NOT emp
 Insert immediately after the `/* ── Call stage ── */` group (which already holds `--stage`, `--stage-tile`, `--stage-tile-2`), extending that group — matching the file's alignment style:
 
 ```css
-  /* Stage chrome is dark in BOTH themes (board 1e) — these do not flip in [data-theme="dark"]. */
-  --stage-line:   rgba(255, 255, 255, 0.08);
-  --stage-chip:   rgba(255, 255, 255, 0.08);
-  --stage-toggle: rgba(255, 255, 255, 0.1);
+  /* Stage chrome is dark in BOTH themes (board 1e) — these do not flip in [data-theme="dark"].
+     Modern color notation on purpose: legacy rgba() commas trip three lint rules each. */
+  --stage-line:   rgb(255 255 255 / 8%);
+  --stage-chip:   rgb(255 255 255 / 8%);
+  --stage-toggle: rgb(255 255 255 / 10%);
   --stage-bar:    #171B26;
-  --stage-plate:  rgba(6, 8, 14, 0.66);
-  --stage-ink:    #FFFFFF;
+  --stage-plate:  rgb(6 8 14 / 66%);
+  --stage-ink:    #FFF;
   --stage-muted:  #C9CFDE;
-  --live-pill-bg:   rgba(18, 183, 106, 0.14);
+  --live-pill-bg:   rgb(18 183 106 / 14%);
   --live-pill-text: #5BE39B;
-  --speak-ring:     rgba(18, 183, 106, 0.55);
+  --speak-ring:     rgb(18 183 106 / 55%);
+  --scrim:          rgb(16 19 34 / 50%);
 ```
 
 And in the `/* ── Status ── */` group, after `--danger-text`:
@@ -128,7 +138,7 @@ And in the `/* ── Status ── */` group, after `--danger-text`:
   --warning: #F59E0B;
 ```
 
-No `[data-theme="dark"]` entries for any of these. Do not touch the alias block.
+No `[data-theme="dark"]` entries for any of these. Do not touch the alias block. **Notation is load-bearing, measured by the plan review under the real config:** this block holds `tokens.css` at its pre-edit violation count and the total at 531; the same values written as `rgba(255, 255, 255, 0.08)`-style plus `#FFFFFF` measure **+19** (`color-function-notation` + `color-function-alias-notation` + `alpha-value-notation` × 6 declarations, `color-hex-length` on `#FFFFFF`) and breach the gate at commit 1.
 
 - [ ] **Step 4: Record baselines (all from `client/`)**
 
@@ -144,11 +154,11 @@ npm run check:i18n                               # exit 0, 4 ErrorBoundary warni
 Start `npm run dev:vite` (port 3000). Then:
 
 ```bash
-node tools/smoke.mjs --fake-media --probe tools/probe-callstate.js --out m3t1-stage-before-light.png
-node tools/smoke.mjs --fake-media --theme dark --out m3t1-stage-before-dark.png
+node tools/smoke.mjs --fake-media --click .chat-voice-btn --after 6000 --out m3t1-stage-before-light.png
+node tools/smoke.mjs --fake-media --theme dark --click .chat-voice-btn --after 6000 --out m3t1-stage-before-dark.png
 ```
 
-(`probe-callstate.js` exists from M1/M2 — it joins voice on the smoke server; verify its selectors still match before trusting, per the harness rule. If it is stale, join by `--click` on the chat header's `.chat-voice-btn` instead and record that.)
+(The `--click` **is** the join — `--fake-media` alone only fakes devices and never enters a call. Do not use the M2 workspace's `probe-callstate.js` as evidence for anything: it is six lines of read-only DOM sampling with no join, no click, and no assertion — it runs green against any state, the exact false-pass shape this plan bans.)
 
 - [ ] **Step 6: Commit**
 
@@ -258,7 +268,7 @@ The core of M3 (board `1e`/`2e`). Rewrites the grid-view JSX of `CallStage.tsx` 
 - Produces (Tasks 4/8 rely on these): class inventory `call-stage (root, kept), stage-topbar, stage-back-btn, stage-live-pill, stage-live-dot, stage-title, stage-topbar-right, stage-count-chip, stage-fullscreen-btn, stage-reconnecting, stage-grid (+ is-solo / is-many), stage-tile (+ is-speaking / is-camera-off), stage-tile-video (+ is-mirrored / is-screen), stage-tile-avatar, stage-plate, stage-plate-mic (+ is-muted), stage-eq, stage-state-chip, stage-share-badge, stage-focus-btn, stage-volume-btn, stage-conn (+ is-good/is-medium/is-poor/is-unknown), stage-conn-bar, stage-tip, stage-tip-head, stage-tip-dot, stage-tip-title, stage-tip-rows, stage-tip-row, stage-tip-key, stage-tip-val, stage-tip-arrow (+ is-* levels on stage-tip), stage-share-banner, stage-share-banner-text, stage-share-banner-btn, stage-share-banner-dismiss, stage-watch-overlay, stage-watch-btn, stage-controls, stage-ctl, stage-ctl-btn (+ is-off / is-on), stage-ctl-label, stage-ctl-divider, stage-leave-btn`. New component in file: `StageTimer` (reads `startedAt`, re-renders 1/s, renders `formatCallDuration(now - startedAt)`).
 - i18n keys added (ru / en): `call.live: 'В ЭФИРЕ' / 'LIVE'`, `call.ctlMic: 'Микрофон' / 'Mic'`, `call.ctlCamera: 'Камера' / 'Camera'`, `call.ctlScreen: 'Экран' / 'Screen'`, `call.leaveLabel: 'Выйти' / 'Leave'`, `call.cameraOffChip: 'камера выкл.' / 'camera off'`; `call.youSuffix` value → `'(вы)'` / `'(you)'` (decision 16).
 
-- [ ] **Step 1: Write the fail-first probe** `tools/probe-stage-grid.js` (async). It must: (a) assert `.stage-grid` exists — **throw loudly if absent** (this is the pre-task failure); (b) read `getComputedStyle(grid).gridTemplateColumns` and count columns; (c) inject synthetic remote participants into `callStore` and re-measure at totals 1, 3, and 5, expecting 1 / 2 / 3 columns. Store injection must resolve the store via the exact `performance` resource URL Chrome loaded (M2's Vite-HMR disconnected-store pitfall — a bare dynamic `import()` silently yields a disconnected instance). Synthetic participant: `{ userId: 'fake-<n>', stream: null }` appended to `participants` via `useCallStore.setState` — `stream: null` renders the camera-off avatar tile with a name plate, no WebRTC involved. Run it now against HEAD with `--fake-media` (which joins voice) and record the loud failure.
+- [ ] **Step 1: Write the fail-first probe** `tools/probe-stage-grid.js` (async). It must: (a) assert `.stage-grid` exists — **throw loudly if absent** (this is the pre-task failure); (b) read `getComputedStyle(grid).gridTemplateColumns` and count columns; (c) inject synthetic remote participants into `callStore` and re-measure at totals 1, 3, and 5, expecting 1 / 2 / 3 columns. Store injection must resolve the store via the exact `performance` resource URL Chrome loaded (M2's Vite-HMR disconnected-store pitfall — a bare dynamic `import()` silently yields a disconnected instance). Synthetic participant: `{ userId: 'fake-<n>', stream: null }` appended to `participants` via `useCallStore.setState` — `stream: null` renders the camera-off avatar tile with a name plate, no WebRTC involved. Run it now against HEAD with `--fake-media --click .chat-voice-btn --after 6000` (the `--click` is the join — `--fake-media` alone never enters a call) and record the loud failure.
 
 - [ ] **Step 2: i18n strings (ru + en together)** — add the six keys and change `youSuffix` as listed in Interfaces. Run `npm run check:i18n` → exit 0.
 
@@ -291,7 +301,7 @@ Structural changes (behavioral wiring — handlers, effects, store subscriptions
 </div>
 ```
 
-`StageTimer` (same file): `const startedAt = useCallStore((s) => s.startedAt);` + a 1s `setInterval` bumping a local `now` state; renders `formatCallDuration(now - (startedAt ?? now))`. `handleStageFullscreen`: same body as the current `handleFullscreen` but the browser-path container is the new `stageRef` (a ref on the root `.call-stage` div); keep the existing `handleFullscreen` for the focused view untouched this task (Task 4 unifies). Add `className={isFullscreen ? 'call-stage is-fullscreen' : 'call-stage'}` on the root. Delete the `.header-screen-share-indicator` span (decision 9).
+`StageTimer` (same file): `const startedAt = useCallStore((s) => s.startedAt);` + a 1s `setInterval` bumping a local `now` state; renders `formatCallDuration(now - (startedAt ?? now))`. Fullscreen per decision 24: replace the `isFullscreen` boolean with `const [fullscreenTarget, setFullscreenTarget] = useState<'stage' | 'focus' | null>(null);` and keep a derived `const isFullscreen = fullscreenTarget !== null;` so the JSX above reads unchanged. `handleStageFullscreen`: same body shape as the current `handleFullscreen` but the browser-path container is the new `stageRef` (a ref on the root `.call-stage` div), setting `fullscreenTarget` to `'stage'`/`null`; the `fullscreenchange` listener sets `null` when `document.fullscreenElement` is gone. Root className: `` `call-stage${fullscreenTarget === 'stage' ? ' is-fullscreen' : ''}` ``. Keep the existing `handleFullscreen` for the focused view untouched this task (Task 4 renames it and wires `'focus'`). Delete the `.header-screen-share-indicator` span (decision 9).
 - Grid: `<div className={`stage-grid ${stageGridClass(totalParticipants)}`.trim()}>` — inline `style` deleted.
 - Tile (local shown; `RemoteParticipantTile`'s grid layout mirrors it exactly, with its volume/focus/watch extras):
 
@@ -319,7 +329,7 @@ Structural changes (behavioral wiring — handlers, effects, store subscriptions
 </div>
 ```
 
-  In `RemoteParticipantTile` (grid layout): same skeleton; `is-camera-off` when `!participant.stream`; plate name is `displayName` (no suffix); `speaking = level > SPEAKING_THRESHOLD`; volume button becomes `stage-volume-btn` with `<Volume2 />`, focus becomes `stage-focus-btn` with `<Expand />`, watch overlay becomes `stage-watch-overlay`/`stage-watch-btn` with `<MonitorPlay />`. The `thumbnail` layout branch keeps its current classes untouched this task (Task 4 renames it).
+  In `RemoteParticipantTile` (grid layout): same skeleton, except the remote `<video>` is `className="stage-tile-video"` with **neither** `is-mirrored` nor `is-screen` — remote video is never mirrored (today only the local video carries the mirror; copying the local skeleton verbatim would flip every remote camera); `is-camera-off` when `!participant.stream`; plate name is `displayName` (no suffix); `speaking = level > SPEAKING_THRESHOLD`; volume button becomes `stage-volume-btn` with `<Volume2 />`, focus becomes `stage-focus-btn` with `<Expand />`, watch overlay becomes `stage-watch-overlay`/`stage-watch-btn` with `<MonitorPlay />`. The `thumbnail` layout branch keeps its current classes untouched this task (Task 4 renames it).
 - `ConnectionIndicator`: classes → `stage-conn` + `is-good|is-medium|is-poor|is-unknown`, bars `stage-conn-bar` (nth-child heights replace `--1/--2/--3` modifier classes); tooltip → `stage-tip*` per Interfaces. Logic untouched.
 - Controls:
 
@@ -463,6 +473,15 @@ Structural changes (behavioral wiring — handlers, effects, store subscriptions
   color: var(--stage-ink);
   cursor: pointer;
   transition: background var(--transition);
+}
+
+/* Mobile ≥40px floor (decision 22) — before the :hover rule, see the note above
+   the tile-chip media block. */
+@media (width <= 768px) {
+  .stage-fullscreen-btn {
+    width: 40px;
+    height: 40px;
+  }
 }
 
 .stage-fullscreen-btn:hover {
@@ -671,14 +690,26 @@ Structural changes (behavioral wiring — handlers, effects, store subscriptions
   right: 44px;
 }
 
-.stage-tile:hover .stage-focus-btn,
-.stage-tile:hover .stage-volume-btn {
-  opacity: 1;
+/* Mobile floor + touch visibility (decision 22). Placed BEFORE the :hover rules
+   on purpose: @media adds no specificity, so an equal-specificity override
+   after a higher-specificity rule would trip no-descending-specificity. */
+@media (width <= 768px) {
+  .stage-focus-btn,
+  .stage-volume-btn {
+    width: 40px;
+    height: 40px;
+    opacity: 1;
+  }
 }
 
 .stage-focus-btn:hover,
 .stage-volume-btn:hover {
   background: var(--accent);
+}
+
+.stage-tile:hover .stage-focus-btn,
+.stage-tile:hover .stage-volume-btn {
+  opacity: 1;
 }
 
 /* ── Connection quality (bars persistent top-right; tooltip is a system popover) ── */
@@ -874,6 +905,14 @@ Structural changes (behavioral wiring — handlers, effects, store subscriptions
   transition: background var(--transition), color var(--transition);
 }
 
+/* Mobile ≥40px floor (decision 22) — before the :hover rule. */
+@media (width <= 768px) {
+  .stage-share-banner-dismiss {
+    width: 40px;
+    height: 40px;
+  }
+}
+
 .stage-share-banner-dismiss:hover {
   background: var(--stage-chip);
   color: var(--stage-ink);
@@ -904,9 +943,10 @@ Structural changes (behavioral wiring — handlers, effects, store subscriptions
   cursor: pointer;
 }
 
-/* ── Control bar: three labeled 46px toggles · divider · danger «Выйти» pill ── */
-/* z-index needed: <video> GPU layers block pointer events on siblings without
-   their own compositing layer in Electron. */
+/* ── Control bar: three labeled 46px toggles · divider · danger «Выйти» pill ──
+   z-index needed: <video> GPU layers block pointer events on siblings without
+   their own compositing layer in Electron. (One comment block on purpose —
+   two adjacent comments trip comment-empty-line-before.) */
 .stage-controls {
   z-index: 1;
   display: flex;
@@ -1013,7 +1053,7 @@ Structural changes (behavioral wiring — handlers, effects, store subscriptions
 }
 ```
 
-Below this, keep the legacy blocks **verbatim** under a marker comment: `/* ═══ LEGACY (carried until T4/T5 of the M3 plan): focused view + thumbnails + pickers ═══ */` — the `.call-body`/`.call-video-area` layout rules, `.screen-share-view/-main/-thumbnails/...`, `.thumbnail-*`, `.watch-share-*` (still consumed by the untouched thumbnail branch), `.screen-picker-*`, `.screen-quality-*`, plus the old `.mic-badge` rules (the thumbnail JSX still emits them). Delete what nothing consumes anymore: the grid view no longer renders `.video-tile`/`.video-grid`/`.call-controls`/`.group-call-header`/`.mic-btn-wrap` — those rules go. **Known one-task interim:** `ConnectionIndicator` is shared between the grid and thumbnail branches, so its T3 rename (`conn-*` → `stage-conn*`/`stage-tip*`) means the untouched thumbnail branch emits the new classes while its old size overrides (`.thumbnail-tile .conn-indicator` etc.) are dead — the focused view's tiny conn bars render at grid size until Task 4 restyles that view. Delete the dead `.thumbnail-tile .conn-*` overrides now, record the interim in the ledger (mirror of M2's CONFLICT-1 carried-composer precedent).
+Below this, keep the legacy blocks **verbatim** under a marker comment: `/* ═══ LEGACY (carried until T4/T5 of the M3 plan): focused view + thumbnails + pickers ═══ */` — the `.call-body`/`.call-video-area` layout rules, `.screen-share-view/-main/-thumbnails/...`, `.thumbnail-*`, `.watch-share-*` (still consumed by the untouched thumbnail branch), `.screen-picker-*`, `.screen-quality-*`, plus the old `.mic-badge` rules (the thumbnail JSX still emits them). Delete what nothing consumes anymore: the grid view no longer renders `.video-tile`/`.video-grid`/`.call-controls`/`.group-call-header`/`.mic-btn-wrap` — those rules go. **Known one-task interim:** `ConnectionIndicator` is shared between the grid and thumbnail branches, so its T3 rename (`conn-*` → `stage-conn*`/`stage-tip*`) means the untouched thumbnail branch emits the new classes while its old size overrides (`.thumbnail-tile .conn-indicator` etc.) are dead — the focused view's tiny conn bars render at grid size until Task 4 restyles that view. Delete the dead `.thumbnail-tile .conn-*` overrides now, record the interim in the ledger (mirror of M2's CONFLICT-1 carried-composer precedent). **Second disclosed interim (decision 25d):** deleting this file's `.call-controls`/`.control-btn`/`.mic-badge`/`.mic-btn-wrap` rules changes CallUI's active-call bar appearance until Task 6 — CallUI defines the same class names and currently loses the source-order tie to this file.
 
 - [ ] **Step 5: Stylelint check on the rewritten portion + totals**
 
@@ -1028,12 +1068,13 @@ Expected: only violations inside the LEGACY marker block (enumerate them in the 
 - [ ] **Step 7: Run the probes (must now pass) + screenshots**
 
 ```bash
-node tools/smoke.mjs --fake-media --probe tools/probe-stage-grid.js
-node tools/smoke.mjs --fake-media --probe tools/probe-stage-chrome.js   # write now: asserts topbar height 56, live-pill bg rgba(18,183,106,0.14) + text rgb(91,227,155), timer text matches /^\d{1,2}:\d{2}(:\d{2})?$/, count chip present, fullscreen btn 32×32, controls: three 46×46 r14 toggles + labels Микрофон/Камера/Экран + divider 1×40 + leave pill height 46 with text «Выйти»
-node tools/smoke.mjs --fake-media --probe tools/probe-stage-speaking.js # write now: samples the LOCAL tile ~15× over 1.5s — asserts is-speaking present in ≥1 sample (fake mic emits a tone), that --speak-level on the tile takes ≥2 distinct values across samples, and that computed box-shadow spread varies with it; asserts the equalizer (.stage-eq) is rendered while speaking and .stage-plate-mic while not
-node tools/smoke.mjs --fake-media --out m3t3-stage-light.png
-node tools/smoke.mjs --fake-media --theme dark --out m3t3-stage-dark.png
-node tools/smoke.mjs --fake-media --touch --out m3t3-stage-mobile.png   # back button visible, 40×40
+JOIN='--fake-media --click .chat-voice-btn --after 6000'   # the join itself — required on every call-surface run
+node tools/smoke.mjs $JOIN --probe tools/probe-stage-grid.js
+node tools/smoke.mjs $JOIN --probe tools/probe-stage-chrome.js   # write now: asserts topbar height 56, live-pill bg rgba(18,183,106,0.14) + text rgb(91,227,155) computed, timer text matches /^\d{1,2}:\d{2}(:\d{2})?$/, count chip present, fullscreen btn 32×32, controls: three 46×46 r14 toggles + labels Микрофон/Камера/Экран + divider 1×40 + leave pill height 46 with text «Выйти»
+node tools/smoke.mjs $JOIN --probe tools/probe-stage-speaking.js # write now: samples the LOCAL tile ~15× over 1.5s — asserts is-speaking present in ≥1 sample (fake mic emits a tone), that --speak-level on the tile takes ≥2 distinct values across samples, and that computed box-shadow spread varies with it; asserts the equalizer (.stage-eq) is rendered while speaking and .stage-plate-mic while not
+node tools/smoke.mjs $JOIN --out m3t3-stage-light.png
+node tools/smoke.mjs $JOIN --theme dark --out m3t3-stage-dark.png
+node tools/smoke.mjs $JOIN --touch --out m3t3-stage-mobile.png   # back button visible; fullscreen/tile chips at 40×40 (decision 22)
 ```
 
 `probe-stage-chrome.js` and `probe-stage-speaking.js` must also have been run against pre-task HEAD first (loud failure: selectors absent). If the tone-driven `is-speaking` never fires (fake-device tone amplitude too low for the 0.05 threshold), record that honestly and fall back to asserting `--speak-level` variance ≥ 0.005 plus a DOM-forced class check — do **not** claim the ring was exercised if it wasn't.
@@ -1058,12 +1099,12 @@ git commit -m "feat(redesign): call stage grid per board 1e/2e — top bar with 
 - Consumes: Task 3's stage classes and tokens; `handleStageFullscreen`, `isFullscreen`, `stageRef`.
 - Produces: classes `stage-focus, stage-focus-main (+ is-fullscreen), stage-focus-video, stage-focus-label, stage-focus-controls, stage-focus-ctrl-btn, stage-focus-badge, stage-thumbs, stage-thumb (+ is-focused / is-speaking), stage-thumb-label, stage-thumb-badge, stage-thumb-avatar`. `VolumeControlPopover` keeps its class names (`volume-popover*`) and API.
 
-- [ ] **Step 1: Fail-first probe** `tools/probe-stage-focus.js` (async): with `--fake-media`, inject one synthetic participant (`stream: null`) via the HMR-safe store handle, then `setState({focusedUserId: 'fake-1'})`; assert `.stage-focus` and `.stage-focus-main` exist (loud fail pre-task), main bg computes to `rgb(14, 16, 23)` (`--stage`), thumbnail strip `.stage-thumbs` present with ≥2 tiles (local + fake), the fake (a known non-sharer) is `is-focused`, and its label text matches. Run against pre-task HEAD → loud failure recorded.
+- [ ] **Step 1: Fail-first probe** `tools/probe-stage-focus.js` (async): with `--fake-media --click .chat-voice-btn --after 6000` (the join), inject one synthetic participant (`stream: null`) via the HMR-safe store handle, then `setState({focusedUserId: 'fake-1'})`; assert `.stage-focus` and `.stage-focus-main` exist (loud fail pre-task), main bg computes to `rgb(14, 16, 23)` (`--stage`), thumbnail strip `.stage-thumbs` present with ≥2 tiles (local + fake), the fake (a known non-sharer) is `is-focused`, and its label text matches. Run against pre-task HEAD → loud failure recorded.
 
 - [ ] **Step 2: Rewrite the focused-view + thumbnail JSX** — renames only, behavior identical:
   - `screen-share-view` → `stage-focus`; `screen-share-main` → `stage-focus-main` (keeps `is-fullscreen`); `screen-share-main-video` → `stage-focus-video`; `screen-share-main-label` → `stage-focus-label` (styled as a `stage-plate`); `screen-share-badge-sm` → `stage-focus-badge`; `screen-share-main-controls` → `stage-focus-controls`; `screen-share-ctrl-btn` → `stage-focus-ctrl-btn` with lucide `Maximize2`/`Minimize2` (fullscreen) and `LayoutGrid` (back to grid), 16px.
-  - `thumbnail-tile` → `stage-thumb` (+ `is-focused`, `is-speaking` with the same `--speak-level` inline style), `thumbnail-label` → `stage-thumb-label`, `thumbnail-badge` → `stage-thumb-badge` (MonitorUp 10), `thumbnail-placeholder` → `stage-thumb-avatar` (a 32px r11 `Avatar`), watch overlay reuses Task 3's `stage-watch-overlay/-btn`. Mic state in thumbnails: the plate is too big — reuse `stage-plate-mic` sizing inside `stage-thumb-label` (Mic/MicOff 10px, equalizer omitted at thumb scale; `is-speaking` ring carries the signal).
-  - Unify fullscreen: delete the now-duplicate `handleFullscreen`; the focused view's fullscreen button calls `handleStageFullscreen` too? **No** — keep the focused view's button targeting `.stage-focus-main` (fullscreening just the shared screen is the correct behavior there; the top bar's targets the whole stage). Rename the old `handleFullscreen` to `handleFocusFullscreen`, body unchanged (it already uses `screenShareMainRef`).
+  - `screen-share-thumbnails` → `stage-thumbs` (the strip **container** — easy to miss; Task 4's own probe asserts `.stage-thumbs`, so omitting this rename fails the probe and orphans the rule), `thumbnail-tile` → `stage-thumb` (+ `is-focused`, `is-speaking` with the same `--speak-level` inline style), `thumbnail-label` → `stage-thumb-label`, `thumbnail-badge` → `stage-thumb-badge` (MonitorUp 10), `thumbnail-placeholder` → `stage-thumb-avatar` (a 32px r11 `Avatar`), watch overlay reuses Task 3's `stage-watch-overlay/-btn`. The **local** thumbnail's `<video>` keeps its mirror: `className={isScreenSharing ? 'is-screen' : 'is-mirrored'}` on the thumb video (it is mirrored today via `.thumbnail-tile video.local-video`); remote thumb videos get no modifier. Mic state in thumbnails: the plate is too big — reuse `stage-plate-mic` sizing inside `stage-thumb-label` (Mic/MicOff 10px, equalizer omitted at thumb scale; `is-speaking` ring carries the signal).
+  - Fullscreen stays two-target (decision 24): rename the old `handleFullscreen` to `handleFocusFullscreen` — body unchanged, it already targets `screenShareMainRef` — and have it set `fullscreenTarget` to `'focus'`/`null`. `.stage-focus-main` gets `is-fullscreen` only when `fullscreenTarget === 'focus'`; the top bar's button keeps targeting the whole stage (`'stage'`). This keeps the focus label visible during whole-stage fullscreen instead of the one-boolean version spuriously hiding it.
 
 - [ ] **Step 3: Rewrite the carried focused/thumbnail CSS block** — key values:
 
@@ -1173,11 +1214,23 @@ git commit -m "feat(redesign): call stage grid per board 1e/2e — top bar with 
   align-items: stretch;
   gap: 8px;
   padding: 8px 12px;
-  overflow-x: auto;
-  overflow-y: hidden;
+  overflow: auto hidden; /* shorthand — the longhand pair trips declaration-block-no-redundant-longhand-properties */
   border-top: 1px solid var(--stage-line);
   flex-shrink: 0;
   scrollbar-width: thin;
+}
+
+.stage-thumbs::-webkit-scrollbar {
+  height: 4px;
+}
+
+.stage-thumbs::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.stage-thumbs::-webkit-scrollbar-thumb {
+  background: var(--stage-toggle);
+  border-radius: 2px;
 }
 
 .stage-thumb {
@@ -1261,31 +1314,36 @@ git commit -m "feat(redesign): call stage grid per board 1e/2e — top bar with 
   z-index: 2;
 }
 
-.stage-thumb .stage-volume-btn {
+/* Thumb-scale chip overrides. The extra .stage-thumbs ancestor is specificity
+   ballast: it lifts these to ≥ the .stage-conn.is-* and .stage-tile:hover rules
+   Task 3 wrote earlier in the file, so no-descending-specificity stays quiet.
+   (These also deliberately re-shrink the chips below the mobile 40px floor —
+   decision 22's disclosed thumb-scale exemption.) */
+.stage-thumbs .stage-thumb .stage-volume-btn {
   width: 20px;
   height: 20px;
   top: 4px;
   left: 4px;
 }
 
-.stage-thumb .stage-conn {
+.stage-thumbs .stage-thumb .stage-conn {
   top: 4px;
   right: 4px;
   height: 20px;
   padding: 0 5px;
 }
 
-.stage-thumb .stage-conn-bar {
+.stage-thumbs .stage-thumb .stage-conn-bar {
   width: 2px;
   margin-bottom: 4px;
 }
 
-.stage-thumb .stage-conn-bar:nth-child(1) { height: 3px; }
-.stage-thumb .stage-conn-bar:nth-child(2) { height: 6px; }
-.stage-thumb .stage-conn-bar:nth-child(3) { height: 9px; }
+.stage-thumbs .stage-thumb .stage-conn-bar:nth-child(1) { height: 3px; }
+.stage-thumbs .stage-thumb .stage-conn-bar:nth-child(2) { height: 6px; }
+.stage-thumbs .stage-thumb .stage-conn-bar:nth-child(3) { height: 9px; }
 ```
 
-Also rewrite the small `.call-body`/`.call-video-area` layout wrappers as-is values-wise but with `background` removed (root paints `--stage`); they keep their names (lint-legal, purely structural). Old `.mic-badge`, `.conn-indicator--*`, `.conn-tooltip*`, `.thumbnail-*`, `.watch-share-*`, `.screen-share-*` rules are now consumer-free — delete them. After this task the only remaining legacy block is `.screen-picker-*`/`.screen-quality-*`.
+Also carry the small `.call-body`/`.call-video-area` layout wrappers as-is (neither sets a background today; the root paints `--stage`); they keep their names (lint-legal, purely structural). Old `.mic-badge`, `.conn-indicator--*`, `.conn-tooltip*`, `.thumbnail-*`, `.watch-share-*`, `.screen-share-*` rules are now consumer-free — delete them. After this task the only remaining legacy block is `.screen-picker-*`/`.screen-quality-*`.
 
 - [ ] **Step 4: AppPage.css fullscreen selectors (surgical)** — update lines 57–65 to reference the renamed class and cover Electron stage-fullscreen:
 
@@ -1344,8 +1402,8 @@ cd client && npx stylelint src/components/VolumeControlPopover.css   # 0 problem
 npx stylelint src/components/CallStage.css 2>&1 | tail -5            # violations only inside the remaining picker legacy block
 npm run lint:css 2>&1 | tail -3                                      # ≤ 531
 npx tsc --noEmit && npm test && npm run check:i18n
-node tools/smoke.mjs --fake-media --probe tools/probe-stage-focus.js # now passes
-node tools/smoke.mjs --fake-media --probe tools/probe-stage-focus.js --theme dark --out m3t4-focus-dark.png
+node tools/smoke.mjs --fake-media --click .chat-voice-btn --after 6000 --probe tools/probe-stage-focus.js   # now passes
+node tools/smoke.mjs --fake-media --click .chat-voice-btn --after 6000 --theme dark --probe tools/probe-stage-focus.js --out m3t4-focus-dark.png
 ```
 
 Fullscreen: probe clicks `.stage-fullscreen-btn`, asserts `.call-stage` gains `is-fullscreen` (state class) — if headless-Chrome `requestFullscreen` rejects without a user gesture, record it and verify the class toggle by invoking the handler via a trusted CDP `Input.dispatchMouseEvent` click (the harness `--click` flag does exactly this); the Electron `api.toggleFullscreen` branch is static-verified (read the diff, confirm the branch is unchanged from pre-M3 except the ref).
@@ -1383,7 +1441,8 @@ Closes the spec-§3 extraction hazard (`ScreenSharePicker.tsx` imports `CallStag
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgb(16 19 34 / 40%);
+  background: var(--scrim);
+  backdrop-filter: blur(6px);
   animation: screen-picker-fade 0.18s var(--ease-out);
 }
 
@@ -1549,9 +1608,9 @@ Closes the spec-§3 extraction hazard (`ScreenSharePicker.tsx` imports `CallStag
 }
 ```
 
-(`rgb(16 19 34 / 40%)` is the overlay scrim — modern notation, config-standard-clean; it is a raw value **allowed nowhere else**: check whether `primitives.css`'s `.modal-overlay` already defines a scrim token/value and reuse that exact value if one exists — match the app-wide overlay, don't invent a second darkness.)
+(`--scrim` is the Task-1 token whose value matches `primitives.css`'s `.modal-overlay` — decision 21. The raw-value grep over this file stays literally zero.)
 
-- [ ] **Step 3: Swap the import** — `ScreenSharePicker.tsx`: `import './CallStage.css';` → `import './ScreenSharePicker.css';`. Replace the `✕` text close buttons with lucide `X size={16} strokeWidth={1.8}`.
+- [ ] **Step 3: Swap the import + add Esc-to-cancel** — `ScreenSharePicker.tsx`: `import './CallStage.css';` → `import './ScreenSharePicker.css';`. Replace the `✕` text close buttons with lucide `X size={16} strokeWidth={1.8}`. Add an Escape `keydown` handler to **both** pickers (decision 23 — today neither has one, only backdrop click cancels; the `VolumeControlPopover.tsx:23-24` pattern): a `useEffect` per component doing `document.addEventListener('keydown', onKey)` where `onKey` calls `onCancel()` on `e.key === 'Escape'`, with cleanup; both components add `import { useEffect } from 'react'`.
 
 - [ ] **Step 4: Delete the last legacy block from `CallStage.css`** — the `.screen-picker-*`/`.screen-quality-*` rules and the LEGACY marker comment. Now:
 
@@ -1559,12 +1618,12 @@ Closes the spec-§3 extraction hazard (`ScreenSharePicker.tsx` imports `CallStag
 cd client && npx stylelint src/components/CallStage.css     # 0 problems — no exceptions from here on
 npx stylelint src/components/ScreenSharePicker.css          # 0 problems
 rg -n '#[0-9a-fA-F]{3,8}\b|rgba?\(' src/components/CallStage.css src/components/ScreenSharePicker.css
-# CallStage.css: zero rows. ScreenSharePicker.css: only the single sanctioned overlay-scrim value (or zero if the primitives token existed).
+# Both: zero rows (the scrim is var(--scrim) — decision 21).
 npm run lint:css 2>&1 | tail -3                             # ≤ 531 — should now be measurably BELOW it; record the new number
 npx tsc --noEmit && npm test
 ```
 
-- [ ] **Step 5: Probe passes + screenshots** — `node tools/smoke.mjs --fake-media --probe tools/probe-screen-picker.js --out m3t5-quality-light.png` and `--theme dark --out m3t5-quality-dark.png`. The Electron-only source picker (`getScreenSources`) cannot open here — verify its markup/CSS statically and record as reasoned-not-measured.
+- [ ] **Step 5: Probe passes + screenshots** — `node tools/smoke.mjs --fake-media --click .chat-voice-btn --after 6000 --probe tools/probe-screen-picker.js --out m3t5-quality-light.png` and the same with `--theme dark --out m3t5-quality-dark.png` (the probe itself clicks the screen toggle and drives Esc/backdrop). The Electron-only source picker (`getScreenSources`) cannot open here — verify its markup/CSS statically and record as reasoned-not-measured.
 
 - [ ] **Step 6: Commit**
 
@@ -1579,7 +1638,7 @@ git commit -m "feat(redesign): screen-share pickers extracted to own stylesheet,
 
 **Files:**
 - Modify: `client/src/components/CallUI.tsx` (JSX re-skin; all logic/effects/WS wiring untouched), **rewrite** `client/src/components/CallUI.css`
-- Modify: `client/src/i18n/locales/ru.ts` + `en.ts` (only if a string is missing — expected: none; `call.incomingCall`, `call.userCalling`, `call.endCall` etc. exist)
+- Modify: `client/src/i18n/locales/ru.ts` + `en.ts` — `call.acceptCall` / `call.rejectCall` do **not** exist (verified against ru.ts's call block): add ru `acceptCall: 'Принять'`, `rejectCall: 'Отклонить'`; en `'Accept'` / `'Decline'`. `call.incomingCall`, `call.userCalling`, `call.endCall` exist. (Note: `check:i18n` is a hardcoded-Russian-string heuristic only — ru/en parity is actually enforced by `tsc`, since `en` is typed against `ru`'s `Dictionary`.)
 
 **Interfaces:**
 - Consumes: `useMicLevel` (Task 2), `SPEAKING_THRESHOLD`, stage tokens, `modalIn` keyframe (primitives, legacy-named — referencing it is the ConfirmModal precedent), `.error-toast` primitive (0.22s — decision 17 confirms).
@@ -1598,7 +1657,7 @@ window.dispatchEvent(new CustomEvent('discrod:call_started', { detail: { call_id
 (`audioService.startRingtone` is already wrapped in try/catch; `callService.localStreamState` null just renders empty videos — fine for CSS assertions.) End by dispatching the calls away (click `.p2p-leave-btn` — `callService.endCall()` on a non-existent call is a no-op WS send; verify in the probe run that no crash results, and record). Run pre-task → loud failure (selectors absent).
 
 - [ ] **Step 2: Re-skin the JSX** — mapping (logic untouched):
-  - Incoming: overlay `p2p-overlay is-incoming` (scrim + blur kept); modal `p2p-modal` (340px, centered text); `p2p-modal-tile` 74px r26 `--accent-soft` bg with `<Phone size={28} strokeWidth={1.8} />` in `--accent-text`, pulse loop `p2p-pulse`; `<h2 className="p2p-modal-title">` 19/800; `<p className="p2p-modal-sub">` 13/`--muted`; actions: `p2p-reject-btn` (`PhoneOff` 20) + `p2p-accept-btn` (`Phone` 20), both `aria-label`ed with `t('call.rejectCall')`/`t('call.acceptCall')` — **check these keys exist; if not, add ru «Отклонить»/«Принять» + en 'Decline'/'Accept'**.
+  - Incoming: overlay `p2p-overlay is-incoming` (scrim + blur kept); modal `p2p-modal` (340px, centered text); `p2p-modal-tile` 74px r26 `--accent-soft` bg with `<Phone size={28} strokeWidth={1.8} />` in `--accent-text`, pulse loop `p2p-pulse`; `<h2 className="p2p-modal-title">` 19/800; `<p className="p2p-modal-sub">` 13/`--muted`; actions: `p2p-reject-btn` (`PhoneOff` 20) + `p2p-accept-btn` (`Phone` 20), both `aria-label`ed with `t('call.rejectCall')`/`t('call.acceptCall')` (both keys added this task — see the Files block).
   - Active: overlay `p2p-overlay is-active`; remote `p2p-remote` (+ `is-speaking`, `--speak-level` inline from `remoteMicLevel`); timer `p2p-timer` (live-pill recipe: dot + `t('call.live')` + `<CallTimer />`); remote plate `p2p-plate` bottom-left with mic state (`Mic`/`MicOff` 12, `p2p-plate-mic is-muted` when `remoteMicMuted`) — replaces the floating `mic-badge`; local PiP `p2p-local` (+ `is-speaking`, `--speak-level` from `micLevel`) with `p2p-local-label`; controls per the stage recipe minus screen: mic ctl, camera ctl, divider, `p2p-leave-btn` («Выйти», `PhoneOff` 16, `title={t('call.endCall')}`). The `mic-btn-wrap` halo is deleted (decision 8). Error toast block unchanged (`.error-toast`).
 
 - [ ] **Step 3: Rewrite `CallUI.css`** — the control-bar/plate/ring rules copy Task 3's stage recipe values under `p2p-*` names (decision 3). Distinct values: 
@@ -1606,10 +1665,7 @@ window.dispatchEvent(new CustomEvent('discrod:call_started', { detail: { call_id
 ```css
 .p2p-overlay {
   position: fixed;
-  top: 40px; /* TitleBar */
-  right: 0;
-  bottom: 0;
-  left: 0;
+  inset: 40px 0 0; /* top clears the TitleBar; longhand top/right/bottom/left trips the shorthand lint rule */
   z-index: 1000;
   display: flex;
   align-items: center;
@@ -1617,8 +1673,8 @@ window.dispatchEvent(new CustomEvent('discrod:call_started', { detail: { call_id
 }
 
 .p2p-overlay.is-incoming {
-  background: rgb(16 19 34 / 40%);
-  backdrop-filter: blur(10px);
+  background: var(--scrim);
+  backdrop-filter: blur(6px);
 }
 
 .p2p-modal {
@@ -1706,7 +1762,7 @@ window.dispatchEvent(new CustomEvent('discrod:call_started', { detail: { call_id
 
 ```bash
 cd client && npx stylelint src/components/CallUI.css      # 0 problems
-rg -n '#[0-9a-fA-F]{3,8}\b|rgba?\(' src/components/CallUI.css   # only the sanctioned overlay scrim (same value as Task 5's) — or zero
+rg -n '#[0-9a-fA-F]{3,8}\b|rgba?\(' src/components/CallUI.css   # zero rows (scrim is var(--scrim) — decision 21)
 npm run lint:css 2>&1 | tail -3                           # ≤ recorded total
 npx tsc --noEmit && npm test && npm run check:i18n
 ```
@@ -1732,7 +1788,7 @@ git commit -m "feat(redesign): 1:1 call overlay on p2p-* — system incoming mod
 - Consumes: `voiceParticipants: Map<string, string[]>` (AppPage state, already maintained by WS voice events), `members: MemberWithUser[]` (ChatArea already holds), `Avatar`, `useCallStore` `callChannelId` (ChatArea already subscribes).
 - Produces: `VoiceBanner` props `{ channelName: string; participantIds: string[]; members: MemberWithUser[]; inThisCall: boolean; onJoin: () => void; onShowCall?: () => void }` — renders `null` when `participantIds.length === 0`. Classes: `voice-banner, voice-banner-avatars, voice-banner-avatar, voice-banner-text, voice-banner-btn`. i18n: `call.voiceBanner: 'В голосовом «{{channel}}» — {{count}}'` / `'In voice "{{channel}}" — {{count}}'`; `call.bannerJoin: 'Войти' / 'Join'`; `call.bannerGoToCall: 'К звонку' / 'To call'`.
 
-- [ ] **Step 1: Fail-first probe** `tools/probe-voice-banner.js`: `--fake-media --touch` at mobile size (`--size 390x844`), navigate to a channel, push a synthetic voice-state WS event for another user id via the existing `tools/inject-voice-ws.js` pattern (WS injection via `dispatchEvent` — see the M1/M2 harness notes; verify that injector's event shape against the current `AppPage` voice handlers before trusting it) → assert `.voice-banner` exists (loud fail pre-task), measures: bg `--accent-soft` computed, border `--accent-border`, r12, text 12.5/700, button 32px solid accent with text «Войти». Also assert desktop absence: re-run without `--touch` at 1440×900 → `.voice-banner` has `display: none`. Run pre-task → loud failure.
+- [ ] **Step 1: Fail-first probe** `tools/probe-voice-banner.js`: `--touch --size 390x844`, navigate to a channel, push a synthetic voice-state WS event for another user id. **Injection mechanics (harness-verified):** `--push-ws` is inert without `--preload tools/inject-voice-ws.js` — the harness prints `NO __pushWS (missing --preload?)` and silently does nothing — and it fires **before** `--click`/`--probe` in the pipeline. Payload shape must match `AppPage.tsx:246-248` (`setVoiceParticipants(new Map(Object.entries(p.channels ?? {})))`): `--push-ws 'voice_state:{"channels":{"<real-channel-id>":["<some-user-id>"]}}'` — pin the real channel id from the smoke server at run time. Then assert `.voice-banner` exists (loud fail pre-task) and measures: bg `--accent-soft` computed, border `--accent-border`, r12, text 12.5/700, button 32px solid accent with text «Войти». Also assert desktop absence: re-run without `--touch` at 1440×900 **with the same WS injection** (participants present, banner still `display: none` — without the injection the desktop check passes for the wrong reason). Run pre-task → loud failure.
 
 - [ ] **Step 2: `VoiceBanner.tsx`**
 
@@ -1882,10 +1938,13 @@ Note: when in this call on mobile, the user is on the `chat` panel when they see
 ```bash
 cd client && npx stylelint src/components/VoiceBanner.css   # 0 problems
 npm run lint:css 2>&1 | tail -3 && npx tsc --noEmit && npm test && npm run check:i18n
-node tools/smoke.mjs --fake-media --touch --size 390x844 --probe tools/probe-voice-banner.js --out m3t7-banner-light.png
-node tools/smoke.mjs --fake-media --touch --size 390x844 --theme dark --probe tools/probe-voice-banner.js --out m3t7-banner-dark.png
-node tools/smoke.mjs --probe tools/probe-voice-banner.js    # desktop: display none branch
+WS='voice_state:{"channels":{"<real-channel-id>":["<some-user-id>"]}}'   # pin real ids from the smoke server first
+node tools/smoke.mjs --touch --size 390x844 --preload tools/inject-voice-ws.js --push-ws "$WS" --probe tools/probe-voice-banner.js --out m3t7-banner-light.png
+node tools/smoke.mjs --touch --size 390x844 --theme dark --preload tools/inject-voice-ws.js --push-ws "$WS" --probe tools/probe-voice-banner.js --out m3t7-banner-dark.png
+node tools/smoke.mjs --preload tools/inject-voice-ws.js --push-ws "$WS" --probe tools/probe-voice-banner.js   # desktop 1440×900: participants PRESENT, banner display:none
 ```
+
+(`--fake-media` is not needed here — the banner never joins a call.)
 
 - [ ] **Step 6: Commit**
 
@@ -1913,10 +1972,13 @@ npm test                                          # only api.network-retry fails
 npm run check:i18n                                # exit 0, the 4 ErrorBoundary warnings only
 rg -n '#[0-9a-fA-F]{3,8}\b|rgba?\(' src/components/CallStage.css src/components/CallUI.css src/components/ScreenSharePicker.css src/components/VoiceBanner.css src/components/VolumeControlPopover.css   # zero rows, or exactly the sanctioned overlay-scrim value(s) if primitives had no token
 rg -n 'alert\(' src/components/CallStage.tsx      # zero rows
-rg -n "mic-badge|conn-indicator|conn-tooltip|video-tile|thumbnail-tile|screen-share-main|control-btn|call-controls|mic-btn-wrap" src/components/ src/pages/  # zero rows — no orphaned old classes in JSX or CSS
+rg -n --pcre2 '(?<![a-z-])(mic-badge|mic-btn-wrap|conn-indicator|conn-tooltip|conn-bar|video-grid|video-tile|video-label|video-off-placeholder|local-video|remote-video|thumbnail-tile|thumbnail-label|thumbnail-badge|thumbnail-placeholder|watch-share|screen-share-view|screen-share-main|screen-share-thumbnails|screen-share-banner|screen-share-badge|screen-share-ctrl|group-call-header|participant-count|gc-reconnecting-banner|header-screen-share-indicator|focus-btn|volume-btn|call-overlay|call-modal|call-avatar|call-btn|call-videos|call-timer|call-actions|control-btn|call-controls|end-call|local-video-label)' src/components/ src/pages/
+# zero rows — the FULL set of pre-M3 call class names, not a sample; the (?<![a-z-]) lookbehind
+# keeps new names like stage-volume-btn / stage-focus-btn / p2p-timer from matching.
+# Step 2's bidirectional scan is the PRIMARY orphan gate; this grep is the belt.
 ```
 
-- [ ] **Step 2: Bidirectional class scan** — for each M3-owned CSS file, every selector class must appear in some TSX and every `stage-*`/`p2p-*`/`voice-banner-*`/`screen-*` className in TSX must have a rule (the M2 final-review technique that caught `msg-mention-role`). Script it; record the result.
+- [ ] **Step 2: Bidirectional class scan (the primary orphan gate)** — for each M3-owned CSS file, every selector class must appear in some TSX and every `stage-*`/`p2p-*`/`voice-banner-*`/`screen-*` className in TSX must have a rule (the M2 final-review technique that caught `msg-mention-role`). Script it; record the result. Step 1's grep is the belt to this suspenders — trust this scan over the grep where they disagree.
 
 - [ ] **Step 3: Fresh-server visual QA, both themes** — restart the dev server (stale-server rule), then re-run every M3 probe at HEAD: `probe-stage-grid`, `probe-stage-chrome`, `probe-stage-speaking`, `probe-stage-focus`, `probe-screen-picker`, `probe-p2p`, `probe-voice-banner`. Screenshot set: stage grid light/dark, focused view dark, quality picker light/dark, incoming call light/dark, active 1:1 dark, mobile stage (`--touch`), mobile banner light/dark. Open `design_handoff_discord_redesign/Redesign.dc.html` sections `1e`/`2e`/`1f` side-by-side in Chrome and compare: top bar composition, tile/plate/ring anatomy, control bar anatomy, banner anatomy. List every deviation with a ruling (adapted / defect-fix-now / defer-M6).
 
@@ -1932,6 +1994,10 @@ git commit -m "fix(redesign): M3 final-sweep fixes"   # only when non-empty; nev
 ```
 
 ---
+
+## Review provenance
+
+This plan was reviewed by the Opus grand-reviewer before execution. Verdict: "sound with revisions — not rework." All findings are applied inline: C1 (the original legacy-notation token block measured 531→550 against the real lint config — replaced with the reviewer-verified modern-notation block, 531→531), C2 (10 lint violations in mandated CSS — comment merge, `overflow: auto hidden`, `inset` shorthand, `:hover` rule ordering, `.stage-thumbs` specificity ballast), C3 (`probe-callstate.js` is inert and `--fake-media` never joins by itself — every call-surface invocation now carries `--click .chat-voice-btn --after 6000`), I1 (`screen-share-thumbnails` rename), I2 (pickers gain the Esc handler — decision 23), I3 (`--scrim` token — decision 21), I4 (`--preload` + pinned `voice_state` payload for the banner probes), I5 (full orphan-grep set + bidirectional scan promoted to primary), I6 (remote/thumbnail mirror modifiers pinned), I7 (mobile 40px floor — decision 22), plus the minors (Task 6 i18n keys, `--size` flag, VolumeControlPopover characterization, reconnect-safe `startedAt` note, deliberate deviations recorded as decision 25).
 
 ## Self-review notes (spec coverage)
 
