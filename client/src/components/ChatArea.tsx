@@ -1,5 +1,5 @@
-import { Fragment, useState, useEffect, useRef, useCallback } from 'react';
-import { ArrowDown, ChevronLeft, Hash, Headphones, Mic, Search, Users } from 'lucide-react';
+import { Fragment, useState, useEffect, useRef, useCallback, type ReactNode } from 'react';
+import { ArrowDown, ChevronLeft, Hash, Headphones, Mic, Plus, Search, Users } from 'lucide-react';
 import { useMessageStore } from '@/stores/messageStore';
 import { StickerManager } from '@/components/StickerManager';
 import type { Message } from '@/types';
@@ -24,6 +24,21 @@ import type { Sticker } from '@/types';
 import { useT, useDateFormat, isSameCalendarDay } from '@/i18n';
 import './ChatArea.css';
 
+// Shared card recipe for the three ChatArea empty states (board 2a): quiet
+// channel, no servers, servers-exist-but-no-channel-selected. `tile` is the
+// 56px icon tile (or the no-servers 3-tile strip) — omitted for the plain
+// "pick a channel" variant.
+function ChatEmptyCard({ tile, title, body, action }: { tile?: ReactNode; title: string; body: string; action?: ReactNode }) {
+  return (
+    <div className="chat-empty-card">
+      {tile}
+      <h2 className="chat-empty-title">{title}</h2>
+      <p className="chat-empty-body">{body}</p>
+      {action}
+    </div>
+  );
+}
+
 interface ChatAreaProps {
   channel: Channel | null;
   user: User | null;
@@ -31,14 +46,16 @@ interface ChatAreaProps {
   onShowMembers?: () => void;
   onJoinVoice?: (channel: Channel) => void;
   onShowCall?: () => void;
+  onCreateServer?: () => void;
 }
 
-export function ChatArea({ channel, user, onMobileBack, onShowMembers, onJoinVoice, onShowCall }: ChatAreaProps) {
+export function ChatArea({ channel, user, onMobileBack, onShowMembers, onJoinVoice, onShowCall, onCreateServer }: ChatAreaProps) {
   const callChannelId = useCallStore((s) => s.callChannelId);
   const t = useT();
   const { formatFullDate } = useDateFormat();
   const { messages, loading, setMessages, addMessage, updateMessage, removeMessage } = useMessageStore();
   const { members, currentServer } = useServerStore();
+  const servers = useServerStore((s) => s.servers);
   const [sendError, setSendError] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const composerRef = useRef<ComposerHandle>(null);
@@ -363,10 +380,28 @@ logger.error('Failed to jump to message:', err, { module: 'chat' });
             </button>
           )}
         </div>
-        <div className="chat-welcome">
-          <h2>{t('chat.welcomeTitle')}</h2>
-          <p>{t('chat.welcomeSubtitle')}</p>
-        </div>
+        {servers.length === 0 ? (
+          <ChatEmptyCard
+            tile={
+              <div className="chat-empty-tiles">
+                <div className="chat-empty-tiles-slot" />
+                <div className="chat-empty-tiles-slot is-active">
+                  <Plus size={16} strokeWidth={1.8} />
+                </div>
+                <div className="chat-empty-tiles-slot" />
+              </div>
+            }
+            title={t('chat.noServersTitle')}
+            body={t('chat.noServersBody')}
+            action={
+              <button type="button" className="btn btn-primary" onClick={() => onCreateServer?.()}>
+                {t('server.create')}
+              </button>
+            }
+          />
+        ) : (
+          <ChatEmptyCard title={t('chat.welcomeTitle')} body={t('chat.welcomeSubtitle')} />
+        )}
       </main>
     );
   }
@@ -443,10 +478,20 @@ logger.error('Failed to jump to message:', err, { module: 'chat' });
             </div>
           ))
         ) : messages.length === 0 ? (
-          <div className="chat-welcome-intro">
-            <h1>{t('chat.emptyChannelTitle', { channel: channel.name })}</h1>
-            <p>{t('chat.emptyChannelSubtitle', { channel: channel.name })}</p>
-          </div>
+          <ChatEmptyCard
+            tile={
+              <div className="chat-empty-tile">
+                <Hash size={22} strokeWidth={1.8} />
+              </div>
+            }
+            title={t('chat.quietTitle')}
+            body={t('chat.quietBody', { channel: channel.name })}
+            action={
+              <button type="button" className="btn btn-primary" onClick={() => composerRef.current?.focus()}>
+                {t('chat.writeFirst')}
+              </button>
+            }
+          />
         ) : (
           <>
             {messages.map((msg, idx) => {

@@ -173,45 +173,78 @@
   animation: chat-shimmer 1.2s ease-in-out infinite;
 }
 
-/* ═══ Empty states (contents replaced in Task 9) ═══ */
-.chat-welcome {
+/* ═══ Empty states — shared card recipe (board 2a) ═══
+   One `.chat-empty-card` recipe for all three ChatArea variants (quiet
+   channel, no-servers, servers-exist-no-channel); centers itself via
+   auto margins in the flex column it's dropped into (.chat-area or
+   .chat-messages — both already flex:1 column), so no extra wrapper. */
+.chat-empty-card {
   display: flex;
-  flex: 1;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  color: var(--muted-2);
+  width: min(100%, 340px);
+  min-height: 300px;
+  margin: auto;
+  padding: 36px 28px;
+  text-align: center;
+  background: var(--canvas);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  gap: 14px;
 }
 
-.chat-welcome h2 {
-  margin-bottom: 8px;
-  font-size: 26px;
-  font-weight: 700;
-  color: var(--ink);
-  letter-spacing: -0.02em;
+.chat-empty-tile {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 56px;
+  height: 56px;
+  color: var(--accent-text);
+  background: var(--accent-soft);
+  border-radius: 18px;
 }
 
-.chat-welcome p {
-  font-size: 14px;
-  color: var(--muted);
+.chat-empty-tiles {
+  display: flex;
+  flex-shrink: 0;
+  gap: 8px;
 }
 
-.chat-welcome-intro {
-  margin-bottom: 16px;
-  padding: 16px 0;
+.chat-empty-tiles-slot {
+  width: 40px;
+  height: 40px;
+  background: var(--line);
+  border-radius: 12px;
 }
 
-.chat-welcome-intro h1 {
-  margin-bottom: 6px;
-  font-size: 26px;
+.chat-empty-tiles-slot.is-active {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--online);
+  background: var(--rail);
+}
+
+.chat-empty-title {
+  margin: 0;
+  font-size: 17px;
   font-weight: 800;
   color: var(--ink);
-  letter-spacing: -0.02em;
+  letter-spacing: -0.01em;
 }
 
-.chat-welcome-intro p {
-  font-size: 14px;
+.chat-empty-body {
+  max-width: 250px;
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.55;
   color: var(--muted);
+}
+
+.chat-empty-card .btn {
+  margin-top: 4px;
 }
 
 /* ═══ Send-error toast ═══ */

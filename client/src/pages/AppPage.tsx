@@ -629,6 +629,7 @@ logger.error('Failed to create server:', err, { module: 'app' });
                 ? () => setMobilePanel('call')
                 : undefined
             }
+            onCreateServer={() => { setShowCreateServer(true); setCreateServerError(''); }}
           />
         </div>
 
