@@ -105,6 +105,8 @@ export const ru = {
     stickerUpload: 'Загрузить стикер',
     youChip: 'вы',
     formatting: 'Форматирование',
+    send: 'Отправить',
+    composerHint: 'Enter — отправить · Shift+Enter — новая строка',
   },
   call: {
     participants: plural({

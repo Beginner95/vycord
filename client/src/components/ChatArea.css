@@ -311,85 +311,11 @@
 
 /* ═══════════════════════════════════════════════════════════════════════
    LEGACY — carried over verbatim, deleted by later M2 tasks.
-   Task 7 owns the composer (.chat-input / .toolbar-*), Task 8 the pickers.
+   Task 7 took the composer (.chat-input / .toolbar-*) with it; Task 8 owns
+   the emoji/sticker picker + sticker-manager blocks, and rules on where the
+   shared .error-toast primitive should finally live.
    Nothing below this line is part of the M2 chat-column rewrite.
    ═══════════════════════════════════════════════════════════════════════ */
-
-/* ── Chat Input ── */
-.chat-input {
-  padding: 0 24px 20px;
-  position: relative;
-}
-
-.chat-input form {
-  position: relative;
-}
-
-.chat-input-toolbar {
-  display: flex;
-  gap: 6px;
-  margin-bottom: 6px;
-  flex-wrap: wrap;
-}
-
-.toolbar-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 30px;
-  height: 30px;
-  padding: 0 8px;
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-sm);
-  background: var(--bg-primary);
-  color: var(--text-muted);
-  cursor: pointer;
-  transition: all var(--transition);
-}
-
-.toolbar-btn:hover { background: var(--bg-hover); color: var(--text-primary); }
-.toolbar-btn.active { background: var(--brand-50); border-color: var(--brand-color); color: var(--brand-600); }
-
-.toolbar-txt { font-size: 14px; font-weight: 600; line-height: 1; }
-.toolbar-txt em { font-style: italic; }
-.toolbar-txt u { text-decoration: underline; }
-
-.chat-input textarea {
-  width: 100%;
-  padding: 13px 18px;
-  border: 1.5px solid var(--border-color);
-  border-radius: var(--radius-lg);
-  background: var(--bg-primary);
-  color: var(--text-primary);
-  font-size: 14px;
-  font-family: inherit;
-  outline: none;
-  resize: none;
-  max-height: 40vh;
-  overflow-y: auto;
-  transition: all var(--transition);
-  box-shadow: var(--shadow-sm);
-}
-
-.chat-input textarea::placeholder {
-  color: var(--text-muted);
-}
-
-.chat-input textarea:focus {
-  border-color: var(--brand-color);
-  box-shadow: 0 0 0 3px var(--brand-subtle), var(--shadow-md);
-}
-
-@media (width <= 768px) {
-  .chat-input {
-    padding: 0 12px 12px;
-    padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px));
-  }
-
-  .chat-input textarea {
-    font-size: 16px;
-  }
-}
 
 /* ── Error Toast ── used by CallUI and StickerManager; should become a shared
    primitive rather than living in a component file (flagged for Task 8). ── */

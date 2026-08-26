@@ -102,6 +102,8 @@ export const en: Dictionary = {
     stickerUpload: 'Upload sticker',
     youChip: 'you',
     formatting: 'Formatting',
+    send: 'Send',
+    composerHint: 'Enter — send · Shift+Enter — new line',
   },
   call: {
     participants: plural({

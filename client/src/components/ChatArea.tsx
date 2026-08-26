@@ -1,12 +1,7 @@
-import { Fragment, useState, useEffect, useRef, useCallback, type FormEvent, type KeyboardEvent, type ChangeEvent, type ClipboardEvent } from 'react';
+import { Fragment, useState, useEffect, useRef, useCallback } from 'react';
 import { ArrowDown, ChevronLeft, Hash, Headphones, Mic, Quote, Search, Users } from 'lucide-react';
 import { useMessageStore } from '@/stores/messageStore';
-import { LinkDialog } from '@/components/LinkDialog';
-import { EmojiPicker } from '@/components/EmojiPicker';
-import { StickerPicker } from '@/components/StickerPicker';
 import { StickerManager } from '@/components/StickerManager';
-import { toggleQuote, toggleBullet, toggleNumbered, applyLineToggle, applyWrap, insertAtCaret, linkToken } from '@/utils/textTransforms';
-import { isUnsafeUrl } from '@/utils/markdown';
 import type { Message } from '@/types';
 import { apiService, apiErrorText, ApiError } from '@/services/api';
 import { wsService } from '@/services/websocket';
@@ -16,12 +11,11 @@ import { useCallStore } from '@/stores/callStore';
 import { logger } from '@/utils/logger';
 import { collectUnresolvedUserIds } from '@/utils/userCache';
 import { isContinuation } from '@/utils/messageGroups';
-import { useMentionAutocomplete } from '@/hooks/useMentionAutocomplete';
 import { can, PERMISSIONS } from '@/utils/permissions';
 import { useFloatingSelectionToolbar } from '@/hooks/useFloatingSelectionToolbar';
 import { MessageSearch } from '@/components/MessageSearch';
 import { MessageRow } from '@/components/MessageRow';
-import { MentionDropdown } from '@/components/MentionDropdown';
+import { Composer, type ComposerHandle } from '@/components/Composer';
 import { DayDivider } from '@/components/DayDivider';
 import { ConfirmModal } from '@/components/ConfirmModal';
 import type { Channel, User } from '@/types';
@@ -36,20 +30,6 @@ interface ChatAreaProps {
   onShowMembers?: () => void;
   onJoinVoice?: (channel: Channel) => void;
   onShowCall?: () => void;
-}
-
-const QUOTE_PREFIX = '> ';
-
-function lineRangeForSelection(value: string, start: number, end: number) {
-  const lineStart = start <= 0 ? 0 : value.lastIndexOf('\n', start - 1) + 1;
-  // A selection that ends exactly at the start of a new line (e.g. Shift+Down
-  // stopping at column 0 of the next line) has selected 0 characters of that
-  // line — don't treat it as touched.
-  const selEnd = end > start && value[end - 1] === '\n' ? end - 1 : end;
-  const searchFrom = Math.max(selEnd, lineStart);
-  const endIdx = value.indexOf('\n', searchFrom);
-  const lineEnd = endIdx === -1 ? value.length : endIdx;
-  return { lineStart, lineEnd };
 }
 
 function FloatingQuoteButton({ x, y, onConfirm }: { x: number; y: number; onConfirm: () => void }) {
@@ -77,16 +57,13 @@ export function ChatArea({ channel, user, onMobileBack, onShowMembers, onJoinVoi
   const { formatFullDate } = useDateFormat();
   const { messages, loading, setMessages, addMessage, updateMessage, removeMessage } = useMessageStore();
   const { members, currentServer } = useServerStore();
-  const [input, setInput] = useState('');
-  const [caretInQuoteLine, setCaretInQuoteLine] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLTextAreaElement>(null);
+  const composerRef = useRef<ComposerHandle>(null);
   const chatMessagesRef = useRef<HTMLDivElement>(null);
   const [searchOpen, setSearchOpen] = useState(false);
   const [historyMode, setHistoryMode] = useState(false);
   const [highlightedId, setHighlightedId] = useState<string | null>(null);
-  const [stickerPickerOpen, setStickerPickerOpen] = useState(false);
   const [stickerManagerOpen, setStickerManagerOpen] = useState(false);
   const [serverStickers, setServerStickers] = useState<Sticker[]>([]);
 
@@ -102,24 +79,13 @@ export function ChatArea({ channel, user, onMobileBack, onShowMembers, onJoinVoi
   const canMentionEveryone = can(permissions, PERMISSIONS.MENTION_EVERYONE);
   const canManageStickers = can(permissions, PERMISSIONS.MANAGE_SERVER);
 
-  const composeMention = useMentionAutocomplete({
-    value: input,
-    setValue: setInput,
-    inputRef,
-    members,
-    canMentionEveryone,
-  });
-
   useEffect(() => {
     if (historyMode) return; // в режиме просмотра истории не утаскиваем вниз
     scrollToBottom();
   }, [messages, historyMode]);
 
   useEffect(() => {
-    inputRef.current?.focus();
-    composeMention.reset();
     setEditingId(null);
-    setCaretInQuoteLine(false);
     setSearchOpen(false);
     setHistoryMode(false);
     setHighlightedId(null);
@@ -182,13 +148,6 @@ export function ChatArea({ channel, user, onMobileBack, onShowMembers, onJoinVoi
     document.addEventListener('keydown', handler);
     return () => document.removeEventListener('keydown', handler);
   }, []);
-
-  useEffect(() => {
-    const el = inputRef.current;
-    if (!el) return;
-    el.style.height = 'auto';
-    el.style.height = `${el.scrollHeight}px`;
-  }, [input]);
 
   // Fetch usernames for all unique user_ids in messages
   useEffect(() => {
@@ -300,8 +259,7 @@ export function ChatArea({ channel, user, onMobileBack, onShowMembers, onJoinVoi
       window.setTimeout(() => setHighlightedId(null), 2200);
     } catch (err) {
 logger.error('Failed to jump to message:', err, { module: 'chat' });
-      setSendError(apiErrorText(err, t));
-      setTimeout(() => setSendError(null), 5000);
+      showSendError(err);
     }
   };
 
@@ -317,143 +275,38 @@ logger.error('Failed to jump to message:', err, { module: 'chat' });
     }
   };
 
-  const handleSubmit = async (e: FormEvent) => {
-    e.preventDefault();
-    if (!channel || !input.trim() || !user) return;
+  const showSendError = (err: unknown) => {
+    setSendError(apiErrorText(err, t));
+    setTimeout(() => setSendError(null), 5000);
+  };
 
+  /** Composer's send callback. `false` keeps the user's draft in the field. */
+  const sendMessage = async (content: string): Promise<boolean> => {
+    if (!channel || !user) return false;
     try {
-      const msg = await apiService.createMessage(channel.id, input.trim()) as Message;
+      const msg = await apiService.createMessage(channel.id, content) as Message;
       addMessage(msg);
-      setInput('');
-      setCaretInQuoteLine(false);
+      return true;
     } catch (err) {
       logger.error('Failed to send message:', err, { module: 'chat' });
-      setSendError(apiErrorText(err, t));
-      setTimeout(() => setSendError(null), 5000);
+      showSendError(err);
+      return false;
     }
   };
 
-  const sendSticker = async (sticker: Sticker) => {
-    if (!channel || !user) return;
+  const sendSticker = async (sticker: Sticker): Promise<boolean> => {
+    if (!channel || !user) return false;
     try {
       const msg = await apiService.createMessage(channel.id, '', sticker.id) as Message;
       addMessage(msg);
-      setStickerPickerOpen(false);
+      return true;
     } catch (err) {
-      setSendError(apiErrorText(err, t));
-      setTimeout(() => setSendError(null), 5000);
+      showSendError(err);
+      return false;
     }
   };
 
-  const handleComposeKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (composeMention.handleKeyDown(e)) return;
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      handleSubmit(e as unknown as FormEvent);
-    }
-  };
-
-  const updateQuoteButtonActive = (value: string = input, caret?: number) => {
-    const el = inputRef.current;
-    const pos = caret ?? el?.selectionStart ?? 0;
-    const { lineStart, lineEnd } = lineRangeForSelection(value, pos, pos);
-    setCaretInQuoteLine(value.slice(lineStart, lineEnd).startsWith(QUOTE_PREFIX));
-  };
-
-  const handleComposeChange = (e: ChangeEvent<HTMLTextAreaElement>) => {
-    composeMention.handleChange(e);
-    updateQuoteButtonActive(e.target.value, e.target.selectionStart ?? undefined);
-  };
-
-  const composeTarget = { ref: inputRef, value: input, setValue: setInput };
-
-  const toggleQuotePrefixRange = (start: number, end: number) => {
-    const el = inputRef.current;
-    const r = toggleQuote(input, start, end);
-    setInput(r.value);
-    setCaretInQuoteLine(!r.allPrefixed);
-    requestAnimationFrame(() => {
-      el?.focus();
-      el?.setSelectionRange(r.start, r.end);
-    });
-  };
-
-  const toggleQuotePrefix = () => {
-    const el = inputRef.current;
-    const start = el?.selectionStart ?? input.length;
-    const end = el?.selectionEnd ?? input.length;
-    toggleQuotePrefixRange(start, end);
-  };
-
-  const composeWrap = (marker: string) => applyWrap(composeTarget, marker);
-  const composeBullet = () => applyLineToggle(composeTarget, toggleBullet);
-  const composeNumbered = () => applyLineToggle(composeTarget, toggleNumbered);
-
-  const [linkOpen, setLinkOpen] = useState(false);
-  const [emojiPickerOpen, setEmojiPickerOpen] = useState(false);
-
-  const insertLink = (label: string, url: string) => {
-    insertAtCaret(composeTarget, linkToken(label, url));
-    setLinkOpen(false);
-  };
-
-  const handleComposePaste = (e: ClipboardEvent<HTMLTextAreaElement>) => {
-    const el = e.currentTarget;
-    const start = el.selectionStart ?? el.value.length;
-    const end = el.selectionEnd ?? el.value.length;
-    const text = e.clipboardData?.getData('text/plain') ?? '';
-    const sel = el.value.slice(start, end);
-    if (start !== end && sel.trim() && text.trim() && !isUnsafeUrl(text.trim())) {
-      e.preventDefault();
-      const token = `[${sel.trim()}](${text.trim()})`;
-      const next = el.value.slice(0, start) + token + el.value.slice(end);
-      setInput(next);
-      requestAnimationFrame(() => {
-        el.focus();
-        el.setSelectionRange(start + token.length, start + token.length);
-      });
-      setCaretInQuoteLine(false);
-    }
-  };
-
-  const composeSelectionToolbar = useFloatingSelectionToolbar({
-    containerRef: inputRef,
-    resubscribeKey: channel?.id,
-    getSelectionInfo: (e) => {
-      const el = inputRef.current;
-      const start = el?.selectionStart;
-      const end = el?.selectionEnd;
-      if (!el || start == null || end == null || start === end) return null;
-      const text = el.value.slice(start, end);
-      if (e) return { text, x: e.clientX, y: e.clientY + 16 };
-      const rect = el.getBoundingClientRect();
-      return { text, x: rect.left + 24, y: rect.top - 8 };
-    },
-    onConfirm: () => {
-      const el = inputRef.current;
-      const start = el?.selectionStart;
-      const end = el?.selectionEnd;
-      if (!el || start == null || end == null) return;
-      toggleQuotePrefixRange(start, end);
-    },
-  });
-
-  const insertQuoteIntoCompose = (text: string) => {
-    const el = inputRef.current;
-    if (!el) return;
-    const quotedBlock = text
-      .split('\n')
-      .map((line) => (line.startsWith(QUOTE_PREFIX) ? line : `${QUOTE_PREFIX}${line}`))
-      .join('\n');
-    const newValue = input.length === 0 ? quotedBlock : `${quotedBlock}\n${input}`;
-    const caret = input.length === 0 ? quotedBlock.length : quotedBlock.length + 1;
-    setInput(newValue);
-    requestAnimationFrame(() => {
-      el.focus();
-      el.setSelectionRange(caret, caret);
-      updateQuoteButtonActive(newValue, caret);
-    });
-  };
+  const insertQuoteIntoCompose = (text: string) => composerRef.current?.insertQuote(text);
 
   const chatSelectionToolbar = useFloatingSelectionToolbar({
     containerRef: chatMessagesRef,
@@ -492,8 +345,7 @@ logger.error('Failed to jump to message:', err, { module: 'chat' });
       setEditingId(null);
     } catch (err) {
       logger.error('Failed to update message:', err, { module: 'chat' });
-      setSendError(apiErrorText(err, t));
-      setTimeout(() => setSendError(null), 5000);
+      showSendError(err);
     }
   };
 
@@ -663,82 +515,17 @@ logger.error('Failed to jump to message:', err, { module: 'chat' });
         </div>
       )}
 
-      <div className="chat-input">
-        <div className="chat-input-toolbar">
-          <button
-            type="button"
-            className={`toolbar-btn${caretInQuoteLine ? ' active' : ''}`}
-            aria-pressed={caretInQuoteLine}
-            aria-label={t('chat.quote')}
-            title={t('chat.quote')}
-            onClick={toggleQuotePrefix}
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 21c3 0 7-1 7-8V5c0-1.25-.756-2.017-2-2H4c-1.25 0-2 .75-2 1.972V11c0 1.25.75 2 2 2 1 0 1 0 1 1v1c0 1-1 2-2 2s-1 .008-1 1.031V20c0 1 0 1 1 1z"/><path d="M15 21c3 0 7-1 7-8V5c0-1.25-.757-2.017-2-2h-4c-1.25 0-2 .75-2 1.972V11c0 1.25.75 2 2 2h.75c0 2.25.25 4-2.75 4v3c0 1 0 1 1 1z"/></svg>
-          </button>
-          <button type="button" className="toolbar-btn" aria-label={t('chat.bold')} title={t('chat.bold')} onClick={() => composeWrap('**')}>
-            <strong className="toolbar-txt">B</strong>
-          </button>
-          <button type="button" className="toolbar-btn" aria-label={t('chat.italic')} title={t('chat.italic')} onClick={() => composeWrap('*')}>
-            <em className="toolbar-txt">I</em>
-          </button>
-          <button type="button" className="toolbar-btn" aria-label={t('chat.underline')} title={t('chat.underline')} onClick={() => composeWrap('__')}>
-            <u className="toolbar-txt">U</u>
-          </button>
-          <button type="button" className="toolbar-btn" aria-label={t('chat.link')} title={t('chat.link')} onClick={() => setLinkOpen(true)}>
-            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
-          </button>
-          <button type="button" className="toolbar-btn" aria-label={t('chat.numberedList')} title={t('chat.numberedList')} onClick={composeNumbered}>
-            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 6h12"/><path d="M4 12h12"/><path d="M4 18h12"/><path d="M15 7.5l2.5-2.5 1.5 1.5L17.5 9z"/><path d="M15 14l2.5-2.5 1.5 1.5L17.5 15.5z"/><path d="M15 20.5l2.5-2.5 1.5 1.5L17.5 22z"/></svg>
-          </button>
-          <button type="button" className="toolbar-btn" aria-label={t('chat.bulletedList')} title={t('chat.bulletedList')} onClick={composeBullet}>
-            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 6h11M9 12h11M9 18h11"/><path d="M4 6h.01M4 12h.01M4 18h.01"/></svg>
-          </button>
-          <button type="button" className={`toolbar-btn${stickerPickerOpen ? ' active' : ''}`} aria-label={t('chat.stickers')} title={t('chat.stickers')} onClick={() => setStickerPickerOpen((open) => !open)}>
-            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12a9 9 0 1 1-9-9"/><path d="M12 3a9 9 0 0 1 9 9"/><path d="M21 12h-4l-2 2-2-2"/></svg>
-          </button>
-          <button type="button" className={`toolbar-btn${emojiPickerOpen ? ' active' : ''}`} aria-label={t('chat.emoji')} title={t('chat.emoji')} onClick={() => setEmojiPickerOpen((open) => !open)}>
-            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/></svg>
-          </button>
-        </div>
-        <form onSubmit={handleSubmit}>
-          <textarea
-            ref={inputRef}
-            value={input}
-            onChange={handleComposeChange}
-            onKeyDown={handleComposeKeyDown}
-            onPaste={handleComposePaste}
-            onSelect={() => updateQuoteButtonActive()}
-            onClick={() => updateQuoteButtonActive()}
-            onKeyUp={() => updateQuoteButtonActive()}
-            placeholder={t('chat.messagePlaceholder', { channel: channel.name })}
-            maxLength={2000}
-            rows={1}
-          />
-          <MentionDropdown mention={composeMention} />
-        </form>
-        {emojiPickerOpen && (
-          <EmojiPicker
-            onSelect={(e) => { insertAtCaret(composeTarget, e); setEmojiPickerOpen(false); }}
-            onClose={() => setEmojiPickerOpen(false)}
-          />
-        )}
-        {stickerPickerOpen && (
-          <StickerPicker
-            stickers={serverStickers}
-            onSelect={sendSticker}
-            onClose={() => setStickerPickerOpen(false)}
-            onManage={canManageStickers ? () => setStickerManagerOpen(true) : undefined}
-          />
-        )}
-      </div>
-
-      {composeSelectionToolbar.visible && (
-        <FloatingQuoteButton
-          x={composeSelectionToolbar.x}
-          y={composeSelectionToolbar.y}
-          onConfirm={composeSelectionToolbar.confirm}
-        />
-      )}
+      <Composer
+        ref={composerRef}
+        channel={channel}
+        members={members}
+        canMentionEveryone={canMentionEveryone}
+        onSend={sendMessage}
+        serverStickers={serverStickers}
+        onSendSticker={sendSticker}
+        canManageStickers={canManageStickers}
+        onOpenStickerManager={() => setStickerManagerOpen(true)}
+      />
       {chatSelectionToolbar.visible && (
         <FloatingQuoteButton
           x={chatSelectionToolbar.x}
@@ -759,15 +546,10 @@ logger.error('Failed to jump to message:', err, { module: 'chat' });
           <span>{t('chat.jumpToLatest')}</span>
         </button>
       )}
-      <LinkDialog
-        open={linkOpen}
-        onClose={() => setLinkOpen(false)}
-        onInsert={insertLink}
-      />
       {stickerManagerOpen && channel && (
         <StickerManager
           serverId={channel.server_id}
-          onClose={() => { setStickerManagerOpen(false); setStickerPickerOpen(false); }}
+          onClose={() => setStickerManagerOpen(false)}
           onStickersChanged={refreshStickers}
         />
       )}
