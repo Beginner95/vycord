@@ -95,7 +95,7 @@
   width: 34px;
   height: 34px;
   padding: 0;
-  color: #fff;
+  color: var(--white);
   background: var(--accent);
   border: none;
   border-radius: 10px;

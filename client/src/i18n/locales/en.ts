@@ -111,6 +111,7 @@ export const en: Dictionary = {
     sending: 'sending',
     sendFailed: 'not sent',
     retry: 'retry',
+    discardFailed: 'Discard',
   },
   call: {
     participants: plural({

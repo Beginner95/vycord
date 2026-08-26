@@ -212,7 +212,9 @@
 .chat-skel-line-short { width: 30%; }
 .chat-skel-line-long { width: 70%; }
 
-.chat-skel-row,
+/* Only the leaves shimmer. With `.chat-skel-row` in this list too, the row's
+   own opacity multiplied with its children's — the trough was 0.55 × 0.55 ≈
+   0.30, not the 0.55 the keyframe declares. */
 .chat-skel-avatar,
 .chat-skel-line {
   animation: chat-shimmer 1.2s ease-in-out infinite;
@@ -292,34 +294,9 @@
   margin-top: 4px;
 }
 
-/* ═══ Send-error toast ═══ */
-@keyframes chat-toast-in {
-  from {
-    opacity: 0;
-    transform: translateX(-50%) translateY(-10px);
-  }
-
-  to {
-    opacity: 1;
-    transform: translateX(-50%) translateY(0);
-  }
-}
-
-.chat-error-toast {
-  position: fixed;
-  top: 52px;
-  left: 50%;
-  z-index: 2000;
-  padding: 10px 20px;
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--white);
-  background: var(--danger);
-  border-radius: 9px;
-  box-shadow: var(--shadow-menu);
-  transform: translateX(-50%);
-  animation: chat-toast-in 0.22s var(--ease-out);
-}
+/* The send-error toast lives in primitives.css as `.error-toast` — ChatArea
+   renders that shared class instead of maintaining a twin (final-review fix 5;
+   `.chat-error-toast` and its byte-identical keyframe were deleted here). */
 
 /* ═══ Jump back to the latest messages (history mode) ═══ */
 .chat-jump-btn {

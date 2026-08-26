@@ -111,6 +111,12 @@ interface MessageRowProps {
   onQuote: () => void;
   /** Wired in Task 11 (failed-send retry). */
   onRetry?: () => void;
+  /**
+   * Final-review fix 3: the only exit from a `failed` row used to be retry.
+   * Discard drops the row locally — it never reached the server, so there is
+   * no API call and no confirm modal to justify.
+   */
+  onDiscard?: () => void;
 }
 
 export function MessageRow(props: MessageRowProps) {
@@ -166,11 +172,16 @@ export function MessageRow(props: MessageRowProps) {
           </button>
         )}
       </div>
-      {!isEditing && !msg.deliveryState && (
+      {/* A sticker row has nothing to quote (quoting it inserts a bare `> `)
+          and nothing to edit, so for someone else's sticker the popover would
+          be an empty bordered chip on hover — don't render the wrapper at all. */}
+      {!isEditing && !msg.deliveryState && (!msg.sticker_id || isOwn) && (
         <div className="msg-actions">
-          <button type="button" className="msg-action-btn" aria-label={t('chat.quote')} title={t('chat.quote')} onClick={props.onQuote}>
-            <Quote size={15} strokeWidth={1.8} />
-          </button>
+          {!msg.sticker_id && (
+            <button type="button" className="msg-action-btn" aria-label={t('chat.quote')} title={t('chat.quote')} onClick={props.onQuote}>
+              <Quote size={15} strokeWidth={1.8} />
+            </button>
+          )}
           {isOwn && !msg.sticker_id && (
             <button type="button" className="msg-action-btn" aria-label={t('common.edit')} title={t('common.edit')} onClick={props.onStartEdit}>
               <Pencil size={15} strokeWidth={1.8} />
@@ -181,6 +192,23 @@ export function MessageRow(props: MessageRowProps) {
               <Trash2 size={15} strokeWidth={1.8} />
             </button>
           )}
+        </div>
+      )}
+      {/* Failed rows get exactly one action — discard. Quote/edit/delete stay
+          suppressed: the row has no server id, so edit/delete would PATCH or
+          DELETE a `pending-*` that does not exist. `sending` rows get nothing
+          at all until they resolve one way or the other. */}
+      {!isEditing && msg.deliveryState === 'failed' && (
+        <div className="msg-actions">
+          <button
+            type="button"
+            className="msg-action-btn is-danger"
+            aria-label={t('chat.discardFailed')}
+            title={t('chat.discardFailed')}
+            onClick={props.onDiscard}
+          >
+            <Trash2 size={15} strokeWidth={1.8} />
+          </button>
         </div>
       )}
     </div>

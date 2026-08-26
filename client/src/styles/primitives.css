@@ -394,21 +394,30 @@
   margin-bottom: 12px;
 }
 
-/* ── Toast (shared: CallUI, StickerManager) ── */
+/* ── Toast (shared: ChatArea, CallUI, StickerManager) ──
+   Task 8 lifted this out of ChatArea.css verbatim, which left three
+   DELETE-IN-M6 aliases (--red-500, --radius-md, --shadow-lg) being consumed
+   from the canonical styles layer. De-aliased here to the tokens they already
+   resolve to today — same rendered values, no scheduled break:
+     --red-500 → --danger, --radius-md (9px) → --radius-row, --shadow-lg →
+     --shadow-menu, bare `white` → --white.
+   Duration is 0.22s, not the original 0.3s: ChatArea now renders this class,
+   and the chat surface's animation budget is 250ms. Same easing, same
+   transform, so CallUI/StickerManager are visually unchanged. */
 .error-toast {
   position: fixed;
   top: 52px;
   left: 50%;
   transform: translateX(-50%);
-  background: var(--red-500);
-  color: white;
+  background: var(--danger);
+  color: var(--white);
   padding: 10px 20px;
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-row);
   font-size: 13px;
   font-weight: 500;
   z-index: 2000;
-  box-shadow: var(--shadow-lg);
-  animation: slide-down 0.3s var(--ease-out);
+  box-shadow: var(--shadow-menu);
+  animation: slide-down 0.22s var(--ease-out);
 }
 
 @keyframes slide-down {

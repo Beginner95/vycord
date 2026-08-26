@@ -360,6 +360,13 @@ logger.error('Failed to jump to message:', err, { module: 'chat' });
    * away at `deliveryState: 'sending'`; the HTTP response reconciles it in
    * place (`replaceMessage`) or, on failure, flips it to `'failed'` so
    * MessageRow's own chip — not a toast — carries the error and the retry.
+   *
+   * Final-review fix 1: the chip is only reachable while the row is still in
+   * the store. If the user switches channels before the POST rejects, AppPage
+   * has already replaced the whole `messages` array, so `updateMessage(tempId)`
+   * no-ops against a list that no longer contains it and NO failed row can ever
+   * render. Falling back to the toast keeps the pre-M2 floor — a send never
+   * fails silently — without reintroducing a toast on the path the chip owns.
    */
   const sendMessage = async (content: string) => {
     if (!channel || !user) return;
@@ -374,7 +381,9 @@ logger.error('Failed to jump to message:', err, { module: 'chat' });
       replaceMessage(tempId, msg);
     } catch (err) {
       logger.error('Failed to send message:', err, { module: 'chat' });
-      updateMessage(tempId, { deliveryState: 'failed' });
+      const stillThere = useMessageStore.getState().messages.some((m) => m.id === tempId);
+      if (stillThere) updateMessage(tempId, { deliveryState: 'failed' });
+      else showSendError(err);
     }
   };
 
@@ -651,6 +660,9 @@ logger.error('Failed to jump to message:', err, { module: 'chat' });
                   onDelete={() => setConfirmDeleteId(msg.id)}
                   onQuote={() => insertQuoteIntoCompose(msg.content)}
                   onRetry={() => retrySend(msg)}
+                  // Client-only row (never reached the server) — no API call,
+                  // no confirm modal, just drop it from the store.
+                  onDiscard={() => removeMessage(msg.id)}
                 />
               </Fragment>
             );
@@ -660,7 +672,7 @@ logger.error('Failed to jump to message:', err, { module: 'chat' });
       </div>
 
       {sendError && (
-        <div className="chat-error-toast">
+        <div className="error-toast">
           {sendError}
         </div>
       )}

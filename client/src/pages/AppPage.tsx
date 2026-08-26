@@ -430,9 +430,15 @@ export function AppPage() {
               useMessageStore.getState().setLoading(true);
               try {
                 const messages = await apiService.getMessages(channel.id);
+                // Same stale-response guard as handleSelectChannel (fix 2):
+                // this restore path is slow (two awaits before it starts), so
+                // the user can easily have clicked another channel already.
+                if (useServerStore.getState().currentChannel?.id !== channel.id) return;
                 setMessages(messages as Message[]);
               } finally {
-                useMessageStore.getState().setLoading(false);
+                if (useServerStore.getState().currentChannel?.id === channel.id) {
+                  useMessageStore.getState().setLoading(false);
+                }
               }
               return;
             }
@@ -527,11 +533,24 @@ export function AppPage() {
     useMessageStore.getState().setLoading(true);
     try {
       const data = await apiService.getMessages(channel.id);
+      // Stale-response guard (final-review fix 2). On a fast A→B→C switch an
+      // earlier fetch can resolve after the user has moved on; without this it
+      // paints the wrong channel's list. `setCurrentChannel` above is a
+      // synchronous zustand write that immediately precedes `setLoading(true)`,
+      // so this id comparison is exact, not a heuristic.
+      if (useServerStore.getState().currentChannel?.id !== channel.id) return;
       setMessages(data as Message[]);
     } catch (err) {
       logger.error('Failed to load messages:', err, { module: 'app' });
     } finally {
-      useMessageStore.getState().setLoading(false);
+      // Guarding only `setMessages` is half a fix: a stale `finally` flipping
+      // `loading` false while `messages` still belongs to the previous channel
+      // is exactly what lets ChatArea latch its unread anchor off the wrong
+      // list. Whoever owns the current channel clears its own flag — see the
+      // no-strand argument in task-13-fixwave-report.md.
+      if (useServerStore.getState().currentChannel?.id === channel.id) {
+        useMessageStore.getState().setLoading(false);
+      }
     }
   };
 

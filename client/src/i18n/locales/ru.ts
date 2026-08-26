@@ -114,6 +114,7 @@ export const ru = {
     sending: 'отправляется',
     sendFailed: 'не отправлено',
     retry: 'повторить',
+    discardFailed: 'Отклонить',
   },
   call: {
     participants: plural({

@@ -203,10 +203,12 @@
 
 /* Touch has no :hover — never leave the quote/edit/delete actions unreachable
    (the M1 dark+touch join pill lesson). Declared *before* the hover-enable
-   rule below: @media adds no specificity, so a lower-specificity `.msg-actions`
-   override placed after `.msg-row:hover .msg-actions` (0,3,0) would trip
-   no-descending-specificity — ordering ascending here keeps the file at 0
-   problems instead of discovering it at the lint gate. `grid-column: 2` pulls
+   rule below so specificity ascends down the file, which is the house style
+   here. (Honest note: this was originally justified as avoiding a
+   `no-descending-specificity` error, but two independent counterfactual runs
+   under stylelint 17.14.1 + config-standard show the rule does NOT fire for
+   this pair across the @media boundary — the ordering is a readability
+   convention, not a lint requirement.) `grid-column: 2` pulls
    the popover out of the 42px avatar-gutter track (col 1) it would otherwise
    land in once `position: static` makes it a real grid item. */
 @media (hover: none) {
