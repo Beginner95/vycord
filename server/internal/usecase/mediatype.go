@@ -10,6 +10,11 @@ import (
 )
 
 // sniffedKinds — типы, которые http.DetectContentType распознаёт сам.
+//
+// Контейнерных типов (mp4, webm, ogg, mpeg-с-ID3) здесь нет намеренно: до
+// сниффера отрабатывает detectContainer, который разводит одинаковые
+// контейнеры на аудио и видео по расширению. Дублирующие записи были бы
+// недостижимы и создавали бы ложное впечатление, что тип решается здесь.
 var sniffedKinds = map[string]domain.AttachmentKind{
 	"image/png":  domain.AttachmentKindImage,
 	"image/jpeg": domain.AttachmentKindImage,
@@ -17,11 +22,7 @@ var sniffedKinds = map[string]domain.AttachmentKind{
 	"image/webp": domain.AttachmentKindImage,
 	"image/bmp":  domain.AttachmentKindImage,
 	"audio/wave": domain.AttachmentKindAudio,
-	"audio/wav":  domain.AttachmentKindAudio,
 	"audio/aiff": domain.AttachmentKindAudio,
-	"audio/mpeg": domain.AttachmentKindAudio,
-	"video/mp4":  domain.AttachmentKindVideo,
-	"video/webm": domain.AttachmentKindVideo,
 	"video/avi":  domain.AttachmentKindVideo,
 }
 
@@ -54,11 +55,6 @@ func DetectKind(head []byte, name string) (domain.AttachmentKind, string) {
 	}
 
 	if kind, ok := sniffedKinds[base]; ok {
-		// Единственное уточнение: контейнер MP4 sniff отдаёт как video/mp4,
-		// но .m4a — это аудиодорожка в том же контейнере.
-		if base == "video/mp4" && (ext == "m4a" || ext == "m4b") {
-			return domain.AttachmentKindAudio, "audio/mp4"
-		}
 		return kind, base
 	}
 
@@ -74,13 +70,29 @@ func DetectKind(head []byte, name string) (domain.AttachmentKind, string) {
 	return domain.AttachmentKindFile, base
 }
 
+// isoImageBrands — major brand'ы ISO BMFF, за которыми стоит картинка, а не
+// видео. mif1 — базовый бренд HEIF, им подписаны в том числе снимки iOS.
+var isoImageBrands = map[string]string{
+	"avif": "image/avif",
+	"avis": "image/avif",
+	"heic": "image/heic",
+	"heix": "image/heic",
+	"mif1": "image/heic",
+}
+
 // detectContainer разбирает контейнеры, которые http.DetectContentType не
 // распознаёт или распознаёт неоднозначно.
 func detectContainer(head []byte, ext string) (domain.AttachmentKind, string, bool) {
 	switch {
 	case len(head) >= 12 && bytes.Equal(head[4:8], []byte("ftyp")):
-		// ISO BMFF: mp4, m4a, mov. Дорожку по заголовку не определить —
-		// разводим по расширению, дефолт video.
+		// ISO BMFF: не только mp4. В том же контейнере лежат AVIF и HEIC —
+		// снятое айфоном приходит именно так. Без разбора major brand они
+		// уезжали в video/mp4, и в ленте появлялся <video>, который не играет.
+		if ct, ok := isoImageBrands[string(head[8:12])]; ok {
+			return domain.AttachmentKindImage, ct, true
+		}
+		// Дорожку видео/аудио по заголовку не определить — разводим по
+		// расширению, дефолт video.
 		switch ext {
 		case "m4a", "m4b":
 			return domain.AttachmentKindAudio, "audio/mp4", true

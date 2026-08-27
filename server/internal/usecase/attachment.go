@@ -94,21 +94,27 @@ func (uc *attachmentUseCase) Upload(in domain.AttachmentUpload) (*domain.Attachm
 		CreatedAt:  time.Now(),
 	}
 
-	// Для картинок получаем размеры и миниатюру. Не декодировалось — значит
-	// это не картинка, понижаем до файла (та же политика, что и в DetectKind).
+	// Для картинок получаем размеры и миниатюру.
 	var thumb *ImageMeta
 	if kind == domain.AttachmentKindImage {
 		meta, ok := AnalyzeImage(in.Content)
 		switch {
-		case !ok:
-			att.Kind = domain.AttachmentKindFile
-			att.ContentType = "application/octet-stream"
-		default:
+		case ok:
 			att.Width, att.Height = &meta.Width, &meta.Height
 			if meta.Thumb != nil {
 				thumb = meta
 				att.ThumbKey = fmt.Sprintf("attachments/%s/%s_thumb.%s", in.ChannelID, id, meta.ThumbExt)
 			}
+		case DecodableImage(contentType):
+			// Декодер для этого типа есть, а файл им не разобрался: он битый
+			// либо слишком велик по площади. Понижаем до файла — та же
+			// политика, что и в DetectKind для неопознанного содержимого.
+			att.Kind = domain.AttachmentKindFile
+			att.ContentType = "application/octet-stream"
+		default:
+			// AVIF/HEIC: тип надёжно опознан по сигнатуре контейнера, но
+			// декодера без cgo для него нет. Оставляем картинкой без размеров
+			// и миниатюры — /thumb отдаст оригинал, лента покажет его как есть.
 		}
 	}
 

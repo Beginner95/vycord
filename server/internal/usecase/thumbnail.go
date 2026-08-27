@@ -8,7 +8,9 @@ import (
 	_ "image/png"
 	"io"
 
+	_ "golang.org/x/image/bmp"
 	"golang.org/x/image/draw"
+	_ "golang.org/x/image/webp"
 )
 
 // maxThumbSide — по этой стороне ужимается миниатюра. 400 px хватает для
@@ -17,6 +19,27 @@ const maxThumbSide = 400
 
 // thumbQuality — качество JPEG миниатюры.
 const thumbQuality = 82
+
+// maxImagePixels — потолок на площадь картинки, которую мы готовы развернуть
+// в память. Ограничение на размер файла тут не помогает: PNG со сплошной
+// заливкой 20000×20000 весит единицы мегабайт, а в памяти занимает ~1.6 ГБ, и
+// несколько параллельных загрузок кладут процесс целиком. 50 Мп — заведомо
+// больше любой камеры и скриншота, но на два порядка меньше опасного.
+const maxImagePixels = 50 * 1000 * 1000
+
+// decodableImageTypes — типы картинок, для которых у нас есть декодер.
+// Отличать их важно: провал AnalyzeImage на таком типе означает битый или
+// непомерно большой файл, а на avif/heic — всего лишь отсутствие декодера.
+var decodableImageTypes = map[string]bool{
+	"image/png":  true,
+	"image/jpeg": true,
+	"image/gif":  true,
+	"image/webp": true,
+	"image/bmp":  true,
+}
+
+// DecodableImage сообщает, умеет ли AnalyzeImage разбирать такой content-type.
+func DecodableImage(contentType string) bool { return decodableImageTypes[contentType] }
 
 // ImageMeta — то, что удалось узнать о картинке. Thumb == nil означает, что
 // миниатюра не нужна: оригинал и так мелкий.
@@ -33,9 +56,14 @@ type ImageMeta struct {
 // запрос: политика одна и та же для всего, что не удалось опознать как медиа.
 //
 // Читатель перематывается в начало: этот же файл потом уходит в хранилище.
-// WebP и AVIF stdlib не декодирует — для них вернётся false, и вложение
-// останется картинкой только если тип уже определён по сигнатуре, но без
-// миниатюры (см. вызывающий код в AttachmentUseCase.Upload).
+//
+// Декодеры подключены на png, jpeg, gif, webp и bmp. AVIF и HEIC декодера в
+// экосистеме без cgo нет — для них вернётся false, и вызывающий оставит
+// вложение картинкой без размеров и миниатюры (см. AttachmentUseCase.Upload):
+// в ленте покажется оригинал.
+//
+// Слишком большие по площади картинки тоже дают false: развернуть их в память
+// дороже, чем показать карточкой файла.
 func AnalyzeImage(r io.ReadSeeker) (meta *ImageMeta, ok bool) {
 	defer func() {
 		// Декодеры картинок — известный источник паник на битых данных.
@@ -46,6 +74,23 @@ func AnalyzeImage(r io.ReadSeeker) (meta *ImageMeta, ok bool) {
 		_, _ = r.Seek(0, io.SeekStart)
 	}()
 
+	if _, err := r.Seek(0, io.SeekStart); err != nil {
+		return nil, false
+	}
+
+	// Сначала только заголовок: размеры известны до того, как под пиксели
+	// выделена хоть одна страница памяти. recover() ниже ловит панику декодера,
+	// но от OOM он не спасает — процесс убивают снаружи.
+	cfg, _, err := image.DecodeConfig(r)
+	if err != nil {
+		return nil, false
+	}
+	if cfg.Width <= 0 || cfg.Height <= 0 ||
+		int64(cfg.Width)*int64(cfg.Height) > maxImagePixels {
+		return nil, false
+	}
+
+	// DecodeConfig прочитал заголовок — Decode должен начать с начала файла.
 	if _, err := r.Seek(0, io.SeekStart); err != nil {
 		return nil, false
 	}

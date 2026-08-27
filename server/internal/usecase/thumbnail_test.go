@@ -2,6 +2,9 @@ package usecase_test
 
 import (
 	"bytes"
+	"encoding/base64"
+	"encoding/binary"
+	"hash/crc32"
 	"image"
 	"image/color"
 	"image/jpeg"
@@ -11,6 +14,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/vycord/server/internal/usecase"
+	"golang.org/x/image/bmp"
 )
 
 func pngBytes(t *testing.T, w, h int) []byte {
@@ -86,4 +90,76 @@ func TestAnalyzeImageRewindsReader(t *testing.T) {
 	n, err := r.Read(rest)
 	require.NoError(t, err)
 	assert.Equal(t, data[:n], rest[:n], "чтение обязано начаться с начала файла")
+}
+
+// pngHeaderClaiming собирает PNG из одного IHDR с заявленными размерами.
+// Пикселей в нём нет — ровно этим и опасен настоящий «pixel bomb»: заголовок
+// стоит байты, а разворачивается он в гигабайты.
+func pngHeaderClaiming(w, h uint32) []byte {
+	ihdr := []byte("IHDR")
+	ihdr = binary.BigEndian.AppendUint32(ihdr, w)
+	ihdr = binary.BigEndian.AppendUint32(ihdr, h)
+	ihdr = append(ihdr, 8, 6, 0, 0, 0) // 8 бит на канал, RGBA, без чересстрочности
+
+	out := []byte("\x89PNG\r\n\x1a\n")
+	out = binary.BigEndian.AppendUint32(out, uint32(len(ihdr)-4))
+	out = append(out, ihdr...)
+	return binary.BigEndian.AppendUint32(out, crc32.ChecksumIEEE(ihdr))
+}
+
+func TestAnalyzeImageRejectsOversizedImage(t *testing.T) {
+	// 30000×30000 — это ~3.6 ГБ RGBA. Отказ обязан случиться на заголовке,
+	// до выделения памяти под пиксели: иначе несколько параллельных загрузок
+	// кладут процесс, и никакой recover() не поможет.
+	_, ok := usecase.AnalyzeImage(bytes.NewReader(pngHeaderClaiming(30000, 30000)))
+
+	assert.False(t, ok)
+}
+
+func TestAnalyzeImageAcceptsImageUnderPixelLimit(t *testing.T) {
+	// Проверяем, что предел не задевает нормальные картинки: отказ должен
+	// приходить именно от размеров, а не от того, что после DecodeConfig
+	// забыли перемотать ридер.
+	meta, ok := usecase.AnalyzeImage(bytes.NewReader(pngBytes(t, 900, 700)))
+
+	require.True(t, ok)
+	assert.Equal(t, 900, meta.Width)
+	assert.Equal(t, 700, meta.Height)
+}
+
+func TestAnalyzeImageDecodesBMP(t *testing.T) {
+	img := image.NewRGBA(image.Rect(0, 0, 640, 480))
+	var buf bytes.Buffer
+	require.NoError(t, bmp.Encode(&buf, img))
+
+	meta, ok := usecase.AnalyzeImage(bytes.NewReader(buf.Bytes()))
+
+	require.True(t, ok, "bmp объявлен поддерживаемым форматом — он обязан декодироваться")
+	assert.Equal(t, 640, meta.Width)
+	assert.Equal(t, 480, meta.Height)
+}
+
+func TestAnalyzeImageDecodesWebP(t *testing.T) {
+	// Минимальный настоящий 1×1 WebP: генератора в x/image нет, только декодер.
+	data, err := base64.StdEncoding.DecodeString(
+		"UklGRiQAAABXRUJQVlA4IBgAAAAwAQCdASoBAAEAAQAcJaQAA3AA/v3AgAA=")
+	require.NoError(t, err)
+
+	meta, ok := usecase.AnalyzeImage(bytes.NewReader(data))
+
+	require.True(t, ok, "webp объявлен поддерживаемым форматом — он обязан декодироваться")
+	assert.Equal(t, 1, meta.Width)
+	assert.Nil(t, meta.Thumb)
+}
+
+func TestDecodableImageCoversDeclaredFormats(t *testing.T) {
+	// Разделение важно для Upload: провал декодирования png означает битый
+	// файл (понижаем до kind=file), а провал на avif — лишь отсутствие
+	// декодера (вложение остаётся картинкой без миниатюры).
+	for _, ct := range []string{"image/png", "image/jpeg", "image/gif", "image/webp", "image/bmp"} {
+		assert.True(t, usecase.DecodableImage(ct), ct)
+	}
+	for _, ct := range []string{"image/avif", "image/heic"} {
+		assert.False(t, usecase.DecodableImage(ct), ct)
+	}
 }

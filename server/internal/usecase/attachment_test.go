@@ -190,6 +190,28 @@ func TestUploadDowngradesUndecodableImageToFile(t *testing.T) {
 	assert.Empty(t, got.ThumbKey)
 }
 
+func TestUploadKeepsAvifAsImageWithoutThumbnail(t *testing.T) {
+	// AVIF/HEIC опознаются по major brand контейнера, но декодера без cgo
+	// для них нет. Понижать их до файла нельзя: спека обещает картинку, а
+	// /thumb в этом случае отдаёт оригинал.
+	f := newAttachFixture(t)
+	head := make([]byte, 64)
+	copy(head[4:], "ftypavif")
+	f.quota.On("CheckUpload", f.userID, mock.Anything).Return(nil)
+	f.quota.On("ExpiresAt", f.userID, mock.Anything).Return((*time.Time)(nil), nil)
+	f.storage.On("Save", mock.Anything, mock.Anything, mock.Anything, "image/avif").Return("/uploads/x", nil)
+	f.repo.On("Create", mock.Anything).Return(nil)
+
+	got, err := f.uc.Upload(f.upload("photo.avif", head))
+
+	require.NoError(t, err)
+	assert.Equal(t, domain.AttachmentKindImage, got.Kind)
+	assert.Equal(t, "image/avif", got.ContentType)
+	assert.Nil(t, got.Width, "размеры без декодера неизвестны")
+	assert.Empty(t, got.ThumbKey)
+	f.storage.AssertExpectations(t)
+}
+
 func TestUploadSetsExpiryFromQuota(t *testing.T) {
 	f := newAttachFixture(t)
 	exp := time.Date(2027, 1, 1, 0, 0, 0, 0, time.UTC)

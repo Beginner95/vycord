@@ -20,6 +20,22 @@ func webmHeader() []byte {
 	return append([]byte{0x1A, 0x45, 0xDF, 0xA3}, make([]byte, 28)...)
 }
 
+// isoHeader — ISO BMFF с заданным major brand в байтах 8:12.
+func isoHeader(brand string) []byte {
+	h := make([]byte, 32)
+	copy(h[4:], "ftyp")
+	copy(h[8:], brand)
+	return h
+}
+
+// riffHeader — RIFF-контейнер: form-тип лежит в байтах 8:12.
+func riffHeader(form string) []byte {
+	h := make([]byte, 32)
+	copy(h, "RIFF")
+	copy(h[8:], form)
+	return h
+}
+
 func TestDetectKind(t *testing.T) {
 	tests := []struct {
 		name            string
@@ -83,6 +99,69 @@ func TestDetectKind(t *testing.T) {
 			fileName:        "song.mp3",
 			wantKind:        domain.AttachmentKindAudio,
 			wantContentType: "audio/mpeg",
+		},
+		{
+			name:            "webp по сигнатуре RIFF/WEBP",
+			head:            riffHeader("WEBPVP8 "),
+			fileName:        "pic.webp",
+			wantKind:        domain.AttachmentKindImage,
+			wantContentType: "image/webp",
+		},
+		{
+			name:            "bmp по сигнатуре",
+			head:            append([]byte("BM\x36\x00"), make([]byte, 28)...),
+			fileName:        "pic.bmp",
+			wantKind:        domain.AttachmentKindImage,
+			wantContentType: "image/bmp",
+		},
+		{
+			name:            "avif — картинка, а не mp4, несмотря на ftyp",
+			head:            isoHeader("avif"),
+			fileName:        "pic.avif",
+			wantKind:        domain.AttachmentKindImage,
+			wantContentType: "image/avif",
+		},
+		{
+			name:            "heic с айфона — тоже картинка",
+			head:            isoHeader("heic"),
+			fileName:        "IMG_0001.heic",
+			wantKind:        domain.AttachmentKindImage,
+			wantContentType: "image/heic",
+		},
+		{
+			name:            "mif1 — базовый бренд HEIF",
+			head:            isoHeader("mif1"),
+			fileName:        "IMG_0002.heic",
+			wantKind:        domain.AttachmentKindImage,
+			wantContentType: "image/heic",
+		},
+		{
+			name:            "mov по ftyp и расширению",
+			head:            isoHeader("qt  "),
+			fileName:        "clip.mov",
+			wantKind:        domain.AttachmentKindVideo,
+			wantContentType: "video/quicktime",
+		},
+		{
+			name:            "mkv — тот же EBML, что и webm, разводится расширением",
+			head:            webmHeader(),
+			fileName:        "movie.mkv",
+			wantKind:        domain.AttachmentKindVideo,
+			wantContentType: "video/x-matroska",
+		},
+		{
+			name:            "wav по RIFF/WAVE",
+			head:            riffHeader("WAVEfmt "),
+			fileName:        "sound.wav",
+			wantKind:        domain.AttachmentKindAudio,
+			wantContentType: "audio/wave",
+		},
+		{
+			name:            "avi по RIFF/AVI",
+			head:            riffHeader("AVI LIST"),
+			fileName:        "clip.avi",
+			wantKind:        domain.AttachmentKindVideo,
+			wantContentType: "video/avi",
 		},
 		{
 			name:            "pdf — это файл, а не медиа",
