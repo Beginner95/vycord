@@ -27,8 +27,8 @@ func (r *messageRepository) Create(msg *domain.Message) error {
 	defer cancel()
 
 	query := `
-		INSERT INTO messages (id, channel_id, user_id, content, attachments, sticker_id, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		INSERT INTO messages (id, channel_id, user_id, content, sticker_id, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
 		RETURNING id
 	`
 
@@ -39,7 +39,6 @@ func (r *messageRepository) Create(msg *domain.Message) error {
 		msg.ChannelID,
 		msg.UserID,
 		msg.Content,
-		msg.Attachments,
 		msg.StickerID,
 		msg.CreatedAt,
 		msg.UpdatedAt,
@@ -57,7 +56,7 @@ func (r *messageRepository) GetByID(id uuid.UUID) (*domain.Message, error) {
 	defer cancel()
 
 	query := `
-		SELECT m.id, m.channel_id, m.user_id, m.content, m.attachments, m.sticker_id,
+		SELECT m.id, m.channel_id, m.user_id, m.content, m.sticker_id,
 		       m.created_at, m.updated_at,
 		       s.id, s.name, s.image_url, s.server_id
 		FROM messages m
@@ -76,7 +75,6 @@ func (r *messageRepository) GetByID(id uuid.UUID) (*domain.Message, error) {
 		&msg.ChannelID,
 		&msg.UserID,
 		&msg.Content,
-		&msg.Attachments,
 		&msgStickerID,
 		&msg.CreatedAt,
 		&msg.UpdatedAt,
@@ -113,7 +111,7 @@ func (r *messageRepository) GetByChannelID(channelID uuid.UUID, limit, offset in
 	defer cancel()
 
 	query := `
-		SELECT m.id, m.channel_id, m.user_id, m.content, m.attachments, m.sticker_id,
+		SELECT m.id, m.channel_id, m.user_id, m.content, m.sticker_id,
 		       m.created_at, m.updated_at,
 		       s.id, s.name, s.image_url, s.server_id
 		FROM messages m
@@ -142,7 +140,6 @@ func (r *messageRepository) GetByChannelID(channelID uuid.UUID, limit, offset in
 			&msg.ChannelID,
 			&msg.UserID,
 			&msg.Content,
-			&msg.Attachments,
 			&msgStickerID,
 			&msg.CreatedAt,
 			&msg.UpdatedAt,
@@ -236,7 +233,7 @@ func (r *messageRepository) Search(channelID uuid.UUID, query string, limit, off
 	}
 
 	searchQuery := `
-		SELECT m.id, m.channel_id, m.user_id, m.content, m.attachments, m.created_at, m.updated_at, u.username
+		SELECT m.id, m.channel_id, m.user_id, m.content, m.created_at, m.updated_at, u.username
 		FROM messages m
 		JOIN users u ON u.id = m.user_id
 		WHERE m.channel_id = $1 AND m.content ILIKE $2 ESCAPE '\'
@@ -257,7 +254,6 @@ func (r *messageRepository) Search(channelID uuid.UUID, query string, limit, off
 			&res.ChannelID,
 			&res.UserID,
 			&res.Content,
-			&res.Attachments,
 			&res.CreatedAt,
 			&res.UpdatedAt,
 			&res.Username,
@@ -286,7 +282,7 @@ func (r *messageRepository) GetAround(channelID, messageID uuid.UUID, limit int)
 	// Тай-брейк по id, т.к. created_at не уникален.
 	query := `
 		(
-			SELECT m.id, m.channel_id, m.user_id, m.content, m.attachments, m.sticker_id,
+			SELECT m.id, m.channel_id, m.user_id, m.content, m.sticker_id,
 			       m.created_at, m.updated_at,
 			       s.id, s.name, s.image_url, s.server_id
 			FROM messages m
@@ -297,7 +293,7 @@ func (r *messageRepository) GetAround(channelID, messageID uuid.UUID, limit int)
 		)
 		UNION ALL
 		(
-			SELECT m.id, m.channel_id, m.user_id, m.content, m.attachments, m.sticker_id,
+			SELECT m.id, m.channel_id, m.user_id, m.content, m.sticker_id,
 			       m.created_at, m.updated_at,
 			       s.id, s.name, s.image_url, s.server_id
 			FROM messages m
@@ -326,7 +322,6 @@ func (r *messageRepository) GetAround(channelID, messageID uuid.UUID, limit int)
 			&msg.ChannelID,
 			&msg.UserID,
 			&msg.Content,
-			&msg.Attachments,
 			&msgStickerID,
 			&msg.CreatedAt,
 			&msg.UpdatedAt,

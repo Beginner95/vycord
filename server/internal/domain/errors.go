@@ -65,6 +65,18 @@ var (
 	// только на уровне usecase-логики (reuse триггерит RevokeFamily) — по
 	// HTTP обе маппятся в один и тот же 401 invalid_or_expired_token.
 	ErrRefreshTokenInvalid = errors.New("refresh token invalid or expired")
+
+	// ErrAttachmentTooLarge — файл больше, чем разрешает план пользователя.
+	ErrAttachmentTooLarge = errors.New("attachment is too large")
+	// ErrAttachmentRequired — в multipart-запросе нет поля file.
+	ErrAttachmentRequired = errors.New("attachment file is required")
+	// ErrAttachmentNotFound — вложения нет, либо оно чужое, либо из другого канала.
+	ErrAttachmentNotFound = errors.New("attachment not found")
+	// ErrAttachmentAlreadyAttached — вложение уже привязано к другому сообщению.
+	ErrAttachmentAlreadyAttached = errors.New("attachment is already attached")
+	// ErrStorageQuotaExceeded — превышен суммарный объём хранения по плану.
+	// Сегодня не срабатывает: у плана free max_total_bytes = NULL.
+	ErrStorageQuotaExceeded = errors.New("storage quota exceeded")
 )
 
 var (
