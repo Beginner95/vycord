@@ -34,6 +34,10 @@ func (m *MockRepo) AttachToMessage(messageID, userID, channelID uuid.UUID, ids [
 	return m.Called(messageID, userID, channelID, ids).Error(0)
 }
 func (m *MockRepo) Delete(id uuid.UUID) error { return m.Called(id).Error(0) }
+func (m *MockRepo) DeleteIfUnattached(id uuid.UUID) (bool, error) {
+	args := m.Called(id)
+	return args.Bool(0), args.Error(1)
+}
 func (m *MockRepo) ListSweepable(now, orphanBefore time.Time, limit int) ([]*domain.Attachment, error) {
 	args := m.Called(now, orphanBefore, limit)
 	if args.Get(0) == nil {
@@ -70,7 +74,7 @@ func TestSweepDeletesFilesAndRows(t *testing.T) {
 	repo.On("ListSweepable", mock.Anything, mock.Anything, mock.Anything).Return([]*domain.Attachment{att}, nil)
 	store.On("Delete", mock.Anything, "a/b.png").Return(nil)
 	store.On("Delete", mock.Anything, "a/b_thumb.jpg").Return(nil)
-	repo.On("Delete", att.ID).Return(nil)
+	repo.On("DeleteIfUnattached", att.ID).Return(true, nil)
 
 	n, err := attachments.NewJanitor(repo, store, slog.Default()).Sweep(context.Background(), time.Now())
 
@@ -101,13 +105,64 @@ func TestSweepContinuesWhenFileDeletionFails(t *testing.T) {
 	store := new(MockStore)
 	repo.On("ListSweepable", mock.Anything, mock.Anything, mock.Anything).Return([]*domain.Attachment{att}, nil)
 	store.On("Delete", mock.Anything, "a/b.png").Return(errors.New("disk error"))
-	repo.On("Delete", att.ID).Return(nil)
+	repo.On("DeleteIfUnattached", att.ID).Return(true, nil)
 
 	n, err := attachments.NewJanitor(repo, store, slog.Default()).Sweep(context.Background(), time.Now())
 
 	require.NoError(t, err)
 	assert.Equal(t, 1, n)
-	repo.AssertCalled(t, "Delete", att.ID)
+	repo.AssertCalled(t, "DeleteIfUnattached", att.ID)
+}
+
+func TestSweepKeepsOrphanAttachedWhileSweeping(t *testing.T) {
+	// Гонка: между ListSweepable и удалением черновик старше суток успели
+	// приложить к сообщению. Безусловное удаление вырезало бы файл из уже
+	// отправленного сообщения, поэтому условие живёт в самом DELETE.
+	att := &domain.Attachment{ID: uuid.New(), StorageKey: "a/b.png", ThumbKey: "a/b_thumb.jpg"}
+	repo := new(MockRepo)
+	store := new(MockStore)
+	repo.On("ListSweepable", mock.Anything, mock.Anything, mock.Anything).Return([]*domain.Attachment{att}, nil)
+	repo.On("DeleteIfUnattached", att.ID).Return(false, nil)
+
+	n, err := attachments.NewJanitor(repo, store, slog.Default()).Sweep(context.Background(), time.Now())
+
+	require.NoError(t, err)
+	assert.Equal(t, 0, n)
+	store.AssertNotCalled(t, "Delete", mock.Anything, mock.Anything)
+}
+
+func TestSweepDeletesExpiredAttachedAttachment(t *testing.T) {
+	// Вторая ветка уборки: срок хранения истёк. Привязанность тут роли не
+	// играет — удаляем безусловно, но файл всё равно после строки.
+	messageID := uuid.New()
+	att := &domain.Attachment{ID: uuid.New(), MessageID: &messageID, StorageKey: "a/old.png"}
+	repo := new(MockRepo)
+	store := new(MockStore)
+	repo.On("ListSweepable", mock.Anything, mock.Anything, mock.Anything).Return([]*domain.Attachment{att}, nil)
+	repo.On("Delete", att.ID).Return(nil)
+	store.On("Delete", mock.Anything, "a/old.png").Return(nil)
+
+	n, err := attachments.NewJanitor(repo, store, slog.Default()).Sweep(context.Background(), time.Now())
+
+	require.NoError(t, err)
+	assert.Equal(t, 1, n)
+	repo.AssertNotCalled(t, "DeleteIfUnattached", mock.Anything)
+	store.AssertExpectations(t)
+}
+
+func TestSweepDoesNotTouchFileWhenRowDeleteFails(t *testing.T) {
+	// Обратный порядок оставил бы строку без файла — в ленте битая картинка.
+	att := &domain.Attachment{ID: uuid.New(), StorageKey: "a/b.png"}
+	repo := new(MockRepo)
+	store := new(MockStore)
+	repo.On("ListSweepable", mock.Anything, mock.Anything, mock.Anything).Return([]*domain.Attachment{att}, nil)
+	repo.On("DeleteIfUnattached", att.ID).Return(false, errors.New("db down"))
+
+	n, err := attachments.NewJanitor(repo, store, slog.Default()).Sweep(context.Background(), time.Now())
+
+	require.NoError(t, err)
+	assert.Equal(t, 0, n)
+	store.AssertNotCalled(t, "Delete", mock.Anything, mock.Anything)
 }
 
 func TestSweepSkipsThumbDeletionWhenThereIsNone(t *testing.T) {
@@ -116,7 +171,7 @@ func TestSweepSkipsThumbDeletionWhenThereIsNone(t *testing.T) {
 	store := new(MockStore)
 	repo.On("ListSweepable", mock.Anything, mock.Anything, mock.Anything).Return([]*domain.Attachment{att}, nil)
 	store.On("Delete", mock.Anything, "a/b.pdf").Return(nil)
-	repo.On("Delete", att.ID).Return(nil)
+	repo.On("DeleteIfUnattached", att.ID).Return(true, nil)
 
 	_, err := attachments.NewJanitor(repo, store, slog.Default()).Sweep(context.Background(), time.Now())
 

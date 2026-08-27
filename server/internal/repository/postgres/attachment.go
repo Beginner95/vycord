@@ -167,6 +167,20 @@ func (r *attachmentRepository) Delete(id uuid.UUID) error {
 	return nil
 }
 
+// DeleteIfUnattached удаляет строку только пока она не привязана к сообщению.
+// Условие в самом DELETE, а не проверкой перед ним: между SELECT и DELETE
+// вложение успело бы уехать в сообщение, и уборщик выпилил бы живой файл.
+func (r *attachmentRepository) DeleteIfUnattached(id uuid.UUID) (bool, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	tag, err := r.db.Exec(ctx, `DELETE FROM attachments WHERE id = $1 AND message_id IS NULL`, id)
+	if err != nil {
+		return false, fmt.Errorf("failed to delete unattached attachment: %w", err)
+	}
+	return tag.RowsAffected() > 0, nil
+}
+
 // ListSweepable отдаёт то, что пора удалить: сирот (загружены, но сообщение
 // так и не отправили) старше orphanBefore и всё, чей срок хранения истёк.
 func (r *attachmentRepository) ListSweepable(now, orphanBefore time.Time, limit int) ([]*domain.Attachment, error) {

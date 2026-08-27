@@ -1,11 +1,14 @@
 package usecase
 
 import (
+	"context"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/vycord/server/internal/domain"
+	"github.com/vycord/server/pkg/filestorage"
 )
 
 type messageUseCase struct {
@@ -15,6 +18,9 @@ type messageUseCase struct {
 	stickerRepo domain.StickerRepository
 	perms       domain.PermissionUseCase
 	attachRepo  domain.AttachmentRepository
+	// storage нужен только на удалении: строки вложений уносит каскад, а
+	// файлы после этого найти уже нечем — уборщик ищет по строкам в БД.
+	storage filestorage.Storage
 }
 
 func NewMessageUseCase(
@@ -24,6 +30,7 @@ func NewMessageUseCase(
 	stickerRepo domain.StickerRepository,
 	perms domain.PermissionUseCase,
 	attachRepo domain.AttachmentRepository,
+	storage filestorage.Storage,
 ) domain.MessageUseCase {
 	return &messageUseCase{
 		messageRepo: messageRepo,
@@ -32,6 +39,7 @@ func NewMessageUseCase(
 		stickerRepo: stickerRepo,
 		perms:       perms,
 		attachRepo:  attachRepo,
+		storage:     storage,
 	}
 }
 
@@ -328,8 +336,51 @@ func (uc *messageUseCase) DeleteMessage(channelID, messageID, userID uuid.UUID) 
 		return domain.ErrForbidden
 	}
 
+	// Файлы вложений забираем ДО удаления сообщения: строки attachments
+	// уносит ON DELETE CASCADE, и после него связь «сообщение → файл» уже
+	// нигде не восстановить — файлы остались бы на диске навсегда.
+	files := uc.attachmentFiles(messageID)
+
 	if err := uc.messageRepo.Delete(messageID); err != nil {
 		return fmt.Errorf("failed to delete message: %w", err)
 	}
+
+	uc.deleteFiles(files)
 	return nil
+}
+
+// attachmentFiles собирает ключи хранилища всех вложений сообщения. Ошибку
+// только логируем: не отдать пользователю удаление сообщения из-за проблем с
+// уборкой файлов — хуже, чем оставить осиротевший файл.
+func (uc *messageUseCase) attachmentFiles(messageID uuid.UUID) []string {
+	byMessage, err := uc.attachRepo.ListByMessageIDs([]uuid.UUID{messageID})
+	if err != nil {
+		slog.Error("list attachments before message delete failed",
+			"message_id", messageID, "error", err)
+		return nil
+	}
+
+	var keys []string
+	for _, a := range byMessage[messageID] {
+		keys = append(keys, a.StorageKey)
+		if a.ThumbKey != "" {
+			keys = append(keys, a.ThumbKey)
+		}
+	}
+	return keys
+}
+
+// deleteFiles удаляет файлы уже удалённого сообщения. Сообщения в БД больше
+// нет, откатывать нечего — остаётся только сообщить о проблеме в лог.
+func (uc *messageUseCase) deleteFiles(keys []string) {
+	if len(keys) == 0 {
+		return
+	}
+	ctx := context.Background()
+	for _, key := range keys {
+		if err := uc.storage.Delete(ctx, key); err != nil {
+			slog.Error("delete attachment file after message delete failed",
+				"key", key, "error", err)
+		}
+	}
 }

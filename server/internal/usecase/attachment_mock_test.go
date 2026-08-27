@@ -38,6 +38,11 @@ func (m *MockAttachmentRepository) Delete(id uuid.UUID) error {
 	return m.Called(id).Error(0)
 }
 
+func (m *MockAttachmentRepository) DeleteIfUnattached(id uuid.UUID) (bool, error) {
+	args := m.Called(id)
+	return args.Bool(0), args.Error(1)
+}
+
 func (m *MockAttachmentRepository) ListSweepable(now, orphanBefore time.Time, limit int) ([]*domain.Attachment, error) {
 	args := m.Called(now, orphanBefore, limit)
 	if args.Get(0) == nil {

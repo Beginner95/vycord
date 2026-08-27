@@ -86,6 +86,11 @@ type AttachmentRepository interface {
 	// не привязано. Иначе — ErrAttachmentNotFound / ErrAttachmentAlreadyAttached.
 	AttachToMessage(messageID, userID, channelID uuid.UUID, ids []uuid.UUID) error
 	Delete(id uuid.UUID) error
+	// DeleteIfUnattached удаляет вложение, только если оно всё ещё не
+	// привязано к сообщению, и сообщает, была ли строка удалена. Нужен
+	// уборщику: между выборкой сирот и удалением черновик мог уйти в
+	// сообщение, и безусловный Delete вырезал бы файл из отправленного.
+	DeleteIfUnattached(id uuid.UUID) (bool, error)
 	// ListSweepable отдаёт сирот старше orphanBefore и всё протухшее по now.
 	ListSweepable(now, orphanBefore time.Time, limit int) ([]*Attachment, error)
 	TotalBytesByUser(userID uuid.UUID) (int64, error)

@@ -163,7 +163,7 @@ func TestCreateMessage_WithSendPermission_Success(t *testing.T) {
 	chRepo.On("GetByID", channelID).Return(&domain.Channel{ID: channelID, ServerID: serverID}, nil)
 	msgRepo.On("Create", mock.AnythingOfType("*domain.Message")).Return(nil)
 
-	uc := usecase.NewMessageUseCase(msgRepo, chRepo, srvRepo, &MockStickerRepository{}, perms, new(MockAttachmentRepository))
+	uc := usecase.NewMessageUseCase(msgRepo, chRepo, srvRepo, &MockStickerRepository{}, perms, new(MockAttachmentRepository), new(MockStorage))
 	msg, err := uc.CreateMessage(channelID, userID, "hello", nil, nil)
 
 	assert.NoError(t, err)
@@ -183,7 +183,7 @@ func TestCreateMessage_WithoutSendPermission_Forbidden(t *testing.T) {
 
 	chRepo.On("GetByID", channelID).Return(&domain.Channel{ID: channelID, ServerID: serverID}, nil)
 
-	uc := usecase.NewMessageUseCase(msgRepo, chRepo, srvRepo, &MockStickerRepository{}, perms, new(MockAttachmentRepository))
+	uc := usecase.NewMessageUseCase(msgRepo, chRepo, srvRepo, &MockStickerRepository{}, perms, new(MockAttachmentRepository), new(MockStorage))
 	got, err := uc.CreateMessage(channelID, userID, "привет", nil, nil)
 
 	assert.Nil(t, got)
@@ -201,7 +201,7 @@ func TestCreateMessage_ChannelNotFound(t *testing.T) {
 
 	chRepo.On("GetByID", channelID).Return(nil, fmt.Errorf("channel %s: %w", channelID, domain.ErrChannelNotFound))
 
-	uc := usecase.NewMessageUseCase(msgRepo, chRepo, srvRepo, &MockStickerRepository{}, perms, new(MockAttachmentRepository))
+	uc := usecase.NewMessageUseCase(msgRepo, chRepo, srvRepo, &MockStickerRepository{}, perms, new(MockAttachmentRepository), new(MockStorage))
 	msg, err := uc.CreateMessage(channelID, userID, "hello", nil, nil)
 
 	assert.Nil(t, msg)
@@ -221,7 +221,7 @@ func TestCreateMessage_Owner_Success(t *testing.T) {
 	chRepo.On("GetByID", channelID).Return(&domain.Channel{ID: channelID, ServerID: serverID}, nil)
 	msgRepo.On("Create", mock.AnythingOfType("*domain.Message")).Return(nil)
 
-	uc := usecase.NewMessageUseCase(msgRepo, chRepo, srvRepo, &MockStickerRepository{}, perms, new(MockAttachmentRepository))
+	uc := usecase.NewMessageUseCase(msgRepo, chRepo, srvRepo, &MockStickerRepository{}, perms, new(MockAttachmentRepository), new(MockStorage))
 	msg, err := uc.CreateMessage(channelID, ownerID, "hello", nil, nil)
 
 	assert.NoError(t, err)
@@ -244,7 +244,7 @@ func TestGetMessages_WithViewPermission_ReturnsMessages(t *testing.T) {
 	attachRepo := new(MockAttachmentRepository)
 	attachRepo.On("ListByMessageIDs", mock.Anything).Return(map[uuid.UUID][]*domain.Attachment{}, nil)
 
-	uc := usecase.NewMessageUseCase(msgRepo, chRepo, srvRepo, &MockStickerRepository{}, perms, attachRepo)
+	uc := usecase.NewMessageUseCase(msgRepo, chRepo, srvRepo, &MockStickerRepository{}, perms, attachRepo, new(MockStorage))
 	got, err := uc.GetMessages(channelID, userID, 0, 0) // limit 0 -> нормализуется в 50
 
 	assert.NoError(t, err)
@@ -261,7 +261,7 @@ func TestGetMessages_WithoutViewPermission_Forbidden(t *testing.T) {
 
 	chRepo.On("GetByID", channelID).Return(&domain.Channel{ID: channelID, ServerID: serverID}, nil)
 
-	uc := usecase.NewMessageUseCase(msgRepo, chRepo, srvRepo, &MockStickerRepository{}, perms, new(MockAttachmentRepository))
+	uc := usecase.NewMessageUseCase(msgRepo, chRepo, srvRepo, &MockStickerRepository{}, perms, new(MockAttachmentRepository), new(MockStorage))
 	got, err := uc.GetMessages(channelID, userID, 50, 0)
 
 	assert.Nil(t, got)
@@ -284,7 +284,7 @@ func TestGetMessages_Owner_ReturnsMessages(t *testing.T) {
 	attachRepo := new(MockAttachmentRepository)
 	attachRepo.On("ListByMessageIDs", mock.Anything).Return(map[uuid.UUID][]*domain.Attachment{}, nil)
 
-	uc := usecase.NewMessageUseCase(msgRepo, chRepo, srvRepo, &MockStickerRepository{}, perms, attachRepo)
+	uc := usecase.NewMessageUseCase(msgRepo, chRepo, srvRepo, &MockStickerRepository{}, perms, attachRepo, new(MockStorage))
 	got, err := uc.GetMessages(channelID, ownerID, 50, 0)
 
 	assert.NoError(t, err)
@@ -307,7 +307,7 @@ func TestUpdateMessage_Author_ContentChanged_Success(t *testing.T) {
 	attachRepo := new(MockAttachmentRepository)
 	attachRepo.On("ListByMessageIDs", mock.Anything).Return(map[uuid.UUID][]*domain.Attachment{}, nil)
 
-	uc := usecase.NewMessageUseCase(msgRepo, chRepo, srvRepo, &MockStickerRepository{}, perms, attachRepo)
+	uc := usecase.NewMessageUseCase(msgRepo, chRepo, srvRepo, &MockStickerRepository{}, perms, attachRepo, new(MockStorage))
 	msg, err := uc.UpdateMessage(channelID, messageID, userID, "new")
 
 	assert.NoError(t, err)
@@ -327,7 +327,7 @@ func TestUpdateMessage_ContentUnchanged_NoOp(t *testing.T) {
 	existing := &domain.Message{ID: messageID, ChannelID: channelID, UserID: userID, Content: "same"}
 	msgRepo.On("GetByID", messageID).Return(existing, nil)
 
-	uc := usecase.NewMessageUseCase(msgRepo, chRepo, srvRepo, &MockStickerRepository{}, perms, new(MockAttachmentRepository))
+	uc := usecase.NewMessageUseCase(msgRepo, chRepo, srvRepo, &MockStickerRepository{}, perms, new(MockAttachmentRepository), new(MockStorage))
 	msg, err := uc.UpdateMessage(channelID, messageID, userID, "same")
 
 	assert.NoError(t, err)
@@ -347,7 +347,7 @@ func TestUpdateMessage_NotAuthor_Forbidden(t *testing.T) {
 	existing := &domain.Message{ID: messageID, ChannelID: channelID, UserID: authorID, Content: "old"}
 	msgRepo.On("GetByID", messageID).Return(existing, nil)
 
-	uc := usecase.NewMessageUseCase(msgRepo, chRepo, srvRepo, &MockStickerRepository{}, perms, new(MockAttachmentRepository))
+	uc := usecase.NewMessageUseCase(msgRepo, chRepo, srvRepo, &MockStickerRepository{}, perms, new(MockAttachmentRepository), new(MockStorage))
 	msg, err := uc.UpdateMessage(channelID, messageID, userID, "new")
 
 	assert.Nil(t, msg)
@@ -366,7 +366,7 @@ func TestUpdateMessage_MessageNotFound(t *testing.T) {
 	chRepo.On("GetByID", channelID).Return(&domain.Channel{ID: channelID, ServerID: serverID}, nil)
 	msgRepo.On("GetByID", messageID).Return(nil, fmt.Errorf("message %s: %w", messageID, domain.ErrMessageNotFound))
 
-	uc := usecase.NewMessageUseCase(msgRepo, chRepo, srvRepo, &MockStickerRepository{}, perms, new(MockAttachmentRepository))
+	uc := usecase.NewMessageUseCase(msgRepo, chRepo, srvRepo, &MockStickerRepository{}, perms, new(MockAttachmentRepository), new(MockStorage))
 	msg, err := uc.UpdateMessage(channelID, messageID, userID, "new")
 
 	assert.Nil(t, msg)
@@ -385,7 +385,7 @@ func TestUpdateMessage_WrongChannel_NotFound(t *testing.T) {
 	existing := &domain.Message{ID: messageID, ChannelID: otherChannelID, UserID: userID, Content: "old"}
 	msgRepo.On("GetByID", messageID).Return(existing, nil)
 
-	uc := usecase.NewMessageUseCase(msgRepo, chRepo, srvRepo, &MockStickerRepository{}, perms, new(MockAttachmentRepository))
+	uc := usecase.NewMessageUseCase(msgRepo, chRepo, srvRepo, &MockStickerRepository{}, perms, new(MockAttachmentRepository), new(MockStorage))
 	msg, err := uc.UpdateMessage(channelID, messageID, userID, "new")
 
 	assert.Nil(t, msg)
@@ -403,7 +403,7 @@ func TestUpdateMessage_WithoutSendPermission_Forbidden(t *testing.T) {
 
 	chRepo.On("GetByID", channelID).Return(&domain.Channel{ID: channelID, ServerID: serverID}, nil)
 
-	uc := usecase.NewMessageUseCase(msgRepo, chRepo, srvRepo, &MockStickerRepository{}, perms, new(MockAttachmentRepository))
+	uc := usecase.NewMessageUseCase(msgRepo, chRepo, srvRepo, &MockStickerRepository{}, perms, new(MockAttachmentRepository), new(MockStorage))
 	msg, err := uc.UpdateMessage(channelID, messageID, userID, "new")
 
 	assert.Nil(t, msg)
@@ -423,12 +423,74 @@ func TestDeleteMessage_Author_Success(t *testing.T) {
 	existing := &domain.Message{ID: messageID, ChannelID: channelID, UserID: userID, Content: "bye"}
 	msgRepo.On("GetByID", messageID).Return(existing, nil)
 	msgRepo.On("Delete", messageID).Return(nil)
+	attachRepo := new(MockAttachmentRepository)
+	attachRepo.On("ListByMessageIDs", []uuid.UUID{messageID}).
+		Return(map[uuid.UUID][]*domain.Attachment{}, nil)
 
-	uc := usecase.NewMessageUseCase(msgRepo, chRepo, srvRepo, &MockStickerRepository{}, perms, new(MockAttachmentRepository))
+	uc := usecase.NewMessageUseCase(msgRepo, chRepo, srvRepo, &MockStickerRepository{}, perms, attachRepo, new(MockStorage))
 	err := uc.DeleteMessage(channelID, messageID, userID)
 
 	assert.NoError(t, err)
 	msgRepo.AssertCalled(t, "Delete", messageID)
+}
+
+func TestDeleteMessageRemovesAttachmentFiles(t *testing.T) {
+	// Строки attachments уносит ON DELETE CASCADE, поэтому после удаления
+	// сообщения файлы на диске уже нечем найти: уборщик ходит по строкам в БД.
+	// Забирать ключи обязаны до удаления, а удалять файлы — после.
+	channelID, serverID, userID, messageID := uuid.New(), uuid.New(), uuid.New(), uuid.New()
+
+	msgRepo := new(MockMessageRepository)
+	chRepo := new(MockChannelRepository)
+	perms := permsWith(serverID, userID, domain.PermSendMessages)
+	attachRepo := new(MockAttachmentRepository)
+	storage := new(MockStorage)
+
+	chRepo.On("GetByID", channelID).Return(&domain.Channel{ID: channelID, ServerID: serverID}, nil)
+	msgRepo.On("GetByID", messageID).
+		Return(&domain.Message{ID: messageID, ChannelID: channelID, UserID: userID}, nil)
+	msgRepo.On("Delete", messageID).Return(nil)
+	attachRepo.On("ListByMessageIDs", []uuid.UUID{messageID}).Return(
+		map[uuid.UUID][]*domain.Attachment{messageID: {
+			{ID: uuid.New(), StorageKey: "attachments/c/a.png", ThumbKey: "attachments/c/a_thumb.jpg"},
+			{ID: uuid.New(), StorageKey: "attachments/c/b.pdf"},
+		}}, nil)
+	storage.On("Delete", mock.Anything, mock.Anything).Return(nil)
+
+	uc := usecase.NewMessageUseCase(msgRepo, chRepo, new(MockServerRepository), &MockStickerRepository{}, perms, attachRepo, storage)
+	err := uc.DeleteMessage(channelID, messageID, userID)
+
+	require.NoError(t, err)
+	storage.AssertCalled(t, "Delete", mock.Anything, "attachments/c/a.png")
+	storage.AssertCalled(t, "Delete", mock.Anything, "attachments/c/a_thumb.jpg")
+	storage.AssertCalled(t, "Delete", mock.Anything, "attachments/c/b.pdf")
+	storage.AssertNumberOfCalls(t, "Delete", 3)
+}
+
+func TestDeleteMessageSurvivesStorageFailure(t *testing.T) {
+	// Сообщение уже удалено — откатывать нечего. Провал уборки файла не должен
+	// превращаться в ошибку у пользователя.
+	channelID, serverID, userID, messageID := uuid.New(), uuid.New(), uuid.New(), uuid.New()
+
+	msgRepo := new(MockMessageRepository)
+	chRepo := new(MockChannelRepository)
+	perms := permsWith(serverID, userID, domain.PermSendMessages)
+	attachRepo := new(MockAttachmentRepository)
+	storage := new(MockStorage)
+
+	chRepo.On("GetByID", channelID).Return(&domain.Channel{ID: channelID, ServerID: serverID}, nil)
+	msgRepo.On("GetByID", messageID).
+		Return(&domain.Message{ID: messageID, ChannelID: channelID, UserID: userID}, nil)
+	msgRepo.On("Delete", messageID).Return(nil)
+	attachRepo.On("ListByMessageIDs", []uuid.UUID{messageID}).Return(
+		map[uuid.UUID][]*domain.Attachment{messageID: {
+			{ID: uuid.New(), StorageKey: "attachments/c/a.png"},
+		}}, nil)
+	storage.On("Delete", mock.Anything, mock.Anything).Return(errors.New("disk on fire"))
+
+	uc := usecase.NewMessageUseCase(msgRepo, chRepo, new(MockServerRepository), &MockStickerRepository{}, perms, attachRepo, storage)
+
+	assert.NoError(t, uc.DeleteMessage(channelID, messageID, userID))
 }
 
 func TestDeleteMessage_NotAuthor_Forbidden(t *testing.T) {
@@ -443,7 +505,7 @@ func TestDeleteMessage_NotAuthor_Forbidden(t *testing.T) {
 	existing := &domain.Message{ID: messageID, ChannelID: channelID, UserID: authorID, Content: "bye"}
 	msgRepo.On("GetByID", messageID).Return(existing, nil)
 
-	uc := usecase.NewMessageUseCase(msgRepo, chRepo, srvRepo, &MockStickerRepository{}, perms, new(MockAttachmentRepository))
+	uc := usecase.NewMessageUseCase(msgRepo, chRepo, srvRepo, &MockStickerRepository{}, perms, new(MockAttachmentRepository), new(MockStorage))
 	err := uc.DeleteMessage(channelID, messageID, userID)
 
 	assert.ErrorIs(t, err, domain.ErrForbidden)
@@ -461,7 +523,7 @@ func TestDeleteMessage_MessageNotFound(t *testing.T) {
 	chRepo.On("GetByID", channelID).Return(&domain.Channel{ID: channelID, ServerID: serverID}, nil)
 	msgRepo.On("GetByID", messageID).Return(nil, fmt.Errorf("message %s: %w", messageID, domain.ErrMessageNotFound))
 
-	uc := usecase.NewMessageUseCase(msgRepo, chRepo, srvRepo, &MockStickerRepository{}, perms, new(MockAttachmentRepository))
+	uc := usecase.NewMessageUseCase(msgRepo, chRepo, srvRepo, &MockStickerRepository{}, perms, new(MockAttachmentRepository), new(MockStorage))
 	err := uc.DeleteMessage(channelID, messageID, userID)
 
 	assert.ErrorIs(t, err, domain.ErrMessageNotFound)
@@ -479,7 +541,7 @@ func TestDeleteMessage_WrongChannel_NotFound(t *testing.T) {
 	existing := &domain.Message{ID: messageID, ChannelID: otherChannelID, UserID: userID, Content: "bye"}
 	msgRepo.On("GetByID", messageID).Return(existing, nil)
 
-	uc := usecase.NewMessageUseCase(msgRepo, chRepo, srvRepo, &MockStickerRepository{}, perms, new(MockAttachmentRepository))
+	uc := usecase.NewMessageUseCase(msgRepo, chRepo, srvRepo, &MockStickerRepository{}, perms, new(MockAttachmentRepository), new(MockStorage))
 	err := uc.DeleteMessage(channelID, messageID, userID)
 
 	assert.ErrorIs(t, err, domain.ErrMessageNotFound)
@@ -496,7 +558,7 @@ func TestDeleteMessage_WithoutSendPermission_Forbidden(t *testing.T) {
 
 	chRepo.On("GetByID", channelID).Return(&domain.Channel{ID: channelID, ServerID: serverID}, nil)
 
-	uc := usecase.NewMessageUseCase(msgRepo, chRepo, srvRepo, &MockStickerRepository{}, perms, new(MockAttachmentRepository))
+	uc := usecase.NewMessageUseCase(msgRepo, chRepo, srvRepo, &MockStickerRepository{}, perms, new(MockAttachmentRepository), new(MockStorage))
 	err := uc.DeleteMessage(channelID, messageID, userID)
 
 	assert.ErrorIs(t, err, domain.ErrForbidden)
@@ -516,7 +578,7 @@ func TestCreateMessage_ValidUserMention_Success(t *testing.T) {
 	msgRepo.On("Create", mock.AnythingOfType("*domain.Message")).Return(nil)
 
 	content := "hi <@" + mentionedID.String() + ">"
-	uc := usecase.NewMessageUseCase(msgRepo, chRepo, srvRepo, &MockStickerRepository{}, perms, new(MockAttachmentRepository))
+	uc := usecase.NewMessageUseCase(msgRepo, chRepo, srvRepo, &MockStickerRepository{}, perms, new(MockAttachmentRepository), new(MockStorage))
 	msg, err := uc.CreateMessage(channelID, userID, content, nil, nil)
 
 	assert.NoError(t, err)
@@ -535,7 +597,7 @@ func TestCreateMessage_MentionNonMember_InvalidMention(t *testing.T) {
 	srvRepo.On("IsMember", serverID, mentionedID).Return(false, nil)
 
 	content := "hi <@" + mentionedID.String() + ">"
-	uc := usecase.NewMessageUseCase(msgRepo, chRepo, srvRepo, &MockStickerRepository{}, perms, new(MockAttachmentRepository))
+	uc := usecase.NewMessageUseCase(msgRepo, chRepo, srvRepo, &MockStickerRepository{}, perms, new(MockAttachmentRepository), new(MockStorage))
 	msg, err := uc.CreateMessage(channelID, userID, content, nil, nil)
 
 	assert.Nil(t, msg)
@@ -554,7 +616,7 @@ func TestCreateMessage_EveryoneWithPermission_Success(t *testing.T) {
 	chRepo.On("GetByID", channelID).Return(&domain.Channel{ID: channelID, ServerID: serverID}, nil)
 	msgRepo.On("Create", mock.AnythingOfType("*domain.Message")).Return(nil)
 
-	uc := usecase.NewMessageUseCase(msgRepo, chRepo, srvRepo, &MockStickerRepository{}, perms, new(MockAttachmentRepository))
+	uc := usecase.NewMessageUseCase(msgRepo, chRepo, srvRepo, &MockStickerRepository{}, perms, new(MockAttachmentRepository), new(MockStorage))
 	got, err := uc.CreateMessage(channelID, userID, "внимание @everyone", nil, nil)
 
 	require.NoError(t, err)
@@ -571,7 +633,7 @@ func TestCreateMessage_EveryoneWithoutPermission_Forbidden(t *testing.T) {
 
 	chRepo.On("GetByID", channelID).Return(&domain.Channel{ID: channelID, ServerID: serverID}, nil)
 
-	uc := usecase.NewMessageUseCase(msgRepo, chRepo, srvRepo, &MockStickerRepository{}, perms, new(MockAttachmentRepository))
+	uc := usecase.NewMessageUseCase(msgRepo, chRepo, srvRepo, &MockStickerRepository{}, perms, new(MockAttachmentRepository), new(MockStorage))
 	got, err := uc.CreateMessage(channelID, userID, "внимание @everyone", nil, nil)
 
 	assert.Nil(t, got)
@@ -589,7 +651,7 @@ func TestCreateMessage_NoMentions_SkipsMentionChecks(t *testing.T) {
 	chRepo.On("GetByID", channelID).Return(&domain.Channel{ID: channelID, ServerID: serverID}, nil)
 	msgRepo.On("Create", mock.AnythingOfType("*domain.Message")).Return(nil)
 
-	uc := usecase.NewMessageUseCase(msgRepo, chRepo, srvRepo, &MockStickerRepository{}, perms, new(MockAttachmentRepository))
+	uc := usecase.NewMessageUseCase(msgRepo, chRepo, srvRepo, &MockStickerRepository{}, perms, new(MockAttachmentRepository), new(MockStorage))
 	msg, err := uc.CreateMessage(channelID, userID, "just a normal message", nil, nil)
 
 	assert.NoError(t, err)
@@ -614,7 +676,7 @@ func TestSearchMessages_WithViewPermission_ReturnsResults(t *testing.T) {
 	attachRepo := new(MockAttachmentRepository)
 	attachRepo.On("ListByMessageIDs", mock.Anything).Return(map[uuid.UUID][]*domain.Attachment{}, nil)
 
-	uc := usecase.NewMessageUseCase(msgRepo, chRepo, srvRepo, &MockStickerRepository{}, perms, attachRepo)
+	uc := usecase.NewMessageUseCase(msgRepo, chRepo, srvRepo, &MockStickerRepository{}, perms, attachRepo, new(MockStorage))
 	got, total, err := uc.SearchMessages(channelID, userID, "баг", 0, 0) // limit 0 -> нормализуется в 25
 
 	assert.NoError(t, err)
@@ -632,7 +694,7 @@ func TestSearchMessages_WithoutViewPermission_Forbidden(t *testing.T) {
 
 	chRepo.On("GetByID", channelID).Return(&domain.Channel{ID: channelID, ServerID: serverID}, nil)
 
-	uc := usecase.NewMessageUseCase(msgRepo, chRepo, srvRepo, &MockStickerRepository{}, perms, new(MockAttachmentRepository))
+	uc := usecase.NewMessageUseCase(msgRepo, chRepo, srvRepo, &MockStickerRepository{}, perms, new(MockAttachmentRepository), new(MockStorage))
 	got, total, err := uc.SearchMessages(channelID, userID, "баг", 25, 0)
 
 	assert.Nil(t, got)
@@ -652,7 +714,7 @@ func TestSearchMessages_LimitCapped(t *testing.T) {
 	chRepo.On("GetByID", channelID).Return(&domain.Channel{ID: channelID, ServerID: serverID}, nil)
 	msgRepo.On("Search", channelID, "баг", 50, 0).Return([]*domain.MessageWithAuthor{}, 0, nil)
 
-	uc := usecase.NewMessageUseCase(msgRepo, chRepo, srvRepo, &MockStickerRepository{}, perms, new(MockAttachmentRepository))
+	uc := usecase.NewMessageUseCase(msgRepo, chRepo, srvRepo, &MockStickerRepository{}, perms, new(MockAttachmentRepository), new(MockStorage))
 	_, _, err := uc.SearchMessages(channelID, userID, "баг", 500, 0) // 500 -> кэп 50
 
 	assert.NoError(t, err)
@@ -674,7 +736,7 @@ func TestGetMessagesAround_WithViewPermission_ReturnsMessages(t *testing.T) {
 	attachRepo := new(MockAttachmentRepository)
 	attachRepo.On("ListByMessageIDs", mock.Anything).Return(map[uuid.UUID][]*domain.Attachment{}, nil)
 
-	uc := usecase.NewMessageUseCase(msgRepo, chRepo, srvRepo, &MockStickerRepository{}, perms, attachRepo)
+	uc := usecase.NewMessageUseCase(msgRepo, chRepo, srvRepo, &MockStickerRepository{}, perms, attachRepo, new(MockStorage))
 	got, err := uc.GetMessagesAround(channelID, messageID, userID, 0) // limit 0 -> 25
 
 	assert.NoError(t, err)
@@ -691,7 +753,7 @@ func TestGetMessagesAround_WithoutViewPermission_Forbidden(t *testing.T) {
 
 	chRepo.On("GetByID", channelID).Return(&domain.Channel{ID: channelID, ServerID: serverID}, nil)
 
-	uc := usecase.NewMessageUseCase(msgRepo, chRepo, srvRepo, &MockStickerRepository{}, perms, new(MockAttachmentRepository))
+	uc := usecase.NewMessageUseCase(msgRepo, chRepo, srvRepo, &MockStickerRepository{}, perms, new(MockAttachmentRepository), new(MockStorage))
 	got, err := uc.GetMessagesAround(channelID, messageID, userID, 25)
 
 	assert.Nil(t, got)
@@ -713,7 +775,7 @@ func TestUpdateMessage_MentionNonMember_InvalidMention(t *testing.T) {
 	msgRepo.On("GetByID", messageID).Return(existing, nil)
 
 	content := "hi <@" + mentionedID.String() + ">"
-	uc := usecase.NewMessageUseCase(msgRepo, chRepo, srvRepo, &MockStickerRepository{}, perms, new(MockAttachmentRepository))
+	uc := usecase.NewMessageUseCase(msgRepo, chRepo, srvRepo, &MockStickerRepository{}, perms, new(MockAttachmentRepository), new(MockStorage))
 	msg, err := uc.UpdateMessage(channelID, messageID, userID, content)
 
 	assert.Nil(t, msg)
@@ -736,7 +798,7 @@ func TestMessageUseCase_CreateStickerMessage_EmptyIsAllowed(t *testing.T) {
 	msgRepo := new(MockMessageRepository)
 	msgRepo.On("Create", mock.MatchedBy(func(m *domain.Message) bool { return m.StickerID != nil })).Return(nil)
 
-	uc := usecase.NewMessageUseCase(msgRepo, chRepo, &MockServerRepository{}, stickerRepo, perms, new(MockAttachmentRepository))
+	uc := usecase.NewMessageUseCase(msgRepo, chRepo, &MockServerRepository{}, stickerRepo, perms, new(MockAttachmentRepository), new(MockStorage))
 	msg, err := uc.CreateMessage(ch.ID, uuid.New(), "", &sticker.ID, nil)
 	require.NoError(t, err)
 	assert.Equal(t, "", msg.Content)
@@ -760,7 +822,7 @@ func TestMessageUseCase_CreateStickerMessage_InvalidServer(t *testing.T) {
 
 	msgRepo := new(MockMessageRepository)
 
-	uc := usecase.NewMessageUseCase(msgRepo, chRepo, &MockServerRepository{}, stickerRepo, perms, new(MockAttachmentRepository))
+	uc := usecase.NewMessageUseCase(msgRepo, chRepo, &MockServerRepository{}, stickerRepo, perms, new(MockAttachmentRepository), new(MockStorage))
 	msg, err := uc.CreateMessage(ch.ID, uuid.New(), "", &sticker.ID, nil)
 	assert.Nil(t, msg)
 	assert.ErrorIs(t, err, domain.ErrStickerNotFound)
@@ -783,7 +845,7 @@ func TestCreateMessageWithAttachmentsLinksThem(t *testing.T) {
 	attachRepo.On("AttachToMessage", mock.Anything, userID, channelID, []uuid.UUID{attID}).Return(nil)
 	attachRepo.On("ListByMessageIDs", mock.Anything).Return(map[uuid.UUID][]*domain.Attachment{}, nil).Maybe()
 
-	uc := usecase.NewMessageUseCase(msgRepo, chRepo, srvRepo, new(MockStickerRepository), perms, attachRepo)
+	uc := usecase.NewMessageUseCase(msgRepo, chRepo, srvRepo, new(MockStickerRepository), perms, attachRepo, new(MockStorage))
 
 	msg, err := uc.CreateMessage(channelID, userID, "смотри", nil, []uuid.UUID{attID})
 
@@ -810,7 +872,7 @@ func TestCreateMessageAllowsEmptyTextWhenAttachmentPresent(t *testing.T) {
 	// мок testify паникует на незаявленном вызове.
 	attachRepo.On("ListByMessageIDs", mock.Anything).Return(map[uuid.UUID][]*domain.Attachment{}, nil).Maybe()
 
-	uc := usecase.NewMessageUseCase(msgRepo, chRepo, new(MockServerRepository), new(MockStickerRepository), perms, attachRepo)
+	uc := usecase.NewMessageUseCase(msgRepo, chRepo, new(MockServerRepository), new(MockStickerRepository), perms, attachRepo, new(MockStorage))
 
 	_, err := uc.CreateMessage(channelID, userID, "", nil, []uuid.UUID{attID})
 
@@ -825,7 +887,7 @@ func TestCreateMessageStillRejectsFullyEmptyMessage(t *testing.T) {
 	perms.On("Resolve", serverID, userID).Return(domain.PermissionSet{Bits: domain.PermAll}, nil)
 
 	uc := usecase.NewMessageUseCase(new(MockMessageRepository), chRepo, new(MockServerRepository),
-		new(MockStickerRepository), perms, new(MockAttachmentRepository))
+		new(MockStickerRepository), perms, new(MockAttachmentRepository), new(MockStorage))
 
 	_, err := uc.CreateMessage(channelID, userID, "", nil, nil)
 
@@ -850,7 +912,7 @@ func TestCreateMessageRejectsForeignAttachment(t *testing.T) {
 	attachRepo.On("AttachToMessage", mock.Anything, userID, channelID, []uuid.UUID{attID}).
 		Return(domain.ErrAttachmentNotFound)
 
-	uc := usecase.NewMessageUseCase(msgRepo, chRepo, new(MockServerRepository), new(MockStickerRepository), perms, attachRepo)
+	uc := usecase.NewMessageUseCase(msgRepo, chRepo, new(MockServerRepository), new(MockStickerRepository), perms, attachRepo, new(MockStorage))
 
 	_, err := uc.CreateMessage(channelID, userID, "текст", nil, []uuid.UUID{attID})
 
@@ -868,7 +930,7 @@ func TestCreateMessageRejectsStickerWithAttachments(t *testing.T) {
 	perms.On("Resolve", serverID, userID).Return(domain.PermissionSet{Bits: domain.PermAll}, nil)
 
 	uc := usecase.NewMessageUseCase(new(MockMessageRepository), chRepo, new(MockServerRepository),
-		new(MockStickerRepository), perms, new(MockAttachmentRepository))
+		new(MockStickerRepository), perms, new(MockAttachmentRepository), new(MockStorage))
 
 	_, err := uc.CreateMessage(channelID, userID, "", &stickerID, []uuid.UUID{uuid.New()})
 
@@ -893,7 +955,7 @@ func TestCreateMessageDedupesDuplicateAttachmentIDs(t *testing.T) {
 	attachRepo.On("AttachToMessage", mock.Anything, userID, channelID, []uuid.UUID{attID}).Return(nil)
 	attachRepo.On("ListByMessageIDs", mock.Anything).Return(map[uuid.UUID][]*domain.Attachment{}, nil).Maybe()
 
-	uc := usecase.NewMessageUseCase(msgRepo, chRepo, new(MockServerRepository), new(MockStickerRepository), perms, attachRepo)
+	uc := usecase.NewMessageUseCase(msgRepo, chRepo, new(MockServerRepository), new(MockStickerRepository), perms, attachRepo, new(MockStorage))
 
 	_, err := uc.CreateMessage(channelID, userID, "текст", nil, []uuid.UUID{attID, attID})
 
@@ -919,7 +981,7 @@ func TestUpdateMessageKeepsAttachments(t *testing.T) {
 	attachRepo.On("ListByMessageIDs", []uuid.UUID{msgID}).
 		Return(map[uuid.UUID][]*domain.Attachment{msgID: {{ID: attID, Kind: domain.AttachmentKindImage}}}, nil)
 
-	uc := usecase.NewMessageUseCase(msgRepo, chRepo, new(MockServerRepository), new(MockStickerRepository), perms, attachRepo)
+	uc := usecase.NewMessageUseCase(msgRepo, chRepo, new(MockServerRepository), new(MockStickerRepository), perms, attachRepo, new(MockStorage))
 
 	msg, err := uc.UpdateMessage(channelID, msgID, userID, "новый текст")
 
@@ -946,7 +1008,7 @@ func TestCreateMessageSurfacesRollbackFailure(t *testing.T) {
 	attachRepo.On("AttachToMessage", mock.Anything, userID, channelID, []uuid.UUID{attID}).
 		Return(domain.ErrAttachmentNotFound)
 
-	uc := usecase.NewMessageUseCase(msgRepo, chRepo, new(MockServerRepository), new(MockStickerRepository), perms, attachRepo)
+	uc := usecase.NewMessageUseCase(msgRepo, chRepo, new(MockServerRepository), new(MockStickerRepository), perms, attachRepo, new(MockStorage))
 
 	_, err := uc.CreateMessage(channelID, userID, "текст", nil, []uuid.UUID{attID})
 

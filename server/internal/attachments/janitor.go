@@ -55,9 +55,35 @@ func (j *Janitor) Sweep(ctx context.Context, now time.Time) (int, error) {
 
 	deleted := 0
 	for _, a := range list {
-		// Ошибку удаления файла логируем, но строку всё равно убираем: файла
-		// может уже не быть, и оставленная строка заставила бы уборщик
-		// спотыкаться о неё на каждом проходе.
+		// Строку удаляем ПЕРВОЙ и только потом файл. Обратный порядок означал
+		// бы, что между выборкой и удалением привязанный к сообщению черновик
+		// уже лишился файла, а строка осталась — в ленте битая картинка.
+		var (
+			removed bool
+			err     error
+		)
+		if a.MessageID == nil {
+			// Сирота: за время прохода её могли привязать к сообщению, поэтому
+			// удаление условное. Не удалилось — значит вложение живое, руками
+			// его не трогаем, оно просто больше не сирота.
+			removed, err = j.repo.DeleteIfUnattached(a.ID)
+		} else {
+			// Протухшее по сроку хранения: привязанность роли не играет, срок
+			// истёк и для отправленного сообщения тоже.
+			err = j.repo.Delete(a.ID)
+			removed = err == nil
+		}
+		if err != nil {
+			j.log.Error("delete attachment row failed", "attachment_id", a.ID, "error", err)
+			continue
+		}
+		if !removed {
+			j.log.Info("attachment attached while sweeping, kept", "attachment_id", a.ID)
+			continue
+		}
+
+		// Строки уже нет, откатывать нечего: провал удаления файла остаётся
+		// в логе, иначе уборщик спотыкался бы о него на каждом проходе.
 		if err := j.storage.Delete(ctx, a.StorageKey); err != nil {
 			j.log.Warn("delete attachment file failed", "attachment_id", a.ID, "key", a.StorageKey, "error", err)
 		}
@@ -65,10 +91,6 @@ func (j *Janitor) Sweep(ctx context.Context, now time.Time) (int, error) {
 			if err := j.storage.Delete(ctx, a.ThumbKey); err != nil {
 				j.log.Warn("delete attachment thumbnail failed", "attachment_id", a.ID, "key", a.ThumbKey, "error", err)
 			}
-		}
-		if err := j.repo.Delete(a.ID); err != nil {
-			j.log.Error("delete attachment row failed", "attachment_id", a.ID, "error", err)
-			continue
 		}
 		deleted++
 	}
