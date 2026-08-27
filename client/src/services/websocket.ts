@@ -4,12 +4,24 @@ import { computeBackoffDelay } from '@/services/backoff';
 
 const WS_URL = import.meta.env.VITE_WS_URL || 'ws://localhost:8080';
 
+/**
+ * Сколько соединение должно прожить, чтобы попытка засчиталась успешной и
+ * backoff обнулился. Handshake при вытеснении всегда успешен (сервер отвечает
+ * 101 и только потом рвёт сокет), поэтому сброс счётчика по `onopen` держал
+ * задержку на минимуме вечно: две сессии одного пользователя выбивали друг
+ * друга по два раза в секунду сутки напролёт.
+ */
+const MIN_HEALTHY_CONNECTION_MS = 10_000;
+
 class WebSocketService {
   private ws: WebSocket | null = null;
   private reconnectTimer: number | null = null;
   // Consecutive failed attempts since the last successful open — grows the
-  // backoff ceiling computeBackoffDelay draws from, reset to 0 on 'open'.
+  // backoff ceiling computeBackoffDelay draws from, reset to 0 in handleClose
+  // once the connection has proven itself healthy (see MIN_HEALTHY_CONNECTION_MS).
   private reconnectAttempt = 0;
+  // Момент последнего успешного `open`; null — соединение ни разу не открылось.
+  private openedAt: number | null = null;
   private listeners: Map<string, Set<(payload: unknown) => void>> = new Map();
   private token: string | null = null;
   private isConnected = false;
@@ -48,7 +60,7 @@ class WebSocketService {
 
       this.ws.onopen = () => {
         this.isConnected = true;
-        this.reconnectAttempt = 0;
+        this.openedAt = Date.now();
         this.ws?.addEventListener('message', this.handleMessage);
         this.ws?.addEventListener('close', this.handleClose);
         this.ws?.addEventListener('error', this.handleError);
@@ -82,6 +94,7 @@ class WebSocketService {
   disconnect(): void {
     this.cleanup();
     this.reconnectAttempt = 0;
+    this.openedAt = null;
   }
 
   /**
@@ -126,6 +139,12 @@ class WebSocketService {
 
   private handleClose = (): void => {
     this.isConnected = false;
+    // Успешной считается не открывшаяся, а прожившая попытка — иначе счётчик
+    // обнуляется вытеснением и backoff никогда не растёт.
+    if (this.openedAt !== null && Date.now() - this.openedAt >= MIN_HEALTHY_CONNECTION_MS) {
+      this.reconnectAttempt = 0;
+    }
+    this.openedAt = null;
     this.scheduleReconnect(() => {
       if (this.token) {
         this.connect(this.token).catch((err) => logger.error('WebSocket reconnect failed:', err, { module: 'ws' }));
