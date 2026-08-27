@@ -3,10 +3,13 @@ package handler
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"os"
+	"strings"
 
 	"github.com/google/uuid"
 	"github.com/vycord/server/internal/delivery/http/httperr"
@@ -200,6 +203,99 @@ func (h *AttachmentHandler) Delete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// ContentURLFor и ThumbURLFor открывают подпись наружу — ими пользуются тесты
+// и проводка маршрутов; на боевом пути ссылки ставит SignAttachments.
+func (h *AttachmentHandler) ContentURLFor(id uuid.UUID) string { return h.signer.ContentURL(id) }
+func (h *AttachmentHandler) ThumbURLFor(id uuid.UUID) string   { return h.signer.ThumbURL(id) }
+
+// Content отдаёт файл. Авторизации по заголовку здесь нет и быть не может:
+// <img src> и <video src> не умеют слать Authorization, поэтому доступ даёт
+// подпись в самом URL.
+func (h *AttachmentHandler) Content(w http.ResponseWriter, r *http.Request) {
+	h.serve(w, r, false)
+}
+
+// Thumb отдаёт миниатюру, а если её нет — оригинал (решает usecase).
+func (h *AttachmentHandler) Thumb(w http.ResponseWriter, r *http.Request) {
+	h.serve(w, r, true)
+}
+
+func (h *AttachmentHandler) serve(w http.ResponseWriter, r *http.Request, thumb bool) {
+	id, err := uuid.Parse(r.PathValue("id"))
+	if err != nil {
+		h.sendError(w, http.StatusBadRequest, httperr.CodeInvalidAttachmentID, "invalid attachment id")
+		return
+	}
+
+	q := r.URL.Query()
+	if err := h.signer.Verify(id, q.Get("exp"), q.Get("sig")); err != nil {
+		// Протухшую и подделанную подпись отдаём одинаково: клиент в обоих
+		// случаях делает одно и то же — запрашивает свежую ссылку.
+		h.sendError(w, http.StatusForbidden, httperr.CodeAttachmentLinkExpired, "attachment link is expired or invalid")
+		return
+	}
+
+	var (
+		att  *domain.Attachment
+		body io.ReadSeekCloser
+	)
+	if thumb {
+		att, body, err = h.uc.OpenThumb(id)
+	} else {
+		att, body, err = h.uc.OpenContent(id)
+	}
+	if err != nil {
+		h.writeError(w, r, err)
+		return
+	}
+	defer body.Close()
+
+	contentType := att.ContentType
+	disposition := "inline"
+	// Всё, что не медиа, отдаём октет-потоком и вложением: так ничто из
+	// загруженного не выполнится как скрипт в контексте приложения.
+	if !thumb && att.Kind == domain.AttachmentKindFile {
+		contentType = "application/octet-stream"
+		disposition = "attachment"
+	}
+	if r.URL.Query().Get("download") == "1" {
+		disposition = "attachment"
+	}
+
+	w.Header().Set("Content-Type", contentType)
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Set("Content-Disposition", contentDisposition(disposition, att.FileName))
+	// Ссылка подписана и протухает, поэтому кэшировать у клиента безопасно и
+	// полезно: лента не перекачивает миниатюры при каждом скролле.
+	w.Header().Set("Cache-Control", "private, max-age=86400")
+
+	// ServeContent сам разбирает Range — без него не перемотать видео и аудио.
+	http.ServeContent(w, r, att.FileName, att.CreatedAt, body)
+}
+
+// contentDisposition кодирует имя по RFC 5987: без filename*=UTF-8'' любое
+// не-ASCII имя превратится в мусор. ASCII-фолбэк оставляем для очень старых
+// клиентов.
+func contentDisposition(disposition, name string) string {
+	return fmt.Sprintf("%s; filename=\"%s\"; filename*=UTF-8''%s",
+		disposition, asciiFallback(name), url.PathEscape(name))
+}
+
+func asciiFallback(name string) string {
+	var b strings.Builder
+	for _, r := range name {
+		if r < 0x20 || r > 0x7E || r == '"' || r == '\\' {
+			b.WriteByte('_')
+			continue
+		}
+		b.WriteRune(r)
+	}
+	if b.Len() == 0 {
+		return "file"
+	}
+	return b.String()
 }
 
 func (h *AttachmentHandler) writeError(w http.ResponseWriter, r *http.Request, err error) {
