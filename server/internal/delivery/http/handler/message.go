@@ -14,25 +14,29 @@ import (
 	"github.com/vycord/server/internal/delivery/http/middleware"
 	"github.com/vycord/server/internal/delivery/ws"
 	"github.com/vycord/server/internal/domain"
+	"github.com/vycord/server/pkg/attachlink"
 )
 
 type MessageHandler struct {
 	messageUseCase domain.MessageUseCase
 	hub            *ws.Hub
 	log            *slog.Logger
+	signer         *attachlink.Signer
 }
 
-func NewMessageHandler(messageUseCase domain.MessageUseCase, hub *ws.Hub, log *slog.Logger) *MessageHandler {
+func NewMessageHandler(messageUseCase domain.MessageUseCase, hub *ws.Hub, log *slog.Logger, signer *attachlink.Signer) *MessageHandler {
 	return &MessageHandler{
 		messageUseCase: messageUseCase,
 		hub:            hub,
 		log:            log,
+		signer:         signer,
 	}
 }
 
 type CreateMessageRequest struct {
-	Content   string     `json:"content"`
-	StickerID *uuid.UUID `json:"sticker_id"`
+	Content       string      `json:"content"`
+	StickerID     *uuid.UUID  `json:"sticker_id"`
+	AttachmentIDs []uuid.UUID `json:"attachment_ids"`
 }
 
 func (h *MessageHandler) CreateMessage(w http.ResponseWriter, r *http.Request) {
@@ -51,20 +55,22 @@ func (h *MessageHandler) CreateMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if req.Content == "" && req.StickerID == nil {
+	if req.Content == "" && req.StickerID == nil && len(req.AttachmentIDs) == 0 {
 		h.sendError(w, http.StatusBadRequest, httperr.CodeMessageEmpty, "message content is required")
 		return
 	}
-	if req.StickerID != nil && req.Content != "" {
-		h.sendError(w, http.StatusBadRequest, httperr.CodeStickerWithText, "sticker messages cannot contain text")
+	if req.StickerID != nil && (req.Content != "" || len(req.AttachmentIDs) > 0) {
+		h.sendError(w, http.StatusBadRequest, httperr.CodeStickerWithText, "sticker messages cannot contain text or attachments")
 		return
 	}
 
-	msg, err := h.messageUseCase.CreateMessage(channelID, userID, req.Content, req.StickerID)
+	msg, err := h.messageUseCase.CreateMessage(channelID, userID, req.Content, req.StickerID, req.AttachmentIDs)
 	if err != nil {
 		h.writeUseCaseError(w, r, err)
 		return
 	}
+
+	SignAttachments(h.signer, msg.Attachments)
 
 	// Broadcast to all clients currently viewing this channel
 	payload, _ := json.Marshal(msg)
@@ -101,6 +107,9 @@ func (h *MessageHandler) GetMessages(w http.ResponseWriter, r *http.Request) {
 
 	if messages == nil {
 		messages = []*domain.Message{}
+	}
+	for _, m := range messages {
+		SignAttachments(h.signer, m.Attachments)
 	}
 
 	h.sendJSON(w, http.StatusOK, messages)
@@ -140,6 +149,9 @@ func (h *MessageHandler) SearchMessages(w http.ResponseWriter, r *http.Request) 
 	if results == nil {
 		results = []*domain.MessageWithAuthor{}
 	}
+	for _, m := range results {
+		SignAttachments(h.signer, m.Attachments)
+	}
 
 	h.sendJSON(w, http.StatusOK, SearchMessagesResponse{Results: results, Total: total})
 }
@@ -167,6 +179,9 @@ func (h *MessageHandler) GetMessagesAround(w http.ResponseWriter, r *http.Reques
 	}
 	if messages == nil {
 		messages = []*domain.Message{}
+	}
+	for _, m := range messages {
+		SignAttachments(h.signer, m.Attachments)
 	}
 
 	h.sendJSON(w, http.StatusOK, messages)
@@ -262,6 +277,12 @@ func (h *MessageHandler) writeUseCaseError(w http.ResponseWriter, r *http.Reques
 		h.sendError(w, http.StatusBadRequest, httperr.CodeInvalidMention, "invalid mention: user is not a member of this server")
 	case errors.Is(err, domain.ErrMentionForbidden):
 		h.sendError(w, http.StatusForbidden, httperr.CodeMentionEveryoneDenied, "only server owner/admin can mention @everyone")
+	case errors.Is(err, domain.ErrStickerWithAttachments):
+		h.sendError(w, http.StatusBadRequest, httperr.CodeStickerWithText, "sticker messages cannot contain text or attachments")
+	case errors.Is(err, domain.ErrAttachmentNotFound):
+		h.sendError(w, http.StatusNotFound, httperr.CodeAttachmentNotFound, "attachment not found")
+	case errors.Is(err, domain.ErrAttachmentAlreadyAttached):
+		h.sendError(w, http.StatusConflict, httperr.CodeAttachmentAlreadyAttached, "attachment is already attached to a message")
 	case errors.Is(err, domain.ErrForbidden):
 		h.sendError(w, http.StatusForbidden, httperr.CodeForbidden, "access denied")
 	default:

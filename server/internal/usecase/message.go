@@ -14,6 +14,7 @@ type messageUseCase struct {
 	serverRepo  domain.ServerRepository
 	stickerRepo domain.StickerRepository
 	perms       domain.PermissionUseCase
+	attachRepo  domain.AttachmentRepository
 }
 
 func NewMessageUseCase(
@@ -22,6 +23,7 @@ func NewMessageUseCase(
 	serverRepo domain.ServerRepository,
 	stickerRepo domain.StickerRepository,
 	perms domain.PermissionUseCase,
+	attachRepo domain.AttachmentRepository,
 ) domain.MessageUseCase {
 	return &messageUseCase{
 		messageRepo: messageRepo,
@@ -29,6 +31,7 @@ func NewMessageUseCase(
 		serverRepo:  serverRepo,
 		stickerRepo: stickerRepo,
 		perms:       perms,
+		attachRepo:  attachRepo,
 	}
 }
 
@@ -82,10 +85,24 @@ func (uc *messageUseCase) validateMentions(serverID, authorID uuid.UUID, content
 	return nil
 }
 
-func (uc *messageUseCase) CreateMessage(channelID, userID uuid.UUID, content string, stickerID *uuid.UUID) (*domain.Message, error) {
+func (uc *messageUseCase) CreateMessage(channelID, userID uuid.UUID, content string, stickerID *uuid.UUID, attachmentIDs []uuid.UUID) (*domain.Message, error) {
 	ch, err := uc.requirePermission(channelID, userID, domain.PermSendMessages)
 	if err != nil {
 		return nil, err
+	}
+
+	// Повтор id в attachment_ids — баг клиента, а не «уже отправлено».
+	// AttachToMessage сверяет RowsAffected с len(ids); дубликат обновит одну
+	// и ту же строку один раз, счётчики разойдутся, и наружу уйдёт
+	// ErrAttachmentAlreadyAttached вместо внятной причины. Дедуп на входе
+	// снимает этот случай, не трогая транзакционную логику привязки.
+	attachmentIDs = dedupeAttachmentIDs(attachmentIDs)
+
+	// Стикер — самостоятельный вид сообщения: ни текста, ни вложений с ним быть
+	// не может. В хендлере эта проверка тоже есть, но правило принадлежит
+	// бизнес-логике, а не транспорту.
+	if stickerID != nil && len(attachmentIDs) > 0 {
+		return nil, domain.ErrStickerWithAttachments
 	}
 
 	now := time.Now()
@@ -98,11 +115,14 @@ func (uc *messageUseCase) CreateMessage(channelID, userID uuid.UUID, content str
 	}
 
 	if stickerID == nil {
-		if content == "" {
+		// Сообщение валидно, если есть текст ИЛИ хотя бы одно вложение.
+		if content == "" && len(attachmentIDs) == 0 {
 			return nil, domain.ErrMessageEmpty
 		}
-		if err := uc.validateMentions(ch.ServerID, userID, content); err != nil {
-			return nil, err
+		if content != "" {
+			if err := uc.validateMentions(ch.ServerID, userID, content); err != nil {
+				return nil, err
+			}
 		}
 		msg.Content = content
 	} else {
@@ -126,7 +146,38 @@ func (uc *messageUseCase) CreateMessage(channelID, userID uuid.UUID, content str
 		return nil, fmt.Errorf("failed to create message: %w", err)
 	}
 
+	if len(attachmentIDs) > 0 {
+		// Привязка проверяет владельца, канал и то, что вложение свободно.
+		// Если не прошло — сообщения быть не должно: пустая реплика вместо
+		// картинки хуже, чем ошибка отправки.
+		if err := uc.attachRepo.AttachToMessage(msg.ID, userID, channelID, attachmentIDs); err != nil {
+			_ = uc.messageRepo.Delete(msg.ID)
+			return nil, err
+		}
+		atts, err := uc.attachRepo.ListByMessageIDs([]uuid.UUID{msg.ID})
+		if err == nil {
+			msg.Attachments = atts[msg.ID]
+		}
+	}
+
 	return msg, nil
+}
+
+// dedupeAttachmentIDs убирает повторы, сохраняя порядок первого вхождения.
+func dedupeAttachmentIDs(ids []uuid.UUID) []uuid.UUID {
+	if len(ids) < 2 {
+		return ids
+	}
+	seen := make(map[uuid.UUID]struct{}, len(ids))
+	out := make([]uuid.UUID, 0, len(ids))
+	for _, id := range ids {
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		out = append(out, id)
+	}
+	return out
 }
 
 func (uc *messageUseCase) GetMessages(channelID, userID uuid.UUID, limit, offset int) ([]*domain.Message, error) {
@@ -146,7 +197,29 @@ func (uc *messageUseCase) GetMessages(channelID, userID uuid.UUID, limit, offset
 		return nil, fmt.Errorf("failed to get messages: %w", err)
 	}
 
+	uc.attachToMessages(messages)
 	return messages, nil
+}
+
+// attachToMessages подтягивает вложения для пачки сообщений одним запросом:
+// иначе список из 50 сообщений дал бы 50 походов в БД.
+func (uc *messageUseCase) attachToMessages(msgs []*domain.Message) {
+	if len(msgs) == 0 {
+		return
+	}
+	ids := make([]uuid.UUID, 0, len(msgs))
+	for _, m := range msgs {
+		ids = append(ids, m.ID)
+	}
+	byMsg, err := uc.attachRepo.ListByMessageIDs(ids)
+	if err != nil {
+		// Вложения — не критичная часть ответа: лучше отдать сообщения без
+		// них, чем не отдать ничего.
+		return
+	}
+	for _, m := range msgs {
+		m.Attachments = byMsg[m.ID]
+	}
 }
 
 func normalizeSearchLimit(limit int) int {
@@ -168,6 +241,16 @@ func (uc *messageUseCase) SearchMessages(channelID, userID uuid.UUID, query stri
 	if err != nil {
 		return nil, 0, fmt.Errorf("failed to search messages: %w", err)
 	}
+
+	// MessageWithAuthor встраивает Message по значению — берём указатели на
+	// вложенное поле, чтобы attachToMessages проставила Attachments прямо в
+	// results, не копируя структуру.
+	msgs := make([]*domain.Message, 0, len(results))
+	for _, r := range results {
+		msgs = append(msgs, &r.Message)
+	}
+	uc.attachToMessages(msgs)
+
 	return results, total, nil
 }
 
@@ -180,6 +263,8 @@ func (uc *messageUseCase) GetMessagesAround(channelID, messageID, userID uuid.UU
 	if err != nil {
 		return nil, fmt.Errorf("failed to get messages around: %w", err)
 	}
+
+	uc.attachToMessages(messages)
 	return messages, nil
 }
 

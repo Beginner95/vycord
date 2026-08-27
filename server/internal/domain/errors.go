@@ -77,6 +77,9 @@ var (
 	// ErrStorageQuotaExceeded — превышен суммарный объём хранения по плану.
 	// Сегодня не срабатывает: у плана free max_total_bytes = NULL.
 	ErrStorageQuotaExceeded = errors.New("storage quota exceeded")
+	// ErrStickerWithAttachments — стикер прислан вместе с вложениями. Стикер
+	// самостоятелен: с ним не бывает ни текста, ни файлов.
+	ErrStickerWithAttachments = errors.New("sticker message cannot contain attachments")
 )
 
 var (

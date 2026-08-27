@@ -19,6 +19,7 @@ import (
 	presencepkg "github.com/vycord/server/internal/presence"
 	"github.com/vycord/server/internal/repository/postgres"
 	"github.com/vycord/server/internal/usecase"
+	"github.com/vycord/server/pkg/attachlink"
 	"github.com/vycord/server/pkg/filestorage"
 	"github.com/vycord/server/pkg/logger"
 )
@@ -79,6 +80,7 @@ func main() {
 	inviteRepo := postgres.NewInviteRepository(db)
 	stickerRepo := postgres.NewStickerRepository(db)
 	refreshTokenRepo := postgres.NewRefreshTokenRepository(db)
+	attachmentRepo := postgres.NewAttachmentRepository(db)
 
 	// Initialize file storage
 	storage, err := filestorage.NewLocal(cfg.UploadDir, "/uploads")
@@ -95,8 +97,14 @@ func main() {
 	roleUseCase := usecase.NewRoleUseCase(serverRepo, roleRepo, permissionUseCase)
 	serverUseCase := usecase.NewServerUseCase(serverRepo, channelRepo, userRepo, roleRepo, storage, permissionUseCase)
 	voiceTokenUseCase := usecase.NewVoiceTokenUseCase(serverUseCase, cfg.JWTSecret)
-	messageUseCase := usecase.NewMessageUseCase(messageRepo, channelRepo, serverRepo, stickerRepo, permissionUseCase)
+	messageUseCase := usecase.NewMessageUseCase(messageRepo, channelRepo, serverRepo, stickerRepo, permissionUseCase, attachmentRepo)
 	stickerUseCase := usecase.NewStickerUseCase(stickerRepo, serverRepo, permissionUseCase, storage)
+
+	// Подписывает ссылки на вложения в ответах сообщений. TTL временно
+	// захардкожен: полноценная проводка вложений (маршруты загрузки,
+	// cfg.AttachmentLinkTTL, janitor) — задача VYC-82 Task 14; здесь нужен
+	// только сам подписант, чтобы MessageHandler мог подписывать чужие ссылки.
+	attachmentSigner := attachlink.NewSigner(cfg.JWTSecret, 7*24*time.Hour)
 	callUseCase := usecase.NewCallUseCase(callRepo)
 	turnUseCase := usecase.NewTURNUseCase(cfg.TURNSecret, cfg.TURNURLs, cfg.TURNTTL)
 
@@ -126,7 +134,7 @@ func main() {
 	userHandler := handler.NewUserHandler(userUseCase, hub, log)
 	serverHandler := handler.NewServerHandler(serverUseCase, inviteUseCase, hub, log)
 	inviteHandler := handler.NewInviteHandler(inviteUseCase, log)
-	messageHandler := handler.NewMessageHandler(messageUseCase, hub, log)
+	messageHandler := handler.NewMessageHandler(messageUseCase, hub, log, attachmentSigner)
 	stickerHandler := handler.NewStickerHandler(stickerUseCase, log)
 	onlineUsersHandler := handler.NewOnlineUsersHandler(hub, userRepo, log)
 	wsHandler := handler.NewWebSocketHandler(hub, authUseCase, callUseCase, userUseCase, serverUseCase, log)

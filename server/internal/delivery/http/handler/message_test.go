@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/mock"
@@ -18,12 +19,18 @@ import (
 	"github.com/vycord/server/internal/delivery/http/middleware"
 	"github.com/vycord/server/internal/delivery/ws"
 	"github.com/vycord/server/internal/domain"
+	"github.com/vycord/server/pkg/attachlink"
 )
+
+// testSigner — подписант для тестов, не требует настоящего секрета конфига.
+func testSigner() *attachlink.Signer {
+	return attachlink.NewSigner("test-secret", time.Hour)
+}
 
 type mockMessageUseCase struct{ mock.Mock }
 
-func (m *mockMessageUseCase) CreateMessage(channelID, userID uuid.UUID, content string, stickerID *uuid.UUID) (*domain.Message, error) {
-	args := m.Called(channelID, userID, content, stickerID)
+func (m *mockMessageUseCase) CreateMessage(channelID, userID uuid.UUID, content string, stickerID *uuid.UUID, attachmentIDs []uuid.UUID) (*domain.Message, error) {
+	args := m.Called(channelID, userID, content, stickerID, attachmentIDs)
 	msg, _ := args.Get(0).(*domain.Message)
 	return msg, args.Error(1)
 }
@@ -58,9 +65,9 @@ func TestMessageHandler_CreateMessage_LogsRequestIDOnInternalError(t *testing.T)
 	mockUC := new(mockMessageUseCase)
 	channelID := uuid.New()
 	userID := uuid.New()
-	mockUC.On("CreateMessage", channelID, userID, "hello", (*uuid.UUID)(nil)).Return(nil, errors.New("db down"))
+	mockUC.On("CreateMessage", channelID, userID, "hello", (*uuid.UUID)(nil), []uuid.UUID(nil)).Return(nil, errors.New("db down"))
 
-	h := NewMessageHandler(mockUC, ws.NewHub(log), log)
+	h := NewMessageHandler(mockUC, ws.NewHub(log), log, testSigner())
 
 	body, _ := json.Marshal(CreateMessageRequest{Content: "hello"})
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/channels/"+channelID.String()+"/messages", bytes.NewReader(body))
@@ -87,7 +94,7 @@ func TestMessageHandler_CreateMessage_LogsRequestIDOnInternalError(t *testing.T)
 func TestMessageHandler_SearchMessages_ShortQuery_BadRequest(t *testing.T) {
 	log := slog.New(slog.NewTextHandler(&bytes.Buffer{}, nil))
 	mockUC := new(mockMessageUseCase)
-	h := NewMessageHandler(mockUC, ws.NewHub(log), log)
+	h := NewMessageHandler(mockUC, ws.NewHub(log), log, testSigner())
 
 	channelID := uuid.New()
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/channels/"+channelID.String()+"/messages/search?q=a", nil)
@@ -114,7 +121,7 @@ func TestMessageHandler_SearchMessages_Success(t *testing.T) {
 	// limit в запросе не задан -> хендлер передаёт 0, нормализация в usecase
 	mockUC.On("SearchMessages", channelID, userID, "баг", 0, 0).Return(results, 1, nil)
 
-	h := NewMessageHandler(mockUC, ws.NewHub(log), log)
+	h := NewMessageHandler(mockUC, ws.NewHub(log), log, testSigner())
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/channels/"+channelID.String()+"/messages/search?q="+url.QueryEscape("баг"), nil)
 	req.SetPathValue("channel_id", channelID.String())
@@ -138,7 +145,7 @@ func TestMessageHandler_SearchMessages_Success(t *testing.T) {
 func TestMessageHandler_GetMessagesAround_InvalidMessageID_BadRequest(t *testing.T) {
 	log := slog.New(slog.NewTextHandler(&bytes.Buffer{}, nil))
 	mockUC := new(mockMessageUseCase)
-	h := NewMessageHandler(mockUC, ws.NewHub(log), log)
+	h := NewMessageHandler(mockUC, ws.NewHub(log), log, testSigner())
 
 	channelID := uuid.New()
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/channels/"+channelID.String()+"/messages/around/not-a-uuid", nil)
@@ -163,7 +170,7 @@ func TestMessageHandler_GetMessagesAround_Success(t *testing.T) {
 	// limit в запросе не задан -> хендлер передаёт 0, нормализация в usecase
 	mockUC.On("GetMessagesAround", channelID, messageID, userID, 0).Return(msgs, nil)
 
-	h := NewMessageHandler(mockUC, ws.NewHub(log), log)
+	h := NewMessageHandler(mockUC, ws.NewHub(log), log, testSigner())
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/channels/"+channelID.String()+"/messages/around/"+messageID.String(), nil)
 	req.SetPathValue("channel_id", channelID.String())
