@@ -92,6 +92,21 @@ func TestLocal_OpenMissingKeyReturnsErrNotFound(t *testing.T) {
 	assert.ErrorIs(t, err, filestorage.ErrNotFound)
 }
 
+func TestLocal_OpenDirectoryIsNotFound(t *testing.T) {
+	// Save создаёт промежуточные каталоги, поэтому ключ может указать на
+	// каталог. os.Open такой ключ открывает без ошибки — ловим это сами.
+	dir := t.TempDir()
+	storage, err := filestorage.NewLocal(dir, "/uploads")
+	require.NoError(t, err)
+
+	_, err = storage.Save(context.Background(), "attachments/c1/a.bin", strings.NewReader("x"), "application/octet-stream")
+	require.NoError(t, err)
+
+	_, err = storage.Open(context.Background(), "attachments/c1")
+
+	assert.ErrorIs(t, err, filestorage.ErrNotFound)
+}
+
 func TestLocal_DeleteAcceptsBareKey(t *testing.T) {
 	// Вложения адресуются ключом: в БД хранится storage_key, а не URL.
 	dir := t.TempDir()

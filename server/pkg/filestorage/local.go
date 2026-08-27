@@ -58,6 +58,17 @@ func (s *Local) Open(_ context.Context, key string) (io.ReadSeekCloser, error) {
 	if err != nil {
 		return nil, fmt.Errorf("open file %s: %w", key, err)
 	}
+
+	// os.Open на директории не возвращает ошибку вовсе: без этой проверки
+	// наружу ушёл бы «успешный» ReadSeekCloser, у которого падает первый же
+	// Read — далеко от причины. Save создаёт промежуточные каталоги, так что
+	// ключ вполне может указать на каталог.
+	info, err := f.Stat()
+	if err != nil || info.IsDir() {
+		f.Close()
+		return nil, fmt.Errorf("open %s: %w", key, ErrNotFound)
+	}
+
 	return f, nil
 }
 

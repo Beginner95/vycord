@@ -12,9 +12,11 @@ import (
 // ErrNotFound — файла с таким ключом в хранилище нет.
 var ErrNotFound = errors.New("file not found in storage")
 
-// Storage saves and deletes files by an opaque URL. Save assigns the file a
-// URL derived from key; Delete removes whatever Save previously returned —
-// callers never need to know the underlying key format.
+// Storage адресует файлы ключом: Save сохраняет файл под key и возвращает
+// URL, по которому его отдаёт клиентам, а Open читает содержимое обратно по
+// тому же key. Delete дополнительно принимает URL, который вернул Save, —
+// ради обратной совместимости с вызывающим кодом (аватары, иконки,
+// стикеры), который знает только URL, а не ключ.
 //
 // key is always constructed by the caller from trusted, server-generated
 // values (e.g. a user ID + random suffix) — implementations do not sanitize
@@ -23,8 +25,8 @@ type Storage interface {
 	// Save reads all of r and stores it under key, returning the URL clients
 	// can use to fetch the file.
 	Save(ctx context.Context, key string, r io.Reader, contentType string) (url string, err error)
-	// Delete removes the file previously saved at url — принимает и URL,
-	// который вернул Save, и голый ключ (так адресуются вложения). Удаление
+	// Delete удаляет файл, сохранённый ранее под url, который вернул Save,
+	// либо под голым ключом (так адресуются вложения). Удаление
 	// несуществующего файла ошибкой не считается.
 	Delete(ctx context.Context, url string) error
 	// Open отдаёт содержимое файла по ключу. Возвращает ReadSeekCloser, а не

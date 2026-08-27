@@ -2,6 +2,7 @@ package usecase_test
 
 import (
 	"context"
+	"errors"
 	"io"
 	"testing"
 
@@ -44,7 +45,9 @@ func (f *fakeStickerStorage) Save(_ context.Context, _ string, _ io.Reader, _ st
 }
 func (f *fakeStickerStorage) Delete(_ context.Context, _ string) error { return nil }
 func (f *fakeStickerStorage) Open(_ context.Context, _ string) (io.ReadSeekCloser, error) {
-	return nil, nil
+	// Заглушка сознательно шумная: нулевой ридер при нулевой ошибке молча
+	// паникует при первом же вызове метода вместо явной ошибки в тесте.
+	return nil, errors.New("fakeStickerStorage: Open not implemented")
 }
 
 // testPNG — валидный PNG 32x32, удовлетворяющий validateImage.
