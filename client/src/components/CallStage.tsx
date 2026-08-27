@@ -1,8 +1,8 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useLayoutEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import {
   ArrowLeft, Maximize2, Minimize2, Mic, MicOff, Video, VideoOff,
-  MonitorUp, MonitorPlay, PhoneOff, Expand, Volume2, X,
+  MonitorUp, MonitorPlay, PhoneOff, Expand, Volume2, X, LayoutGrid,
 } from 'lucide-react';
 import { useAuthStore } from '@/stores/authStore';
 import { useCallStore, callWatchState } from '@/stores/callStore';
@@ -63,6 +63,20 @@ function attachStreamToElement(el: HTMLVideoElement, stream: MediaStream, userId
     });
 }
 
+// Enters fullscreen on `container`, replacing whatever holds it today.
+//
+// The plain `container.requestFullscreen()` is not enough, and this is measured,
+// not defensive: the fullscreen ELEMENT STACK is a stack. Requesting fullscreen
+// on .stage-focus-main while its ancestor .call-stage already holds it PUSHES,
+// and the next exitFullscreen() POPS back to .call-stage instead of leaving
+// fullscreen. Observed exactly that — after stage → focus → exit, the stage was
+// fullscreen again with `is-fullscreen` back on it. Unwinding first keeps the
+// stack one deep, so one exit always means out.
+async function enterFullscreen(container: HTMLElement): Promise<void> {
+  if (document.fullscreenElement) await document.exitFullscreen().catch(() => {});
+  await container.requestFullscreen().catch(() => {});
+}
+
 // ─── Connection Indicator ────────────────────────────────────────────────────
 // Presentational signal-bars icon showing outbound (uplink) connection quality.
 
@@ -76,7 +90,10 @@ const QUALITY_KEY: Record<QualityLevel, TKey> = {
 export function ConnectionIndicator({ metrics }: { metrics?: ConnectionQualityMetrics }) {
   const t = useT();
   const ref = useRef<HTMLDivElement>(null);
-  const [tip, setTip] = useState<{ top: number; left: number } | null>(null);
+  const tipRef = useRef<HTMLDivElement>(null);
+  const [tip, setTip] = useState<
+    { top: number; left: number; host: HTMLElement; clamped: boolean } | null
+  >(null);
 
   const showTip = useCallback(() => {
     const el = ref.current;
@@ -84,9 +101,58 @@ export function ConnectionIndicator({ metrics }: { metrics?: ConnectionQualityMe
     const r = el.getBoundingClientRect();
     // Центрируем над индикатором; фиксированное позиционирование не режется
     // overflow:hidden плитки. Стрелка тултипа смотрит вниз, на индикатор.
-    setTip({ top: r.top - 8, left: r.left + r.width / 2 });
+    //
+    // Портал в document.body невидим, пока какой-то элемент находится в
+    // полноэкранном режиме: top layer показывает только сам fullscreen-элемент
+    // и его потомков. Кнопка «на весь экран» в шапке (решение 24) делает
+    // фуллскрин всей сцены, а вместе с ним — целую сетку наводимых .stage-conn,
+    // поэтому цель портала выбирается заново на каждом наведении.
+    const host = (document.fullscreenElement as HTMLElement | null) ?? document.body;
+    setTip({ top: r.top - 8, left: r.left + r.width / 2, host, clamped: false });
   }, []);
   const hideTip = useCallback(() => setTip(null), []);
+
+  // Наведение — не единственный момент, когда цель портала может устареть:
+  // фуллскрин можно включить (F11, кнопка в шапке) или выйти по Esc, пока
+  // тултип уже открыт, и тогда он остался бы в прежнем хосте. Пересчитываем
+  // хост и позицию на fullscreenchange, пока тултип на экране.
+  //
+  // resize здесь обязателен, а не «на всякий случай»: вьюпорт меняет размер
+  // ПОСЛЕ fullscreenchange, отдельным кадром. Замерено — без этого слушателя
+  // прижатие считалось по старой высоте и тултип оказывался за нижней кромкой
+  // (bottom 637.3 при innerHeight 544).
+  const tipOpen = tip !== null;
+  useEffect(() => {
+    if (!tipOpen) return;
+    const reposition = () => showTip();
+    document.addEventListener('fullscreenchange', reposition);
+    window.addEventListener('resize', reposition);
+    return () => {
+      document.removeEventListener('fullscreenchange', reposition);
+      window.removeEventListener('resize', reposition);
+    };
+  }, [tipOpen, showTip]);
+
+  // Тултип у верхней кромки сцены уезжал за край вьюпорта (замерено: y = -46.5
+  // при высоте 120.5). Прижимаем его к вьюпорту по факту измерения. Считаем
+  // аналитически из РАЗМЕРА: при transform translate(-50%, -100%) края равны
+  // left ± w/2 и [top - h, top], а вход анимируется трансформом — читать
+  // позицию живого rect во время анимации значило бы мерить смещение анимации.
+  useLayoutEffect(() => {
+    if (!tip || tip.clamped) return;
+    const el = tipRef.current;
+    if (!el) return;
+    const { width: w, height: h } = el.getBoundingClientRect();
+    const margin = 8;
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    let { top, left } = tip;
+    if (top - h < margin) top = margin + h;
+    if (top > vh - margin) top = vh - margin;
+    if (left - w / 2 < margin) left = margin + w / 2;
+    if (left + w / 2 > vw - margin) left = vw - margin - w / 2;
+    setTip({ ...tip, top, left, clamped: true });
+  }, [tip]);
 
   if (!metrics) return null;
   const { level, packetLoss, rtt, bitrate } = metrics;
@@ -112,6 +178,7 @@ export function ConnectionIndicator({ metrics }: { metrics?: ConnectionQualityMe
       {tip &&
         createPortal(
           <div
+            ref={tipRef}
             className={`stage-tip is-${level}`}
             style={{ top: tip.top, left: tip.left }}
             role="tooltip"
@@ -138,7 +205,7 @@ export function ConnectionIndicator({ metrics }: { metrics?: ConnectionQualityMe
             )}
             <span className="stage-tip-arrow" />
           </div>,
-          document.body,
+          tip.host,
         )}
     </div>
   );
@@ -201,11 +268,6 @@ function RemoteParticipantTile({
   const t = useT();
   const level = useMicLevel(participant.stream, muted);
   const speaking = level > SPEAKING_THRESHOLD;
-  const micBadgeClass = muted
-    ? 'mic-badge--muted'
-    : speaking
-      ? 'mic-badge--speaking'
-      : 'mic-badge--idle';
 
   const volumeBtnRef = useRef<HTMLButtonElement>(null);
   const [popoverPosition, setPopoverPosition] = useState<{ top: number; left: number } | null>(null);
@@ -222,29 +284,37 @@ function RemoteParticipantTile({
   if (layout === 'thumbnail') {
     return (
       <div
-        className={`thumbnail-tile ${isFocused ? 'thumbnail-tile--focused' : ''} ${speaking ? 'speaking' : ''}`}
+        className={`stage-thumb${isFocused ? ' is-focused' : ''}${speaking ? ' is-speaking' : ''}`}
+        style={{ '--speak-level': Math.min(1, level) } as React.CSSProperties}
         onClick={onFocus}
         title={displayName}
       >
+        {/* Remote thumb video is never mirrored — only the local preview is. */}
         <video ref={videoRefSetter} autoPlay playsInline style={showWatchOverlay ? { display: 'none' } : undefined} />
-        {!participant.stream && !showWatchOverlay && <div className="thumbnail-placeholder">📷</div>}
+        {!participant.stream && !showWatchOverlay && (
+          <Avatar username={displayName} className="stage-thumb-avatar" />
+        )}
         {showWatchOverlay && (
-          <div className="watch-share-overlay">
-            <span className="watch-share-icon">🖥</span>
-            <button className="watch-share-btn" onClick={(e) => { e.stopPropagation(); onFocus(); }}>
+          <div className="stage-watch-overlay">
+            <MonitorPlay size={16} strokeWidth={1.8} />
+            <button className="stage-watch-btn" onClick={(e) => { e.stopPropagation(); onFocus(); }}>
               {t('call.watchShare')}
             </button>
           </div>
         )}
-        {isSharing && <div className="thumbnail-badge">🖥</div>}
+        {isSharing && (
+          <div className="stage-thumb-badge">
+            <MonitorUp size={10} strokeWidth={1.8} />
+          </div>
+        )}
         <button
           ref={volumeBtnRef}
-          className="volume-btn"
+          className="stage-volume-btn"
           onClick={handleVolumeBtnClick}
           onMouseDown={(e) => e.stopPropagation()}
           title={t('call.volumeLabel', { value: volume })}
         >
-          ⋮
+          <Volume2 size={12} strokeWidth={1.8} />
         </button>
         {isVolumePopoverOpen && popoverPosition && (
           <VolumeControlPopover
@@ -254,9 +324,15 @@ function RemoteParticipantTile({
             onClose={onCloseVolumePopover}
           />
         )}
-        <div className={`mic-badge ${micBadgeClass}`}>{muted ? '🔇' : '🎤'}</div>
         <ConnectionIndicator metrics={quality} />
-        <div className="thumbnail-label">{displayName}</div>
+        {/* Mic state at thumb scale: the full .stage-plate is too big, and the
+            equalizer is illegible at 10px — the is-speaking ring carries that. */}
+        <div className="stage-thumb-label">
+          {muted
+            ? <span className="stage-plate-mic is-muted"><MicOff size={10} strokeWidth={1.8} /></span>
+            : <span className="stage-plate-mic"><Mic size={10} strokeWidth={1.8} /></span>}
+          <span>{displayName}</span>
+        </div>
       </div>
     );
   }
@@ -369,8 +445,42 @@ export function CallStage({ onMobileBackToChat }: CallStageProps) {
   const focusedUserId = useCallStore((s) => s.focusedUserId);
   // Decision 24: which surface is fullscreen, not merely whether one is —
   // a single boolean sprayed `is-fullscreen` onto the stage AND the focused view.
+  // Ruling T4-c supersedes P1's "the derived boolean survives for the top bar":
+  // each button reads its OWN target, so neither ever shows the exit glyph for
+  // a surface that is not fullscreen.
   const [fullscreenTarget, setFullscreenTarget] = useState<'stage' | 'focus' | null>(null);
-  const isFullscreen = fullscreenTarget !== null;
+
+  // Ruling T4-e — a glyph must reflect what its OWN button's click does, and on
+  // the two platforms that is not the same question.
+  //
+  // Browser: each button owns a distinct element (stageRef / screenShareMainRef)
+  // and its handler branches on its own target, so "is MY surface fullscreen"
+  // is exactly right — that is what T4-c measured.
+  //
+  // Electron: there is only ONE window-level fullscreen, and BOTH handlers take
+  // the same `api.toggleFullscreen()` branch UNCONDITIONALLY (see the two call
+  // sites below) — neither consults fullscreenTarget there. They only differ in
+  // the label they stamp afterwards: 'focus' vs 'stage'. So after entering
+  // fullscreen from one button, the OTHER button would see `target !== mine`,
+  // render Maximize2, and then exit on click — glyph promises enter, action
+  // exits. The defect is symmetric: it hits whichever button did not start it.
+  // On that path both buttons therefore ask "is anything fullscreen".
+  //
+  // REASONED, NOT MEASURED: Electron cannot be launched in this environment.
+  // To check it in one pass: the predicate below is character-for-character the
+  // same test the handlers gate their Electron branch on (`api?.toggleFullscreen`),
+  // so wherever that branch runs, this is true.
+  //
+  // The `is-fullscreen` CLASSES stay per-target on both platforms — they drive
+  // the AppPage `:has()` layout for the surface that was actually requested,
+  // and exactly one of them is ever set.
+  const usesWindowFullscreen = !!(window as Window & typeof globalThis).electronAPI?.toggleFullscreen;
+  const stageFullscreenActive = usesWindowFullscreen
+    ? fullscreenTarget !== null
+    : fullscreenTarget === 'stage';
+  const focusFullscreenActive = usesWindowFullscreen
+    ? fullscreenTarget !== null
+    : fullscreenTarget === 'focus';
   // Screen-share errors surface as a toast, not a blocking dialog (decision 11).
   const [stageError, setStageError] = useState<string | null>(null);
   const localVideoRef = useRef<HTMLVideoElement>(null);
@@ -541,7 +651,8 @@ export function CallStage({ onMobileBackToChat }: CallStageProps) {
     }
   }, [participants, focusedUserId]);
 
-  const handleFullscreen = useCallback(async () => {
+  // Focused-view fullscreen: only the shared surface (decision 24).
+  const handleFocusFullscreen = useCallback(async () => {
     const api = (window as Window & typeof globalThis).electronAPI;
     // In Electron the DOM Fullscreen API can silently no-op on the frameless
     // window, so drive fullscreen through the main process instead.
@@ -552,14 +663,20 @@ export function CallStage({ onMobileBackToChat }: CallStageProps) {
     }
     const container = screenShareMainRef.current;
     if (!container) return;
-    if (document.fullscreenElement) {
+    // Branch on THIS button's own target, not on document.fullscreenElement:
+    // during whole-stage fullscreen the glyph says Maximize2, and the old
+    // condition would have exited instead of entering focus fullscreen.
+    // enterFullscreen unwinds any existing fullscreen first — see its comment.
+    if (fullscreenTarget === 'focus') {
       await document.exitFullscreen().catch(() => {});
     } else {
-      await container.requestFullscreen().catch(() => {});
+      await enterFullscreen(container);
     }
-  }, []);
+  }, [fullscreenTarget]);
 
   // Top-bar fullscreen: the whole stage, not the focused share (decision 24).
+  // Mirror image of the handler above — same own-target branch, so from focus
+  // fullscreen this ENTERS stage fullscreen rather than exiting.
   const handleStageFullscreen = useCallback(async () => {
     const api = (window as Window & typeof globalThis).electronAPI;
     if (api?.toggleFullscreen) {
@@ -569,12 +686,12 @@ export function CallStage({ onMobileBackToChat }: CallStageProps) {
     }
     const container = stageRef.current;
     if (!container) return;
-    if (document.fullscreenElement) {
+    if (fullscreenTarget === 'stage') {
       await document.exitFullscreen().catch(() => {});
     } else {
-      await container.requestFullscreen().catch(() => {});
+      await enterFullscreen(container);
     }
-  }, []);
+  }, [fullscreenTarget]);
 
   const handleLeaveGroupCall = useCallback(() => {
     // leave() сбрасывает стор к IDLE целиком — участники, шареры, фокус и флаги
@@ -735,10 +852,12 @@ export function CallStage({ onMobileBackToChat }: CallStageProps) {
           <button
             className="stage-fullscreen-btn"
             onClick={() => { void handleStageFullscreen(); }}
-            aria-label={isFullscreen ? t('call.exitFullscreen') : t('call.fullscreen')}
-            title={isFullscreen ? t('call.exitFullscreen') : t('call.fullscreen')}
+            aria-label={stageFullscreenActive ? t('call.exitFullscreen') : t('call.fullscreen')}
+            title={stageFullscreenActive ? t('call.exitFullscreen') : t('call.fullscreen')}
           >
-            {isFullscreen ? <Minimize2 size={16} strokeWidth={1.8} /> : <Maximize2 size={16} strokeWidth={1.8} />}
+            {stageFullscreenActive
+              ? <Minimize2 size={16} strokeWidth={1.8} />
+              : <Maximize2 size={16} strokeWidth={1.8} />}
           </button>
         </div>
       </div>
@@ -770,46 +889,57 @@ export function CallStage({ onMobileBackToChat }: CallStageProps) {
 
           {focusedUserId ? (
             /* ── Focused / screen-share view ── */
-            <div className="screen-share-view">
+            <div className="stage-focus">
               <div
-                className={`screen-share-main${fullscreenTarget === 'focus' ? ' is-fullscreen' : ''}`}
+                className={`stage-focus-main${fullscreenTarget === 'focus' ? ' is-fullscreen' : ''}`}
                 ref={screenShareMainRef}
               >
                 <video
                   ref={focusedVideoRef}
                   autoPlay
                   playsInline
-                  className="screen-share-main-video"
+                  className="stage-focus-video"
                 />
-                <div className="screen-share-main-label">
+                <div className="stage-focus-label">
                   {focusedName}
                   {screenSharers.has(focusedUserId) && (
-                    <span className="screen-share-badge-sm">🖥 {t('call.sharingBadge')}</span>
+                    <span className="stage-focus-badge">
+                      <MonitorUp size={12} strokeWidth={1.8} /> {t('call.sharingBadge')}
+                    </span>
                   )}
                 </div>
-                <div className="screen-share-main-controls">
+                {/* On the browser path this button owns the FOCUSED surface
+                    only, so focusFullscreenActive resolves to
+                    fullscreenTarget === 'focus' — whole-stage fullscreen must
+                    not render the exit icon here. On the Electron path it
+                    resolves to "is anything fullscreen" for the reason spelled
+                    out at the state declaration (ruling T4-e). */}
+                <div className="stage-focus-controls">
                   <button
-                    className="screen-share-ctrl-btn"
-                    onClick={() => { void handleFullscreen(); }}
-                    title={isFullscreen ? t('call.exitFullscreen') : t('call.fullscreen')}
+                    className="stage-focus-ctrl-btn"
+                    onClick={() => { void handleFocusFullscreen(); }}
+                    title={focusFullscreenActive ? t('call.exitFullscreen') : t('call.fullscreen')}
                   >
-                    {isFullscreen ? '⊡' : '⛶'}
+                    {focusFullscreenActive
+                      ? <Minimize2 size={16} strokeWidth={1.8} />
+                      : <Maximize2 size={16} strokeWidth={1.8} />}
                   </button>
                   <button
-                    className="screen-share-ctrl-btn"
+                    className="stage-focus-ctrl-btn"
                     onClick={() => setCall({ focusedUserId: null })}
                     title={t('call.backToGrid')}
                   >
-                    ⊞
+                    <LayoutGrid size={16} strokeWidth={1.8} />
                   </button>
                 </div>
               </div>
 
               {/* Thumbnail strip */}
-              <div className="screen-share-thumbnails">
+              <div className="stage-thumbs">
                 {/* Local thumbnail */}
                 <div
-                  className={`thumbnail-tile ${micLevel > 0.05 ? 'speaking' : ''}`}
+                  className={`stage-thumb${micLevel > SPEAKING_THRESHOLD ? ' is-speaking' : ''}`}
+                  style={{ '--speak-level': Math.min(1, micLevel) } as React.CSSProperties}
                   title={`${user?.username ?? ''} ${t('call.youSuffix')}`}
                 >
                   <video
@@ -817,18 +947,22 @@ export function CallStage({ onMobileBackToChat }: CallStageProps) {
                     autoPlay
                     playsInline
                     muted
-                    className={isScreenSharing ? 'local-video-screen' : 'local-video'}
+                    className={isScreenSharing ? 'is-screen' : 'is-mirrored'}
                   />
                   {isVideoOff && !isScreenSharing && (
-                    <div className="thumbnail-placeholder">📷</div>
+                    <Avatar username={user?.username ?? '?'} url={user?.avatar_url} className="stage-thumb-avatar" />
                   )}
-                  {isScreenSharing && <div className="thumbnail-badge">🖥</div>}
-                  <div className={`mic-badge ${isMuted ? 'mic-badge--muted' : micLevel > 0.05 ? 'mic-badge--speaking' : 'mic-badge--idle'}`}>
-                    {isMuted ? '🔇' : '🎤'}
-                  </div>
+                  {isScreenSharing && (
+                    <div className="stage-thumb-badge">
+                      <MonitorUp size={10} strokeWidth={1.8} />
+                    </div>
+                  )}
                   <ConnectionIndicator metrics={localQuality} />
-                  <div className="thumbnail-label">
-                    {user?.username} {t('call.youSuffix')}
+                  <div className="stage-thumb-label">
+                    {isMuted
+                      ? <span className="stage-plate-mic is-muted"><MicOff size={10} strokeWidth={1.8} /></span>
+                      : <span className="stage-plate-mic"><Mic size={10} strokeWidth={1.8} /></span>}
+                    <span>{user?.username} {t('call.youSuffix')}</span>
                   </div>
                 </div>
 

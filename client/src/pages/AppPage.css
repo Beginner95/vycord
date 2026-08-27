@@ -53,14 +53,21 @@
 /* Фуллскрин в Electron разворачивает окно ОС, но сцена осталась бы высотой в
    свои 20-80% колонки, и «на весь экран» ничего бы не дало. Пока внутри сцены
    активен фуллскрин-режим, она забирает всю колонку, а разделитель и чат
-   уходят. Чистый CSS: класс is-fullscreen на .screen-share-main уже есть. */
-.channel-body:has(.screen-share-main.is-fullscreen) .call-stage {
+   уходят. Чистый CSS на классе is-fullscreen — целей две (решение 24 плана M3):
+   .stage-focus-main — только демонстрация экрана (кнопка в самом фокус-виде),
+   .call-stage — вся сцена (кнопка в шапке). Без второй пары селекторов кнопка
+   в шапке в Electron растягивала бы окно ОС, а сцена оставалась бы прижата к
+   height: var(--call-stage-height) выше. */
+.channel-body:has(.stage-focus-main.is-fullscreen) .call-stage,
+.channel-body:has(.call-stage.is-fullscreen) .call-stage {
   height: 100%;
   flex: 1 1 auto;
 }
 
-.channel-body:has(.screen-share-main.is-fullscreen) > .call-split-handle,
-.channel-body:has(.screen-share-main.is-fullscreen) > .chat-area {
+.channel-body:has(.stage-focus-main.is-fullscreen) > .call-split-handle,
+.channel-body:has(.stage-focus-main.is-fullscreen) > .chat-area,
+.channel-body:has(.call-stage.is-fullscreen) > .call-split-handle,
+.channel-body:has(.call-stage.is-fullscreen) > .chat-area {
   display: none;
 }
 
