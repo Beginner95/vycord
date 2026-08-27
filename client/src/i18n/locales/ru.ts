@@ -101,6 +101,11 @@ export const ru = {
     stickerFormats: 'PNG, JPG или GIF · максимум 2 МБ',
     stickerRemoveFile: 'Убрать файл',
     stickerUpload: 'Загрузить стикер',
+    attach: 'Прикрепить файл',
+    attachImage: 'Изображение',
+    attachVideo: 'Видео',
+    attachAudio: 'Аудио',
+    attachFile: 'Файл',
   },
   call: {
     participants: plural({

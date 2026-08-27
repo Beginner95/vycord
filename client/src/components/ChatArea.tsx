@@ -5,6 +5,8 @@ import { LinkDialog } from '@/components/LinkDialog';
 import { EmojiPicker } from '@/components/EmojiPicker';
 import { StickerPicker } from '@/components/StickerPicker';
 import { StickerManager } from '@/components/StickerManager';
+import { AttachmentButton } from '@/components/AttachmentButton';
+import { useAttachmentUpload } from '@/hooks/useAttachmentUpload';
 import { toggleQuote, toggleBullet, toggleNumbered, toggleWrap, type LineToggle } from '@/utils/textTransforms';
 import { isUnsafeUrl } from '@/utils/markdown';
 import type { Message } from '@/types';
@@ -159,7 +161,7 @@ function insertEmojiAtCaret(el: HTMLTextAreaElement, setValue: (v: string) => vo
   });
 }
 
-type PickerKind = 'sticker' | 'emoji' | 'editEmoji';
+type PickerKind = 'sticker' | 'emoji' | 'editEmoji' | 'attach';
 
 export function ChatArea({ channel, user, onMobileBack, onShowMembers, onJoinVoice, onShowCall }: ChatAreaProps) {
   const callChannelId = useCallStore((s) => s.callChannelId);
@@ -196,6 +198,8 @@ export function ChatArea({ channel, user, onMobileBack, onShowMembers, onJoinVoi
   const permissions = useServerStore((s) => (currentServer ? s.permissions.get(currentServer.id) : undefined));
   const canMentionEveryone = can(permissions, PERMISSIONS.MENTION_EVERYONE);
   const canManageStickers = can(permissions, PERMISSIONS.MANAGE_SERVER);
+
+  const uploads = useAttachmentUpload(channel?.id);
 
   const composeMention = useMentionAutocomplete({
     value: input,
@@ -971,12 +975,19 @@ logger.error('Failed to update message:', err, { module: 'chat' });
           <button type="button" className="toolbar-btn" aria-label={t('chat.bulletedList')} title={t('chat.bulletedList')} onClick={composeBullet}>
             <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 6h11M9 12h11M9 18h11"/><path d="M4 6h.01M4 12h.01M4 18h.01"/></svg>
           </button>
+          <span className="toolbar-sep" aria-hidden="true" />
           <button type="button" onMouseDown={(e) => e.stopPropagation()} className={`toolbar-btn${openPicker === 'sticker' ? ' active' : ''}`} aria-label={t('chat.stickers')} title={t('chat.stickers')} onClick={() => togglePicker('sticker')}>
             <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12a9 9 0 1 1-9-9"/><path d="M12 3a9 9 0 0 1 9 9"/><path d="M21 12h-4l-2 2-2-2"/></svg>
           </button>
           <button type="button" onMouseDown={(e) => e.stopPropagation()} className={`toolbar-btn${openPicker === 'emoji' ? ' active' : ''}`} aria-label={t('chat.emoji')} title={t('chat.emoji')} onClick={() => togglePicker('emoji')}>
             <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/></svg>
           </button>
+          <AttachmentButton
+            open={openPicker === 'attach'}
+            onToggle={() => togglePicker('attach')}
+            onClose={closePicker}
+            onFiles={(files) => uploads.addFiles(files)}
+          />
         </div>
         <form onSubmit={handleSubmit}>
           <textarea
