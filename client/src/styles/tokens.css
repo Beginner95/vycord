@@ -47,11 +47,26 @@
   --danger:      #E7444A;
   --danger-soft: #FEF0F0;
   --danger-text: #C1272D;
+  --warning: #F59E0B;
 
   /* ── Call stage ── */
   --stage:        #0E1017;
   --stage-tile:   #1A1E2B;
   --stage-tile-2: #20252F;
+
+  /* Stage chrome is dark in BOTH themes (board 1e) — these do not flip in [data-theme="dark"].
+     Modern color notation on purpose: legacy rgba() commas trip three lint rules each. */
+  --stage-line:   rgb(255 255 255 / 8%);
+  --stage-chip:   rgb(255 255 255 / 8%);
+  --stage-toggle: rgb(255 255 255 / 10%);
+  --stage-bar:    #171B26;
+  --stage-plate:  rgb(6 8 14 / 66%);
+  --stage-ink:    #FFF;
+  --stage-muted:  #C9CFDE;
+  --live-pill-bg:   rgb(18 183 106 / 14%);
+  --live-pill-text: #5BE39B;
+  --speak-ring:     rgb(18 183 106 / 55%);
+  --scrim:          rgb(16 19 34 / 50%);
 
   /* ── Shadows ── */
   --shadow-row:     0 1px 2px rgba(16, 19, 34, 0.06);
