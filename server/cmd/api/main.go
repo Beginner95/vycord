@@ -116,27 +116,30 @@ func main() {
 	hub.SetVoiceAudienceResolver(serverUseCase.GetChannelAudience)
 	go hub.Run()
 
+	// Общий контекст фоновых задач: его отмена останавливает и воркер
+	// voice-presence, и уборщик вложений. Создаётся безусловно — уборщик
+	// обязан работать даже там, где presence выключен, — поэтому не
+	// переносить внутрь условия ниже.
+	bgCtx, stopBackgroundWorkers := context.WithCancel(context.Background())
+	defer stopBackgroundWorkers()
+
 	// Voice-presence reconciliation against the SFU's own /presence snapshot
 	// (VYC-78 step 4) — corrects drift in hub.voiceChannels instead of trusting
 	// client-driven voice_joined/voice_left as the sole source of truth. Both
 	// vars empty just means the worker doesn't run: this is a correctness
 	// safety net, not something API startup should ever depend on.
-	presenceCtx, stopPresenceWorker := context.WithCancel(context.Background())
-	defer stopPresenceWorker()
 	if cfg.SFUInternalURL != "" && cfg.SFUInternalSecret != "" {
 		fetcher := presencepkg.NewHTTPFetcher(cfg.SFUInternalURL, cfg.SFUInternalSecret)
 		presenceWorker := presencepkg.NewWorker(fetcher, hub, log)
-		go presenceWorker.Run(presenceCtx)
+		go presenceWorker.Run(bgCtx)
 		log.Info("voice-presence reconciliation started", "sfu_url", cfg.SFUInternalURL, "interval", presencepkg.DefaultInterval)
 	} else {
 		log.Warn("SFU_INTERNAL_URL or SFU_INTERNAL_SECRET not set — voice-presence reconciliation disabled")
 	}
 
 	// Уборщик брошенных (не привязанных к сообщению) и протухших вложений.
-	// Второй механизм остановки не заводим — переиспользуем presenceCtx: он
-	// уже отменяется при штатном завершении сервера (см. defer stopPresenceWorker выше).
 	janitor := attachments.NewJanitor(attachmentRepo, storage, log)
-	go janitor.Run(presenceCtx)
+	go janitor.Run(bgCtx)
 
 	// Initialize handlers
 	authHandler := handler.NewAuthHandler(authUseCase, log)
