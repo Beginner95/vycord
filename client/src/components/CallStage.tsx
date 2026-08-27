@@ -331,7 +331,7 @@ function RemoteParticipantTile({
           {muted
             ? <span className="stage-plate-mic is-muted"><MicOff size={10} strokeWidth={1.8} /></span>
             : <span className="stage-plate-mic"><Mic size={10} strokeWidth={1.8} /></span>}
-          <span>{displayName}</span>
+          <span className="stage-name">{displayName}</span>
         </div>
       </div>
     );
@@ -392,7 +392,7 @@ function RemoteParticipantTile({
           : speaking
             ? <span className="stage-eq"><span /><span /><span /></span>
             : <span className="stage-plate-mic"><Mic size={12} strokeWidth={1.8} /></span>}
-        <span>{displayName}</span>
+        <span className="stage-name">{displayName}</span>
       </div>
       {!participant.stream && !showWatchOverlay && (
         <div className="stage-state-chip">{t('call.cameraOffChip')}</div>
@@ -962,7 +962,7 @@ export function CallStage({ onMobileBackToChat }: CallStageProps) {
                     {isMuted
                       ? <span className="stage-plate-mic is-muted"><MicOff size={10} strokeWidth={1.8} /></span>
                       : <span className="stage-plate-mic"><Mic size={10} strokeWidth={1.8} /></span>}
-                    <span>{user?.username} {t('call.youSuffix')}</span>
+                    <span className="stage-name">{user?.username} {t('call.youSuffix')}</span>
                   </div>
                 </div>
 
@@ -1017,7 +1017,7 @@ export function CallStage({ onMobileBackToChat }: CallStageProps) {
                     : micLevel > SPEAKING_THRESHOLD
                       ? <span className="stage-eq"><span /><span /><span /></span>
                       : <span className="stage-plate-mic"><Mic size={12} strokeWidth={1.8} /></span>}
-                  <span>{user?.username} {t('call.youSuffix')}</span>
+                  <span className="stage-name">{user?.username} {t('call.youSuffix')}</span>
                 </div>
                 {isVideoOff && !isScreenSharing && (
                   <div className="stage-state-chip">{t('call.cameraOffChip')}</div>

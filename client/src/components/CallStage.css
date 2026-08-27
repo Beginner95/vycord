@@ -56,11 +56,14 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* --stage-online, not --online: this dot sits on the always-dark stage bar, beside
+   --live-pill-text which is already theme-invariant. --online flips to its light
+   value in light theme (decision 25(b) keeps stage chrome out of that flip). */
 .stage-live-dot {
   width: 7px;
   height: 7px;
   border-radius: 50%;
-  background: var(--online);
+  background: var(--stage-online);
   flex-shrink: 0;
 }
 
@@ -226,7 +229,17 @@
   object-fit: cover;
 }
 
-/* ── Name plate: mic / equalizer + name ── */
+/* ── Name plate: mic / equalizer + name ──
+   This rule used to carry white-space/overflow/text-overflow itself. text-overflow
+   does not apply to a flex container's ITEMS, so a long name hard-clipped at the
+   plate edge instead of ellipsizing: measured at 1440px wide, the name span's box
+   was 1881px against a 385px plate — scrollWidth === clientWidth on the span (it
+   never shrank) and the plate overflowing by 1535px. The ellipsis moved to
+   .stage-name below; overflow: hidden stays here as the clip of last resort at the
+   rounded edge. min-width is belt-and-braces only, stated as such: the plate is
+   absolutely positioned, not a flex item, so its min-width: auto already resolved
+   to 0 (measured). The declaration that does the work is overflow on the SPAN,
+   which zeroes that span's automatic minimum size so it can shrink at all. */
 .stage-plate {
   position: absolute;
   bottom: 10px;
@@ -234,6 +247,7 @@
   display: flex;
   align-items: center;
   gap: 7px;
+  min-width: 0;
   max-width: calc(100% - 20px);
   padding: 5px 10px;
   border-radius: var(--radius-row);
@@ -241,10 +255,18 @@
   color: var(--stage-ink);
   font-size: 12px;
   font-weight: 600;
-  white-space: nowrap;
   overflow: hidden;
-  text-overflow: ellipsis;
   z-index: 2;
+}
+
+/* The name span inside .stage-plate and .stage-thumb-label — the flex ITEM, which
+   is where text-overflow has to live. Emitted at four sites in CallStage.tsx (both
+   plates, both thumb labels). */
+.stage-name {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 .stage-plate-mic {
@@ -265,10 +287,20 @@
   height: 13px;
 }
 
+/* height is load-bearing, not tidying. Without it the bars have no height source
+   outside the keyframes, and with animation-fill-mode: none bars 2 and 3 compute
+   height: auto → 0 for their whole 0.12s/0.24s delay window: measured on a
+   detached copy of this markup, ["5px","0px","0px"] at t≈0, still ["6.9px","0px",
+   "0px"] at 120ms, so board 2e's three bars pop in one at a time every time
+   speaking starts. `height: 5px` was chosen over animation-fill-mode: backwards
+   because it makes the resting height a property of the bar rather than of the
+   animation — it survives M6's prefers-reduced-motion sweep, which will disable
+   the animation. background is --stage-online for the reason at .stage-live-dot. */
 .stage-eq span {
   width: 2.5px;
+  height: 5px;
   border-radius: 1px;
-  background: var(--online);
+  background: var(--stage-online);
   animation: stage-eq-bar 0.7s ease-in-out infinite;
 }
 
@@ -298,10 +330,20 @@
   z-index: 2;
 }
 
+/* left is a permanent lane, not a 10px inset — the same remedy Ruling T4-a applied
+   to the identical collision at thumb scale. .stage-volume-btn sits at an 8px inset
+   with z-index 3, above this badge's z-index 2, so at the old 10px the two boxes
+   overlapped by 637px² — 21% of the badge, measured at 1440px wide: the MonitorUp
+   glyph and the first letters of «Демонстрация». opacity: 0 does NOT remove an
+   element from hit-testing, so elementFromPoint at the badge's left edge returned
+   .stage-volume-btn even at rest, and .stage-tile:hover reveals the chip on exactly
+   the tile a user hovers to reach the focus button. 40px = the chip's 8px inset +
+   its 28px + a 4px gap; the ≤768px block below widens the lane to match the 40px
+   touch-floor chip. */
 .stage-share-badge {
   position: absolute;
   top: 10px;
-  left: 10px;
+  left: 40px;
   display: flex;
   align-items: center;
   gap: 5px;
@@ -359,14 +401,14 @@
     opacity: 1;
   }
 
-  /* Kept in the same block because the rule above is the cause. Forcing the
-     volume chip visible at 40px puts it (8px inset, z-index 3) on top of
-     .stage-share-badge (10px inset, z-index 2). Measured at 420px before this
-     rule: 931 of the badge's 3013.5px² covered — 30.9%, taking the MonitorUp
-     icon and the first letters of «Демонстрация», with elementFromPoint at the
-     badge's left edge returning the chip. 52px = the chip's 8px inset + its
-     40px + a 4px gap. Desktop is untouched: there the chip rests at opacity 0
-     and the badge keeps its 10px inset. */
+  /* Kept in the same block because the rule above is the cause: growing the chip
+     to the 40px touch floor widens the lane the badge has to clear. 52px = the
+     chip's 8px inset + its 40px + a 4px gap. Measured at 420px before any fix
+     existed: 931 of the badge's 3013.5px² covered — 30.9%.
+     This block used to claim "desktop is untouched: there the chip rests at
+     opacity 0". That was false twice over — opacity 0 still hit-tests, and
+     .stage-tile:hover reveals the chip — and the base rule now carries a 40px
+     lane of its own; see the comment there for the desktop measurement. */
   .stage-share-badge {
     left: 52px;
   }
@@ -410,7 +452,10 @@
 .stage-conn-bar:nth-child(2) { height: 9px; }
 .stage-conn-bar:nth-child(3) { height: 13px; }
 
-.stage-conn.is-good { color: var(--online); }
+/* --stage-online: the bars live on a tile, which is dark in both themes. The
+   .stage-tip rules below keep --online on purpose — that popover portals to body
+   and paints --canvas, so it IS theme-adaptive. */
+.stage-conn.is-good { color: var(--stage-online); }
 .stage-conn.is-medium { color: var(--warning); }
 .stage-conn.is-poor { color: var(--danger); }
 .stage-conn.is-unknown { color: var(--muted-2); }
@@ -803,6 +848,26 @@
   z-index: 10;
 }
 
+/* Touch visibility (decision 22) — kept next to the base rule it overrides and
+   before the :hover rule, the same placement the .stage-fullscreen-btn, tile-chip
+   and .stage-share-banner-dismiss blocks above use. A coarse pointer never produces
+   the :hover below, so without this both «Вернуться к сетке» and the focus
+   fullscreen button are invisible on touch: measured at 390×844, computed opacity 0
+   on .stage-focus-controls with both buttons already at opacity 1 themselves.
+   The opacity override belongs on this element because this is the element that
+   carries opacity; the 40px floor belongs on the button and is set below.
+   Re-verified for THIS block rather than assumed from the ones above: a copy of
+   this file with both new blocks moved after their :hover rules lints to the same
+   0 problems, while a positive control (the same override written WITHOUT the
+   @media wrapper, after .stage-focus-ctrl-btn:hover) does fire
+   no-descending-specificity. So the ordering here is grouping, not a lint
+   requirement — the rule buckets by at-rule context. */
+@media (width <= 768px) {
+  .stage-focus-controls {
+    opacity: 1;
+  }
+}
+
 .stage-focus-main:hover .stage-focus-controls,
 .stage-focus-main:fullscreen:hover .stage-focus-controls {
   opacity: 1;
@@ -821,6 +886,17 @@
   color: var(--stage-ink);
   cursor: pointer;
   transition: background var(--transition);
+}
+
+/* Mobile ≥40px floor (decision 22) — before the :hover rule, and it MUST come
+   after the 36px base rule above: at equal specificity (0,1,0) the later rule wins,
+   so folding this into the opacity block higher up would lose to that 36px.
+   Measured pre-fix at 390×844: both buttons 36×36. */
+@media (width <= 768px) {
+  .stage-focus-ctrl-btn {
+    width: 40px;
+    height: 40px;
+  }
 }
 
 .stage-focus-ctrl-btn:hover {
@@ -934,6 +1010,9 @@
   z-index: 2;
 }
 
+/* Same shape as .stage-plate and the same fix: text-overflow moved to the .stage-name
+   flex item. Measured before, at thumb scale: a 1568px span box inside a 157px
+   label, spilling it by 1436.5px with no ellipsis. */
 .stage-thumb-label {
   position: absolute;
   bottom: 4px;
@@ -942,15 +1021,14 @@
   display: flex;
   align-items: center;
   gap: 4px;
+  min-width: 0;
   padding: 2px 6px;
   border-radius: var(--radius-chip);
   background: var(--stage-plate);
   color: var(--stage-ink);
   font-size: 10px;
   font-weight: 600;
-  white-space: nowrap;
   overflow: hidden;
-  text-overflow: ellipsis;
   z-index: 2;
 }
 

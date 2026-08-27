@@ -152,11 +152,15 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* --stage-online, not --online: the active 1:1 view is stage-dark in both themes
+   (decision 25(b)), so this dot must not follow --online's light-theme value. The
+   .p2p-accept-btn above keeps --online — the incoming-call modal is a SYSTEM
+   surface and does flip with the theme. */
 .p2p-timer-dot {
   width: 7px;
   height: 7px;
   border-radius: 50%;
-  background: var(--online);
+  background: var(--stage-online);
   flex-shrink: 0;
 }
 
