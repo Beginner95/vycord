@@ -103,6 +103,9 @@ export const en: Dictionary = {
     attachVideo: 'Video',
     attachAudio: 'Audio',
     attachFile: 'File',
+    removeAttachment: 'Remove attachment',
+    dropFilesHere: 'Drop the file to attach it',
+    retry: 'Retry',
   },
   call: {
     participants: plural({
@@ -409,5 +412,12 @@ export const en: Dictionary = {
     sticker_name_required: 'Enter a sticker name',
     sticker_name_too_long: 'Sticker name must be 100 characters or fewer',
     sticker_with_text: 'A sticker message cannot contain text',
+    attachment_too_large: 'File is too large. The maximum size is 25 MB',
+    attachment_required: 'No file selected',
+    attachment_not_found: 'Attachment not found',
+    attachment_already_attached: 'This attachment has already been sent',
+    storage_quota_exceeded: 'Storage quota exceeded',
+    attachment_link_expired: 'The file link has expired',
+    invalid_attachment_id: 'Invalid attachment id',
   },
 };

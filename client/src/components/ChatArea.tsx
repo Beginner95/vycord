@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback, type FormEvent, type KeyboardEvent, type ChangeEvent, type ClipboardEvent } from 'react';
+import { useState, useEffect, useRef, useCallback, type FormEvent, type KeyboardEvent, type ChangeEvent, type ClipboardEvent, type DragEvent } from 'react';
 import type { RefObject } from 'react';
 import { useMessageStore } from '@/stores/messageStore';
 import { LinkDialog } from '@/components/LinkDialog';
@@ -6,6 +6,7 @@ import { EmojiPicker } from '@/components/EmojiPicker';
 import { StickerPicker } from '@/components/StickerPicker';
 import { StickerManager } from '@/components/StickerManager';
 import { AttachmentButton } from '@/components/AttachmentButton';
+import { AttachmentTray } from '@/components/AttachmentTray';
 import { useAttachmentUpload } from '@/hooks/useAttachmentUpload';
 import { toggleQuote, toggleBullet, toggleNumbered, toggleWrap, type LineToggle } from '@/utils/textTransforms';
 import { isUnsafeUrl } from '@/utils/markdown';
@@ -201,6 +202,30 @@ export function ChatArea({ channel, user, onMobileBack, onShowMembers, onJoinVoi
 
   const uploads = useAttachmentUpload(channel?.id);
 
+  // Счётчик вложенности, а не булев флаг: dragleave приходит от каждого
+  // дочернего элемента при движении мыши над содержимым чата, и без счётчика
+  // оверлей мигал бы.
+  const [dragDepth, setDragDepth] = useState(0);
+
+  const handleDragEnter = (e: DragEvent<HTMLElement>) => {
+    if (!e.dataTransfer?.types.includes('Files')) return;
+    e.preventDefault();
+    setDragDepth((d) => d + 1);
+  };
+
+  const handleDragOver = (e: DragEvent<HTMLElement>) => {
+    if (e.dataTransfer?.types.includes('Files')) e.preventDefault();
+  };
+
+  const handleDragLeave = () => setDragDepth((d) => Math.max(0, d - 1));
+
+  const handleDrop = (e: DragEvent<HTMLElement>) => {
+    if (!e.dataTransfer?.files?.length) return;
+    e.preventDefault();
+    setDragDepth(0);
+    uploads.addFiles(e.dataTransfer.files);
+  };
+
   const composeMention = useMentionAutocomplete({
     value: input,
     setValue: setInput,
@@ -384,13 +409,22 @@ logger.error('Failed to jump to message:', err, { module: 'chat' });
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
-    if (!channel || !input.trim() || !user) return;
+    if (!channel || !user) return;
+
+    const text = input.trim();
+    // Сообщение валидно, если есть текст ИЛИ хотя бы одно готовое вложение.
+    if (!text && uploads.readyIds.length === 0) return;
+    // Пока что-то грузится — не отправляем: сообщение не должно уйти без файла.
+    if (uploads.isUploading) return;
 
     try {
-      const msg = await apiService.createMessage(channel.id, input.trim()) as Message;
+      const msg = await apiService.createMessage(
+        channel.id, text, undefined, uploads.readyIds.length ? uploads.readyIds : undefined,
+      ) as Message;
       addMessage(msg);
       setInput('');
       setCaretInQuoteLine(false);
+      uploads.clear();
     } catch (err) {
       logger.error('Failed to send message:', err, { module: 'chat' });
       setSendError(apiErrorText(err, t));
@@ -516,6 +550,14 @@ logger.error('Failed to jump to message:', err, { module: 'chat' });
   };
 
   const handleComposePaste = (e: ClipboardEvent<HTMLTextAreaElement>) => {
+    const files = e.clipboardData?.files;
+    if (files && files.length > 0) {
+      // В буфере файл (обычно скриншот) — это вложение, а не текст.
+      e.preventDefault();
+      uploads.addFiles(files);
+      return;
+    }
+
     const el = e.currentTarget;
     const start = el.selectionStart ?? el.value.length;
     const end = el.selectionEnd ?? el.value.length;
@@ -724,7 +766,18 @@ logger.error('Failed to update message:', err, { module: 'chat' });
   }
 
   return (
-    <main className="chat-area">
+    <main
+      className="chat-area"
+      onDragEnter={handleDragEnter}
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+    >
+      {dragDepth > 0 && (
+        <div className="chat-drop-overlay">
+          <span>{t('chat.dropFilesHere')}</span>
+        </div>
+      )}
       <div className="chat-header">
         {onMobileBack && (
           <button className="mobile-back-btn" onClick={onMobileBack} aria-label={t('chat.back')}>
@@ -989,6 +1042,7 @@ logger.error('Failed to update message:', err, { module: 'chat' });
             onFiles={(files) => uploads.addFiles(files)}
           />
         </div>
+        <AttachmentTray drafts={uploads.drafts} onCancel={uploads.cancel} onRetry={uploads.retry} />
         <form onSubmit={handleSubmit}>
           <textarea
             ref={inputRef}

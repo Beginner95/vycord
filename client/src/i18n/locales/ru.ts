@@ -106,6 +106,9 @@ export const ru = {
     attachVideo: 'Видео',
     attachAudio: 'Аудио',
     attachFile: 'Файл',
+    removeAttachment: 'Убрать вложение',
+    dropFilesHere: 'Отпустите файл, чтобы прикрепить',
+    retry: 'Повторить',
   },
   call: {
     participants: plural({
@@ -414,6 +417,13 @@ export const ru = {
     sticker_name_required: 'Введите имя стикера',
     sticker_name_too_long: 'Имя стикера не длиннее 100 символов',
     sticker_with_text: 'Сообщение-стикер не может содержать текст',
+    attachment_too_large: 'Файл слишком большой. Максимальный размер — 25 МБ',
+    attachment_required: 'Не выбран файл',
+    attachment_not_found: 'Вложение не найдено',
+    attachment_already_attached: 'Это вложение уже отправлено',
+    storage_quota_exceeded: 'Закончилось место в хранилище',
+    attachment_link_expired: 'Ссылка на файл устарела',
+    invalid_attachment_id: 'Некорректный идентификатор вложения',
   },
 };
 
