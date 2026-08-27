@@ -1,5 +1,9 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
+import {
+  ArrowLeft, Maximize2, Minimize2, Mic, MicOff, Video, VideoOff,
+  MonitorUp, MonitorPlay, PhoneOff, Expand, Volume2, X,
+} from 'lucide-react';
 import { useAuthStore } from '@/stores/authStore';
 import { useCallStore, callWatchState } from '@/stores/callStore';
 import type { RemoteParticipant } from '@/stores/callStore';
@@ -14,8 +18,10 @@ import type { DesktopCapturerSource } from '@/types/electron';
 import type { ConnectionQualityMetrics, QualityLevel } from '@/utils/callQuality';
 import { VolumeControlPopover } from './VolumeControlPopover';
 import { ScreenSourcePicker, ScreenQualityPicker } from './ScreenSharePicker';
+import { Avatar } from './Avatar';
 import { useT, useTp, type TKey } from '@/i18n';
 import { useMicLevel } from '@/hooks/useMicLevel';
+import { formatCallDuration, stageGridClass, SPEAKING_THRESHOLD } from '@/utils/callStage';
 import './CallStage.css';
 
 // Attaches a remote MediaStream to a video element and starts playback.
@@ -95,47 +101,64 @@ export function ConnectionIndicator({ metrics }: { metrics?: ConnectionQualityMe
   return (
     <div
       ref={ref}
-      className={`conn-indicator conn-indicator--${level}`}
+      className={`stage-conn is-${level}`}
       aria-label={ariaLabel}
       onMouseEnter={showTip}
       onMouseLeave={hideTip}
     >
-      <span className="conn-bar conn-bar--1" />
-      <span className="conn-bar conn-bar--2" />
-      <span className="conn-bar conn-bar--3" />
+      <span className="stage-conn-bar" />
+      <span className="stage-conn-bar" />
+      <span className="stage-conn-bar" />
       {tip &&
         createPortal(
           <div
-            className={`conn-tooltip conn-tooltip--${level}`}
+            className={`stage-tip is-${level}`}
             style={{ top: tip.top, left: tip.left }}
             role="tooltip"
           >
-            <div className="conn-tooltip__head">
-              <span className="conn-tooltip__dot" />
-              <span className="conn-tooltip__title">{label}</span>
+            <div className="stage-tip-head">
+              <span className="stage-tip-dot" />
+              <span className="stage-tip-title">{label}</span>
             </div>
             {level !== 'unknown' && (
-              <div className="conn-tooltip__rows">
-                <div className="conn-tooltip__row">
-                  <span className="conn-tooltip__key">{t('call.qualityLoss')}</span>
-                  <span className="conn-tooltip__val">{packetLoss}{t('call.unitPercent')}</span>
+              <div className="stage-tip-rows">
+                <div className="stage-tip-row">
+                  <span className="stage-tip-key">{t('call.qualityLoss')}</span>
+                  <span className="stage-tip-val">{packetLoss}{t('call.unitPercent')}</span>
                 </div>
-                <div className="conn-tooltip__row">
-                  <span className="conn-tooltip__key">{t('call.qualityPing')}</span>
-                  <span className="conn-tooltip__val">{rtt} {t('call.unitMs')}</span>
+                <div className="stage-tip-row">
+                  <span className="stage-tip-key">{t('call.qualityPing')}</span>
+                  <span className="stage-tip-val">{rtt} {t('call.unitMs')}</span>
                 </div>
-                <div className="conn-tooltip__row">
-                  <span className="conn-tooltip__key">{t('call.qualityBitrate')}</span>
-                  <span className="conn-tooltip__val">{bitrate} {t('call.unitKbps')}</span>
+                <div className="stage-tip-row">
+                  <span className="stage-tip-key">{t('call.qualityBitrate')}</span>
+                  <span className="stage-tip-val">{bitrate} {t('call.unitKbps')}</span>
                 </div>
               </div>
             )}
-            <span className="conn-tooltip__arrow" />
+            <span className="stage-tip-arrow" />
           </div>,
           document.body,
         )}
     </div>
   );
+}
+
+// ─── Stage Timer ─────────────────────────────────────────────────────────────
+// Board 1e's «В ЭФИРЕ 12:04». Lives in the live pill and ticks once a second;
+// `startedAt` survives a reconnect on purpose (callStore.onReconnected does not
+// touch it), so the elapsed time keeps counting through a blip.
+
+function StageTimer() {
+  const startedAt = useCallStore((s) => s.startedAt);
+  const [now, setNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, []);
+
+  return <>{formatCallDuration(now - (startedAt ?? now))}</>;
 }
 
 // ─── Remote Participant Tile ─────────────────────────────────────────────────
@@ -177,7 +200,7 @@ function RemoteParticipantTile({
 }: RemoteParticipantTileProps) {
   const t = useT();
   const level = useMicLevel(participant.stream, muted);
-  const speaking = level > 0.05;
+  const speaking = level > SPEAKING_THRESHOLD;
   const micBadgeClass = muted
     ? 'mic-badge--muted'
     : speaking
@@ -239,27 +262,45 @@ function RemoteParticipantTile({
   }
 
   return (
-    <div className={`video-tile ${!participant.stream ? 'video-off' : ''} ${speaking ? 'speaking' : ''}`}>
-      <video ref={videoRefSetter} autoPlay playsInline style={showWatchOverlay ? { display: 'none' } : undefined} />
-      {!participant.stream && !showWatchOverlay && <div className="video-off-placeholder">📷</div>}
+    <div
+      className={`stage-tile${!participant.stream ? ' is-camera-off' : ''}${speaking ? ' is-speaking' : ''}`}
+      style={{ '--speak-level': Math.min(1, level) } as React.CSSProperties}
+    >
+      {/* Remote video is never mirrored — only the local preview carries is-mirrored. */}
+      <video
+        ref={videoRefSetter}
+        autoPlay
+        playsInline
+        className="stage-tile-video"
+        style={showWatchOverlay ? { display: 'none' } : undefined}
+      />
+      {!participant.stream && !showWatchOverlay && (
+        <Avatar username={displayName} className="stage-tile-avatar" />
+      )}
       {showWatchOverlay && (
-        <div className="watch-share-overlay">
-          <span className="watch-share-icon">🖥</span>
-          <button className="watch-share-btn" onClick={(e) => { e.stopPropagation(); onFocus(); }}>
+        <div className="stage-watch-overlay">
+          <MonitorPlay size={20} strokeWidth={1.8} />
+          <button className="stage-watch-btn" onClick={(e) => { e.stopPropagation(); onFocus(); }}>
             {t('call.watchShare')}
           </button>
         </div>
       )}
-      {isSharing && <div className="screen-share-badge">🖥 {t('call.sharingBadge')}</div>}
-      <button className="focus-btn" onClick={onFocus} title={t('call.focusParticipant')}>⛶</button>
+      {isSharing && (
+        <div className="stage-share-badge">
+          <MonitorUp size={12} strokeWidth={1.8} /> {t('call.sharingBadge')}
+        </div>
+      )}
+      <button className="stage-focus-btn" onClick={onFocus} title={t('call.focusParticipant')}>
+        <Expand size={14} strokeWidth={1.8} />
+      </button>
       <button
         ref={volumeBtnRef}
-        className="volume-btn"
+        className="stage-volume-btn"
         onClick={handleVolumeBtnClick}
         onMouseDown={(e) => e.stopPropagation()}
         title={t('call.volumeLabel', { value: volume })}
       >
-        ⋮
+        <Volume2 size={14} strokeWidth={1.8} />
       </button>
       {isVolumePopoverOpen && popoverPosition && (
         <VolumeControlPopover
@@ -269,9 +310,18 @@ function RemoteParticipantTile({
           onClose={onCloseVolumePopover}
         />
       )}
-      <div className={`mic-badge ${micBadgeClass}`}>{muted ? '🔇' : '🎤'}</div>
+      <div className="stage-plate">
+        {muted
+          ? <span className="stage-plate-mic is-muted"><MicOff size={12} strokeWidth={1.8} /></span>
+          : speaking
+            ? <span className="stage-eq"><span /><span /><span /></span>
+            : <span className="stage-plate-mic"><Mic size={12} strokeWidth={1.8} /></span>}
+        <span>{displayName}</span>
+      </div>
+      {!participant.stream && !showWatchOverlay && (
+        <div className="stage-state-chip">{t('call.cameraOffChip')}</div>
+      )}
       <ConnectionIndicator metrics={quality} />
-      <div className="video-label">{displayName}</div>
     </div>
   );
 }
@@ -317,11 +367,17 @@ export function CallStage({ onMobileBackToChat }: CallStageProps) {
   const bannerDismissed = useCallStore((s) => s.bannerDismissed);
   const remoteScreenStreams = useCallStore((s) => s.remoteScreenStreams);
   const focusedUserId = useCallStore((s) => s.focusedUserId);
-  const [isFullscreen, setIsFullscreen] = useState(false);
+  // Decision 24: which surface is fullscreen, not merely whether one is —
+  // a single boolean sprayed `is-fullscreen` onto the stage AND the focused view.
+  const [fullscreenTarget, setFullscreenTarget] = useState<'stage' | 'focus' | null>(null);
+  const isFullscreen = fullscreenTarget !== null;
+  // Screen-share errors surface as a toast, not a blocking dialog (decision 11).
+  const [stageError, setStageError] = useState<string | null>(null);
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const remoteVideoRefs = useRef<Map<string, HTMLVideoElement>>(new Map());
   const focusedVideoRef = useRef<HTMLVideoElement>(null);
   const screenShareMainRef = useRef<HTMLDivElement>(null);
+  const stageRef = useRef<HTMLDivElement>(null);
 
   const remoteMicMuted = useCallStore((s) => s.remoteMicMuted);
   const participantVolumes = useCallStore((s) => s.participantVolumes);
@@ -360,12 +416,24 @@ export function CallStage({ onMobileBackToChat }: CallStageProps) {
     });
   }, [participants, focusedUserId]);
 
-  // Track fullscreen state changes (ESC key or programmatic exit)
+  // Track fullscreen state changes (ESC key or programmatic exit). The browser
+  // path of both toggles sets no state of its own, so the target is derived here
+  // from whichever element the browser actually put into fullscreen.
   useEffect(() => {
-    const onFsChange = () => setIsFullscreen(!!document.fullscreenElement);
+    const onFsChange = () => {
+      const el = document.fullscreenElement;
+      setFullscreenTarget(el ? (el === stageRef.current ? 'stage' : 'focus') : null);
+    };
     document.addEventListener('fullscreenchange', onFsChange);
     return () => document.removeEventListener('fullscreenchange', onFsChange);
   }, []);
+
+  // Auto-dismiss the stage error toast.
+  useEffect(() => {
+    if (!stageError) return;
+    const timer = setTimeout(() => setStageError(null), 5000);
+    return () => clearTimeout(timer);
+  }, [stageError]);
 
   // Attach stream to the focused main video whenever focus or stream changes.
   // Two cases: focusing a screen-sharer plays their dedicated screen stream
@@ -479,10 +547,27 @@ export function CallStage({ onMobileBackToChat }: CallStageProps) {
     // window, so drive fullscreen through the main process instead.
     if (api?.toggleFullscreen) {
       const next = await api.toggleFullscreen().catch(() => null);
-      if (typeof next === 'boolean') setIsFullscreen(next);
+      if (typeof next === 'boolean') setFullscreenTarget(next ? 'focus' : null);
       return;
     }
     const container = screenShareMainRef.current;
+    if (!container) return;
+    if (document.fullscreenElement) {
+      await document.exitFullscreen().catch(() => {});
+    } else {
+      await container.requestFullscreen().catch(() => {});
+    }
+  }, []);
+
+  // Top-bar fullscreen: the whole stage, not the focused share (decision 24).
+  const handleStageFullscreen = useCallback(async () => {
+    const api = (window as Window & typeof globalThis).electronAPI;
+    if (api?.toggleFullscreen) {
+      const next = await api.toggleFullscreen().catch(() => null);
+      if (typeof next === 'boolean') setFullscreenTarget(next ? 'stage' : null);
+      return;
+    }
+    const container = stageRef.current;
     if (!container) return;
     if (document.fullscreenElement) {
       await document.exitFullscreen().catch(() => {});
@@ -534,11 +619,11 @@ export function CallStage({ onMobileBackToChat }: CallStageProps) {
       // Electron: fetch sources → source picker → quality picker → start
       const result = await api.getScreenSources();
       if (result.error === 'screen_permission_denied') {
-        alert(t('call.screenPermissionDenied'));
+        setStageError(t('call.screenPermissionDenied'));
         return;
       }
       if (result.error || !result.sources?.length) {
-        alert(t('call.screenSourcesFailed'));
+        setStageError(t('call.screenSourcesFailed'));
         return;
       }
       setScreenSources(result.sources);
@@ -574,7 +659,7 @@ export function CallStage({ onMobileBackToChat }: CallStageProps) {
         return;
       }
       logger.error('[GroupCall] Screen share failed:', err, { module: 'groupCallUI' });
-      alert(t('call.screenShareFailed'));
+      setStageError(t('call.screenShareFailed'));
     }
   }, [selectedSourceId, t]);
 
@@ -607,7 +692,6 @@ export function CallStage({ onMobileBackToChat }: CallStageProps) {
   const showSourcePickerModal = showSourcePicker && screenSources.length > 0;
 
   const totalParticipants = participants.length + 1;
-  const cols = Math.min(totalParticipants, 4);
 
   // Displayed name for the focused participant
   const focusedName = focusedUserId
@@ -617,10 +701,11 @@ export function CallStage({ onMobileBackToChat }: CallStageProps) {
   const firstSharer = screenSharers.size > 0 ? [...screenSharers][0] : null;
 
   return (
-    <div className="call-stage">
+    <div className={`call-stage${fullscreenTarget === 'stage' ? ' is-fullscreen' : ''}`} ref={stageRef}>
       {isReconnecting && (
-        <div className="gc-reconnecting-banner">{t('call.reconnecting')}</div>
+        <div className="stage-reconnecting">{t('call.reconnecting')}</div>
       )}
+      {stageError && <div className="error-toast">{stageError}</div>}
       {showSourcePickerModal && (
         <ScreenSourcePicker
           sources={screenSources}
@@ -634,20 +719,27 @@ export function CallStage({ onMobileBackToChat }: CallStageProps) {
           onCancel={() => { setShowQualityPicker(false); setSelectedSourceId(null); }}
         />
       )}
-      <div className="group-call-header">
-        <div className="group-call-header-left">
-          {onMobileBackToChat && (
-            <button className="mobile-back-btn" onClick={onMobileBackToChat} aria-label={t('common.back')}>
-              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
-            </button>
-          )}
-          <h2>{t('call.groupCallTitle')}{callChannelName ? ` · #${callChannelName}` : ''}</h2>
+      <div className="stage-topbar">
+        {onMobileBackToChat && (
+          <button className="stage-back-btn" onClick={onMobileBackToChat} aria-label={t('common.back')}>
+            <ArrowLeft size={18} strokeWidth={1.8} />
+          </button>
+        )}
+        <div className="stage-live-pill">
+          <span className="stage-live-dot" />
+          {t('call.live')} <StageTimer />
         </div>
-        <div className="group-call-header-right">
-          {screenSharers.size > 0 && (
-            <span className="header-screen-share-indicator">🖥 {t('call.screenSharingActive')}</span>
-          )}
-          <span className="participant-count">{tp('call.participants', totalParticipants)}</span>
+        <h2 className="stage-title">{callChannelName ? `#${callChannelName}` : t('call.groupCallTitle')}</h2>
+        <div className="stage-topbar-right">
+          <span className="stage-count-chip">{tp('call.participants', totalParticipants)}</span>
+          <button
+            className="stage-fullscreen-btn"
+            onClick={() => { void handleStageFullscreen(); }}
+            aria-label={isFullscreen ? t('call.exitFullscreen') : t('call.fullscreen')}
+            title={isFullscreen ? t('call.exitFullscreen') : t('call.fullscreen')}
+          >
+            {isFullscreen ? <Minimize2 size={16} strokeWidth={1.8} /> : <Maximize2 size={16} strokeWidth={1.8} />}
+          </button>
         </div>
       </div>
 
@@ -655,23 +747,23 @@ export function CallStage({ onMobileBackToChat }: CallStageProps) {
         <div className="call-video-area">
           {/* Banner: shown when someone is sharing but user hasn't opened focus view */}
           {firstSharer && !focusedUserId && !bannerDismissed && (
-            <div className="screen-share-banner">
-              <span className="screen-share-banner-icon">🖥</span>
-              <span className="screen-share-banner-text">
+            <div className="stage-share-banner">
+              <MonitorUp size={16} strokeWidth={1.8} />
+              <span className="stage-share-banner-text">
                 {t('call.isSharingScreen', { name: userCache.get(firstSharer) ?? firstSharer.slice(0, 8) })}
               </span>
               <button
-                className="screen-share-banner-btn"
+                className="stage-share-banner-btn"
                 onClick={() => setCall({ focusedUserId: firstSharer })}
               >
                 {t('call.view')}
               </button>
               <button
-                className="screen-share-banner-dismiss"
+                className="stage-share-banner-dismiss"
                 onClick={() => setCall({ bannerDismissed: true })}
                 title={t('call.dismiss')}
               >
-                ✕
+                <X size={14} strokeWidth={1.8} />
               </button>
             </div>
           )}
@@ -680,7 +772,7 @@ export function CallStage({ onMobileBackToChat }: CallStageProps) {
             /* ── Focused / screen-share view ── */
             <div className="screen-share-view">
               <div
-                className={`screen-share-main${isFullscreen ? ' is-fullscreen' : ''}`}
+                className={`screen-share-main${fullscreenTarget === 'focus' ? ' is-fullscreen' : ''}`}
                 ref={screenShareMainRef}
               >
                 <video
@@ -764,25 +856,39 @@ export function CallStage({ onMobileBackToChat }: CallStageProps) {
             </div>
           ) : (
             /* ── Normal video grid ── */
-            <div className="video-grid" style={{ gridTemplateColumns: `repeat(${cols}, 1fr)` }}>
+            <div className={`stage-grid ${stageGridClass(totalParticipants)}`.trim()}>
               {/* Local video */}
-              <div className={`video-tile ${isVideoOff && !isScreenSharing ? 'video-off' : ''} ${micLevel > 0.05 ? 'speaking' : ''}`}>
+              <div
+                className={`stage-tile${isVideoOff && !isScreenSharing ? ' is-camera-off' : ''}${micLevel > SPEAKING_THRESHOLD ? ' is-speaking' : ''}`}
+                style={{ '--speak-level': Math.min(1, micLevel) } as React.CSSProperties}
+              >
                 <video
                   ref={localVideoRef}
                   autoPlay
                   playsInline
                   muted
-                  className={isScreenSharing ? 'local-video-screen' : 'local-video'}
+                  className={`stage-tile-video${isScreenSharing ? ' is-screen' : ' is-mirrored'}`}
                 />
-                {isVideoOff && !isScreenSharing && <div className="video-off-placeholder">📷</div>}
-                {isScreenSharing && <div className="screen-share-badge">🖥 {t('call.sharingBadge')}</div>}
-                <div className={`mic-badge ${isMuted ? 'mic-badge--muted' : micLevel > 0.05 ? 'mic-badge--speaking' : 'mic-badge--idle'}`}>
-                  {isMuted ? '🔇' : '🎤'}
+                {isVideoOff && !isScreenSharing && (
+                  <Avatar username={user?.username ?? '?'} url={user?.avatar_url} className="stage-tile-avatar" />
+                )}
+                {isScreenSharing && (
+                  <div className="stage-share-badge">
+                    <MonitorUp size={12} strokeWidth={1.8} /> {t('call.sharingBadge')}
+                  </div>
+                )}
+                <div className="stage-plate">
+                  {isMuted
+                    ? <span className="stage-plate-mic is-muted"><MicOff size={12} strokeWidth={1.8} /></span>
+                    : micLevel > SPEAKING_THRESHOLD
+                      ? <span className="stage-eq"><span /><span /><span /></span>
+                      : <span className="stage-plate-mic"><Mic size={12} strokeWidth={1.8} /></span>}
+                  <span>{user?.username} {t('call.youSuffix')}</span>
                 </div>
+                {isVideoOff && !isScreenSharing && (
+                  <div className="stage-state-chip">{t('call.cameraOffChip')}</div>
+                )}
                 <ConnectionIndicator metrics={localQuality} />
-                <div className="video-label">
-                  {user?.username} {t('call.youSuffix')}
-                </div>
               </div>
 
               {/* Remote videos */}
@@ -809,37 +915,43 @@ export function CallStage({ onMobileBackToChat }: CallStageProps) {
         </div>
       </div>
 
-      <div className="call-controls">
-        <div
-          className="mic-btn-wrap"
-          style={{ '--mic-level': micLevel } as React.CSSProperties}
-        >
+      <div className="stage-controls">
+        <div className="stage-ctl">
           <button
-            className={`control-btn ${isMuted ? 'active' : ''}`}
+            className={`stage-ctl-btn${isMuted ? ' is-off' : ''}`}
             onClick={handleToggleMute}
             disabled={!isMicAvailable}
             title={!isMicAvailable ? t('call.micUnavailable') : isMuted ? t('call.micOn') : t('call.micOff')}
           >
-            {!isMicAvailable ? '🚫' : isMuted ? '🔇' : '🎤'}
+            {isMuted ? <MicOff size={16} strokeWidth={1.8} /> : <Mic size={16} strokeWidth={1.8} />}
           </button>
+          <span className="stage-ctl-label">{t('call.ctlMic')}</span>
         </div>
-        <button
-          className={`control-btn ${isVideoOff ? 'active' : ''}`}
-          onClick={handleToggleVideo}
-          disabled={isScreenSharing}
-          title={isScreenSharing ? t('call.cameraUnavailableSharing') : isVideoOff ? t('call.cameraOn') : t('call.cameraOff')}
-        >
-          {isVideoOff ? '📷' : '🎥'}
-        </button>
-        <button
-          className={`control-btn ${isScreenSharing ? 'screen-sharing-active' : ''}`}
-          onClick={() => { void handleToggleScreenShare(); }}
-          title={isScreenSharing ? t('call.stopScreenShare') : t('call.shareScreen')}
-        >
-          🖥
-        </button>
-        <button className="control-btn end-call" onClick={handleLeaveGroupCall} title={t('call.leaveCall')}>
-          📞
+        <div className="stage-ctl">
+          <button
+            className={`stage-ctl-btn${isVideoOff ? ' is-off' : ''}`}
+            onClick={handleToggleVideo}
+            disabled={isScreenSharing}
+            title={isScreenSharing ? t('call.cameraUnavailableSharing') : isVideoOff ? t('call.cameraOn') : t('call.cameraOff')}
+          >
+            {isVideoOff ? <VideoOff size={16} strokeWidth={1.8} /> : <Video size={16} strokeWidth={1.8} />}
+          </button>
+          <span className="stage-ctl-label">{t('call.ctlCamera')}</span>
+        </div>
+        <div className="stage-ctl">
+          <button
+            className={`stage-ctl-btn${isScreenSharing ? ' is-on' : ''}`}
+            onClick={() => { void handleToggleScreenShare(); }}
+            title={isScreenSharing ? t('call.stopScreenShare') : t('call.shareScreen')}
+          >
+            <MonitorUp size={16} strokeWidth={1.8} />
+          </button>
+          <span className="stage-ctl-label">{t('call.ctlScreen')}</span>
+        </div>
+        <div className="stage-ctl-divider" />
+        <button className="stage-leave-btn" onClick={handleLeaveGroupCall} title={t('call.leaveCall')}>
+          <PhoneOff size={16} strokeWidth={1.8} />
+          {t('call.leaveLabel')}
         </button>
       </div>
     </div>

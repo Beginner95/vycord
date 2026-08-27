@@ -149,9 +149,11 @@ export const ru = {
     focusParticipant: 'Показать участника крупно',
     sharingBadge: 'Демонстрация',
     watchShare: 'Смотреть',
-    youSuffix: '(Вы)',
+    youSuffix: '(вы)',
+    cameraOffChip: 'камера выкл.',
 
     // Заголовок и баннеры
+    live: 'В ЭФИРЕ',
     groupCallTitle: 'Групповой звонок',
     resizeSplit: 'Изменить высоту звонка',
     showCall: 'Звонок',
@@ -175,6 +177,10 @@ export const ru = {
     stopScreenShare: 'Остановить демонстрацию',
     shareScreen: 'Демонстрировать экран',
     leaveCall: 'Покинуть звонок',
+    ctlMic: 'Микрофон',
+    ctlCamera: 'Камера',
+    ctlScreen: 'Экран',
+    leaveLabel: 'Выйти',
 
     // Ошибки демонстрации экрана
     screenPermissionDenied: 'Доступ к записи экрана запрещён. Разрешите его в Системных настройках → Конфиденциальность и безопасность → Запись экрана и перезапустите приложение.',

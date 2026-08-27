@@ -144,9 +144,11 @@ export const en: Dictionary = {
     focusParticipant: 'Focus on this participant',
     sharingBadge: 'Sharing',
     watchShare: 'Watch',
-    youSuffix: '(You)',
+    youSuffix: '(you)',
+    cameraOffChip: 'camera off',
 
     // Header and banners
+    live: 'LIVE',
     groupCallTitle: 'Group Call',
     resizeSplit: 'Resize call area',
     showCall: 'Call',
@@ -170,6 +172,10 @@ export const en: Dictionary = {
     stopScreenShare: 'Stop screen sharing',
     shareScreen: 'Share screen',
     leaveCall: 'Leave call',
+    ctlMic: 'Mic',
+    ctlCamera: 'Camera',
+    ctlScreen: 'Screen',
+    leaveLabel: 'Leave',
 
     // Screen share errors
     screenPermissionDenied: 'Screen Recording permission is denied. Please grant it in System Settings → Privacy & Security → Screen Recording, then restart the app.',

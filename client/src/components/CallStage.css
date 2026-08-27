@@ -1,154 +1,709 @@
-/* ── Call Stage (блок в потоке над чатом) ── */
-/* Высоту задаёт сплит в AppPage.css, поэтому здесь никакого flex-grow:
-   иначе сцена растянулась бы на всю колонку и вытеснила чат. */
+/* ── Call stage — board 1e (base) / 2e (speaking). Root class .call-stage is
+   the cross-file contract with AppPage.css's split/fullscreen/mobile rules —
+   kept by decision 2 of the M3 plan. Everything else is stage-*. ── */
 .call-stage {
   flex: 0 0 auto;
   min-width: 0;
   display: flex;
   flex-direction: column;
-  background: var(--bg-base);
+  background: var(--stage);
   position: relative;
 }
 
-.gc-reconnecting-banner {
+/* ── Top bar: 56px, live pill + title + counter + fullscreen ── */
+.stage-topbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: 56px;
+  padding: 0 16px;
+  flex-shrink: 0;
+  border-bottom: 1px solid var(--stage-line);
+}
+
+/* flex-shrink is load-bearing, not tidying: this is a flex item in .stage-topbar
+   and 40px is only its flex BASIS. Measured on the phone widths it exists for —
+   29.2px at 420px wide, 18px at 360px — i.e. the decision-22 touch floor this
+   button's whole mobile rule exists to guarantee was being shrunk away. The
+   title beside it already carries min-width: 0, so it absorbs the deficit. */
+.stage-back-btn {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-row);
+  background: var(--stage-chip);
+  color: var(--stage-ink);
+  cursor: pointer;
+}
+
+.stage-live-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 12px;
+  border-radius: var(--radius-pill);
+  background: var(--live-pill-bg);
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--live-pill-text);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.stage-live-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--online);
+  flex-shrink: 0;
+}
+
+.stage-title {
+  font-size: 14.5px;
+  font-weight: 700;
+  color: var(--stage-ink);
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.stage-topbar-right {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.stage-count-chip {
+  padding: 7px 12px;
+  border-radius: var(--radius-row);
+  background: var(--stage-chip);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--stage-muted);
+  white-space: nowrap;
+}
+
+.stage-fullscreen-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-row);
+  background: var(--stage-chip);
+  color: var(--stage-ink);
+  cursor: pointer;
+  transition: background var(--transition);
+}
+
+/* Mobile ≥40px floor (decision 22) — kept next to the base rule it overrides.
+   Position relative to the :hover rule is cosmetic; see the note above the
+   tile-chip media block. */
+@media (width <= 768px) {
+  .stage-fullscreen-btn {
+    width: 40px;
+    height: 40px;
+  }
+}
+
+.stage-fullscreen-btn:hover {
+  background: var(--stage-toggle);
+}
+
+.stage-reconnecting {
   position: absolute;
-  top: 12px;
+  top: 68px;
   left: 50%;
   transform: translateX(-50%);
   z-index: 30;
   padding: 8px 16px;
-  border-radius: 8px;
-  background: rgba(230, 160, 30, 0.92);
-  color: #1a1a1a;
+  border-radius: var(--radius-row);
+  border: 1px solid var(--warning);
+  background: var(--stage-bar);
+  color: var(--warning);
+  font-size: 13px;
   font-weight: 600;
 }
 
-.group-call-header {
+/* ── Tile grid: 1 col ≤1, 2 cols ≤4 (default), 3 cols 5+ ──
+   grid-auto-rows is load-bearing, not tidying: `auto` rows take min-content as
+   their base (0 — the tile is overflow:hidden) and max-content as their growth
+   limit, so once two rows of aspect-ratio tiles exceed the stage's constrained
+   height the tracks are squeezed to fit while the tiles keep their 16/9 height
+   and spill into the row below. Measured at 5 participants in a 55% split:
+   tracks 93.3px, tiles 149px, row 2 starting 42px inside row 1. max-content
+   pins each track to the tile it holds, so the surplus becomes the scroll that
+   `overflow: auto` below already anticipates. */
+.stage-grid {
+  flex: 1;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  grid-auto-rows: max-content;
+  gap: 14px;
+  padding: 18px;
+  overflow: auto;
+  align-content: start;
+}
+
+.stage-grid.is-solo {
+  grid-template-columns: 1fr;
+}
+
+.stage-grid.is-many {
+  grid-template-columns: 1fr 1fr 1fr;
+}
+
+/* ── Participant tile ── */
+.stage-tile {
+  position: relative;
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  padding: 16px 24px;
-  background: var(--bg-primary);
-  border-bottom: 1px solid var(--border-subtle);
+  justify-content: center;
+  aspect-ratio: 16 / 9;
+  border-radius: 14px;
+  background: var(--stage-tile);
+  overflow: hidden;
 }
 
-.group-call-header h2 {
-  font-size: 18px;
-  font-weight: 700;
-  color: var(--text-primary);
-  letter-spacing: -0.01em;
+/* 2e: ring radius maps level 0→1 to 2→6px, driven by the real level.
+   --speak-level is JS-injected (invisible to importFrom) — fallback required. */
+.stage-tile.is-speaking {
+  box-shadow: 0 0 0 calc(2px + var(--speak-level, 0) * 4px) var(--speak-ring);
 }
 
-.participant-count {
+.stage-tile-video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.stage-tile-video.is-mirrored {
+  transform: scaleX(-1);
+}
+
+.stage-tile-video.is-screen {
+  transform: none;
+}
+
+.stage-tile.is-camera-off .stage-tile-video {
+  visibility: hidden;
+}
+
+.call-stage .stage-tile-avatar {
+  width: 74px;
+  height: 74px;
+  border-radius: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 28px;
+  z-index: 1;
+  object-fit: cover;
+}
+
+/* ── Name plate: mic / equalizer + name ── */
+.stage-plate {
+  position: absolute;
+  bottom: 10px;
+  left: 10px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  max-width: calc(100% - 20px);
+  padding: 5px 10px;
+  border-radius: var(--radius-row);
+  background: var(--stage-plate);
+  color: var(--stage-ink);
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  z-index: 2;
+}
+
+.stage-plate-mic {
+  display: flex;
+  align-items: center;
+  color: var(--stage-muted);
+}
+
+.stage-plate-mic.is-muted {
+  color: var(--danger);
+}
+
+/* 2e equalizer: bars 5→13px, 0.7s, staggered .12s */
+.stage-eq {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 13px;
+}
+
+.stage-eq span {
+  width: 2.5px;
+  border-radius: 1px;
+  background: var(--online);
+  animation: stage-eq-bar 0.7s ease-in-out infinite;
+}
+
+.stage-eq span:nth-child(2) {
+  animation-delay: 0.12s;
+}
+
+.stage-eq span:nth-child(3) {
+  animation-delay: 0.24s;
+}
+
+@keyframes stage-eq-bar {
+  0%, 100% { height: 5px; }
+  50% { height: 13px; }
+}
+
+.stage-state-chip {
+  position: absolute;
+  bottom: 10px;
+  right: 10px;
+  padding: 4px 8px;
+  border-radius: 7px;
+  background: var(--stage-plate);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--stage-muted);
+  z-index: 2;
+}
+
+.stage-share-badge {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  border-radius: 7px;
+  background: var(--accent);
+  color: var(--white);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  z-index: 2;
+}
+
+/* ── Hover chips on tiles ── */
+.stage-focus-btn,
+.stage-volume-btn {
+  position: absolute;
+  top: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: none;
+  border-radius: 7px;
+  background: var(--stage-plate);
+  color: var(--stage-ink);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity var(--transition), background var(--transition);
+  z-index: 3;
+}
+
+.stage-volume-btn {
+  left: 8px;
+}
+
+.stage-focus-btn {
+  right: 44px;
+}
+
+/* Mobile floor + touch visibility (decision 22). Placed before the :hover rules
+   for grouping only. The M3 plan claimed the reverse order would trip
+   no-descending-specificity — counterfactual-checked under this stylelint
+   config, it does not: the rule buckets by @media context, so a top-level
+   :hover rule and a rule inside @media are never compared. (It does fire for a
+   plain `.x:hover` → `.x` pair — verified — so the rule itself is live here.)
+   The declarations do not overlap either, so the order is style, not cascade. */
+@media (width <= 768px) {
+  .stage-focus-btn,
+  .stage-volume-btn {
+    width: 40px;
+    height: 40px;
+    opacity: 1;
+  }
+}
+
+.stage-focus-btn:hover,
+.stage-volume-btn:hover {
+  background: var(--accent);
+}
+
+.stage-tile:hover .stage-focus-btn,
+.stage-tile:hover .stage-volume-btn {
+  opacity: 1;
+}
+
+/* ── Connection quality (bars persistent top-right; tooltip is a system popover) ── */
+.stage-conn {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: inline-flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 28px;
+  padding: 0 7px;
+  border-radius: 7px;
+  background: var(--stage-plate);
+  cursor: help;
+  z-index: 3;
+}
+
+.stage-conn-bar {
+  width: 3px;
+  margin-bottom: 7px;
+  border-radius: 1px;
+  background: currentcolor;
+  opacity: 0.3;
+}
+
+.stage-conn-bar:nth-child(1) { height: 5px; }
+.stage-conn-bar:nth-child(2) { height: 9px; }
+.stage-conn-bar:nth-child(3) { height: 13px; }
+
+.stage-conn.is-good { color: var(--online); }
+.stage-conn.is-medium { color: var(--warning); }
+.stage-conn.is-poor { color: var(--danger); }
+.stage-conn.is-unknown { color: var(--muted-2); }
+.stage-conn.is-good .stage-conn-bar { opacity: 1; }
+
+.stage-conn.is-medium .stage-conn-bar:nth-child(1),
+.stage-conn.is-medium .stage-conn-bar:nth-child(2) {
+  opacity: 1;
+}
+
+.stage-conn.is-poor .stage-conn-bar:nth-child(1) {
+  opacity: 1;
+}
+
+/* Tooltip portals to body — theme-adaptive popover surface, not stage-dark */
+.stage-tip {
+  position: fixed;
+  transform: translate(-50%, -100%);
+  z-index: 1200;
+  min-width: 168px;
+  padding: 10px 12px;
+  background: var(--canvas);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  box-shadow: var(--shadow-menu);
+  color: var(--ink);
+  pointer-events: none;
+  animation: stage-tip-in 0.12s var(--ease-out);
+}
+
+@keyframes stage-tip-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, calc(-100% + 4px));
+  }
+
+  to {
+    opacity: 1;
+    transform: translate(-50%, -100%);
+  }
+}
+
+.stage-tip-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.stage-tip-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: currentcolor;
+}
+
+.stage-tip-title {
   font-size: 13px;
-  color: var(--text-secondary);
-  background: var(--bg-secondary);
-  padding: 5px 14px;
-  border-radius: var(--radius-sm);
-  font-weight: 500;
+  font-weight: 600;
+  color: var(--ink);
+  white-space: nowrap;
 }
 
-.group-call-header-left {
+.stage-tip-rows {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.stage-tip-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.stage-tip-key {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.stage-tip-val {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+
+.stage-tip-arrow {
+  position: absolute;
+  bottom: -5px;
+  left: 50%;
+  transform: translateX(-50%) rotate(45deg);
+  width: 10px;
+  height: 10px;
+  background: var(--canvas);
+  border-right: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+}
+
+.stage-tip.is-good { color: var(--online); }
+.stage-tip.is-medium { color: var(--warning); }
+.stage-tip.is-poor { color: var(--danger); }
+.stage-tip.is-unknown { color: var(--muted-2); }
+
+/* ── Share banner (someone is sharing, focus not open) ── */
+.stage-share-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 18px;
+  background: var(--stage-bar);
+  border-bottom: 1px solid var(--stage-line);
+  color: var(--stage-ink);
+  flex-shrink: 0;
+}
+
+.stage-share-banner-text {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.stage-share-banner-btn {
+  flex-shrink: 0;
+  height: 32px;
+  padding: 0 14px;
+  border: none;
+  border-radius: var(--radius-row);
+  background: var(--accent);
+  color: var(--white);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background var(--transition);
+}
+
+.stage-share-banner-btn:hover {
+  background: var(--accent-hover);
+}
+
+.stage-share-banner-dismiss {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--stage-muted);
+  cursor: pointer;
+  transition: background var(--transition), color var(--transition);
+}
+
+/* Mobile ≥40px floor (decision 22) — before the :hover rule. */
+@media (width <= 768px) {
+  .stage-share-banner-dismiss {
+    width: 40px;
+    height: 40px;
+  }
+}
+
+.stage-share-banner-dismiss:hover {
+  background: var(--stage-chip);
+  color: var(--stage-ink);
+}
+
+.stage-watch-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  background: var(--stage-plate);
+  color: var(--stage-muted);
+  z-index: 1;
+}
+
+.stage-watch-btn {
+  height: 28px;
+  padding: 0 12px;
+  border: none;
+  border-radius: 7px;
+  background: var(--accent);
+  color: var(--white);
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+/* ── Control bar: three labeled 46px toggles · divider · danger «Выйти» pill ──
+   z-index needed: <video> GPU layers block pointer events on siblings without
+   their own compositing layer in Electron. (One comment block on purpose —
+   two adjacent comments trip comment-empty-line-before.) */
+.stage-controls {
+  z-index: 1;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 10px;
+  width: max-content;
+  max-width: calc(100% - 36px);
+  margin: 0 auto 14px;
+  padding: 10px;
+  background: var(--stage-bar);
+  border: 1px solid var(--stage-line);
+  border-radius: var(--radius-bar);
+  flex-shrink: 0;
+}
+
+.stage-ctl {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+
+.stage-ctl-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 46px;
+  height: 46px;
+  padding: 0;
+  border: none;
+  border-radius: 14px;
+  background: var(--stage-toggle);
+  color: var(--stage-ink);
+  cursor: pointer;
+  transition: background var(--transition);
+}
+
+.stage-ctl-btn:hover {
+  background: var(--stage-chip);
+}
+
+.stage-ctl-btn.is-off {
+  background: var(--danger);
+  color: var(--white);
+}
+
+.stage-ctl-btn.is-on {
+  background: var(--accent);
+  color: var(--white);
+}
+
+.stage-ctl-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+.stage-ctl-label {
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--stage-muted);
+}
+
+.stage-ctl-divider {
+  width: 1px;
+  height: 40px;
+  align-self: center;
+  background: var(--stage-line);
+}
+
+.stage-leave-btn {
   display: flex;
   align-items: center;
   gap: 8px;
-  min-width: 0;
+  height: 46px;
+  padding: 0 18px;
+  border: none;
+  border-radius: var(--radius-pill);
+  background: var(--danger);
+  color: var(--white);
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: filter var(--transition);
 }
+
+.stage-leave-btn:hover {
+  filter: brightness(1.08);
+}
+
+/* ── Mobile: back button appears; grid single-column ≤640 ── */
+@media (width <= 768px) {
+  .stage-back-btn {
+    display: flex;
+  }
+}
+
+@media (width <= 640px) {
+  .stage-grid,
+  .stage-grid.is-many {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ═══ LEGACY (carried until T4/T5 of the M3 plan): focused view + thumbnails + pickers ═══ */
 
 /* ── Call Body (видео-область) ── */
 .call-body {
   flex: 1;
   display: flex;
   overflow: hidden;
-}
-
-/* ── Video Grid ── */
-.video-grid {
-  flex: 1;
-  display: grid;
-  gap: 14px;
-  padding: 20px;
-  overflow: auto;
-  align-content: start;
-}
-
-.video-tile {
-  position: relative;
-  background: var(--bg-secondary);
-  border-radius: var(--radius-lg);
-  overflow: hidden;
-  aspect-ratio: 16 / 9;
-  box-shadow: var(--shadow-md);
-  border: 1px solid var(--border-subtle);
-}
-
-.video-tile video {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  z-index: 0;
-}
-
-.video-tile video.local-video {
-  transform: scaleX(-1);
-  transform-origin: center;
-}
-
-.video-tile.video-off {
-  background: linear-gradient(135deg, var(--bg-secondary), var(--brand-50));
-}
-
-.video-off-placeholder {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 48px;
-  opacity: 0.4;
-  z-index: 1;
-}
-
-.video-label {
-  position: absolute;
-  bottom: 10px;
-  left: 10px;
-  background: rgba(15, 17, 23, 0.7);
-  backdrop-filter: blur(6px);
-  color: white;
-  padding: 5px 12px;
-  border-radius: var(--radius-md);
-  font-size: 12px;
-  font-weight: 600;
-  letter-spacing: 0.01em;
-  z-index: 2;
-}
-
-/* ── Mic Activity ── */
-.video-tile.speaking {
-  border-color: rgba(34, 197, 94, 0.8);
-  box-shadow: 0 0 0 2px rgba(34, 197, 94, 0.45);
-}
-
-.mic-btn-wrap {
-  position: relative;
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.mic-btn-wrap::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  border-radius: 50%;
-  background: rgba(34, 197, 94, calc(var(--mic-level, 0) * 0.55));
-  transform: scale(calc(1 + var(--mic-level, 0) * 0.55));
-  transition: transform 0.08s ease, background 0.08s ease;
-  pointer-events: none;
 }
 
 .mic-badge {
@@ -184,216 +739,6 @@
 @keyframes mic-badge-pulse {
   0%, 100% { transform: scale(1); }
   50% { transform: scale(1.15); }
-}
-
-.conn-indicator {
-  position: absolute;
-  bottom: 10px;
-  right: 44px; /* слева от круглого mic-badge (26px @ right:10px) */
-  z-index: 2;
-  display: inline-flex;
-  align-items: flex-end;
-  gap: 2px;
-  height: 14px;
-  padding: 2px 4px;
-  border-radius: 4px;
-  background: rgba(0, 0, 0, 0.45);
-}
-.thumbnail-tile .conn-indicator {
-  bottom: 4px;
-  right: 24px; /* слева от уменьшенного mic-badge (16px @ right:4px) */
-  height: 10px;
-  padding: 1px 3px;
-  gap: 1px;
-}
-.thumbnail-tile .conn-bar { width: 2px; }
-.thumbnail-tile .conn-bar--1 { height: 3px; }
-.thumbnail-tile .conn-bar--2 { height: 6px; }
-.thumbnail-tile .conn-bar--3 { height: 9px; }
-.conn-indicator .conn-bar {
-  width: 3px;
-  border-radius: 1px;
-  background: currentColor;
-  opacity: 0.3;
-}
-.conn-bar--1 { height: 5px; }
-.conn-bar--2 { height: 9px; }
-.conn-bar--3 { height: 13px; }
-.conn-indicator--good { color: #43b581; }
-.conn-indicator--good .conn-bar { opacity: 1; }
-.conn-indicator--medium { color: #faa61a; }
-.conn-indicator--medium .conn-bar--1,
-.conn-indicator--medium .conn-bar--2 { opacity: 1; }
-.conn-indicator--poor { color: #f04747; }
-.conn-indicator--poor .conn-bar--1 { opacity: 1; }
-.conn-indicator--unknown { color: #99aab5; }
-.conn-indicator { cursor: help; }
-
-/* ── Custom connection-quality tooltip (portal to body, fixed → не режется overflow плитки) ── */
-.conn-tooltip {
-  position: fixed;
-  transform: translate(-50%, -100%);
-  z-index: 1200;
-  min-width: 168px;
-  padding: 10px 12px;
-  background: var(--bg-elevated);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-md);
-  box-shadow: var(--shadow-lg);
-  color: var(--text-primary);
-  pointer-events: none;
-  animation: conn-tooltip-in 0.12s ease-out;
-}
-@keyframes conn-tooltip-in {
-  from { opacity: 0; transform: translate(-50%, calc(-100% + 4px)); }
-  to   { opacity: 1; transform: translate(-50%, -100%); }
-}
-.conn-tooltip__head {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-}
-.conn-tooltip__dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  flex-shrink: 0;
-  background: currentColor;
-  box-shadow: 0 0 6px currentColor;
-}
-.conn-tooltip__title {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--text-primary);
-  white-space: nowrap;
-}
-.conn-tooltip__rows {
-  margin-top: 8px;
-  padding-top: 8px;
-  border-top: 1px solid var(--border-subtle);
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-.conn-tooltip__row {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 16px;
-}
-.conn-tooltip__key {
-  font-size: 12px;
-  color: var(--text-secondary);
-}
-.conn-tooltip__val {
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--text-primary);
-  font-variant-numeric: tabular-nums;
-}
-.conn-tooltip__arrow {
-  position: absolute;
-  bottom: -5px;
-  left: 50%;
-  transform: translateX(-50%) rotate(45deg);
-  width: 10px;
-  height: 10px;
-  background: var(--bg-elevated);
-  border-right: 1px solid var(--border-subtle);
-  border-bottom: 1px solid var(--border-subtle);
-}
-/* Цвет точки/акцента по уровню сигнала */
-.conn-tooltip--good { color: #43b581; }
-.conn-tooltip--medium { color: #faa61a; }
-.conn-tooltip--poor { color: #f04747; }
-.conn-tooltip--unknown { color: #99aab5; }
-
-/* ── Controls ── */
-/* position + z-index needed: <video> GPU layers block pointer events on
-   sibling elements without their own compositing layer in Electron */
-.call-controls {
-  z-index: 1;
-  display: flex;
-  justify-content: center;
-  gap: 12px;
-  padding: 16px;
-  background: var(--bg-primary);
-  border-top: 1px solid var(--border-subtle);
-}
-
-.control-btn {
-  width: 48px;
-  height: 48px;
-  border-radius: var(--radius-full);
-  border: 1.5px solid var(--border-color);
-  background: var(--bg-primary);
-  color: var(--text-primary);
-  cursor: pointer;
-  font-size: 18px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: all var(--transition);
-}
-
-.control-btn:hover {
-  transform: scale(1.08);
-  box-shadow: var(--shadow-md);
-}
-
-.control-btn.active {
-  background: var(--red-500);
-  border-color: var(--red-500);
-  color: white;
-}
-
-.control-btn.end-call {
-  background: var(--red-500);
-  border-color: var(--red-500);
-  color: white;
-  width: 56px;
-  height: 56px;
-  font-size: 20px;
-}
-
-.control-btn.end-call:hover {
-  background: var(--red-600);
-  border-color: var(--red-600);
-  transform: scale(1.12);
-  box-shadow: 0 4px 14px rgba(239, 68, 68, 0.35);
-}
-
-.control-btn.screen-sharing-active {
-  background: var(--brand-500, #6366f1);
-  border-color: var(--brand-500, #6366f1);
-  color: white;
-}
-
-.control-btn:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
-  pointer-events: none;
-}
-
-/* ── Local video — screen capture (no mirror) ── */
-.video-tile video.local-video-screen {
-  transform: none;
-}
-
-/* ── Screen share badge ── */
-.screen-share-badge {
-  position: absolute;
-  top: 10px;
-  right: 10px;
-  background: rgba(99, 102, 241, 0.85);
-  backdrop-filter: blur(6px);
-  color: white;
-  padding: 4px 10px;
-  border-radius: var(--radius-md);
-  font-size: 11px;
-  font-weight: 600;
-  z-index: 2;
-  letter-spacing: 0.02em;
 }
 
 /* ── Screen Source Picker Modal ── */
@@ -561,28 +906,6 @@
   color: var(--text-secondary);
 }
 
-/* ── Header right side ── */
-.group-call-header-right {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.header-screen-share-indicator {
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--brand-400, #818cf8);
-  background: rgba(99, 102, 241, 0.12);
-  padding: 4px 10px;
-  border-radius: var(--radius-sm);
-  animation: pulse-indicator 2s ease-in-out infinite;
-}
-
-@keyframes pulse-indicator {
-  0%, 100% { opacity: 1; }
-  50%       { opacity: 0.65; }
-}
-
 /* ── Call video area wrapper ── */
 .call-video-area {
   flex: 1;
@@ -590,67 +913,6 @@
   flex-direction: column;
   overflow: hidden;
   min-width: 0;
-}
-
-/* ── Screen share banner ── */
-.screen-share-banner {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 10px 18px;
-  background: rgba(99, 102, 241, 0.1);
-  border-bottom: 1px solid rgba(99, 102, 241, 0.25);
-  flex-shrink: 0;
-}
-
-.screen-share-banner-icon {
-  font-size: 16px;
-  flex-shrink: 0;
-}
-
-.screen-share-banner-text {
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--text-primary);
-  flex: 1;
-  min-width: 0;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.screen-share-banner-btn {
-  background: var(--brand-500, #6366f1);
-  color: white;
-  border: none;
-  border-radius: var(--radius-md);
-  padding: 5px 14px;
-  font-size: 13px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: background var(--transition);
-  flex-shrink: 0;
-}
-
-.screen-share-banner-btn:hover {
-  background: var(--brand-600, #4f46e5);
-}
-
-.screen-share-banner-dismiss {
-  background: none;
-  border: none;
-  color: var(--text-secondary);
-  font-size: 14px;
-  cursor: pointer;
-  padding: 4px 6px;
-  border-radius: var(--radius-sm);
-  flex-shrink: 0;
-  transition: background var(--transition), color var(--transition);
-}
-
-.screen-share-banner-dismiss:hover {
-  background: var(--bg-secondary);
-  color: var(--text-primary);
 }
 
 /* ── Focused screen-share view ── */
@@ -919,36 +1181,6 @@
   display: flex;
   align-items: center;
   gap: 4px;
-}
-
-/* ── Focus button on remote video tiles in grid ── */
-.video-tile .focus-btn {
-  position: absolute;
-  top: 8px;
-  right: 8px;
-  background: rgba(15, 17, 23, 0.72);
-  backdrop-filter: blur(4px);
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  color: white;
-  border-radius: var(--radius-sm);
-  width: 28px;
-  height: 28px;
-  font-size: 14px;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  opacity: 0;
-  transition: opacity 0.15s ease, background var(--transition);
-  z-index: 3;
-}
-
-.video-tile:hover .focus-btn {
-  opacity: 1;
-}
-
-.video-tile .focus-btn:hover {
-  background: rgba(99, 102, 241, 0.8);
 }
 
 /* ── Per-participant volume control ── */
