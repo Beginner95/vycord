@@ -256,9 +256,17 @@ func (h *AttachmentHandler) serve(w http.ResponseWriter, r *http.Request, thumb 
 	disposition := "inline"
 	// Всё, что не медиа, отдаём октет-потоком и вложением: так ничто из
 	// загруженного не выполнится как скрипт в контексте приложения.
-	if !thumb && att.Kind == domain.AttachmentKindFile {
+	// Проверка намеренно НЕ зависит от thumb: подпись покрывает id и срок, но
+	// не путь, поэтому ссылку на /content можно предъявить и на /thumb.
+	if att.Kind == domain.AttachmentKindFile {
 		contentType = "application/octet-stream"
 		disposition = "attachment"
+	}
+	// Миниатюра всегда перекодирована в JPEG (см. AnalyzeImage), а в БД лежит
+	// content-type оригинала. Без этой поправки PNG-вложение отдавало бы
+	// JPEG-байты под видом image/png.
+	if thumb && att.ThumbKey != "" {
+		contentType = "image/jpeg"
 	}
 	if r.URL.Query().Get("download") == "1" {
 		disposition = "attachment"
@@ -278,6 +286,11 @@ func (h *AttachmentHandler) serve(w http.ResponseWriter, r *http.Request, thumb 
 // contentDisposition кодирует имя по RFC 5987: без filename*=UTF-8'' любое
 // не-ASCII имя превратится в мусор. ASCII-фолбэк оставляем для очень старых
 // клиентов.
+//
+// Пустая строка ниже отвязывает комментарий от объявления намеренно: начиная с
+// Go 1.19 gofmt переформатирует doc-комментарии и превращает пару апострофов в
+// типографскую кавычку, испортив записанный здесь синтаксис RFC 5987.
+
 func contentDisposition(disposition, name string) string {
 	return fmt.Sprintf("%s; filename=\"%s\"; filename*=UTF-8''%s",
 		disposition, asciiFallback(name), url.PathEscape(name))

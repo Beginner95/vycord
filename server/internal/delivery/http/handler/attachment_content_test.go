@@ -144,6 +144,8 @@ func TestContentRejectsTamperedSignature(t *testing.T) {
 }
 
 func TestThumbServesThumbnail(t *testing.T) {
+	// ThumbKey пуст — usecase откатился на оригинал (для картинки это
+	// допустимо), поэтому Content-Type остаётся типом оригинала.
 	id := uuid.New()
 	uc := new(MockAttachmentUseCase)
 	uc.On("OpenThumb", id).Return(&domain.Attachment{
@@ -159,7 +161,61 @@ func TestThumbServesThumbnail(t *testing.T) {
 
 	require.Equal(t, http.StatusOK, rec.Code)
 	assert.Equal(t, "thumb-bytes", rec.Body.String())
+	assert.Equal(t, "image/png", rec.Header().Get("Content-Type"))
 	assert.True(t, strings.HasPrefix(rec.Header().Get("Content-Disposition"), "inline"))
+}
+
+func TestThumbRejectsNonImageAttachment(t *testing.T) {
+	// Подпись не покрывает путь, поэтому ссылку на /content можно предъявить
+	// и на /thumb. Не-картинка обязана отвечать «не найдено», иначе через этот
+	// путь отдаётся оригинал в обход принудительного octet-stream.
+	id := uuid.New()
+	uc := new(MockAttachmentUseCase)
+	uc.On("OpenThumb", id).Return(nil, nil, domain.ErrAttachmentNotFound)
+	h := newAttachmentHandler(uc)
+
+	req := httptest.NewRequest(http.MethodGet, h.ThumbURLFor(id), nil)
+	req.SetPathValue("id", id.String())
+	rec := httptest.NewRecorder()
+	h.Thumb(rec, req)
+
+	assert.Equal(t, http.StatusNotFound, rec.Code)
+}
+
+func TestContentForcesOctetStreamOnThumbPathToo(t *testing.T) {
+	// Подстраховка на случай, если через /thumb всё же дойдёт не-медиа.
+	id := uuid.New()
+	uc := new(MockAttachmentUseCase)
+	uc.On("OpenThumb", id).Return(&domain.Attachment{
+		ID: id, Kind: domain.AttachmentKindFile, ContentType: "text/html", FileName: "evil.html",
+	}, nopSeekCloser{bytes.NewReader([]byte("<script>alert(1)</script>"))}, nil)
+	h := newAttachmentHandler(uc)
+
+	req := httptest.NewRequest(http.MethodGet, h.ThumbURLFor(id), nil)
+	req.SetPathValue("id", id.String())
+	rec := httptest.NewRecorder()
+	h.Thumb(rec, req)
+
+	assert.Equal(t, "application/octet-stream", rec.Header().Get("Content-Type"))
+	assert.True(t, strings.HasPrefix(rec.Header().Get("Content-Disposition"), "attachment"))
+}
+
+func TestThumbServesJPEGContentType(t *testing.T) {
+	// Миниатюра всегда JPEG, даже если оригинал PNG.
+	id := uuid.New()
+	uc := new(MockAttachmentUseCase)
+	uc.On("OpenThumb", id).Return(&domain.Attachment{
+		ID: id, Kind: domain.AttachmentKindImage, ContentType: "image/png",
+		FileName: "pic.png", ThumbKey: "attachments/c/x_thumb.jpg",
+	}, nopSeekCloser{bytes.NewReader([]byte("jpeg-bytes"))}, nil)
+	h := newAttachmentHandler(uc)
+
+	req := httptest.NewRequest(http.MethodGet, h.ThumbURLFor(id), nil)
+	req.SetPathValue("id", id.String())
+	rec := httptest.NewRecorder()
+	h.Thumb(rec, req)
+
+	assert.Equal(t, "image/jpeg", rec.Header().Get("Content-Type"))
 }
 
 func TestContentClosesFile(t *testing.T) {

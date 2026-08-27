@@ -272,3 +272,39 @@ func TestDeleteRemovesRowAndBothFiles(t *testing.T) {
 	f.storage.AssertExpectations(t)
 	f.repo.AssertExpectations(t)
 }
+
+func TestOpenThumbRejectsNonImageAttachment(t *testing.T) {
+	// Подпись ссылки покрывает id и срок, но не путь: ссылку на /content можно
+	// предъявить и на /thumb. Без этой проверки не-медиа файл (например HTML)
+	// отдавался бы через /thumb в обход принудительного octet-stream.
+	f := newAttachFixture(t)
+	att := &domain.Attachment{
+		ID: uuid.New(), Kind: domain.AttachmentKindFile, StorageKey: "attachments/c/evil.html",
+	}
+	f.repo.On("GetByID", att.ID).Return(att, nil)
+
+	_, _, err := f.uc.OpenThumb(att.ID)
+
+	assert.ErrorIs(t, err, domain.ErrAttachmentNotFound)
+	f.storage.AssertNotCalled(t, "Open", mock.Anything, mock.Anything)
+}
+
+func TestOpenThumbFallsBackToOriginalForImageWithoutThumbnail(t *testing.T) {
+	// Фолбэк на оригинал остаётся допустим для картинок без миниатюры.
+	f := newAttachFixture(t)
+	att := &domain.Attachment{
+		ID: uuid.New(), Kind: domain.AttachmentKindImage, StorageKey: "attachments/c/a.png",
+	}
+	f.repo.On("GetByID", att.ID).Return(att, nil)
+	f.storage.On("Open", mock.Anything, "attachments/c/a.png").Return(nopSeekCloser{bytes.NewReader(nil)}, nil)
+
+	_, _, err := f.uc.OpenThumb(att.ID)
+
+	require.NoError(t, err)
+	f.storage.AssertExpectations(t)
+}
+
+// nopSeekCloser превращает bytes.Reader в io.ReadSeekCloser для тестов.
+type nopSeekCloser struct{ *bytes.Reader }
+
+func (nopSeekCloser) Close() error { return nil }

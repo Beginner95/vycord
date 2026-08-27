@@ -174,11 +174,19 @@ func (uc *attachmentUseCase) OpenContent(id uuid.UUID) (*domain.Attachment, io.R
 }
 
 // OpenThumb отдаёт миниатюру, а если её нет — оригинал: клиенту не нужно
-// знать, сумели мы сделать превью или нет.
+// знать, сумели мы сделать превью или нет (WebP и AVIF stdlib не декодирует).
+//
+// Фолбэк допустим ТОЛЬКО для картинок. Подпись ссылки покрывает id и срок, но
+// не путь, поэтому ссылку на /content можно предъявить и на /thumb. Без этой
+// проверки любой не-медиа файл — например HTML — отдавался бы через /thumb в
+// обход принудительного octet-stream и выполнялся бы как страница на домене API.
 func (uc *attachmentUseCase) OpenThumb(id uuid.UUID) (*domain.Attachment, io.ReadSeekCloser, error) {
 	att, err := uc.repo.GetByID(id)
 	if err != nil {
 		return nil, nil, err
+	}
+	if att.Kind != domain.AttachmentKindImage {
+		return nil, nil, domain.ErrAttachmentNotFound
 	}
 	key := att.ThumbKey
 	if key == "" {
