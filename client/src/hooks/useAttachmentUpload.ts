@@ -3,14 +3,12 @@ import { apiService, ApiError } from '@/services/api';
 import { useAttachmentStore, type DraftAttachment } from '@/stores/attachmentStore';
 import { logger } from '@/utils/logger';
 
-/**
- * Предел, выше которого файл заведомо не пройдёт.
- *
- * Проверяем на клиенте до отправки не ради лимита (настоящий лимит — план
- * пользователя на сервере), а ради внятной ошибки: nginx обрывает соединение
- * на 30 МБ, Go об этом не узнаёт, и пользователь увидел бы «сеть недоступна»
- * вместо «файл слишком большой».
- */
+// ВНИМАНИЕ: это вторая, захардкоденная копия лимита — на сервере он живёт в
+// таблице plans, чтобы платный тариф поднимался без правок кода. Пока клиент
+// про тарифы не знает (по ТЗ задел на подписки делается только на бэке), это
+// приемлемо. Когда платные планы появятся, эту константу обязательно заменить
+// на эффективный лимит, приходящий с сервера в данных пользователя, — иначе
+// клиент отвергнет файл, который сервер принял бы, и платный тариф не заработает.
 const HARD_MAX_BYTES = 25 * 1024 * 1024;
 
 export function useAttachmentUpload(channelId: string | undefined) {
@@ -71,7 +69,11 @@ export function useAttachmentUpload(channelId: string | undefined) {
       // Загруженное, но отменённое вложение удаляем сразу: иначе оно осталось
       // бы сиротой до прохода уборщика.
       if (draft?.attachment) {
-        apiService.deleteAttachment(draft.attachment.id).catch(() => {});
+        // Уборщик на сервере подберёт сироту и сам, но молчаливый провал
+        // удаления нечем будет объяснить при разборе.
+        apiService.deleteAttachment(draft.attachment.id).catch((err: unknown) => {
+          logger.error('Failed to delete cancelled attachment', err, { module: 'chat' });
+        });
       }
       removeDraft(channelId, localId);
     },
@@ -83,6 +85,13 @@ export function useAttachmentUpload(channelId: string | undefined) {
       if (!channelId) return;
       const draft = useAttachmentStore.getState().getDrafts(channelId).find((d) => d.localId === localId);
       if (!draft) return;
+      // Файл, не прошедший проверку размера, запросом не поможешь: nginx
+      // оборвёт соединение, и пользователь снова увидит «сеть недоступна»
+      // вместо внятной причины. Возвращаем ту же ошибку, не ходя на сервер.
+      if (draft.file.size > HARD_MAX_BYTES) {
+        update(channelId, localId, { status: 'error', progress: 0, errorCode: 'attachment_too_large' });
+        return;
+      }
       const abort = startUpload(channelId, localId, draft.file);
       update(channelId, localId, { status: 'uploading', progress: 0, errorCode: undefined, abort });
     },
