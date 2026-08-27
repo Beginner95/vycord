@@ -159,6 +159,8 @@ function insertEmojiAtCaret(el: HTMLTextAreaElement, setValue: (v: string) => vo
   });
 }
 
+type PickerKind = 'sticker' | 'emoji' | 'editEmoji';
+
 export function ChatArea({ channel, user, onMobileBack, onShowMembers, onJoinVoice, onShowCall }: ChatAreaProps) {
   const callChannelId = useCallStore((s) => s.callChannelId);
   const t = useT();
@@ -174,7 +176,12 @@ export function ChatArea({ channel, user, onMobileBack, onShowMembers, onJoinVoi
   const [searchOpen, setSearchOpen] = useState(false);
   const [historyMode, setHistoryMode] = useState(false);
   const [highlightedId, setHighlightedId] = useState<string | null>(null);
-  const [stickerPickerOpen, setStickerPickerOpen] = useState(false);
+  // Все три пикера (стикеры, смайлики в композере, смайлики в редакторе
+  // сообщения) висят на одном якоре с одинаковым z-index, поэтому открытым
+  // может быть только один — иначе они просто накладываются друг на друга.
+  const [openPicker, setOpenPicker] = useState<PickerKind | null>(null);
+  const togglePicker = (picker: PickerKind) => setOpenPicker((cur) => (cur === picker ? null : picker));
+  const closePicker = () => setOpenPicker(null);
   const [stickerManagerOpen, setStickerManagerOpen] = useState(false);
   const [serverStickers, setServerStickers] = useState<Sticker[]>([]);
 
@@ -392,7 +399,7 @@ logger.error('Failed to jump to message:', err, { module: 'chat' });
     try {
       const msg = await apiService.createMessage(channel.id, '', sticker.id) as Message;
       addMessage(msg);
-      setStickerPickerOpen(false);
+      closePicker();
     } catch (err) {
       setSendError(apiErrorText(err, t));
       setTimeout(() => setSendError(null), 5000);
@@ -483,8 +490,6 @@ logger.error('Failed to jump to message:', err, { module: 'chat' });
 
   const [linkTarget, setLinkTarget] = useState<'compose' | 'edit' | null>(null);
   const openLinkFor = (target: 'compose' | 'edit') => setLinkTarget(target);
-  const [emojiPickerOpen, setEmojiPickerOpen] = useState(false);
-  const [editEmojiPickerOpen, setEditEmojiPickerOpen] = useState(false);
 
   const insertLink = (label: string, url: string) => {
     const isEdit = linkTarget === 'edit';
@@ -859,7 +864,7 @@ logger.error('Failed to update message:', err, { module: 'chat' });
                           <button type="button" onMouseDown={(e) => e.preventDefault()} className="toolbar-btn" aria-label={t('chat.bulletedList')} title={t('chat.bulletedList')} onClick={editBullet}>
                             <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 6h11M9 12h11M9 18h11"/><path d="M4 6h.01M4 12h.01M4 18h.01"/></svg>
                           </button>
-                          <button type="button" onMouseDown={(e) => e.preventDefault()} className={`toolbar-btn${editEmojiPickerOpen ? ' active' : ''}`} aria-label={t('chat.emoji')} title={t('chat.emoji')} onClick={() => setEditEmojiPickerOpen((open) => !open)}>
+                          <button type="button" onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); }} className={`toolbar-btn${openPicker === 'editEmoji' ? ' active' : ''}`} aria-label={t('chat.emoji')} title={t('chat.emoji')} onClick={() => togglePicker('editEmoji')}>
                             <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/></svg>
                           </button>
                         </div>
@@ -879,10 +884,10 @@ logger.error('Failed to update message:', err, { module: 'chat' });
                             ))}
                           </ul>
                         )}
-                        {editEmojiPickerOpen && (
+                        {openPicker === 'editEmoji' && (
                           <EmojiPicker
-                            onSelect={(e) => { insertEmojiAtCaret(editInputRef.current!, setEditValue, e); setEditEmojiPickerOpen(false); }}
-                            onClose={() => setEditEmojiPickerOpen(false)}
+                            onSelect={(e) => { insertEmojiAtCaret(editInputRef.current!, setEditValue, e); closePicker(); }}
+                            onClose={closePicker}
                           />
                         )}
                       </div>
@@ -966,10 +971,10 @@ logger.error('Failed to update message:', err, { module: 'chat' });
           <button type="button" className="toolbar-btn" aria-label={t('chat.bulletedList')} title={t('chat.bulletedList')} onClick={composeBullet}>
             <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 6h11M9 12h11M9 18h11"/><path d="M4 6h.01M4 12h.01M4 18h.01"/></svg>
           </button>
-          <button type="button" className={`toolbar-btn${stickerPickerOpen ? ' active' : ''}`} aria-label={t('chat.stickers')} title={t('chat.stickers')} onClick={() => setStickerPickerOpen((open) => !open)}>
+          <button type="button" onMouseDown={(e) => e.stopPropagation()} className={`toolbar-btn${openPicker === 'sticker' ? ' active' : ''}`} aria-label={t('chat.stickers')} title={t('chat.stickers')} onClick={() => togglePicker('sticker')}>
             <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12a9 9 0 1 1-9-9"/><path d="M12 3a9 9 0 0 1 9 9"/><path d="M21 12h-4l-2 2-2-2"/></svg>
           </button>
-          <button type="button" className={`toolbar-btn${emojiPickerOpen ? ' active' : ''}`} aria-label={t('chat.emoji')} title={t('chat.emoji')} onClick={() => setEmojiPickerOpen((open) => !open)}>
+          <button type="button" onMouseDown={(e) => e.stopPropagation()} className={`toolbar-btn${openPicker === 'emoji' ? ' active' : ''}`} aria-label={t('chat.emoji')} title={t('chat.emoji')} onClick={() => togglePicker('emoji')}>
             <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/></svg>
           </button>
         </div>
@@ -1004,17 +1009,17 @@ logger.error('Failed to update message:', err, { module: 'chat' });
             </ul>
           )}
         </form>
-        {emojiPickerOpen && (
+        {openPicker === 'emoji' && (
           <EmojiPicker
-            onSelect={(e) => { insertEmojiAtCaret(inputRef.current!, setInput, e); setEmojiPickerOpen(false); }}
-            onClose={() => setEmojiPickerOpen(false)}
+            onSelect={(e) => { insertEmojiAtCaret(inputRef.current!, setInput, e); closePicker(); }}
+            onClose={closePicker}
           />
         )}
-        {stickerPickerOpen && (
+        {openPicker === 'sticker' && (
           <StickerPicker
             stickers={serverStickers}
             onSelect={sendSticker}
-            onClose={() => setStickerPickerOpen(false)}
+            onClose={closePicker}
             onManage={canManageStickers ? () => setStickerManagerOpen(true) : undefined}
           />
         )}
@@ -1062,7 +1067,7 @@ logger.error('Failed to update message:', err, { module: 'chat' });
       {stickerManagerOpen && channel && (
         <StickerManager
           serverId={channel.server_id}
-          onClose={() => { setStickerManagerOpen(false); setStickerPickerOpen(false); }}
+          onClose={() => { setStickerManagerOpen(false); closePicker(); }}
           onStickersChanged={refreshStickers}
         />
       )}
