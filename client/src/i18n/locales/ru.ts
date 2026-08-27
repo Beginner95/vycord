@@ -209,6 +209,11 @@ export const ru = {
     endCall: 'Завершить звонок',
     acceptCall: 'Принять',
     rejectCall: 'Отклонить',
+
+    // Мобильный баннер голосового канала (доска 1f)
+    voiceBanner: 'В голосовом «{{channel}}» — {{count}}',
+    bannerJoin: 'Войти',
+    bannerGoToCall: 'К звонку',
   },
   settings: {
     language: 'Язык',

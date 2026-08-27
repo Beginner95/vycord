@@ -20,6 +20,7 @@ import { Composer, type ComposerHandle } from '@/components/Composer';
 import { FloatingQuoteButton } from '@/components/FloatingQuoteButton';
 import { DayDivider } from '@/components/DayDivider';
 import { ConfirmModal } from '@/components/ConfirmModal';
+import { VoiceBanner } from '@/components/VoiceBanner';
 import type { Channel, User } from '@/types';
 import type { Sticker } from '@/types';
 import { useT, useTp, useDateFormat, isSameCalendarDay } from '@/i18n';
@@ -48,9 +49,10 @@ interface ChatAreaProps {
   onJoinVoice?: (channel: Channel) => void;
   onShowCall?: () => void;
   onCreateServer?: () => void;
+  voiceParticipants?: Map<string, string[]>;
 }
 
-export function ChatArea({ channel, user, onMobileBack, onShowMembers, onJoinVoice, onShowCall, onCreateServer }: ChatAreaProps) {
+export function ChatArea({ channel, user, onMobileBack, onShowMembers, onJoinVoice, onShowCall, onCreateServer, voiceParticipants }: ChatAreaProps) {
   const callChannelId = useCallStore((s) => s.callChannelId);
   const t = useT();
   const tp = useTp();
@@ -591,6 +593,15 @@ logger.error('Failed to jump to message:', err, { module: 'chat' });
           )}
         </div>
       </div>
+
+      <VoiceBanner
+        channelName={channel.name}
+        participantIds={voiceParticipants?.get(channel.id) ?? []}
+        members={members}
+        inThisCall={callChannelId === channel.id}
+        onJoin={() => onJoinVoice?.(channel)}
+        onShowCall={onShowCall}
+      />
 
       <div className="chat-messages" ref={chatMessagesRef}>
         {loading ? (

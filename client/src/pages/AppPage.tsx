@@ -653,6 +653,7 @@ logger.error('Failed to create server:', err, { module: 'app' });
                 : undefined
             }
             onCreateServer={() => { setShowCreateServer(true); setCreateServerError(''); }}
+            voiceParticipants={voiceParticipants}
           />
         </div>
 

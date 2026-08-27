@@ -204,6 +204,11 @@ export const en: Dictionary = {
     endCall: 'End call',
     acceptCall: 'Accept',
     rejectCall: 'Decline',
+
+    // Mobile voice banner (board 1f)
+    voiceBanner: 'In voice "{{channel}}" — {{count}}',
+    bannerJoin: 'Join',
+    bannerGoToCall: 'To call',
   },
   settings: {
     language: 'Language',
