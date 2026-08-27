@@ -113,6 +113,8 @@ export const ru = {
     fullscreen: 'На весь экран',
     play: 'Воспроизвести',
     pause: 'Пауза',
+    previous: 'Предыдущее',
+    next: 'Следующее',
   },
   call: {
     participants: plural({

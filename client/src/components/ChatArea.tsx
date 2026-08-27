@@ -5,6 +5,7 @@ import { LinkDialog } from '@/components/LinkDialog';
 import { EmojiPicker } from '@/components/EmojiPicker';
 import { StickerPicker } from '@/components/StickerPicker';
 import { StickerManager } from '@/components/StickerManager';
+import { MediaLightbox } from '@/components/MediaLightbox';
 import { AttachmentButton } from '@/components/AttachmentButton';
 import { AttachmentTray } from '@/components/AttachmentTray';
 import { useAttachmentUpload } from '@/hooks/useAttachmentUpload';
@@ -202,11 +203,7 @@ export function ChatArea({ channel, user, onMobileBack, onShowMembers, onJoinVoi
   const canManageStickers = can(permissions, PERMISSIONS.MANAGE_SERVER);
 
   const uploads = useAttachmentUpload(channel?.id);
-  // Сам компонент лайтбокса подключается в Task 20 — здесь только состояние
-  // и вызов onOpen. До тех пор `lightbox` никто не читает, а noUnusedLocals
-  // строгий — void ниже держит tsc довольным без забегания вперёд по YAGNI.
   const [lightbox, setLightbox] = useState<{ attachments: Attachment[]; index: number } | null>(null);
-  void lightbox;
 
   // Счётчик вложенности, а не булев флаг: dragleave приходит от каждого
   // дочернего элемента при движении мыши над содержимым чата, и без счётчика
@@ -1146,6 +1143,14 @@ logger.error('Failed to update message:', err, { module: 'chat' });
           serverId={channel.server_id}
           onClose={() => { setStickerManagerOpen(false); closePicker(); }}
           onStickersChanged={refreshStickers}
+        />
+      )}
+      {lightbox && (
+        <MediaLightbox
+          attachments={lightbox.attachments}
+          index={lightbox.index}
+          onIndexChange={(index) => setLightbox((cur) => (cur ? { ...cur, index } : cur))}
+          onClose={() => setLightbox(null)}
         />
       )}
     </main>
