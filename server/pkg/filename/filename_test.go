@@ -52,6 +52,17 @@ func TestSanitizeTruncatesToValidUTF8(t *testing.T) {
 	assert.NotEmpty(t, got)
 }
 
+func TestSanitizeReservedNameStillFitsLimit(t *testing.T) {
+	// Префикс "_" добавляется после обрезки, поэтому имя, чей обрезанный
+	// корень оказался зарезервированным, легко вылезает за 255 байт.
+	in := "nul." + strings.Repeat("a", 300)
+
+	got := filename.Sanitize(in)
+
+	assert.LessOrEqual(t, len(got), 255)
+	assert.True(t, strings.HasPrefix(got, "_nul."))
+}
+
 func utf8ValidString(s string) bool {
 	for _, r := range s {
 		if r == '\uFFFD' {

@@ -64,7 +64,10 @@ func Sanitize(name string) string {
 	}
 
 	if reserved[strings.ToLower(stem(out))] {
-		return "_" + out
+		// Обрезаем повторно: префикс добавляет байт, и без этого результат
+		// может выйти в 256 байт — единственный жёсткий контракт функции
+		// (≤255 байт) нарушился бы ровно на границе обрезки.
+		return truncateBytes("_"+out, maxBytes)
 	}
 
 	return out
