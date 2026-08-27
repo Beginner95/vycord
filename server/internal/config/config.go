@@ -33,6 +33,13 @@ type Config struct {
 	// functionality.
 	SFUInternalURL    string
 	SFUInternalSecret string
+	// AttachmentLinkTTL — срок жизни подписанной ссылки на вложение.
+	// Неделя: достаточно долго, чтобы открытая вкладка не теряла картинки,
+	// и достаточно коротко, чтобы утёкшая ссылка не жила вечно.
+	AttachmentLinkTTL time.Duration
+	// MaxUploadBytes — предохранитель на сырое тело запроса загрузки.
+	// Настоящий лимит размера файла берётся из тарифного плана.
+	MaxUploadBytes int64
 }
 
 func New() (*Config, error) {
@@ -60,6 +67,8 @@ func New() (*Config, error) {
 		UploadDir:              getEnv("UPLOAD_DIR", "./uploads"),
 		SFUInternalURL:         getEnv("SFU_INTERNAL_URL", ""),
 		SFUInternalSecret:      getEnv("SFU_INTERNAL_SECRET", ""),
+		AttachmentLinkTTL:      parseDuration(getEnv("ATTACHMENT_LINK_TTL", "168h")),
+		MaxUploadBytes:         30 << 20,
 	}
 
 	return cfg, nil

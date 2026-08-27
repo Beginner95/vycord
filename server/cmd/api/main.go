@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/joho/godotenv"
+	"github.com/vycord/server/internal/attachments"
 	"github.com/vycord/server/internal/config"
 	"github.com/vycord/server/internal/delivery/http/handler"
 	"github.com/vycord/server/internal/delivery/http/middleware"
@@ -81,6 +82,7 @@ func main() {
 	stickerRepo := postgres.NewStickerRepository(db)
 	refreshTokenRepo := postgres.NewRefreshTokenRepository(db)
 	attachmentRepo := postgres.NewAttachmentRepository(db)
+	planRepo := postgres.NewPlanRepository(db)
 
 	// Initialize file storage
 	storage, err := filestorage.NewLocal(cfg.UploadDir, "/uploads")
@@ -100,11 +102,12 @@ func main() {
 	messageUseCase := usecase.NewMessageUseCase(messageRepo, channelRepo, serverRepo, stickerRepo, permissionUseCase, attachmentRepo)
 	stickerUseCase := usecase.NewStickerUseCase(stickerRepo, serverRepo, permissionUseCase, storage)
 
-	// Подписывает ссылки на вложения в ответах сообщений. TTL временно
-	// захардкожен: полноценная проводка вложений (маршруты загрузки,
-	// cfg.AttachmentLinkTTL, janitor) — задача VYC-82 Task 14; здесь нужен
-	// только сам подписант, чтобы MessageHandler мог подписывать чужие ссылки.
-	attachmentSigner := attachlink.NewSigner(cfg.JWTSecret, 7*24*time.Hour)
+	// Кэш плана на 5 минут: таблица крошечная и меняется редко, ходить в БД
+	// на каждую загрузку незачем, а смена тарифа подхватится сама.
+	quotaUseCase := usecase.NewQuotaUseCase(planRepo, attachmentRepo, 5*time.Minute)
+	attachmentUseCase := usecase.NewAttachmentUseCase(attachmentRepo, channelRepo, permissionUseCase, quotaUseCase, storage)
+
+	attachmentSigner := attachlink.NewSigner(cfg.JWTSecret, cfg.AttachmentLinkTTL)
 	callUseCase := usecase.NewCallUseCase(callRepo)
 	turnUseCase := usecase.NewTURNUseCase(cfg.TURNSecret, cfg.TURNURLs, cfg.TURNTTL)
 
@@ -129,6 +132,12 @@ func main() {
 		log.Warn("SFU_INTERNAL_URL or SFU_INTERNAL_SECRET not set — voice-presence reconciliation disabled")
 	}
 
+	// Уборщик брошенных (не привязанных к сообщению) и протухших вложений.
+	// Второй механизм остановки не заводим — переиспользуем presenceCtx: он
+	// уже отменяется при штатном завершении сервера (см. defer stopPresenceWorker выше).
+	janitor := attachments.NewJanitor(attachmentRepo, storage, log)
+	go janitor.Run(presenceCtx)
+
 	// Initialize handlers
 	authHandler := handler.NewAuthHandler(authUseCase, log)
 	userHandler := handler.NewUserHandler(userUseCase, hub, log)
@@ -141,6 +150,7 @@ func main() {
 	turnHandler := handler.NewTURNHandler(turnUseCase, log)
 	roleHandler := handler.NewRoleHandler(roleUseCase, permissionUseCase, log)
 	voiceTokenHandler := handler.NewVoiceTokenHandler(voiceTokenUseCase, log)
+	attachmentHandler := handler.NewAttachmentHandler(attachmentUseCase, attachmentSigner, cfg.MaxUploadBytes, log)
 
 	// Setup router
 	router := http.NewServeMux()
@@ -219,6 +229,17 @@ func main() {
 	router.HandleFunc("GET /api/v1/channels/{channel_id}/messages/around/{message_id}", authMid.RequireAuth(messageHandler.GetMessagesAround))
 	router.HandleFunc("PATCH /api/v1/channels/{channel_id}/messages/{message_id}", authMid.RequireAuth(messageHandler.UpdateMessage))
 	router.HandleFunc("DELETE /api/v1/channels/{channel_id}/messages/{message_id}", authMid.RequireAuth(messageHandler.DeleteMessage))
+
+	// Вложения. Загрузка, метаданные и удаление — под авторизацией.
+	router.HandleFunc("POST /api/v1/attachments", authMid.RequireAuth(attachmentHandler.Upload))
+	router.HandleFunc("GET /api/v1/attachments/{id}", authMid.RequireAuth(attachmentHandler.Get))
+	router.HandleFunc("DELETE /api/v1/attachments/{id}", authMid.RequireAuth(attachmentHandler.Delete))
+
+	// Отдача содержимого — БЕЗ RequireAuth: <img src> и <video src> не умеют
+	// слать заголовок Authorization, поэтому доступ даёт подпись в URL
+	// (см. pkg/attachlink).
+	router.HandleFunc("GET /api/v1/attachments/{id}/content", attachmentHandler.Content)
+	router.HandleFunc("GET /api/v1/attachments/{id}/thumb", attachmentHandler.Thumb)
 
 	// Voice token — short-lived, room-scoped JWT for the SFU (see private channels design doc)
 	router.HandleFunc("POST /api/v1/channels/{channel_id}/voice-token", authMid.RequireAuth(voiceTokenHandler.IssueToken))
