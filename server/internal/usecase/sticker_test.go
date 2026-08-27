@@ -43,6 +43,9 @@ func (f *fakeStickerStorage) Save(_ context.Context, _ string, _ io.Reader, _ st
 	return f.returnedURL, nil
 }
 func (f *fakeStickerStorage) Delete(_ context.Context, _ string) error { return nil }
+func (f *fakeStickerStorage) Open(_ context.Context, _ string) (io.ReadSeekCloser, error) {
+	return nil, nil
+}
 
 // testPNG — валидный PNG 32x32, удовлетворяющий validateImage.
 var testPNG = []byte("\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00 \x00\x00\x00 \x08\x06\x00\x00\x00szz\xf4\x00\x00\x00\x00IEND\xaeB`\x82")

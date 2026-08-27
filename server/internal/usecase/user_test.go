@@ -32,6 +32,14 @@ func (m *MockStorage) Delete(ctx context.Context, url string) error {
 	return args.Error(0)
 }
 
+func (m *MockStorage) Open(ctx context.Context, key string) (io.ReadSeekCloser, error) {
+	args := m.Called(ctx, key)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(io.ReadSeekCloser), args.Error(1)
+}
+
 func fakePNGBytes(width, height int) []byte {
 	img := image.NewRGBA(image.Rect(0, 0, width, height))
 	for y := 0; y < height; y++ {

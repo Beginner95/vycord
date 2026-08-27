@@ -2,6 +2,7 @@ package filestorage_test
 
 import (
 	"context"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -40,6 +41,84 @@ func TestLocal_DeleteNonexistentKeyIsNotAnError(t *testing.T) {
 
 	err = storage.Delete(context.Background(), "/uploads/avatars/missing.jpg")
 	assert.NoError(t, err)
+}
+
+func TestLocal_OpenReturnsSavedContent(t *testing.T) {
+	dir := t.TempDir()
+	storage, err := filestorage.NewLocal(dir, "/uploads")
+	require.NoError(t, err)
+
+	_, err = storage.Save(context.Background(), "attachments/c1/abc.bin", strings.NewReader("hello-bytes"), "application/octet-stream")
+	require.NoError(t, err)
+
+	f, err := storage.Open(context.Background(), "attachments/c1/abc.bin")
+	require.NoError(t, err)
+	defer f.Close()
+
+	data, err := io.ReadAll(f)
+	require.NoError(t, err)
+	assert.Equal(t, "hello-bytes", string(data))
+}
+
+func TestLocal_OpenIsSeekable(t *testing.T) {
+	// Без Seek не работает http.ServeContent, а значит нет Range-запросов и
+	// перемотки видео.
+	dir := t.TempDir()
+	storage, err := filestorage.NewLocal(dir, "/uploads")
+	require.NoError(t, err)
+
+	_, err = storage.Save(context.Background(), "a.bin", strings.NewReader("0123456789"), "application/octet-stream")
+	require.NoError(t, err)
+
+	f, err := storage.Open(context.Background(), "a.bin")
+	require.NoError(t, err)
+	defer f.Close()
+
+	_, err = f.Seek(5, io.SeekStart)
+	require.NoError(t, err)
+
+	rest, err := io.ReadAll(f)
+	require.NoError(t, err)
+	assert.Equal(t, "56789", string(rest))
+}
+
+func TestLocal_OpenMissingKeyReturnsErrNotFound(t *testing.T) {
+	dir := t.TempDir()
+	storage, err := filestorage.NewLocal(dir, "/uploads")
+	require.NoError(t, err)
+
+	_, err = storage.Open(context.Background(), "nope.bin")
+
+	assert.ErrorIs(t, err, filestorage.ErrNotFound)
+}
+
+func TestLocal_DeleteAcceptsBareKey(t *testing.T) {
+	// Вложения адресуются ключом: в БД хранится storage_key, а не URL.
+	dir := t.TempDir()
+	storage, err := filestorage.NewLocal(dir, "/uploads")
+	require.NoError(t, err)
+
+	_, err = storage.Save(context.Background(), "attachments/c1/a.bin", strings.NewReader("x"), "application/octet-stream")
+	require.NoError(t, err)
+
+	require.NoError(t, storage.Delete(context.Background(), "attachments/c1/a.bin"))
+
+	_, err = os.Stat(filepath.Join(dir, "attachments", "c1", "a.bin"))
+	assert.True(t, os.IsNotExist(err))
+}
+
+func TestLocal_DeleteStillAcceptsURL(t *testing.T) {
+	dir := t.TempDir()
+	storage, err := filestorage.NewLocal(dir, "/uploads")
+	require.NoError(t, err)
+
+	url, err := storage.Save(context.Background(), "avatars/u1/a.jpg", strings.NewReader("x"), "image/jpeg")
+	require.NoError(t, err)
+
+	require.NoError(t, storage.Delete(context.Background(), url))
+
+	_, err = os.Stat(filepath.Join(dir, "avatars", "u1", "a.jpg"))
+	assert.True(t, os.IsNotExist(err))
 }
 
 func TestLocal_SaveCreatesRootDirIfMissing(t *testing.T) {
