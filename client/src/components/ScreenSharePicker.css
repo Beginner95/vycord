@@ -1,0 +1,173 @@
+/* ── Screen source / quality pickers — system modal surface ── */
+.screen-picker-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--scrim);
+  backdrop-filter: blur(6px);
+  animation: screen-picker-fade 0.18s var(--ease-out);
+}
+
+@keyframes screen-picker-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.screen-picker-modal {
+  width: min(780px, 92vw);
+  max-height: 75vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--canvas);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-modal);
+  box-shadow: var(--shadow-modal);
+}
+
+.screen-picker-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--line);
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.screen-picker-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  transition: background var(--transition), color var(--transition);
+}
+
+.screen-picker-close:hover {
+  background: var(--canvas-2);
+  color: var(--ink);
+}
+
+.screen-picker-section {
+  padding: 16px 20px 8px;
+  overflow-y: auto;
+}
+
+.screen-picker-section-label {
+  margin-bottom: 10px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--muted-2);
+}
+
+.screen-picker-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 10px;
+  padding-bottom: 10px;
+}
+
+.screen-picker-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 8px;
+  background: var(--canvas-2);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-card);
+  cursor: pointer;
+  text-align: center;
+  transition: border-color var(--transition), box-shadow var(--transition);
+}
+
+.screen-picker-item:hover {
+  border-color: var(--accent);
+  box-shadow: var(--focus-ring);
+}
+
+.screen-picker-thumb {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  object-fit: cover;
+  border-radius: 7px;
+  background: var(--stage);
+}
+
+.screen-picker-app-icon {
+  width: 48px;
+  height: 48px;
+  object-fit: contain;
+  border-radius: 7px;
+}
+
+.screen-picker-name {
+  max-width: 100%;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.screen-quality-modal {
+  width: min(360px, 92vw);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--canvas);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-modal);
+  box-shadow: var(--shadow-modal);
+}
+
+.screen-quality-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+}
+
+.screen-quality-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  background: var(--canvas-2);
+  border: 1px solid var(--line-strong);
+  border-radius: 10px;
+  cursor: pointer;
+  transition: border-color var(--transition), box-shadow var(--transition);
+}
+
+.screen-quality-item:hover {
+  border-color: var(--accent);
+  box-shadow: var(--focus-ring);
+}
+
+.screen-quality-label {
+  font-size: 13.5px;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.screen-quality-desc {
+  font-size: 12px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
