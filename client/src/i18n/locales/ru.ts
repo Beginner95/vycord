@@ -109,6 +109,8 @@ export const ru = {
     removeAttachment: 'Убрать вложение',
     dropFilesHere: 'Отпустите файл, чтобы прикрепить',
     retry: 'Повторить',
+    download: 'Скачать',
+    fullscreen: 'На весь экран',
   },
   call: {
     participants: plural({

@@ -25,8 +25,9 @@ import { useFloatingSelectionToolbar } from '@/hooks/useFloatingSelectionToolbar
 import { MessageSearch } from '@/components/MessageSearch';
 import { Avatar } from '@/components/Avatar';
 import { DayDivider } from '@/components/DayDivider';
+import { MessageAttachments } from '@/components/MessageAttachments';
 import type { Channel, User, MemberWithUser } from '@/types';
-import type { Sticker } from '@/types';
+import type { Sticker, Attachment } from '@/types';
 import { useT, useDateFormat, isSameCalendarDay, type TFunc } from '@/i18n';
 import { Fragment, type ReactNode } from 'react';
 import { parseInline, blockify, normalizeLinkHref, type MdInlineNode } from '@/utils/markdown';
@@ -201,6 +202,11 @@ export function ChatArea({ channel, user, onMobileBack, onShowMembers, onJoinVoi
   const canManageStickers = can(permissions, PERMISSIONS.MANAGE_SERVER);
 
   const uploads = useAttachmentUpload(channel?.id);
+  // Сам компонент лайтбокса подключается в Task 20 — здесь только состояние
+  // и вызов onOpen. До тех пор `lightbox` никто не читает, а noUnusedLocals
+  // строгий — void ниже держит tsc довольным без забегания вперёд по YAGNI.
+  const [lightbox, setLightbox] = useState<{ attachments: Attachment[]; index: number } | null>(null);
+  void lightbox;
 
   // Счётчик вложенности, а не булев флаг: dragleave приходит от каждого
   // дочернего элемента при движении мыши над содержимым чата, и без счётчика
@@ -956,6 +962,12 @@ logger.error('Failed to update message:', err, { module: 'chat' });
                       <div className="message-text">{t('chat.stickerRemoved')}</div>
                     ) : (
                       <div className="message-text">{renderMessageBody(msg.content, members, t, user?.id)}</div>
+                    )}
+                    {msg.attachments && msg.attachments.length > 0 && (
+                      <MessageAttachments
+                        attachments={msg.attachments}
+                        onOpen={(index) => setLightbox({ attachments: msg.attachments!, index })}
+                      />
                     )}
                   </div>
                   {!isCompact && isFromMe && (

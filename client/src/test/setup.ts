@@ -14,32 +14,41 @@ export function fireTestEvent(key: string, type: string, event: unknown = {}): v
   listeners.get(`${key}:${type}`)?.forEach((listener) => listener(event));
 }
 
-globalThis.window = {
-  electronAPI: undefined,
-  addEventListener: (type: string, listener: (event: unknown) => void) => addListener('window', type, listener),
-  removeEventListener: () => {},
-  setTimeout: ((fn: () => void, ms?: number) => globalThis.setTimeout(fn, ms)) as unknown as Window['setTimeout'],
-  clearTimeout: ((id: number) => globalThis.clearTimeout(id)) as unknown as Window['clearTimeout'],
-  dispatchEvent: () => true,
-} as unknown as Window & typeof globalThis;
+// В node-окружении настоящих window/document нет — подставляем минимальные
+// заглушки. В файлах с "@vitest-environment jsdom" они уже настоящие, и
+// затирать их нельзя: на них держится @testing-library/react.
+if (typeof globalThis.window === 'undefined') {
+  globalThis.window = {
+    electronAPI: undefined,
+    addEventListener: (type: string, listener: (event: unknown) => void) => addListener('window', type, listener),
+    removeEventListener: () => {},
+    setTimeout: ((fn: () => void, ms?: number) => globalThis.setTimeout(fn, ms)) as unknown as Window['setTimeout'],
+    clearTimeout: ((id: number) => globalThis.clearTimeout(id)) as unknown as Window['clearTimeout'],
+    dispatchEvent: () => true,
+  } as unknown as Window & typeof globalThis;
+}
 
-globalThis.document = {
-  documentElement: { setAttribute: () => {} },
-  visibilityState: 'visible',
-  addEventListener: (type: string, listener: (event: unknown) => void) => addListener('document', type, listener),
-  removeEventListener: () => {},
-} as unknown as Document;
+if (typeof globalThis.document === 'undefined') {
+  globalThis.document = {
+    documentElement: { setAttribute: () => {} },
+    visibilityState: 'visible',
+    addEventListener: (type: string, listener: (event: unknown) => void) => addListener('document', type, listener),
+    removeEventListener: () => {},
+  } as unknown as Document;
+}
 
-globalThis.localStorage = {
-  getItem: (key: string) => store.get(key) ?? null,
-  setItem: (key: string, value: string) => void store.set(key, String(value)),
-  removeItem: (key: string) => void store.delete(key),
-  clear: () => store.clear(),
-  key: (index: number) => Array.from(store.keys())[index] ?? null,
-  get length() {
-    return store.size;
-  },
-};
+if (typeof globalThis.localStorage === 'undefined') {
+  globalThis.localStorage = {
+    getItem: (key: string) => store.get(key) ?? null,
+    setItem: (key: string, value: string) => void store.set(key, String(value)),
+    removeItem: (key: string) => void store.delete(key),
+    clear: () => store.clear(),
+    key: (index: number) => Array.from(store.keys())[index] ?? null,
+    get length() {
+      return store.size;
+    },
+  };
+}
 
 if (typeof globalThis.Event === 'undefined') {
   class TestEvent {

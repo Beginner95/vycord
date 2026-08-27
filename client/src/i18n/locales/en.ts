@@ -106,6 +106,8 @@ export const en: Dictionary = {
     removeAttachment: 'Remove attachment',
     dropFilesHere: 'Drop the file to attach it',
     retry: 'Retry',
+    download: 'Download',
+    fullscreen: 'Fullscreen',
   },
   call: {
     participants: plural({

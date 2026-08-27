@@ -11,8 +11,14 @@ import { logger } from '@/utils/logger';
 // клиент отвергнет файл, который сервер принял бы, и платный тариф не заработает.
 const HARD_MAX_BYTES = 25 * 1024 * 1024;
 
+// Стабильная ссылка обязательна: Zustand v5 сравнивает снимок селектора по
+// ссылке через useSyncExternalStore, и свежий [] при каждом вызове даёт
+// бесконечную перерисовку. До появления тестов с настоящим React это было
+// не видно — хук никто не монтировал.
+const EMPTY_DRAFTS: DraftAttachment[] = [];
+
 export function useAttachmentUpload(channelId: string | undefined) {
-  const drafts = useAttachmentStore((s) => (channelId ? s.drafts.get(channelId) ?? [] : []));
+  const drafts = useAttachmentStore((s) => (channelId ? s.drafts.get(channelId) ?? EMPTY_DRAFTS : EMPTY_DRAFTS));
   const add = useAttachmentStore((s) => s.add);
   const update = useAttachmentStore((s) => s.update);
   const removeDraft = useAttachmentStore((s) => s.remove);
