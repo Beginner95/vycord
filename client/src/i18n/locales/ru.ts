@@ -111,6 +111,8 @@ export const ru = {
     retry: 'Повторить',
     download: 'Скачать',
     fullscreen: 'На весь экран',
+    play: 'Воспроизвести',
+    pause: 'Пауза',
   },
   call: {
     participants: plural({

@@ -108,6 +108,8 @@ export const en: Dictionary = {
     retry: 'Retry',
     download: 'Download',
     fullscreen: 'Fullscreen',
+    play: 'Play',
+    pause: 'Pause',
   },
   call: {
     participants: plural({

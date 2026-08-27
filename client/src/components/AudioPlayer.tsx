@@ -1,4 +1,5 @@
 import { useRef, useState } from 'react';
+import { useT } from '@/i18n';
 import './AudioPlayer.css';
 
 interface AudioPlayerProps {
@@ -18,6 +19,7 @@ function formatTime(sec: number): string {
  * по-разному в каждом движке и не попадает в тему приложения.
  */
 export function AudioPlayer({ src, fileName }: AudioPlayerProps) {
+  const t = useT();
   const ref = useRef<HTMLAudioElement>(null);
   const [playing, setPlaying] = useState(false);
   const [current, setCurrent] = useState(0);
@@ -35,7 +37,7 @@ export function AudioPlayer({ src, fileName }: AudioPlayerProps) {
 
   return (
     <div className="audio-player">
-      <button type="button" className="audio-play-btn" onClick={toggle} aria-label={fileName}>
+      <button type="button" className="audio-play-btn" onClick={toggle} aria-label={playing ? t('chat.pause') : t('chat.play')}>
         {playing ? '❚❚' : '▶'}
       </button>
 

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 import { MessageAttachments } from '@/components/MessageAttachments';
 import type { Attachment } from '@/types';
 
@@ -58,6 +58,33 @@ describe('MessageAttachments', () => {
     // download=1 обязателен: API и фронт на разных доменах, атрибут <a download>
     // для кросс-доменной ссылки браузер игнорирует, и имя файла терялось бы.
     expect(link.href).toContain('download=1');
+  });
+
+  it('аудио рендерится собственным плеером', () => {
+    const { container } = render(<MessageAttachments
+      attachments={[att({ kind: 'audio', file_name: 'song.mp3', content_type: 'audio/mpeg' })]}
+      onOpen={vi.fn()}
+    />);
+
+    // Свой плеер, а не <audio controls>: нативный контрол выглядит по-разному
+    // в каждом движке и не попадает в тему приложения.
+    expect(container.querySelector('.audio-player')).not.toBeNull();
+    expect(container.querySelector('audio')?.hasAttribute('controls')).toBe(false);
+    expect(screen.getByText('song.mp3')).toBeTruthy();
+  });
+
+  it('плеер не показывает NaN, пока длительность неизвестна', () => {
+    // jsdom не реализует HTMLMediaElement, поэтому duration здесь NaN — ровно
+    // тот случай, ради которого в formatTime стоит проверка Number.isFinite.
+    const { container } = render(<MessageAttachments
+      attachments={[att({ kind: 'audio', file_name: 'song.mp3', content_type: 'audio/mpeg' })]}
+      onOpen={vi.fn()}
+    />);
+
+    const audio = container.querySelector('audio')!;
+    fireEvent.loadedMetadata(audio);
+
+    expect(container.querySelector('.audio-time')?.textContent).not.toMatch(/NaN/);
   });
 
   it('не рендерит ничего при пустом списке', () => {
