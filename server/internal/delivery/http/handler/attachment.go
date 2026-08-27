@@ -3,7 +3,6 @@ package handler
 import (
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -96,6 +95,26 @@ func (h *AttachmentHandler) Upload(w http.ResponseWriter, r *http.Request) {
 			}
 			haveChan = true
 		case "file":
+			// Второй файл в одном запросе не принимаем: контракт — одно
+			// вложение на запрос. Без этой проверки повторная часть с тем же
+			// именем перезаписала бы переменную tmp, и предыдущий временный
+			// файл остался бы на диске навсегда: defer замыкается на
+			// переменную и на выходе видит только последнее значение.
+			// Любой авторизованный клиент мог бы так забить диск.
+			if tmp != nil {
+				part.Close()
+				h.sendError(w, http.StatusBadRequest, httperr.CodeInvalidBody, "only one file per request is allowed")
+				return
+			}
+			// channel_id обязан прийти раньше файла. Порядок частей задаёт
+			// клиент, и без этой проверки сервер запишет на диск до 25 МБ
+			// прежде, чем сработает грошовая проверка UUID.
+			if !haveChan {
+				part.Close()
+				h.sendError(w, http.StatusBadRequest, httperr.CodeInvalidChannelID, "channel_id must precede the file part")
+				return
+			}
+
 			fileName = part.FileName()
 			tmp, err = os.CreateTemp("", "vycord-upload-*")
 			if err != nil {
@@ -205,7 +224,7 @@ func (h *AttachmentHandler) sendJSON(w http.ResponseWriter, status int, data int
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	if err := json.NewEncoder(w).Encode(data); err != nil {
-		h.log.Error("encode attachment response failed", "error", fmt.Sprintf("%v", err))
+		h.log.Error("encode attachment response failed", "error", err)
 	}
 }
 

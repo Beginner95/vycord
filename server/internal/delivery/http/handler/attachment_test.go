@@ -9,6 +9,8 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -219,4 +221,78 @@ func TestGetReturnsFreshSignedURL(t *testing.T) {
 	var got domain.Attachment
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
 	assert.Contains(t, got.URL, "sig=")
+}
+
+func countTempUploads(t *testing.T) int {
+	t.Helper()
+	matches, err := filepath.Glob(filepath.Join(os.TempDir(), "vycord-upload-*"))
+	require.NoError(t, err)
+	return len(matches)
+}
+
+func TestUploadRejectsSecondFilePartAndLeavesNoTempFiles(t *testing.T) {
+	// У multipart нет запрета на повторяющиеся имена полей, а defer видит
+	// только последнее значение tmp — без явного отказа первый временный файл
+	// остался бы на диске навсегда.
+	before := countTempUploads(t)
+
+	var buf bytes.Buffer
+	w := multipart.NewWriter(&buf)
+	require.NoError(t, w.WriteField("channel_id", uuid.New().String()))
+	p1, err := w.CreateFormFile("file", "a.bin")
+	require.NoError(t, err)
+	_, _ = p1.Write([]byte("first"))
+	p2, err := w.CreateFormFile("file", "b.bin")
+	require.NoError(t, err)
+	_, _ = p2.Write([]byte("second"))
+	require.NoError(t, w.Close())
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/attachments", &buf)
+	req.Header.Set("Content-Type", w.FormDataContentType())
+	req = req.WithContext(context.WithValue(req.Context(), "user_id", uuid.New()))
+
+	rec := httptest.NewRecorder()
+	newAttachmentHandler(new(MockAttachmentUseCase)).Upload(rec, req)
+
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Equal(t, before, countTempUploads(t), "временные файлы не должны оставаться на диске")
+}
+
+func TestUploadRejectsFileBeforeChannelID(t *testing.T) {
+	// Иначе сервер запишет весь файл на диск прежде, чем проверит UUID.
+	var buf bytes.Buffer
+	w := multipart.NewWriter(&buf)
+	part, err := w.CreateFormFile("file", "a.bin")
+	require.NoError(t, err)
+	_, _ = part.Write([]byte("payload"))
+	require.NoError(t, w.WriteField("channel_id", uuid.New().String()))
+	require.NoError(t, w.Close())
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/attachments", &buf)
+	req.Header.Set("Content-Type", w.FormDataContentType())
+	req = req.WithContext(context.WithValue(req.Context(), "user_id", uuid.New()))
+
+	rec := httptest.NewRecorder()
+	newAttachmentHandler(new(MockAttachmentUseCase)).Upload(rec, req)
+
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Contains(t, rec.Body.String(), "invalid_channel_id")
+}
+
+func TestUploadEnforcesRawBodyLimit(t *testing.T) {
+	// Предохранитель на сырое тело: настоящий лимит файла живёт в тарифном
+	// плане, но этот тоже должен срабатывать и не иметь off-by-one.
+	//
+	// Сравниваем счётчик temp-файлов до и после запроса (а не разность двух
+	// вызовов подряд, которая всегда равна нулю): интересует не сам факт
+	// отказа, а то, что отказ не оставляет мусора на диске.
+	signer := attachlink.NewSigner("test-secret", time.Hour)
+	h := handler.NewAttachmentHandler(new(MockAttachmentUseCase), signer, 16, slog.Default())
+	before := countTempUploads(t)
+
+	rec := httptest.NewRecorder()
+	h.Upload(rec, newUploadRequest(t, uuid.New(), "big.bin", bytes.Repeat([]byte("x"), 64), uuid.New()))
+
+	assert.Contains(t, []int{http.StatusRequestEntityTooLarge, http.StatusBadRequest}, rec.Code)
+	assert.Equal(t, before, countTempUploads(t), "временные файлы не должны оставаться на диске")
 }
