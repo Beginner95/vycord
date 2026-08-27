@@ -91,6 +91,51 @@ func TestMessageHandler_CreateMessage_LogsRequestIDOnInternalError(t *testing.T)
 	}
 }
 
+func TestMessageHandler_CreateMessage_SignsAttachments(t *testing.T) {
+	// Регрессия на пропавший SignAttachments: если вызов уберут из
+	// CreateMessage, вложение уедет наружу с пустым URL — тест должен это
+	// заметить.
+	log := slog.New(slog.NewTextHandler(&bytes.Buffer{}, nil))
+	mockUC := new(mockMessageUseCase)
+
+	channelID, userID, attID := uuid.New(), uuid.New(), uuid.New()
+	msg := &domain.Message{
+		ID:        uuid.New(),
+		ChannelID: channelID,
+		UserID:    userID,
+		Content:   "смотри",
+		Attachments: []*domain.Attachment{
+			{ID: attID, ChannelID: channelID, UserID: userID, Kind: domain.AttachmentKindImage},
+		},
+	}
+	mockUC.On("CreateMessage", channelID, userID, "смотри", (*uuid.UUID)(nil), []uuid.UUID{attID}).Return(msg, nil)
+
+	h := NewMessageHandler(mockUC, ws.NewHub(log), log, testSigner())
+
+	body, _ := json.Marshal(CreateMessageRequest{Content: "смотри", AttachmentIDs: []uuid.UUID{attID}})
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/channels/"+channelID.String()+"/messages", bytes.NewReader(body))
+	req.SetPathValue("channel_id", channelID.String())
+	req = req.WithContext(context.WithValue(req.Context(), "user_id", userID))
+
+	rec := httptest.NewRecorder()
+	h.CreateMessage(rec, req)
+
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var got domain.Message
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("invalid json: %v", err)
+	}
+	if len(got.Attachments) != 1 {
+		t.Fatalf("expected 1 attachment, got %d", len(got.Attachments))
+	}
+	if got.Attachments[0].URL == "" || !strings.Contains(got.Attachments[0].URL, "sig=") {
+		t.Fatalf("expected signed url with sig=, got %q", got.Attachments[0].URL)
+	}
+}
+
 func TestMessageHandler_SearchMessages_ShortQuery_BadRequest(t *testing.T) {
 	log := slog.New(slog.NewTextHandler(&bytes.Buffer{}, nil))
 	mockUC := new(mockMessageUseCase)

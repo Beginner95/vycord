@@ -1,6 +1,7 @@
 package usecase_test
 
 import (
+	"errors"
 	"fmt"
 	"testing"
 
@@ -303,7 +304,10 @@ func TestUpdateMessage_Author_ContentChanged_Success(t *testing.T) {
 	msgRepo.On("GetByID", messageID).Return(existing, nil)
 	msgRepo.On("Update", messageID, map[string]interface{}{"content": "new"}).Return(nil)
 
-	uc := usecase.NewMessageUseCase(msgRepo, chRepo, srvRepo, &MockStickerRepository{}, perms, new(MockAttachmentRepository))
+	attachRepo := new(MockAttachmentRepository)
+	attachRepo.On("ListByMessageIDs", mock.Anything).Return(map[uuid.UUID][]*domain.Attachment{}, nil)
+
+	uc := usecase.NewMessageUseCase(msgRepo, chRepo, srvRepo, &MockStickerRepository{}, perms, attachRepo)
 	msg, err := uc.UpdateMessage(channelID, messageID, userID, "new")
 
 	assert.NoError(t, err)
@@ -895,4 +899,59 @@ func TestCreateMessageDedupesDuplicateAttachmentIDs(t *testing.T) {
 
 	require.NoError(t, err)
 	attachRepo.AssertCalled(t, "AttachToMessage", mock.Anything, userID, channelID, []uuid.UUID{attID})
+}
+
+func TestUpdateMessageKeepsAttachments(t *testing.T) {
+	// Без подтягивания вложений поле уходит пустым, а из-за omitempty ключа
+	// в JSON не будет вовсе — клиент потеряет картинки при правке текста.
+	channelID, userID, serverID := uuid.New(), uuid.New(), uuid.New()
+	msgID, attID := uuid.New(), uuid.New()
+
+	msgRepo := new(MockMessageRepository)
+	chRepo := new(MockChannelRepository)
+	perms := new(MockPermissionUseCase)
+	attachRepo := new(MockAttachmentRepository)
+
+	chRepo.On("GetByID", channelID).Return(&domain.Channel{ID: channelID, ServerID: serverID}, nil)
+	perms.On("Resolve", serverID, userID).Return(domain.PermissionSet{Bits: domain.PermAll}, nil)
+	msgRepo.On("GetByID", msgID).Return(&domain.Message{ID: msgID, ChannelID: channelID, UserID: userID}, nil)
+	msgRepo.On("Update", msgID, mock.Anything).Return(nil)
+	attachRepo.On("ListByMessageIDs", []uuid.UUID{msgID}).
+		Return(map[uuid.UUID][]*domain.Attachment{msgID: {{ID: attID, Kind: domain.AttachmentKindImage}}}, nil)
+
+	uc := usecase.NewMessageUseCase(msgRepo, chRepo, new(MockServerRepository), new(MockStickerRepository), perms, attachRepo)
+
+	msg, err := uc.UpdateMessage(channelID, msgID, userID, "новый текст")
+
+	require.NoError(t, err)
+	require.Len(t, msg.Attachments, 1)
+	assert.Equal(t, attID, msg.Attachments[0].ID)
+}
+
+func TestCreateMessageSurfacesRollbackFailure(t *testing.T) {
+	// Если и откат не удался, вызывающий обязан узнать об этом, а не считать,
+	// что не создалось ничего.
+	channelID, userID, serverID := uuid.New(), uuid.New(), uuid.New()
+	attID := uuid.New()
+
+	msgRepo := new(MockMessageRepository)
+	chRepo := new(MockChannelRepository)
+	perms := new(MockPermissionUseCase)
+	attachRepo := new(MockAttachmentRepository)
+
+	chRepo.On("GetByID", channelID).Return(&domain.Channel{ID: channelID, ServerID: serverID}, nil)
+	perms.On("Resolve", serverID, userID).Return(domain.PermissionSet{Bits: domain.PermAll}, nil)
+	msgRepo.On("Create", mock.Anything).Return(nil)
+	msgRepo.On("Delete", mock.Anything).Return(errors.New("db is down"))
+	attachRepo.On("AttachToMessage", mock.Anything, userID, channelID, []uuid.UUID{attID}).
+		Return(domain.ErrAttachmentNotFound)
+
+	uc := usecase.NewMessageUseCase(msgRepo, chRepo, new(MockServerRepository), new(MockStickerRepository), perms, attachRepo)
+
+	_, err := uc.CreateMessage(channelID, userID, "текст", nil, []uuid.UUID{attID})
+
+	// Исходная ошибка обязана сохраниться для errors.Is — от неё зависит
+	// HTTP-статус; сведения о провале отката добавляются к тексту.
+	assert.ErrorIs(t, err, domain.ErrAttachmentNotFound)
+	assert.Contains(t, err.Error(), "откат не удался")
 }

@@ -221,6 +221,8 @@ func (h *MessageHandler) UpdateMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	SignAttachments(h.signer, msg.Attachments)
+
 	payload, _ := json.Marshal(msg)
 	h.hub.SendToChannel(channelID, &ws.Message{
 		Type:    "message_update",

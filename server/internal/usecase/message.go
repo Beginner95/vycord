@@ -151,7 +151,13 @@ func (uc *messageUseCase) CreateMessage(channelID, userID uuid.UUID, content str
 		// Если не прошло — сообщения быть не должно: пустая реплика вместо
 		// картинки хуже, чем ошибка отправки.
 		if err := uc.attachRepo.AttachToMessage(msg.ID, userID, channelID, attachmentIDs); err != nil {
-			_ = uc.messageRepo.Delete(msg.ID)
+			// Если и откат не удался, в канале останется висеть пустое
+			// сообщение, а вызывающий будет думать, что не создалось ничего.
+			// Логгера в usecase этого проекта нет ни у кого, поэтому
+			// поднимаем обе ошибки наверх: хендлер запишет их в лог сам.
+			if delErr := uc.messageRepo.Delete(msg.ID); delErr != nil {
+				return nil, fmt.Errorf("%w (откат не удался: %v)", err, delErr)
+			}
 			return nil, err
 		}
 		atts, err := uc.attachRepo.ListByMessageIDs([]uuid.UUID{msg.ID})
@@ -299,6 +305,10 @@ func (uc *messageUseCase) UpdateMessage(channelID, messageID, userID uuid.UUID, 
 
 	msg.Content = content
 	msg.UpdatedAt = time.Now()
+	// GetByID не заполняет Attachments — без этого поле уйдёт пустым, а
+	// из-за omitempty ключа не будет вовсе в JSON: клиент, заменяющий
+	// локальное сообщение пришедшим, потеряет картинки при каждой правке.
+	uc.attachToMessages([]*domain.Message{msg})
 	return msg, nil
 }
 
