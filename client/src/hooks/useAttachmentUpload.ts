@@ -22,7 +22,7 @@ export function useAttachmentUpload(channelId: string | undefined) {
   const add = useAttachmentStore((s) => s.add);
   const update = useAttachmentStore((s) => s.update);
   const removeDraft = useAttachmentStore((s) => s.remove);
-  const clearDrafts = useAttachmentStore((s) => s.clear);
+  const removeSent = useAttachmentStore((s) => s.removeSent);
 
   const startUpload = useCallback(
     (chan: string, localId: string, file: File) => {
@@ -104,16 +104,22 @@ export function useAttachmentUpload(channelId: string | undefined) {
     [channelId, startUpload, update],
   );
 
-  const clear = useCallback(() => {
-    if (channelId) clearDrafts(channelId);
-  }, [channelId, clearDrafts]);
+  // Вызывается после успешной отправки. Чистим ровно то, что ушло: чип с
+  // ошибкой обязан остаться на месте, иначе не прошедший по размеру файл
+  // исчезнет без следа вместе с отправкой соседнего.
+  const clearSent = useCallback(
+    (attachmentIds: string[]) => {
+      if (channelId) removeSent(channelId, attachmentIds);
+    },
+    [channelId, removeSent],
+  );
 
   return {
     drafts,
     addFiles,
     cancel,
     retry,
-    clear,
+    clearSent,
     /** Готовые к отправке вложения — их id уходят вместе с сообщением. */
     readyIds: drafts.filter((d) => d.attachment).map((d) => d.attachment!.id),
     /** Пока что-то грузится, отправку блокируем: сообщение не должно уйти без файла. */

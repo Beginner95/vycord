@@ -5,7 +5,7 @@ import { LinkDialog } from '@/components/LinkDialog';
 import { EmojiPicker } from '@/components/EmojiPicker';
 import { StickerPicker } from '@/components/StickerPicker';
 import { StickerManager } from '@/components/StickerManager';
-import { MediaLightbox } from '@/components/MediaLightbox';
+import { MediaLightbox, pickLightboxMedia } from '@/components/MediaLightbox';
 import { AttachmentButton } from '@/components/AttachmentButton';
 import { AttachmentTray } from '@/components/AttachmentTray';
 import { useAttachmentUpload } from '@/hooks/useAttachmentUpload';
@@ -420,14 +420,18 @@ logger.error('Failed to jump to message:', err, { module: 'chat' });
     // Пока что-то грузится — не отправляем: сообщение не должно уйти без файла.
     if (uploads.isUploading) return;
 
+    // Снимок до запроса: пока он идёт, список черновиков может измениться,
+    // а убрать мы обязаны ровно то, что действительно ушло в сообщение.
+    const sentIds = uploads.readyIds;
+
     try {
       const msg = await apiService.createMessage(
-        channel.id, text, undefined, uploads.readyIds.length ? uploads.readyIds : undefined,
+        channel.id, text, undefined, sentIds.length ? sentIds : undefined,
       ) as Message;
       addMessage(msg);
       setInput('');
       setCaretInQuoteLine(false);
-      uploads.clear();
+      uploads.clearSent(sentIds);
     } catch (err) {
       logger.error('Failed to send message:', err, { module: 'chat' });
       setSendError(apiErrorText(err, t));
@@ -963,7 +967,7 @@ logger.error('Failed to update message:', err, { module: 'chat' });
                     {msg.attachments && msg.attachments.length > 0 && (
                       <MessageAttachments
                         attachments={msg.attachments}
-                        onOpen={(index) => setLightbox({ attachments: msg.attachments!, index })}
+                        onOpen={(index) => setLightbox(pickLightboxMedia(msg.attachments!, index))}
                       />
                     )}
                   </div>

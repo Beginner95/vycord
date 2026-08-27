@@ -1,10 +1,10 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { useAttachmentStore } from '@/stores/attachmentStore';
+import { useAttachmentStore, type DraftAttachment } from '@/stores/attachmentStore';
 import type { Attachment } from '@/types';
 
 const noop = () => {};
 
-function draft(localId: string, over: Partial<ReturnType<typeof base>> = {}) {
+function draft(localId: string, over: Partial<DraftAttachment> = {}): DraftAttachment {
   return { ...base(localId), ...over };
 }
 
@@ -63,7 +63,19 @@ describe('attachmentStore', () => {
     expect(left[0].localId).toBe('b');
   });
 
-  it('clear убирает все черновики канала — вызывается после отправки', () => {
+  it('removeSent убирает только отправленное, чипы с ошибкой остаются', () => {
+    const sent = { id: 'att-1' } as Attachment;
+    useAttachmentStore.getState().add('chan-1', draft('a', { status: 'done', attachment: sent }));
+    useAttachmentStore.getState().add('chan-1', draft('b', { status: 'error', errorCode: 'attachment_too_large' }));
+
+    useAttachmentStore.getState().removeSent('chan-1', ['att-1']);
+
+    const left = useAttachmentStore.getState().getDrafts('chan-1');
+    expect(left).toHaveLength(1);
+    expect(left[0].localId).toBe('b');
+  });
+
+  it('clear убирает все черновики канала', () => {
     useAttachmentStore.getState().add('chan-1', draft('a'));
     useAttachmentStore.getState().add('chan-1', draft('b'));
 

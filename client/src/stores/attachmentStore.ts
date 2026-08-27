@@ -18,6 +18,13 @@ interface AttachmentState {
   add: (channelId: string, draft: DraftAttachment) => void;
   update: (channelId: string, localId: string, patch: Partial<DraftAttachment>) => void;
   remove: (channelId: string, localId: string) => void;
+  /**
+   * Убирает только черновики с перечисленными серверными id — те, что уже
+   * уехали в сообщение. Всё остальное (в первую очередь чипы со статусом
+   * error) остаётся: иначе успешная отправка молча стирала бы файл, который
+   * не прошёл, и пользователь не узнал бы, что его не отправили.
+   */
+  removeSent: (channelId: string, attachmentIds: string[]) => void;
   clear: (channelId: string) => void;
   getDrafts: (channelId: string) => DraftAttachment[];
 }
@@ -50,6 +57,19 @@ export const useAttachmentStore = create<AttachmentState>((set, get) => ({
       if (!list) return s;
       const next = new Map(s.drafts);
       next.set(channelId, list.filter((d) => d.localId !== localId));
+      return { drafts: next };
+    }),
+
+  removeSent: (channelId, attachmentIds) =>
+    set((s) => {
+      const list = s.drafts.get(channelId);
+      if (!list) return s;
+      const sent = new Set(attachmentIds);
+      const rest = list.filter((d) => !(d.attachment && sent.has(d.attachment.id)));
+      if (rest.length === list.length) return s;
+      const next = new Map(s.drafts);
+      if (rest.length === 0) next.delete(channelId);
+      else next.set(channelId, rest);
       return { drafts: next };
     }),
 

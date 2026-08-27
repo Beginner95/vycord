@@ -13,6 +13,31 @@ interface MediaLightboxProps {
   onClose: () => void;
 }
 
+/**
+ * pickLightboxMedia переводит клик по вложению в состояние лайтбокса.
+ *
+ * Индекс от ленты сквозной по всем вложениям сообщения, а листать в
+ * фуллскрине можно только картинки и видео: в сообщении [png, mp3, pdf]
+ * стрелка вправо выдала бы <img src="…аудио…"> — битую картинку. Поэтому
+ * список фильтруется, а индекс пересчитывается на отфильтрованный.
+ *
+ * Возвращает null, если кликнули по не-медиа: открывать нечего.
+ */
+export function pickLightboxMedia(
+  attachments: Attachment[],
+  index: number,
+): { attachments: Attachment[]; index: number } | null {
+  const target = attachments[index];
+  if (!target || !isLightboxMedia(target)) return null;
+
+  const media = attachments.filter(isLightboxMedia);
+  return { attachments: media, index: media.indexOf(target) };
+}
+
+function isLightboxMedia(a: Attachment): boolean {
+  return a.kind === 'image' || a.kind === 'video';
+}
+
 export function MediaLightbox({ attachments, index, onIndexChange, onClose }: MediaLightboxProps) {
   const t = useT();
   const current = attachments[index];
