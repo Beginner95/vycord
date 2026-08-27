@@ -4,52 +4,8 @@ import { callService } from '@/services/call';
 import { audioService } from '@/services/audio';
 import { wsService } from '@/services/websocket';
 import { useT } from '@/i18n';
+import { useMicLevel } from '@/hooks/useMicLevel';
 import './CallUI.css';
-
-function useMicLevel(stream: MediaStream | null, isMuted: boolean): number {
-  const [level, setLevel] = useState(0);
-  const rafRef = useRef(0);
-  const ctxRef = useRef<AudioContext | null>(null);
-  // Tracked as an explicit dependency below because the remote stream is a
-  // single object reused and mutated in place as tracks arrive (audio and
-  // video ontrack fire separately) — the object reference alone doesn't
-  // change when it gains an audio track later, so recomputing this count on
-  // every render is what lets the effect re-run.
-  const audioTrackCount = stream?.getAudioTracks().length ?? 0;
-
-  useEffect(() => {
-    // createMediaStreamSource throws InvalidStateError on a stream with no
-    // audio track yet — wait until one is actually present.
-    if (!stream || isMuted || audioTrackCount === 0) {
-      setLevel(0);
-      return;
-    }
-
-    const ctx = new AudioContext();
-    const analyser = ctx.createAnalyser();
-    analyser.fftSize = 256;
-    const source = ctx.createMediaStreamSource(stream);
-    source.connect(analyser);
-    ctxRef.current = ctx;
-
-    const data = new Uint8Array(analyser.frequencyBinCount);
-    const tick = () => {
-      analyser.getByteFrequencyData(data);
-      const avg = data.reduce((a, b) => a + b, 0) / data.length;
-      setLevel(avg / 128); // 0–1, normalised
-      rafRef.current = requestAnimationFrame(tick);
-    };
-    rafRef.current = requestAnimationFrame(tick);
-
-    return () => {
-      cancelAnimationFrame(rafRef.current);
-      source.disconnect();
-      ctx.close();
-    };
-  }, [stream, isMuted, audioTrackCount]);
-
-  return level;
-}
 
 export function CallUI() {
   const t = useT();
