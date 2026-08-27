@@ -605,13 +605,29 @@ class ApiService {
   ): { promise: Promise<Attachment>; abort: () => void } {
     const xhr = new XMLHttpRequest();
 
-    const promise = new Promise<Attachment>((resolve, reject) => {
+    // Отмена может прийти, пока мы ждём свежий токен, то есть до send().
+    // xhr.abort() на неотправленном запросе не делает ничего и не поднимает
+    // onabort — без этого флага промис завис бы навсегда.
+    let aborted = false;
+
+    const promise = new Promise<Attachment>(async (resolve, reject) => {
       const form = new FormData();
       form.append('channel_id', channelId);
       form.append('file', file, file.name);
 
+      // Перед стартом обновляем токен, если он близок к истечению: загрузка
+      // 25 МБ на медленном канале длится дольше, чем запас REFRESH_BUFFER_MS,
+      // а заголовок Authorization уже отправленного запроса не поменять.
+      // Обычные запросы лечатся ретраем в request(), но XMLHttpRequest мимо
+      // этого механизма проходит.
+      const token = await this.getFreshAccessToken().catch(() => this.getAccessToken());
+
+      if (aborted) {
+        reject(new ApiError('Upload aborted', 'upload_aborted', 0));
+        return;
+      }
+
       xhr.open('POST', `${API_BASE_URL}/api/v1/attachments`);
-      const token = this.getAccessToken();
       if (token) xhr.setRequestHeader('Authorization', `Bearer ${token}`);
 
       xhr.upload.onprogress = (e: ProgressEvent) => {
@@ -640,7 +656,13 @@ class ApiService {
       xhr.send(form);
     });
 
-    return { promise, abort: () => xhr.abort() };
+    return {
+      promise,
+      abort: () => {
+        aborted = true;
+        xhr.abort();
+      },
+    };
   }
 
   async deleteAttachment(id: string) {

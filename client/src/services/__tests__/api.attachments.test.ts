@@ -16,6 +16,7 @@ class FakeXHR {
   headers: Record<string, string> = {};
   method = '';
   url = '';
+  body: unknown = null;
 
   constructor() {
     FakeXHR.last = this;
@@ -27,7 +28,9 @@ class FakeXHR {
   setRequestHeader(k: string, v: string) {
     this.headers[k] = v;
   }
-  send() {}
+  send(body?: unknown) {
+    this.body = body;
+  }
   abort() {
     this.aborted = true;
     this.onabort?.();
@@ -38,20 +41,33 @@ describe('uploadAttachment', () => {
   beforeEach(() => {
     localStorage.setItem(ACCESS_TOKEN_KEY, 'test-token');
     vi.stubGlobal('XMLHttpRequest', FakeXHR);
+    // По умолчанию getFreshAccessToken возвращает текущий токен
+    // (успешно обновляет его или просто возвращает текущий).
+    vi.spyOn(apiService, 'getFreshAccessToken').mockResolvedValue('test-token');
   });
 
   afterEach(() => {
     localStorage.clear();
     vi.unstubAllGlobals();
+    vi.restoreAllMocks();
   });
 
   it('отправляет файл и channel_id, отдаёт разобранный ответ', async () => {
-    const handle = apiService.uploadAttachment('chan-1', new File(['data'], 'pic.png', { type: 'image/png' }), {});
+    const file = new File(['data'], 'pic.png', { type: 'image/png' });
+    const handle = apiService.uploadAttachment('chan-1', file, {});
+
+    await Promise.resolve();
+    await Promise.resolve();
 
     const xhr = FakeXHR.last;
     expect(xhr.method).toBe('POST');
     expect(xhr.url).toContain('/api/v1/attachments');
     expect(xhr.headers['Authorization']).toBe('Bearer test-token');
+
+    // Проверяем, что FormData отправлена с channel_id и файлом.
+    const body = xhr.body as FormData;
+    expect(body.get('channel_id')).toBe('chan-1');
+    expect(body.get('file')).toBeInstanceOf(File);
 
     xhr.status = 201;
     xhr.responseText = JSON.stringify({ id: 'att-1', kind: 'image', file_name: 'pic.png' });
@@ -63,6 +79,9 @@ describe('uploadAttachment', () => {
   it('сообщает прогресс отправки', async () => {
     const onProgress = vi.fn();
     const handle = apiService.uploadAttachment('chan-1', new File(['data'], 'a.bin'), { onProgress });
+
+    await Promise.resolve();
+    await Promise.resolve();
 
     const xhr = FakeXHR.last;
     xhr.upload.onprogress?.({ lengthComputable: true, loaded: 50, total: 200 } as ProgressEvent);
@@ -77,6 +96,9 @@ describe('uploadAttachment', () => {
 
   it('превращает код ошибки сервера в ApiError с этим кодом', async () => {
     const handle = apiService.uploadAttachment('chan-1', new File(['x'], 'big.bin'), {});
+
+    await Promise.resolve();
+    await Promise.resolve();
 
     const xhr = FakeXHR.last;
     xhr.status = 413;
@@ -93,5 +115,31 @@ describe('uploadAttachment', () => {
 
     expect(FakeXHR.last.aborted).toBe(true);
     await expect(handle.promise).rejects.toBeTruthy();
+  });
+
+  it('обновляет токен перед стартом загрузки', async () => {
+    // Переопределяем мок для возврата свежего токена
+    vi.mocked(apiService.getFreshAccessToken).mockResolvedValue('fresh-token');
+
+    const handle = apiService.uploadAttachment('chan-1', new File(['x'], 'a.bin'), {});
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(apiService.getFreshAccessToken).toHaveBeenCalled();
+    expect(FakeXHR.last.headers['Authorization']).toBe('Bearer fresh-token');
+
+    FakeXHR.last.status = 201;
+    FakeXHR.last.responseText = '{"id":"a"}';
+    FakeXHR.last.onload?.();
+    await handle.promise;
+  });
+
+  it('отмена до отправки не оставляет промис висеть', async () => {
+    const handle = apiService.uploadAttachment('chan-1', new File(['x'], 'a.bin'), {});
+
+    // Отменяем немедленно — до того, как отработало ожидание токена.
+    handle.abort();
+
+    await expect(handle.promise).rejects.toMatchObject({ code: 'upload_aborted' });
   });
 });
