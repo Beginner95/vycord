@@ -202,6 +202,8 @@ export const en: Dictionary = {
     rejected: 'Call was rejected',
     startFailed: 'Failed to start call',
     endCall: 'End call',
+    acceptCall: 'Accept',
+    rejectCall: 'Decline',
   },
   settings: {
     language: 'Language',

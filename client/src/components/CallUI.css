@@ -1,323 +1,325 @@
-/* ── Call Overlay (1-1) ── */
-.call-overlay {
+/* ── 1:1 peer call (CallUI) — board-system incoming modal, stage-token active
+   view. Namespace p2p-*; the group stage owns stage-* in CallStage.css.
+
+   The control bar / plate / speaking-ring blocks below carry the VALUES of
+   Task 3's .stage-controls recipe under p2p-* names. That duplication is
+   deliberate (M3 plan decision 3): primitives.css stays flat until M4 owns
+   that layer, so there is no shared place to hoist the recipe to yet. ── */
+.p2p-overlay {
   position: fixed;
-  top: 40px;
-  right: 0;
-  bottom: 0;
-  left: 0;
+  inset: 40px 0 0; /* top clears the TitleBar; longhand top/right/bottom/left trips the shorthand lint rule */
   z-index: 1000;
   display: flex;
   align-items: center;
   justify-content: center;
 }
 
-.call-overlay.incoming {
-  background: rgba(15, 17, 23, 0.6);
-  backdrop-filter: blur(10px);
+.p2p-overlay.is-incoming {
+  background: var(--scrim);
+  backdrop-filter: blur(6px);
 }
 
-/* ── Incoming Call Modal ── */
-.call-modal {
-  background: var(--bg-primary);
-  border-radius: var(--radius-xl);
-  padding: 40px;
+.p2p-modal {
+  width: 340px;
+  padding: 32px 28px;
   text-align: center;
-  max-width: 380px;
-  width: 90%;
-  box-shadow: var(--shadow-xl);
-  border: 1px solid var(--border-subtle);
-  animation: scaleIn 0.3s var(--ease-out);
+  background: var(--canvas);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-modal);
+  box-shadow: var(--shadow-modal);
+  animation: modalIn 0.18s var(--ease-out);
 }
 
-@keyframes scaleIn {
-  from { opacity: 0; transform: scale(0.92); }
-  to { opacity: 1; transform: scale(1); }
-}
-
-.call-avatar.incoming-avatar {
-  width: 80px;
-  height: 80px;
-  border-radius: var(--radius-full);
-  background: linear-gradient(135deg, var(--brand-300), var(--brand-500));
+.p2p-modal-tile {
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 32px;
-  margin: 0 auto 20px;
-  color: white;
-  box-shadow: 0 6px 20px rgba(99, 102, 241, 0.3);
-  animation: pulse 2.5s infinite;
+  width: 74px;
+  height: 74px;
+  margin: 0 auto 18px;
+  border-radius: 26px;
+  background: var(--accent-soft);
+  color: var(--accent-text);
+  animation: p2p-pulse 2.5s ease-in-out infinite;
 }
 
-@keyframes pulse {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(99, 102, 241, 0.4); }
-  50% { box-shadow: 0 0 0 16px rgba(99, 102, 241, 0); }
+@keyframes p2p-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 var(--accent-border); }
+  50% { box-shadow: 0 0 0 14px transparent; }
 }
 
-.call-modal h2 {
-  font-size: 22px;
-  font-weight: 700;
+.p2p-modal-title {
   margin-bottom: 6px;
-  color: var(--text-primary);
+  font-size: 19px;
+  font-weight: 800;
   letter-spacing: -0.01em;
+  color: var(--ink);
 }
 
-.call-modal p {
-  color: var(--text-secondary);
-  margin-bottom: 28px;
-  font-size: 14px;
+.p2p-modal-sub {
+  margin-bottom: 24px;
+  font-size: 13px;
+  color: var(--muted);
 }
 
-.call-actions {
+.p2p-actions {
   display: flex;
   justify-content: center;
   gap: 20px;
 }
 
-.call-btn {
-  width: 56px;
-  height: 56px;
-  border-radius: var(--radius-full);
+.p2p-accept-btn,
+.p2p-reject-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 52px;
+  height: 52px;
+  padding: 0;
   border: none;
+  border-radius: 50%;
+  color: var(--white);
   cursor: pointer;
-  font-size: 22px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: all var(--transition);
+  transition: transform var(--transition), filter var(--transition);
 }
 
-.call-btn:hover {
-  transform: scale(1.1);
+.p2p-accept-btn { background: var(--online); }
+.p2p-reject-btn { background: var(--danger); }
+
+.p2p-accept-btn:hover,
+.p2p-reject-btn:hover {
+  transform: scale(1.06);
+  filter: brightness(1.08);
 }
 
-.call-btn.reject {
-  background: var(--red-50);
-  color: var(--red-500);
-  border: 2px solid rgba(239, 68, 68, 0.15);
-}
-
-.call-btn.reject:hover {
-  background: var(--red-500);
-  color: white;
-  border-color: var(--red-500);
-  box-shadow: 0 4px 14px rgba(239, 68, 68, 0.3);
-}
-
-.call-btn.accept {
-  background: var(--green-50);
-  color: var(--green-600);
-  border: 2px solid rgba(34, 197, 94, 0.15);
-}
-
-.call-btn.accept:hover {
-  background: var(--green-color);
-  color: white;
-  border-color: var(--green-color);
-  box-shadow: 0 4px 14px rgba(34, 197, 94, 0.3);
-}
-
-/* ── Active Call ── */
-.call-overlay.active {
-  background: var(--bg-base);
+/* ── Active call ── */
+.p2p-overlay.is-active {
   flex-direction: column;
+  background: var(--stage);
 }
 
-.call-videos {
+/* position: relative is load-bearing, not tidying: .p2p-timer and the .p2p-local
+   PiP are absolutely positioned and must anchor here, not to the overlay. */
+.p2p-videos {
   position: relative;
-  width: 100%;
-  height: 100%;
   display: flex;
   align-items: center;
   justify-content: center;
-}
-
-.remote-video {
-  position: relative;
   width: 100%;
   height: 100%;
-  background: var(--bg-secondary);
+}
+
+.p2p-remote {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: center;
+  width: 100%;
+  height: 100%;
+  background: var(--stage-tile);
 }
 
-.remote-video video {
+.p2p-remote video {
   width: 100%;
   height: 100%;
   object-fit: cover;
 }
 
-.call-timer {
+/* --speak-level is JS-injected (invisible to importFrom) — fallback required.
+   Inset, unlike the stage tiles': .p2p-remote is full-bleed, so an outer ring
+   would render off-screen. */
+.p2p-remote.is-speaking {
+  box-shadow: inset 0 0 0 calc(2px + var(--speak-level, 0) * 4px) var(--speak-ring);
+}
+
+/* Live pill (stage-live-pill recipe) carrying the call clock. */
+.p2p-timer {
   position: absolute;
   top: 16px;
   left: 16px;
-  background: rgba(15, 17, 23, 0.7);
-  backdrop-filter: blur(8px);
-  color: white;
-  padding: 8px 14px;
-  border-radius: var(--radius-md);
-  font-size: 15px;
-  font-weight: 600;
-  letter-spacing: 0.02em;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 12px;
+  border-radius: var(--radius-pill);
+  background: var(--live-pill-bg);
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--live-pill-text);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
 }
 
-.local-video {
+.p2p-timer-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--online);
+  flex-shrink: 0;
+}
+
+/* Name plate (stage-plate recipe) — replaces the old floating .mic-badge. */
+.p2p-plate {
   position: absolute;
+  bottom: 10px;
+  left: 10px;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  max-width: calc(100% - 20px);
+  padding: 5px 10px;
+  border-radius: var(--radius-row);
+  background: var(--stage-plate);
+  color: var(--stage-ink);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.p2p-plate-mic {
+  display: flex;
+  align-items: center;
+  color: var(--stage-muted);
+}
+
+.p2p-plate-mic.is-muted {
+  color: var(--danger);
+}
+
+/* Local PiP: 96px clears the control bar (28px bottom + 46px toggle + 4px gap
+   + ~13px label + 10px padding ≈ 91px), 24px clears the stage edge. */
+.p2p-local {
+  position: absolute;
+  right: 24px;
+  bottom: 96px;
   width: 220px;
   height: 160px;
-  border-radius: var(--radius-lg);
+  border: 1px solid var(--stage-line);
+  border-radius: 14px;
+  background: var(--stage-tile);
+  box-shadow: var(--shadow-menu);
   overflow: hidden;
-  background: var(--bg-secondary);
-  box-shadow: var(--shadow-lg);
-  border: 2px solid rgba(255, 255, 255, 0.1);
 }
 
-.local-video video {
+.p2p-local video {
   width: 100%;
   height: 100%;
   object-fit: cover;
   transform: scaleX(-1);
 }
 
-.local-video-label {
+/* Outer ring here — the PiP is inset from the stage edges, so it is visible.
+   --speak-level is JS-injected — fallback required. */
+.p2p-local.is-speaking {
+  box-shadow: 0 0 0 calc(2px + var(--speak-level, 0) * 4px) var(--speak-ring);
+}
+
+/* The .stage-plate recipe at 11px (padding, radius, surface, ink and weight all
+   copied from it); only the positioning is local to the PiP. */
+.p2p-local-label {
   position: absolute;
-  bottom: 6px;
-  left: 6px;
-  right: 6px;
-  background: rgba(15, 17, 23, 0.7);
-  backdrop-filter: blur(4px);
-  color: white;
-  padding: 4px 8px;
-  border-radius: var(--radius-sm);
+  inset: auto 6px 6px; /* shorthand — all four longhands trip declaration-block-no-redundant-longhand-properties */
+  padding: 5px 10px;
+  border-radius: var(--radius-row);
+  background: var(--stage-plate);
+  color: var(--stage-ink);
   font-size: 11px;
+  font-weight: 600;
   text-align: center;
-  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-/* ── Mic Activity ── */
-.mic-btn-wrap {
-  position: relative;
-  border-radius: var(--radius-full);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.mic-btn-wrap::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  border-radius: var(--radius-full);
-  background: rgba(34, 197, 94, calc(var(--mic-level, 0) * 0.55));
-  transform: scale(calc(1 + var(--mic-level, 0) * 0.55));
-  transition: transform 0.08s ease, background 0.08s ease;
-  pointer-events: none;
-}
-
-.local-video.speaking {
-  border-color: rgba(34, 197, 94, 0.85);
-  box-shadow: 0 0 0 2px rgba(34, 197, 94, 0.5);
-  transition: border-color 0.1s ease, box-shadow 0.1s ease;
-}
-
-.remote-video.speaking {
-  box-shadow: inset 0 0 0 4px rgba(34, 197, 94, 0.5);
-  transition: box-shadow 0.1s ease;
-}
-
-.mic-badge {
-  position: absolute;
-  bottom: 8px;
-  right: 8px;
-  width: 24px;
-  height: 24px;
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 11px;
-  z-index: 2;
-}
-
-.mic-badge--idle {
-  background: rgba(15, 17, 23, 0.65);
-  color: rgba(255, 255, 255, 0.6);
-}
-
-.mic-badge--muted {
-  background: rgba(239, 68, 68, 0.92);
-  color: white;
-}
-
-.mic-badge--speaking {
-  background: rgba(34, 197, 94, 0.92);
-  color: white;
-  animation: mic-badge-pulse 1s ease-in-out infinite;
-}
-
-@keyframes mic-badge-pulse {
-  0%, 100% { transform: scale(1); }
-  50% { transform: scale(1.15); }
-}
-
-/* ── Call Controls ── */
-/* z-index needed: Electron renders <video> on a separate GPU layer that
-   blocks pointer events on overlapping elements without their own layer */
-.call-controls {
+/* ── Control bar: two labeled 46px toggles · divider · danger «Выйти» pill.
+   z-index needed: <video> GPU layers block pointer events on siblings without
+   their own compositing layer in Electron. (One comment block on purpose —
+   two adjacent comments trip comment-empty-line-before.) ── */
+.p2p-controls {
   position: absolute;
   bottom: 28px;
   left: 50%;
   transform: translateX(-50%);
   z-index: 1;
   display: flex;
-  gap: 12px;
-  padding: 12px 20px;
-  background: rgba(255, 255, 255, 0.9);
-  backdrop-filter: blur(12px);
-  border-radius: var(--radius-xl);
-  box-shadow: var(--shadow-lg);
-  border: 1px solid var(--border-subtle);
+  align-items: flex-start;
+  justify-content: center;
+  gap: 10px;
+  max-width: calc(100% - 36px);
+  padding: 10px;
+  background: var(--stage-bar);
+  border: 1px solid var(--stage-line);
+  border-radius: var(--radius-bar);
 }
 
-.control-btn {
-  width: 48px;
-  height: 48px;
-  border-radius: var(--radius-full);
-  border: 1.5px solid var(--border-color);
-  background: var(--bg-primary);
-  color: var(--text-primary);
-  cursor: pointer;
-  font-size: 18px;
+.p2p-ctl {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+
+.p2p-ctl-btn {
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: all var(--transition);
+  width: 46px;
+  height: 46px;
+  padding: 0;
+  border: none;
+  border-radius: 14px;
+  background: var(--stage-toggle);
+  color: var(--stage-ink);
+  cursor: pointer;
+  transition: background var(--transition);
 }
 
-.control-btn:hover {
-  transform: scale(1.08);
-  box-shadow: var(--shadow-md);
+.p2p-ctl-btn:hover {
+  background: var(--stage-chip);
 }
 
-.control-btn.active {
-  background: var(--red-500);
-  border-color: var(--red-500);
-  color: white;
+.p2p-ctl-btn.is-off {
+  background: var(--danger);
+  color: var(--white);
 }
 
-.control-btn.end-call {
-  background: var(--red-500);
-  border-color: var(--red-500);
-  color: white;
-  width: 56px;
-  height: 56px;
-  font-size: 20px;
+.p2p-ctl-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  pointer-events: none;
 }
 
-.control-btn.end-call:hover {
-  background: var(--red-600);
-  border-color: var(--red-600);
-  transform: scale(1.12);
-  box-shadow: 0 4px 14px rgba(239, 68, 68, 0.35);
+.p2p-ctl-label {
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--stage-muted);
+}
+
+.p2p-ctl-divider {
+  width: 1px;
+  height: 40px;
+  align-self: center;
+  background: var(--stage-line);
+}
+
+.p2p-leave-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 46px;
+  padding: 0 18px;
+  border: none;
+  border-radius: var(--radius-pill);
+  background: var(--danger);
+  color: var(--white);
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: filter var(--transition);
+}
+
+.p2p-leave-btn:hover {
+  filter: brightness(1.08);
 }

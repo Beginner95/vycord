@@ -207,6 +207,8 @@ export const ru = {
     rejected: 'Звонок отклонён',
     startFailed: 'Не удалось начать звонок',
     endCall: 'Завершить звонок',
+    acceptCall: 'Принять',
+    rejectCall: 'Отклонить',
   },
   settings: {
     language: 'Язык',
