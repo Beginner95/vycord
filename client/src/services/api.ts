@@ -1,5 +1,5 @@
 import { useAuthStore } from '@/stores/authStore';
-import type { Server, User, Role, PermissionsResponse, Invite, InvitePreview, Sticker } from '@/types';
+import type { Server, User, Role, PermissionsResponse, Invite, InvitePreview, Sticker, Attachment } from '@/types';
 import { hasKey, type TFunc, type TKey } from '@/i18n';
 import { decodeJwtExpMs } from '@/utils/jwt';
 import { ACCESS_TOKEN_KEY, REFRESH_TOKEN_KEY } from '@/stores/authStore';
@@ -514,10 +514,10 @@ class ApiService {
   }
 
   // Messages
-  async createMessage(channelId: string, content: string, stickerId?: string) {
+  async createMessage(channelId: string, content: string, stickerId?: string, attachmentIds?: string[]) {
     return this.request(`/api/v1/channels/${channelId}/messages`, {
       method: 'POST',
-      body: JSON.stringify({ content, sticker_id: stickerId }),
+      body: JSON.stringify({ content, sticker_id: stickerId, attachment_ids: attachmentIds }),
     });
   }
 
@@ -590,6 +590,66 @@ class ApiService {
       ice_servers: Array<{ urls: string[]; username?: string; credential?: string }>;
       ttl: number;
     }>('/api/v1/turn/credentials');
+  }
+
+  // Attachments
+  /**
+   * Загружает файл. Использует XMLHttpRequest, а не fetch: у fetch нет
+   * прогресса отправки, а без него на 25 МБ пользователь смотрит в пустой
+   * экран. Возвращает промис вместе с функцией отмены.
+   */
+  uploadAttachment(
+    channelId: string,
+    file: File,
+    opts: { onProgress?: (percent: number) => void },
+  ): { promise: Promise<Attachment>; abort: () => void } {
+    const xhr = new XMLHttpRequest();
+
+    const promise = new Promise<Attachment>((resolve, reject) => {
+      const form = new FormData();
+      form.append('channel_id', channelId);
+      form.append('file', file, file.name);
+
+      xhr.open('POST', `${API_BASE_URL}/api/v1/attachments`);
+      const token = this.getAccessToken();
+      if (token) xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+
+      xhr.upload.onprogress = (e: ProgressEvent) => {
+        if (e.lengthComputable && e.total > 0) {
+          opts.onProgress?.(Math.round((e.loaded / e.total) * 100));
+        }
+      };
+
+      xhr.onload = () => {
+        let body: { error?: string; code?: string } = {};
+        try {
+          body = JSON.parse(xhr.responseText);
+        } catch {
+          body = {};
+        }
+        if (xhr.status >= 200 && xhr.status < 300) {
+          resolve(body as unknown as Attachment);
+          return;
+        }
+        reject(new ApiError(body.error || 'Upload failed', body.code, xhr.status));
+      };
+
+      xhr.onerror = () => reject(new ApiError('Network error', undefined, 0));
+      xhr.onabort = () => reject(new ApiError('Upload aborted', 'upload_aborted', 0));
+
+      xhr.send(form);
+    });
+
+    return { promise, abort: () => xhr.abort() };
+  }
+
+  async deleteAttachment(id: string) {
+    return this.request(`/api/v1/attachments/${id}`, { method: 'DELETE' });
+  }
+
+  /** Свежая подпись для вложения — им чинится протухшая ссылка на картинку. */
+  async getAttachment(id: string) {
+    return this.request<Attachment>(`/api/v1/attachments/${id}`);
   }
 }
 
