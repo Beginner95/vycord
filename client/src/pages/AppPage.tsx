@@ -426,7 +426,7 @@ export function AppPage() {
             const channel = channelsData.find((c) => c.id === lastChannelId);
             if (channel) {
               setCurrentChannel(channel);
-              wsService.send('join_channel', { channel_id: channel.id });
+              wsService.joinChannel(channel.id);
               const messages = await apiService.getMessages(channel.id);
               setMessages(messages as Message[]);
               return;
@@ -509,7 +509,7 @@ export function AppPage() {
     setMobilePanel('chat');
 
     // Notify server which channel we're viewing for targeted message routing
-    wsService.send('join_channel', { channel_id: channel.id });
+    wsService.joinChannel(channel.id);
 
     // Persist to DB (fire-and-forget)
     const currentSrv = useServerStore.getState().currentServer;

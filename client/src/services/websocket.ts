@@ -26,6 +26,15 @@ class WebSocketService {
   private token: string | null = null;
   private isConnected = false;
   private pendingMessages: string[] = [];
+  /**
+   * Канал, который пользователь сейчас смотрит. Хранится здесь, потому что на
+   * сервере это состояние живёт в `ws.Client.CurrentChannelID` — то есть
+   * привязано к конкретному соединению и обнуляется вместе с ним. Реконнект
+   * создаёт в хабе новый Client, `SendToChannel` перестаёт находить получателя,
+   * и realtime-доставка сообщений молча умирает до перезагрузки страницы.
+   * Поэтому канал переотправляется на каждом `open` (см. resendJoinChannel).
+   */
+  private currentChannelId: string | null = null;
 
   connect(token: string): Promise<void> {
     if (this.isConnected) {
@@ -64,6 +73,9 @@ class WebSocketService {
         this.ws?.addEventListener('message', this.handleMessage);
         this.ws?.addEventListener('close', this.handleClose);
         this.ws?.addEventListener('error', this.handleError);
+        // Первым делом — заново объявить просматриваемый канал: у нового
+        // соединения серверный Client создан с пустым CurrentChannelID.
+        this.resendJoinChannel();
         // Flush messages queued before the connection was ready
         const pending = this.pendingMessages.splice(0);
         for (const data of pending) {
@@ -95,6 +107,36 @@ class WebSocketService {
     this.cleanup();
     this.reconnectAttempt = 0;
     this.openedAt = null;
+    this.currentChannelId = null;
+  }
+
+  /**
+   * Сообщает серверу, какой канал пользователь сейчас смотрит: от этого
+   * зависит адресная доставка chat_message/message_update/message_delete
+   * (hub.SendToChannel). null — «ни в каком канале».
+   *
+   * Единственный способ отправить join_channel: канал запоминается и
+   * переотправляется после каждого реконнекта.
+   */
+  joinChannel(channelId: string | null): void {
+    this.currentChannelId = channelId;
+    // Намеренно не через send(): буферизовать join_channel незачем и вредно —
+    // на ещё не открытом сокете канал объявит resendJoinChannel, а очередь
+    // добавила бы к нему дубль.
+    if (this.ws?.readyState === WebSocket.OPEN) {
+      this.ws.send(JSON.stringify({
+        type: 'join_channel',
+        payload: { channel_id: channelId ?? '' },
+      }));
+    }
+  }
+
+  private resendJoinChannel(): void {
+    if (!this.currentChannelId || this.ws?.readyState !== WebSocket.OPEN) return;
+    this.ws.send(JSON.stringify({
+      type: 'join_channel',
+      payload: { channel_id: this.currentChannelId },
+    }));
   }
 
   /**
