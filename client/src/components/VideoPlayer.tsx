@@ -35,6 +35,11 @@ export function VideoPlayer({ src, autoPlay = false, lightbox = false }: VideoPl
     const el = ref.current;
     if (!el) return;
     if (el.paused) {
+      // Останавливаем предыдущий элемент ДО play(), а не в onPlay: на мобильных
+      // видео/аудио делят одну аппаратную аудио-сессию, и пока прежний элемент
+      // не отпущен, новый play() может тихо не сработать — onPlay для него
+      // просто не наступит.
+      notifyPlaying(el);
       void el.play();
     } else {
       el.pause();

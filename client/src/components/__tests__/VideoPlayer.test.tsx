@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { render, fireEvent } from '@testing-library/react';
 import { VideoPlayer } from '@/components/VideoPlayer';
 
@@ -44,5 +44,30 @@ describe('VideoPlayer', () => {
 
     expect(container.querySelector('.video-player--lightbox')).not.toBeNull();
     expect(container.querySelector('video')?.hasAttribute('autoplay')).toBe(true);
+  });
+
+  it('клик по play останавливает ранее запущенный плеер до старта нового', () => {
+    // На мобильных видео/аудио делят одну аудио-сессию: если остановить
+    // предыдущий элемент только по событию onPlay нового, play() нового может
+    // тихо не сработать и onPlay вовсе не наступит. Поэтому pause() должен
+    // случиться синхронно в обработчике клика, до вызова play().
+    const { container: c1 } = render(<VideoPlayer src="/clip1.mp4" />);
+    const { container: c2 } = render(<VideoPlayer src="/clip2.mp4" />);
+
+    const video1 = c1.querySelector('video') as HTMLVideoElement;
+    const video2 = c2.querySelector('video') as HTMLVideoElement;
+    const play1Btn = c1.querySelector('.video-play-btn') as HTMLButtonElement;
+    const play2Btn = c2.querySelector('.video-play-btn') as HTMLButtonElement;
+
+    video1.play = vi.fn();
+    video2.play = vi.fn();
+    video1.pause = vi.fn();
+
+    fireEvent.click(play1Btn);
+    Object.defineProperty(video1, 'paused', { value: false, configurable: true });
+
+    fireEvent.click(play2Btn);
+
+    expect(video1.pause).toHaveBeenCalledTimes(1);
   });
 });
