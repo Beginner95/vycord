@@ -583,12 +583,16 @@
    (M4 T8 review finding; measured by probe-modal-sweep phases B and D).
    Zeroed here rather than by deleting `.modal h2`'s margin: CreateChannelModal,
    EditChannelModal and AppPage's create-server modal still emit a bare <h2>
-   inside .modal and depend on that 20px. Equal specificity to `.modal h2`
-   (0,1,1), won by source order — this block is below it and must stay below it.
+   inside .modal and depend on that 20px. Selector is `.modal .modal-header h2`
+   (0,2,1) against `.modal h2`'s (0,1,1): it wins on specificity alone, so a
+   reorder or a merge can no longer silently restore the 16px regression. All
+   five `.modal-header` consumers sit inside an element carrying `modal`
+   (FindServer, ManageInvites, EditServer, AvatarCrop, StickerManager), so the
+   added `.modal` step never costs a match.
    FindServerModal dodges the collision with <div class="modal-title">, which is
    safe there because that dialog carries role="dialog" + aria-label; the two
    modals converted in T8 keep a real <h2> for heading semantics instead. */
-.modal-header h2 {
+.modal .modal-header h2 {
   margin-bottom: 0;
 }
 

@@ -177,7 +177,13 @@ export function AvatarCropModal({ file, title, onCancel, onUpload }: AvatarCropM
             className="modal-close-btn"
             title={t('common.cancel')}
             aria-label={t('common.cancel')}
-            onClick={onCancel}
+            // Третий путь отмены — и он обязан быть таким же инертным во время
+            // сохранения, как оверлей выше и «Отмена» в .modal-actions: иначе
+            // клик по крестику размонтирует модалку, а начатый upload доедет
+            // и всё равно поменяет аватар. disabled здесь не годится —
+            // у .modal-close-btn нет :disabled-правила, и :hover продолжал бы
+            // совпадать, то есть кнопка выглядела бы живой, будучи мёртвой.
+            onClick={saving ? undefined : onCancel}
           >
             <X size={16} strokeWidth={1.8} />
           </button>

@@ -29,7 +29,7 @@ export function CallNotifBanner({ callerName, channelName, onJoin, onDismiss }: 
         onClick={onDismiss}
         aria-label={t('common.close')}
       >
-        <X size={14} strokeWidth={1.8} />
+        <X size={16} strokeWidth={1.8} />
       </button>
     </div>
   );

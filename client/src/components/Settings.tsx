@@ -35,7 +35,14 @@ export function Settings({ isOpen, onClose, onLogout }: SettingsProps) {
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div ref={modalRef} className="settings-modal" onClick={(e) => e.stopPropagation()}>
+      <div
+        ref={modalRef}
+        className="settings-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-label={t('settings.title')}
+        onClick={(e) => e.stopPropagation()}
+      >
         <div className="settings-header">
           <h2 className="modal-title">{t('settings.title')}</h2>
           <button
@@ -82,14 +89,20 @@ export function Settings({ isOpen, onClose, onLogout }: SettingsProps) {
         </div>
       </div>
 
-      {/* Вложенная модалка — СЕСТРА .settings-modal внутри оверлея Settings, а не
-          его потомок. Только так оверлей подтверждения оказывается в прямом
-          контакте по всплытию с onClick={onClose} этого оверлея, и
-          e.stopPropagation() в ConfirmModal (T3) действительно проверяется.
-          Внутри .settings-modal клик по фону подтверждения гасился бы её
-          собственным stopPropagation, и проверка стала бы фиктивной.
-          z-index: оба оверлея z-1000, но вложенный — потомок контекста
-          наложения внешнего, поэтому рисуется поверх (измерено probe-settings-shell). */}
+      {
+        // Вложенная модалка — СЕСТРА .settings-modal внутри оверлея Settings, а не
+        // его потомок. Только так оверлей подтверждения оказывается в прямом
+        // контакте по всплытию с onClick={onClose} этого оверлея, и
+        // e.stopPropagation() в ConfirmModal (T3) действительно проверяется.
+        // Внутри .settings-modal клик по фону подтверждения гасился бы её
+        // собственным stopPropagation, и проверка стала бы фиктивной.
+        // z-index: оба оверлея z-1000, но вложенный — потомок контекста
+        // наложения внешнего, поэтому рисуется поверх (измерено probe-settings-shell).
+        //
+        // Строчные //, а не блочный /* */: stripComments в check-i18n.mjs вырезает
+        // только // и ОДНОСТРОЧНЫЕ /* */, поэтому многострочный блок — структурная
+        // слепая зона (CONSTRAINTS §5). Тот же приём, что в StickerManager.tsx.
+      }
       {onLogout && (
         <ConfirmModal
           open={confirmLogout}
