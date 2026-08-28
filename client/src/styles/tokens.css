@@ -39,6 +39,8 @@
   --row-hover:       rgba(255, 255, 255, 0.6);
   --avatar-offline:  #E3E6EF;
   --white:           #FFFFFF;
+  --chip-bg:  #F2F4F9; /* board 1d: modal close button, kbd chip */
+  --track-bg: #E9ECF5; /* board 1d: slider / level-meter track */
 
   /* ── Status ── */
   --online:      #12B76A;
@@ -130,6 +132,8 @@
   --composer:     #171B26;
   --rail:         #0A0C12;
   --row-hover: rgba(255, 255, 255, 0.05); /* board: nav hover in dark */
+  --chip-bg:  rgb(255 255 255 / 8%);  /* refine in M6 */
+  --track-bg: rgb(255 255 255 / 12%); /* refine in M6 */
 
   --online:      #4ADE96;
   --online-soft: rgba(18, 183, 106, 0.14);
