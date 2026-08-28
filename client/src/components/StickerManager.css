@@ -1,57 +1,31 @@
-/* Sticker manager modal — verbatim move out of ChatArea.css with mechanical
-   lint fixes only (is-* state renames, modern color notation, specificity
-   reordering). No visual redesign: M4 owns the restyle. */
-.sticker-manager-overlay {
-  position: fixed;
-  inset: 0;
-  background: rgb(0 0 0 / 50%);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 100;
-}
+/* ── Sticker manager (M4 T9 rewrite) ──────────────────────────────────────
+   The shell is primitives now: `.modal-overlay` + `.modal sticker-manager`,
+   `.modal-header` / `.modal-title` / `.modal-close-btn` for the header,
+   `.input` for the name field, `.btn btn-ghost` / `.btn btn-primary` for the
+   upload actions and `.panel-icon-btn.is-danger` for the per-row delete. The
+   old bottom «Закрыть» button and every local button recipe are gone, so this
+   file owns only two things: the dropzone and the sticker list.
 
+   `.sticker-manager` keeps its namespace class purely to carry these rules —
+   the shell itself comes from `.modal`. Component CSS is injected after the
+   base layer, so the `max-width` / `width` overrides below win the 0,1,0 tie
+   against `.modal` on source order (M2 cascade fact, CONSTRAINTS §9). */
 .sticker-manager {
-  width: 360px;
-  max-height: 70vh;
   display: flex;
   flex-direction: column;
   gap: 12px;
-  padding: 20px;
-  background: var(--bg-elevated);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-lg);
+  width: 90%;
+  max-width: 380px;
+  max-height: 70vh;
   overflow: hidden;
 }
 
-.sticker-manager h3 {
-  margin: 0;
-  font-size: 16px;
-  font-weight: 700;
-  color: var(--text-primary);
-}
-
-.sticker-manager-upload {
-  display: flex;
-  gap: 8px;
-}
-
-.sticker-manager-upload input[type="text"] {
-  flex: 1;
-  min-width: 0;
-  padding: 8px 12px;
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-sm);
-  background: var(--bg-primary);
-  color: var(--text-primary);
-  font-size: 13px;
-  font-family: inherit;
-  outline: none;
-}
-
-.sticker-manager-upload input[type="text"]:focus {
-  border-color: var(--brand-color);
+/* `.modal-header` carries margin-bottom: 16px for block-layout modals (T8).
+   Here the flex column's own 12px gap already separates it, so the margin
+   would double the spacing. Zeroed rather than dropped from the primitive:
+   ManageInvites/EditServer/FindServer are block-layout and still need it. */
+.sticker-manager .modal-header {
+  margin-bottom: 0;
 }
 
 .sticker-file-input-hidden {
@@ -64,10 +38,10 @@
   align-items: center;
   gap: 8px;
   padding: 20px 12px;
-  border: 1.5px dashed var(--border-color);
-  border-radius: var(--radius-md);
-  background: var(--bg-input, var(--bg-primary));
-  color: var(--text-secondary);
+  border: 2px dashed var(--line-strong);
+  border-radius: var(--radius-card);
+  background: var(--canvas-3);
+  color: var(--muted);
   text-align: center;
   cursor: pointer;
   transition: border-color var(--transition), background var(--transition);
@@ -75,33 +49,33 @@
 
 .sticker-dropzone:hover,
 .sticker-dropzone.is-active {
-  border-color: var(--brand-color);
-  background: var(--bg-hover);
+  border-color: var(--accent);
+  background: var(--accent-soft);
 }
 
 .sticker-dropzone.is-error {
-  border-color: var(--red-500);
+  border-color: var(--danger);
 }
 
 .sticker-dropzone-icon {
-  font-size: 26px;
-  line-height: 1;
+  display: flex;
+  color: var(--muted-2);
 }
 
 .sticker-dropzone-hint {
   font-size: 13px;
-  color: var(--text-secondary);
+  color: var(--muted);
 }
 
 .sticker-dropzone-restrictions {
-  font-size: 12px;
-  color: var(--text-muted);
+  font-size: 11.5px;
+  color: var(--muted-2);
 }
 
 .sticker-dropzone-preview {
   max-width: 120px;
   max-height: 120px;
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-chip);
   object-fit: contain;
 }
 
@@ -110,9 +84,10 @@
   align-items: center;
   justify-content: space-between;
   gap: 10px;
-  padding: 8px;
-  border-radius: var(--radius-sm);
-  background: var(--bg-primary);
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-card);
+  background: var(--canvas-3);
 }
 
 .sticker-preview-name {
@@ -121,85 +96,26 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 12px;
-  color: var(--text-secondary);
+  font-size: 12.5px;
+  color: var(--muted);
 }
 
 .sticker-preview-actions {
   display: flex;
-  gap: 6px;
+  gap: 8px;
+  flex-shrink: 0;
 }
 
-.sticker-preview-actions button,
-.sticker-upload-submit {
-  padding: 6px 12px;
-  border: none;
-  border-radius: var(--radius-sm);
-  font-size: 12px;
-  cursor: pointer;
-  transition: background var(--transition);
-}
-
-.sticker-preview-actions button {
-  background: var(--bg-hover);
-  color: var(--text-primary);
-}
-
-.sticker-manager-item button {
-  padding: 4px 10px;
-  border: none;
-  border-radius: var(--radius-sm);
-  background: var(--red-500);
-  color: white;
-  font-size: 12px;
-  cursor: pointer;
-  transition: background var(--transition);
-}
-
-.sticker-manager > button {
-  align-self: flex-end;
-  padding: 8px 16px;
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-sm);
-  background: var(--bg-primary);
-  color: var(--text-primary);
-  font-size: 13px;
-  cursor: pointer;
-  transition: all var(--transition);
-}
-
-.sticker-preview-actions button:hover {
-  background: var(--border-subtle);
-}
-
-.sticker-manager-item button:hover {
-  background: var(--red-600);
-}
-
-.sticker-manager > button:hover {
-  background: var(--bg-hover);
-}
-
-.sticker-upload-submit {
-  background: var(--brand-color, #5865f2);
-  color: #fff;
-}
-
-.sticker-upload-submit:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.sticker-upload-submit:hover:not(:disabled) {
-  opacity: 0.9;
-}
-
+/* min-height: 0 is load-bearing — a flex item's default min-height: auto keeps
+   it at content height, so overflow-y: auto would never scroll inside the
+   70vh-capped column. */
 .sticker-manager-list {
   flex: 1;
-  overflow-y: auto;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   gap: 6px;
+  overflow-y: auto;
 }
 
 .sticker-manager-item {
@@ -207,13 +123,17 @@
   align-items: center;
   gap: 10px;
   padding: 6px 8px;
-  border-radius: var(--radius-sm);
-  background: var(--bg-primary);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-row);
+  background: var(--canvas-3);
 }
 
 .sticker-manager-item img {
+  width: 48px;
+  height: 48px;
+  flex-shrink: 0;
   object-fit: contain;
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-chip);
 }
 
 .sticker-manager-item span {
@@ -223,5 +143,6 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: 13px;
-  color: var(--text-primary);
+  font-weight: 500;
+  color: var(--ink);
 }
