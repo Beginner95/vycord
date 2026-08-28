@@ -1,66 +1,26 @@
-/* ── Settings Modal ── */
-.settings-overlay {
-  position: fixed;
-  inset: 0;
-  z-index: 2000;
-  background: rgba(15, 17, 23, 0.55);
-  backdrop-filter: blur(8px);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  animation: fade-in 0.2s var(--ease-out);
-}
-
+/* ── Settings modal — board 1d: 648px, 186px icon nav, pinned danger logout ── */
 .settings-modal {
-  background: var(--bg-primary);
-  border-radius: var(--radius-xl);
-  width: 92%;
-  max-width: 760px;
+  width: 648px;
+  max-width: 92vw;
   max-height: 82vh;
   display: flex;
   flex-direction: column;
-  box-shadow: var(--shadow-xl);
-  border: 1px solid var(--border-subtle);
-  animation: scale-in 0.25s var(--ease-out);
   overflow: hidden;
+  padding: 0;
+  background: var(--canvas);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-modal);
+  box-shadow: var(--shadow-modal);
+  animation: modal-in 0.18s var(--ease-out);
 }
 
 .settings-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 22px 28px;
-  border-bottom: 1px solid var(--border-subtle);
-}
-
-.settings-header h2 {
-  font-size: 20px;
-  font-weight: 700;
-  color: var(--text-primary);
-  letter-spacing: -0.01em;
-}
-
-.close-btn {
-  background: none;
-  border: 1.5px solid var(--border-color);
-  color: var(--text-muted);
-  font-size: 16px;
-  cursor: pointer;
-  padding: 6px 10px;
-  border-radius: var(--radius-md);
-  transition: all var(--transition);
-}
-
-.close-btn:hover {
-  background: var(--bg-hover);
-  color: var(--text-primary);
-  border-color: var(--text-muted);
-}
-
-.settings-content {
-  flex: 1;
-  overflow-y: auto;
-  padding: 28px;
+  padding: 20px 24px;
+  border-bottom: 1px solid var(--line);
+  flex-shrink: 0;
 }
 
 .settings-body {
@@ -69,48 +29,134 @@
   min-height: 0;
 }
 
-.settings-tabs {
-  width: 180px;
+.settings-nav {
+  width: 186px;
   flex-shrink: 0;
-  border-right: 1px solid var(--border-subtle);
-  padding: 16px 12px;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 2px;
+  padding: 12px 10px;
+  background: var(--canvas-3);
+  border-right: 1px solid var(--line);
   overflow-y: auto;
 }
 
-.settings-tab {
-  text-align: left;
-  padding: 10px 14px;
+.settings-nav-btn {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 10px;
   border: none;
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-row);
   background: none;
-  color: var(--text-muted);
-  font-size: 14px;
-  font-weight: 600;
+  text-align: left;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--muted);
   cursor: pointer;
-  transition: all var(--transition);
+  transition: background var(--transition), color var(--transition);
 }
 
-.settings-tab:hover {
-  background: var(--bg-hover);
-  color: var(--text-primary);
+.settings-nav-btn:hover {
+  background: var(--canvas-2);
+  color: var(--ink);
 }
 
-.settings-tab.active {
-  background: var(--brand-subtle);
-  color: var(--brand-color);
+.settings-nav-btn.is-active {
+  background: var(--accent-soft);
+  color: var(--accent-text);
+  font-weight: 700;
+}
+
+.settings-nav-logout {
+  margin-top: auto;
+  color: var(--danger);
+}
+
+.settings-nav-logout:hover {
+  background: var(--danger-soft);
+  color: var(--danger-text);
+}
+
+.settings-pane {
+  flex: 1;
+  overflow-y: auto;
+  padding: 20px 24px;
 }
 
 .settings-section {
-  margin-bottom: 32px;
+  margin-bottom: 26px;
+  padding-bottom: 26px;
+  border-bottom: 1px solid var(--line);
 }
 
 .settings-section:last-child {
   margin-bottom: 0;
+  padding-bottom: 0;
+  border-bottom: none;
 }
 
+.settings-section-title {
+  margin-bottom: 12px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--muted-2);
+}
+
+.setting-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 10px 0;
+}
+
+.setting-row-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.setting-row-title {
+  display: block;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.setting-row-desc {
+  margin-top: 2px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--muted);
+}
+
+.setting-warning {
+  margin: 8px 0 0;
+  padding: 8px 14px;
+  border-radius: var(--radius-row);
+  border: 1px solid var(--warning);
+  background: var(--canvas-2);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--warning);
+}
+
+/* ═══ LEGACY (carried until T7 of the M4 plan): pane classes still emitted by settings/*.tsx ═══
+   Verbatim copy of the pre-T6 rules. `settings/*.tsx` still renders
+   .settings-section h3 / .setting-item / .setting-info / .setting-description /
+   .toggle-switch + .toggle-slider / .setting-select; Task 7 converts the panes to
+   the new names above and DELETES this whole block. Its stylelint violations and
+   raw values are the sanctioned interim of CONSTRAINTS.md §2 exception 2 and §3.
+   Never run `stylelint --fix` on this file while this block exists — it rewrites
+   the block and destroys "verbatim".
+
+   Live collision, measured in this task's probe: primitives.css declares
+   .toggle-switch at 44x26; the copy below declares 44x24 and component CSS wins
+   the source-order tie, so the pane toggle keeps its OLD size for exactly one
+   task. Task 7 must also rename the track <span> from .toggle-slider to
+   .toggle-track, which is what primitives styles. ═══ */
 .settings-section h3 {
   font-size: 12px;
   font-weight: 700;
@@ -151,17 +197,6 @@
   color: var(--text-muted);
   margin: 0;
   line-height: 1.4;
-}
-
-.setting-warning {
-  font-size: 12px;
-  color: var(--yellow-500);
-  background: var(--yellow-50);
-  padding: 8px 14px;
-  border-radius: var(--radius-md);
-  margin: 8px 0 0;
-  font-weight: 500;
-  border: 1px solid rgba(245, 158, 11, 0.15);
 }
 
 /* ── Toggle Switch ── */
@@ -242,3 +277,5 @@
   border-color: var(--brand-color);
   box-shadow: 0 0 0 3px var(--brand-subtle);
 }
+
+/* ═══ END LEGACY (deleted in T7) ═══ */

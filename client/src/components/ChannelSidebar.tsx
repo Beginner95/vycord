@@ -304,7 +304,7 @@ export function ChannelSidebar({
         </div>
       </div>
 
-      <Settings isOpen={settingsOpen} onClose={() => setSettingsOpen(false)} />
+      <Settings isOpen={settingsOpen} onClose={() => setSettingsOpen(false)} onLogout={onLogout} />
 
       <ConfirmModal
         open={confirmLogout}
