@@ -111,6 +111,8 @@ export const en: Dictionary = {
     fullscreen: 'Fullscreen',
     play: 'Play',
     pause: 'Pause',
+    mute: 'Mute',
+    unmute: 'Unmute',
     previous: 'Previous',
     next: 'Next',
   },

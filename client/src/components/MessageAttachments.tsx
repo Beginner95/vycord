@@ -3,6 +3,7 @@ import type { Attachment } from '@/types';
 import { apiService, resolveUploadUrl } from '@/services/api';
 import { downloadUrl } from '@/utils/attachmentUrl';
 import { AudioPlayer } from './AudioPlayer';
+import { VideoPlayer } from './VideoPlayer';
 import { useT } from '@/i18n';
 import './MessageAttachments.css';
 
@@ -73,8 +74,7 @@ export function MessageAttachments({ attachments, onOpen }: MessageAttachmentsPr
         if (att.kind === 'video') {
           return (
             <div className="attachment-cell" key={att.id}>
-              {/* preload=metadata показывает первый кадр вместо чёрного прямоугольника */}
-              <video className="attachment-video" src={content} controls preload="metadata" />
+              <VideoPlayer src={content ?? ''} />
               <button type="button" className="attachment-expand" onClick={() => onOpen(i)} title={t('chat.fullscreen')}>⛶</button>
               <a className="attachment-download" href={downloadUrl(att.url)} title={t('chat.download')}>↓</a>
             </div>

@@ -114,6 +114,8 @@ export const ru = {
     fullscreen: 'На весь экран',
     play: 'Воспроизвести',
     pause: 'Пауза',
+    mute: 'Выключить звук',
+    unmute: 'Включить звук',
     previous: 'Предыдущее',
     next: 'Следующее',
   },

@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react';
 import { useT } from '@/i18n';
+import { notifyPlaying } from '@/utils/chatMediaCoordinator';
 import './AudioPlayer.css';
 
 interface AudioPlayerProps {
@@ -65,7 +66,7 @@ export function AudioPlayer({ src, fileName }: AudioPlayerProps) {
         ref={ref}
         src={src}
         preload="metadata"
-        onPlay={() => setPlaying(true)}
+        onPlay={(e) => { setPlaying(true); notifyPlaying(e.currentTarget); }}
         onPause={() => setPlaying(false)}
         onEnded={() => setPlaying(false)}
         onTimeUpdate={(e) => setCurrent(e.currentTarget.currentTime)}

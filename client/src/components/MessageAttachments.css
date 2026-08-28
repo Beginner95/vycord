@@ -13,8 +13,7 @@
 .attachment-cell { position: relative; min-width: 0; }
 .attachment-cell--wide { grid-column: 1 / -1; }
 
-.attachment-image,
-.attachment-video {
+.attachment-image {
   display: block;
   width: 100%;
   height: auto;

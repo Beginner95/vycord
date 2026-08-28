@@ -4,6 +4,7 @@ import type { Attachment } from '@/types';
 import { resolveUploadUrl } from '@/services/api';
 import { downloadUrl } from '@/utils/attachmentUrl';
 import { useT } from '@/i18n';
+import { VideoPlayer } from './VideoPlayer';
 import './MediaLightbox.css';
 
 interface MediaLightboxProps {
@@ -63,7 +64,7 @@ export function MediaLightbox({ attachments, index, onIndexChange, onClose }: Me
       <div className="lightbox-content" onClick={(e) => e.stopPropagation()}>
         {current.kind === 'video' ? (
           // В фуллскрине всегда оригинал: миниатюра нужна только ленте.
-          <video className="lightbox-media" src={resolveUploadUrl(current.url)} controls autoPlay />
+          <VideoPlayer src={resolveUploadUrl(current.url) ?? ''} autoPlay lightbox />
         ) : (
           <img className="lightbox-media" src={resolveUploadUrl(current.url)} alt={current.file_name} />
         )}
