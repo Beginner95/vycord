@@ -158,6 +158,14 @@
   transform: translateX(18px);
 }
 
+/* The pointer target is the INPUT, not the track: .toggle-track above is
+   `pointer-events: none`, so a cursor rule on the track would be a no-op.
+   Lifted here from `.settings-pane .toggle-switch input:disabled` in M4 T8 —
+   T7 pane-scoped it only because primitives.css was not in its file list. */
+.toggle-switch input:disabled {
+  cursor: not-allowed;
+}
+
 .toggle-switch input:disabled + .toggle-track {
   opacity: 0.35;
 }
@@ -337,13 +345,21 @@
 
 /* Shared animation vocabulary. Kebab-case since M4 T2 (keyframes-name-pattern);
    every consumer of the old camelCase names was renamed in that same commit.
-   Live consumers as of that commit — check before deleting any of these:
-     fade-in  — .modal-overlay below; Settings.css, AvatarCropModal.css,
-                EmojiPicker.css, StickerPicker.css
-     scale-in — .context-menu below; Settings.css, ContextMenu.css,
-                AvatarCropModal.css
-     modal-in — .modal and the radio ::after below; ConfirmModal.css, CallUI.css
-   The list shrinks as later M4 tasks rewrite those component files. */
+   Live consumers, RE-DERIVED from `rg -n '<name>' src/` at M4 T8 (the T2 list
+   had gone stale in three places: it named ContextMenu.css, deleted in T4, and
+   it named Settings.css under fade-in and scale-in, neither of which
+   Settings.css uses directly after T6/T7) — check before deleting any of these:
+     fade-in  — .modal-overlay below; AvatarCropModal.css:10,
+                EmojiPicker.css:18, StickerPicker.css:17
+     scale-in — .context-menu below; AvatarCropModal.css:20  (two consumers left)
+     modal-in — .modal and the radio ::after below; ConfirmModal.css:9,
+                CallUI.css:30, Settings.css:14
+   Settings.css takes fade-in only transitively, through .modal-overlay.
+   ErrorBoundary.css deliberately owns private copies (error-boundary-fade-in /
+   -scale-in) and is not a consumer of these.
+   The list shrinks as later M4 tasks rewrite those component files —
+   AvatarCropModal.css and StickerManager.css are still scheduled rewrites, so
+   re-derive rather than trust this list. */
 @keyframes fade-in {
   from { opacity: 0; }
   to { opacity: 1; }
@@ -559,6 +575,24 @@
   margin-bottom: 16px;
 }
 
+/* An <h2 class="modal-title"> inside .modal is hit by BOTH `.modal h2` (0,1,1)
+   and `.modal-title` (0,1,0). Their shared declarations are byte-identical, so
+   the only live effect is `.modal h2 { margin-bottom: 20px }` — a declaration
+   .modal-title never makes and therefore cannot override. Unzeroed it becomes
+   part of the flex item's outer height, growing this header ~30px → ~44px on
+   top of the 16px below, so title-to-content rendered ~36px instead of 16px
+   (M4 T8 review finding; measured by probe-modal-sweep phases B and D).
+   Zeroed here rather than by deleting `.modal h2`'s margin: CreateChannelModal,
+   EditChannelModal and AppPage's create-server modal still emit a bare <h2>
+   inside .modal and depend on that 20px. Equal specificity to `.modal h2`
+   (0,1,1), won by source order — this block is below it and must stay below it.
+   FindServerModal dodges the collision with <div class="modal-title">, which is
+   safe there because that dialog carries role="dialog" + aria-label; the two
+   modals converted in T8 keep a real <h2> for heading semantics instead. */
+.modal-header h2 {
+  margin-bottom: 0;
+}
+
 .modal-title {
   font-size: 19px;
   font-weight: 800;
@@ -639,10 +673,12 @@
 }
 
 /* :disabled must stay ABOVE the :hover rule. Measured under this repo's
-   .stylelintrc.json (M4 T2): the two orderings were linted as isolated
-   counterfactual files — :disabled first → 0 problems; :hover first →
-   1 no-descending-specificity error. ContextMenu.css:41 is a live instance
-   of the failing order and reports exactly that. */
+   .stylelintrc.json, first in M4 T2 and RE-MEASURED in M4 T8: the two orderings
+   were linted as isolated counterfactual files under `client/` (so importFrom
+   resolves) — :disabled first → 0 problems; :hover first → exactly
+   1 no-descending-specificity error naming both selectors. The claim stands.
+   T2's citation of "ContextMenu.css:41 is a live instance" is dropped: T4
+   deleted ContextMenu.css, so there is no live instance left to point at. */
 .context-menu-item:disabled {
   opacity: 0.45;
   cursor: not-allowed;
@@ -702,34 +738,4 @@
     opacity: 1;
     transform: translateX(-50%) translateY(0);
   }
-}
-
-/* ═══ LEGACY (carried until T8 of the M4 plan): hand-rolled .modal-actions button recipe — emitters convert to .btn roles in T3/T5/T8 ═══ */
-.modal-actions button {
-  background: var(--canvas);
-  color: var(--ink);
-  border: 1px solid var(--line-strong);
-  border-radius: var(--radius-btn);
-  font-size: 13px;
-  font-weight: 600;
-  padding: 0 14px;
-  height: 34px;
-  cursor: pointer;
-  transition: all var(--transition);
-}
-
-.modal-actions button:not(.primary):hover {
-  background: var(--canvas-2);
-}
-
-.modal-actions button.primary {
-  background: var(--accent);
-  color: #FFFFFF;
-  border: 1px solid var(--accent);
-}
-
-.modal-actions button.primary:hover {
-  background: var(--accent-hover);
-  border-color: var(--accent-hover);
-  box-shadow: none;
 }

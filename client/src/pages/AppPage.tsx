@@ -702,10 +702,10 @@ logger.error('Failed to create server:', err, { module: 'app' });
               </div>
               {createServerError && <p className="modal-error">{createServerError}</p>}
               <div className="modal-actions">
-                <button type="button" onClick={() => { setShowCreateServer(false); setCreateServerError(''); }}>
+                <button type="button" className="btn btn-secondary" onClick={() => { setShowCreateServer(false); setCreateServerError(''); }}>
                   {t('common.cancel')}
                 </button>
-                <button type="submit" className="primary">
+                <button type="submit" className="btn btn-primary">
                   {t('server.createSubmit')}
                 </button>
               </div>

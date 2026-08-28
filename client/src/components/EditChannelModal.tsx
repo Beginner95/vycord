@@ -54,10 +54,10 @@ export function EditChannelModal({ serverId, channel, onClose }: EditChannelModa
           </div>
           {error && <p className="modal-error">{error}</p>}
           <div className="modal-actions">
-            <button type="button" onClick={onClose}>
+            <button type="button" className="btn btn-secondary" onClick={onClose}>
               {t('common.cancel')}
             </button>
-            <button type="submit" className="primary" disabled={saving}>
+            <button type="submit" className="btn btn-primary" disabled={saving}>
               {saving ? t('common.saving') : t('common.save')}
             </button>
           </div>

@@ -1,4 +1,5 @@
 import { useRef, useState } from 'react';
+import { X } from 'lucide-react';
 import type { Server } from '@/types';
 import { apiService, apiErrorText, resolveUploadUrl } from '@/services/api';
 import { useServerStore } from '@/stores/serverStore';
@@ -82,7 +83,18 @@ export function EditServerModal({ server, onClose }: EditServerModalProps) {
     <>
       <div className="modal-overlay" onClick={onClose}>
         <div className="modal" onClick={(e) => e.stopPropagation()}>
-          <h2>{t('server.editTitle')}</h2>
+          <div className="modal-header">
+            <h2 className="modal-title">{t('server.editTitle')}</h2>
+            <button
+              type="button"
+              className="modal-close-btn"
+              title={t('common.close')}
+              aria-label={t('common.close')}
+              onClick={onClose}
+            >
+              <X size={16} strokeWidth={1.8} />
+            </button>
+          </div>
 
           <div className="edit-server-icon-block">
             {server.icon_url ? (
@@ -93,7 +105,7 @@ export function EditServerModal({ server, onClose }: EditServerModalProps) {
             <div className="edit-server-icon-actions">
               <button
                 type="button"
-                className="edit-server-icon-btn"
+                className="btn btn-secondary"
                 onClick={() => fileInputRef.current?.click()}
               >
                 {t('server.changeIcon')}
@@ -101,7 +113,7 @@ export function EditServerModal({ server, onClose }: EditServerModalProps) {
               {server.icon_url && (
                 <button
                   type="button"
-                  className="edit-server-icon-btn danger"
+                  className="btn btn-danger-soft"
                   onClick={handleRemoveIcon}
                   disabled={removingIcon}
                 >
@@ -140,10 +152,10 @@ export function EditServerModal({ server, onClose }: EditServerModalProps) {
             </div>
             {error && <p className="modal-error">{error}</p>}
             <div className="modal-actions">
-              <button type="button" onClick={onClose}>
+              <button type="button" className="btn btn-secondary" onClick={onClose}>
                 {t('common.cancel')}
               </button>
-              <button type="submit" className="primary" disabled={saving}>
+              <button type="submit" className="btn btn-primary" disabled={saving}>
                 {saving ? t('common.saving') : t('common.save')}
               </button>
             </div>

@@ -168,17 +168,3 @@
   gap: 4px;
 }
 
-/* The disabled-toggle affordance, restored after the T6 legacy block was deleted
-   in T7. primitives.css:161-163 sets only `opacity: 0.35` on
-   `.toggle-switch input:disabled + .toggle-track`, while the equivalent rule in
-   the deleted T6 block also set `cursor: not-allowed`.
-   The pointer target is the INPUT, not the track: primitives.css:122-129 gives
-   `.toggle-switch input` `position: absolute; width: 100%; height: 100%;
-   cursor: pointer`, and primitives.css:131-138 gives `.toggle-track`
-   `pointer-events: none` — so the cursor must be set on the input. Scoped to
-   `.settings-pane` rather than added to primitives because primitives.css is not
-   in this task's file list and still carries its own T2→T8 legacy block; a
-   global restore belongs to T8. */
-.settings-pane .toggle-switch input:disabled {
-  cursor: not-allowed;
-}

@@ -1,137 +1,68 @@
-.manage-invites-modal {
-  position: relative;
-}
+/* ── Manage-invites modal ──────────────────────────────────────────────────
+   The shell is entirely primitives now: a bare `.modal` (its default 440px
+   max-width is the intended size, so there is no wrapper class at all — the
+   `.invites-modal` name the plan floated would have carried zero declarations
+   and no rule, and nothing selects it: the probe identifies this modal by its
+   `.modal-title` text, exactly as it does for the four other modals),
+   `.modal-header` / `.modal-title` / `.modal-close-btn` for the header, and
+   `.modal-actions` + `.btn btn-primary` for the create action. The old
+   `manage-invites-*` recipe and the misnamed `channel-access-*` family are
+   deleted (M4 T8); the row action buttons are `.panel-icon-btn` consumers, so
+   this file adds no button recipe of its own.
 
-.manage-invites-modal h2 {
-  padding-right: 40px;
-}
-
-.manage-invites-close {
-  position: absolute;
-  top: 16px;
-  right: 16px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 32px;
-  height: 32px;
-  padding: 0;
-  border: 1.5px solid var(--border-color);
-  border-radius: var(--radius-md);
-  background: none;
-  color: var(--text-muted);
-  font-size: 16px;
-  line-height: 1;
-  cursor: pointer;
-  transition: all var(--transition);
-}
-
-.manage-invites-close:hover {
-  background: var(--bg-hover);
-  color: var(--text-primary);
-  border-color: var(--text-muted);
-}
-
-.channel-access-list {
-  list-style: none;
+   `.invites-empty` (also used for the loading line) is flush-left and unpadded,
+   matching `.find-server-empty` (FindServerModal.css:84-90) — the milestone's
+   other rewritten modal empty state — rather than the centred, 24px-padded
+   `.search-empty` it replaces. That centring belonged to the full-width
+   ServerList search panel `.search-empty` was written for; in a 440px modal the
+   `.modal-header`'s own 16px margin-bottom already supplies the separation its
+   padding used to. */
+.invites-list {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  margin-top: 16px;
-  max-height: 260px;
+  gap: 6px;
+  max-height: 300px;
   overflow-y: auto;
+  list-style: none;
 }
 
-.channel-access-row {
+.invites-row {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 10px;
-  padding: 8px 12px;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-md);
-  transition: border-color var(--transition);
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-card);
+  background: var(--canvas-3);
 }
 
-.channel-access-row:hover {
-  border-color: var(--border-color);
-}
-
-.channel-access-info {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  flex: 1;
-  min-width: 0;
-}
-
-.channel-access-code {
-  font-family: "SFMono-Regular", ui-monospace, "Menlo", "Consolas", monospace;
-  font-size: 13px;
+.invites-code {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
   font-weight: 600;
-  color: var(--text-primary);
+  color: var(--ink);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.channel-access-uses {
-  flex-shrink: 0;
-  font-size: 12px;
-  color: var(--text-muted);
+.invites-meta {
+  display: block;
+  margin-top: 2px;
+  font-size: 11.5px;
+  color: var(--muted-2);
 }
 
-.channel-access-actions {
+.invites-actions {
   display: flex;
   align-items: center;
   gap: 6px;
   flex-shrink: 0;
 }
 
-.channel-access-actions button {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 30px;
-  height: 30px;
-  flex-shrink: 0;
-  padding: 0;
-  border: 1.5px solid var(--border-color);
-  border-radius: var(--radius-md);
-  background: var(--bg-primary);
-  color: var(--text-secondary);
-  cursor: pointer;
-  transition: all var(--transition);
-}
-
-.channel-access-actions button:hover {
-  background: var(--bg-hover);
-  color: var(--text-primary);
-  border-color: var(--text-muted);
-}
-
-.channel-access-actions button.copied {
-  color: var(--green-600);
-  border-color: var(--green-500);
-}
-
-.channel-access-actions button.copied:hover {
-  background: var(--green-50);
-  border-color: var(--green-500);
-}
-
-.channel-access-actions button.danger {
-  color: var(--red-500);
-  border-color: var(--red-500);
-}
-
-.channel-access-actions button.danger:hover {
-  background: var(--red-50);
-  color: var(--red-500);
-  border-color: var(--red-500);
-}
-
-.manage-invites-actions {
-  justify-content: flex-end;
-  gap: 10px;
+.invites-empty {
+  font-size: 13px;
+  color: var(--muted);
 }
