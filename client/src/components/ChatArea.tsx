@@ -961,9 +961,9 @@ logger.error('Failed to update message:', err, { module: 'chat' });
                       </div>
                     ) : msg.sticker_id ? (
                       <div className="message-text">{t('chat.stickerRemoved')}</div>
-                    ) : (
+                    ) : msg.content ? (
                       <div className="message-text">{renderMessageBody(msg.content, members, t, user?.id)}</div>
-                    )}
+                    ) : null}
                     {msg.attachments && msg.attachments.length > 0 && (
                       <MessageAttachments
                         attachments={msg.attachments}
