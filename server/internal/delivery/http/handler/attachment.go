@@ -21,6 +21,7 @@ import (
 
 type AttachmentHandler struct {
 	uc     domain.AttachmentUseCase
+	quota  domain.QuotaUseCase
 	signer *attachlink.Signer
 	// maxRequestBytes — предохранитель на сырое тело запроса. Настоящий лимит
 	// файла живёт в тарифном плане и проверяется в QuotaUseCase; здесь только
@@ -29,9 +30,22 @@ type AttachmentHandler struct {
 	log             *slog.Logger
 }
 
-func NewAttachmentHandler(uc domain.AttachmentUseCase, signer *attachlink.Signer, maxRequestBytes int64, log *slog.Logger) *AttachmentHandler {
-	return &AttachmentHandler{uc: uc, signer: signer, maxRequestBytes: maxRequestBytes, log: log}
+func NewAttachmentHandler(uc domain.AttachmentUseCase, quota domain.QuotaUseCase, signer *attachlink.Signer, maxRequestBytes int64, log *slog.Logger) *AttachmentHandler {
+	return &AttachmentHandler{uc: uc, quota: quota, signer: signer, maxRequestBytes: maxRequestBytes, log: log}
 }
+
+// multipartEnvelopeSlack — запас, с которым ранняя проверка по Content-Length
+// (см. Upload) сравнивает заявленный размер тела с лимитом плана.
+// Content-Length — это размер ВСЕГО multipart-тела: сам файл плюс границы
+// частей, их заголовки (Content-Disposition, Content-Type) и поле
+// channel_id. Он всегда больше файла внутри, поэтому наивное сравнение
+// "ContentLength > лимит" забраковало бы валидный файл, чей конверт
+// вылез за лимит на десяток-другой байт. Берём запас заведомо
+// избыточным (единицы килобайт — реальный конверт multipart весит
+// десятки-сотни байт), чтобы ранняя проверка никогда не дала ложный
+// отказ: цена ошибки в другую сторону — лишняя запись на диск, которую
+// всё равно отбракует точная проверка ниже по потоку.
+const multipartEnvelopeSlack = 8 * 1024
 
 // SignAttachments проставляет подписанные ссылки. Вызывается везде, где
 // вложения уходят наружу: и здесь, и в обработчике сообщений.
@@ -51,6 +65,27 @@ func SignAttachments(signer *attachlink.Signer, atts []*domain.Attachment) {
 // весь файл в памяти — на 25 МБ это 25 МБ RSS на каждую параллельную загрузку.
 func (h *AttachmentHandler) Upload(w http.ResponseWriter, r *http.Request) {
 	userID := r.Context().Value("user_id").(uuid.UUID)
+
+	// Ранний отказ по заявленной длине — до r.MultipartReader(), то есть до
+	// того, как сервер вообще начнёт читать и писать тело на диск. Находка
+	// I6: без этой проверки любой авторизованный пользователь заставлял
+	// сервер записывать на диск до maxRequestBytes на каждый обречённый
+	// запрос. r.ContentLength == -1 при chunked-передаче без заявленной
+	// длины — тогда просто пропускаем раннюю проверку и полагаемся на позднюю
+	// ниже по потоку; здесь мы выигрываем только скорость отказа, а не
+	// корректность.
+	if r.ContentLength >= 0 {
+		q, err := h.quota.For(userID)
+		if err != nil {
+			// Не смогли узнать лимит — не блокируем загрузку из-за
+			// оптимизации: точную проверку всё равно сделает поздний путь
+			// через QuotaUseCase.CheckUpload.
+			h.log.Error("get quota for early upload check failed", "request_id", middleware.RequestIDFromContext(r.Context()), "error", err)
+		} else if r.ContentLength > q.MaxFileBytes+multipartEnvelopeSlack {
+			h.sendError(w, http.StatusRequestEntityTooLarge, httperr.CodeAttachmentTooLarge, "file is too large")
+			return
+		}
+	}
 
 	r.Body = http.MaxBytesReader(w, r.Body, h.maxRequestBytes)
 	mr, err := r.MultipartReader()

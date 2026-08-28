@@ -418,7 +418,7 @@ export const en: Dictionary = {
     sticker_name_required: 'Enter a sticker name',
     sticker_name_too_long: 'Sticker name must be 100 characters or fewer',
     sticker_with_text: 'A sticker message cannot contain text',
-    attachment_too_large: 'File is too large. The maximum size is 25 MB',
+    attachment_too_large: 'File is too large. The maximum size is {{maxSize}}',
     attachment_required: 'No file selected',
     attachment_not_found: 'Attachment not found',
     attachment_already_attached: 'This attachment has already been sent',

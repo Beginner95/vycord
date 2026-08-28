@@ -152,7 +152,7 @@ func main() {
 	turnHandler := handler.NewTURNHandler(turnUseCase, log)
 	roleHandler := handler.NewRoleHandler(roleUseCase, permissionUseCase, log)
 	voiceTokenHandler := handler.NewVoiceTokenHandler(voiceTokenUseCase, log)
-	attachmentHandler := handler.NewAttachmentHandler(attachmentUseCase, attachmentSigner, cfg.MaxUploadBytes, log)
+	attachmentHandler := handler.NewAttachmentHandler(attachmentUseCase, quotaUseCase, attachmentSigner, cfg.MaxUploadBytes, log)
 
 	// Setup router
 	router := http.NewServeMux()

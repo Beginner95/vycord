@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { DraftAttachment } from '@/stores/attachmentStore';
 import { useT, hasKey, type TKey } from '@/i18n';
+import { HARD_MAX_BYTES } from '@/hooks/useAttachmentUpload';
 import './AttachmentTray.css';
 
 interface AttachmentTrayProps {
@@ -39,6 +40,13 @@ export function AttachmentTray({ drafts, onCancel, onRetry }: AttachmentTrayProp
     <div className="attach-tray">
       {drafts.map((d) => {
         const errorKey = `errors.${d.errorCode}`;
+        // attachment_too_large параметризован числом: подставляем размер из
+        // той же константы, которой сделана сама проверка (HARD_MAX_BYTES),
+        // а не отдельно захардкоженной копией. Этот же код приходит и с
+        // сервера, но клиентский лимит сегодня всегда ≤ серверного, поэтому
+        // серверный путь реально недостижим — вычисляем vars безусловно по
+        // d.errorCode, чтобы {{maxSize}} никогда не остался неподставленным.
+        const errorVars = d.errorCode === 'attachment_too_large' ? { maxSize: formatSize(HARD_MAX_BYTES) } : undefined;
         return (
           <div key={d.localId} className={`attach-chip attach-chip--${d.status}`}>
             <LocalPreview file={d.file} />
@@ -47,7 +55,7 @@ export function AttachmentTray({ drafts, onCancel, onRetry }: AttachmentTrayProp
               <span className="attach-chip-name" title={d.file.name}>{d.file.name}</span>
               <span className="attach-chip-meta">
                 {d.status === 'error'
-                  ? (d.errorCode && hasKey(errorKey) ? t(errorKey as TKey) : t('errors.unknown'))
+                  ? (d.errorCode && hasKey(errorKey) ? t(errorKey as TKey, errorVars) : t('errors.unknown'))
                   : formatSize(d.file.size)}
               </span>
               {d.status === 'uploading' && (

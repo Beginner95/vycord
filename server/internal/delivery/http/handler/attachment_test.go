@@ -61,6 +61,39 @@ func (m *MockAttachmentUseCase) Delete(id, userID uuid.UUID) error {
 	return m.Called(id, userID).Error(0)
 }
 
+type MockQuotaUseCase struct{ mock.Mock }
+
+func (m *MockQuotaUseCase) For(userID uuid.UUID) (*domain.Quota, error) {
+	args := m.Called(userID)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*domain.Quota), args.Error(1)
+}
+
+func (m *MockQuotaUseCase) CheckUpload(userID uuid.UUID, size int64) error {
+	return m.Called(userID, size).Error(0)
+}
+
+func (m *MockQuotaUseCase) ExpiresAt(userID uuid.UUID, now time.Time) (*time.Time, error) {
+	args := m.Called(userID, now)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*time.Time), args.Error(1)
+}
+
+// testDefaultMaxFileBytes — заведомо большой лимит для тестов, которым сама
+// проверка по Content-Length не интересна: она не должна срабатывать на их
+// маленьких телах.
+const testDefaultMaxFileBytes = 1 << 30
+
+func newQuotaMock(maxFileBytes int64) *MockQuotaUseCase {
+	q := new(MockQuotaUseCase)
+	q.On("For", mock.Anything).Return(&domain.Quota{MaxFileBytes: maxFileBytes}, nil)
+	return q
+}
+
 func newUploadRequest(t *testing.T, channelID uuid.UUID, fileName string, content []byte, userID uuid.UUID) *http.Request {
 	t.Helper()
 	var buf bytes.Buffer
@@ -79,7 +112,7 @@ func newUploadRequest(t *testing.T, channelID uuid.UUID, fileName string, conten
 
 func newAttachmentHandler(uc domain.AttachmentUseCase) *handler.AttachmentHandler {
 	signer := attachlink.NewSigner("test-secret", time.Hour)
-	return handler.NewAttachmentHandler(uc, signer, 30<<20, slog.Default())
+	return handler.NewAttachmentHandler(uc, newQuotaMock(testDefaultMaxFileBytes), signer, 30<<20, slog.Default())
 }
 
 func TestUploadReturnsSignedURLs(t *testing.T) {
@@ -287,7 +320,7 @@ func TestUploadEnforcesRawBodyLimit(t *testing.T) {
 	// вызовов подряд, которая всегда равна нулю): интересует не сам факт
 	// отказа, а то, что отказ не оставляет мусора на диске.
 	signer := attachlink.NewSigner("test-secret", time.Hour)
-	h := handler.NewAttachmentHandler(new(MockAttachmentUseCase), signer, 16, slog.Default())
+	h := handler.NewAttachmentHandler(new(MockAttachmentUseCase), newQuotaMock(testDefaultMaxFileBytes), signer, 16, slog.Default())
 	before := countTempUploads(t)
 
 	rec := httptest.NewRecorder()
@@ -295,4 +328,79 @@ func TestUploadEnforcesRawBodyLimit(t *testing.T) {
 
 	assert.Contains(t, []int{http.StatusRequestEntityTooLarge, http.StatusBadRequest}, rec.Code)
 	assert.Equal(t, before, countTempUploads(t), "временные файлы не должны оставаться на диске")
+}
+
+func TestUploadRejectsContentLengthOverLimitBeforeReadingBody(t *testing.T) {
+	// I6: заявленная длина заведомо больше лимита плана (даже с запасом на
+	// конверт) — отказ должен случиться до r.MultipartReader(), не тронув ни
+	// диск, ни usecase.
+	before := countTempUploads(t)
+	uc := new(MockAttachmentUseCase)
+	quota := newQuotaMock(100)
+	signer := attachlink.NewSigner("test-secret", time.Hour)
+	h := handler.NewAttachmentHandler(uc, quota, signer, 30<<20, slog.Default())
+
+	req := newUploadRequest(t, uuid.New(), "big.bin", bytes.Repeat([]byte("x"), 10_000), uuid.New())
+
+	rec := httptest.NewRecorder()
+	h.Upload(rec, req)
+
+	assert.Equal(t, http.StatusRequestEntityTooLarge, rec.Code)
+	assert.Contains(t, rec.Body.String(), "attachment_too_large")
+	assert.Equal(t, before, countTempUploads(t), "временные файлы не должны оставаться на диске")
+	uc.AssertNotCalled(t, "Upload", mock.Anything)
+}
+
+func TestUploadContentLengthUnknownSkipsEarlyCheck(t *testing.T) {
+	// Chunked-передача без заявленной длины (ContentLength == -1): ранней
+	// проверки просто нет — обычная загрузка не должна из-за этого сломаться,
+	// а точную проверку сделает поздний путь.
+	userID, channelID := uuid.New(), uuid.New()
+	attID := uuid.New()
+	uc := new(MockAttachmentUseCase)
+	uc.On("Upload", mock.Anything).Return(&domain.Attachment{ID: attID, Kind: domain.AttachmentKindFile}, nil)
+	// Лимит нарочно маленький: сработай ранняя проверка вопреки
+	// ContentLength == -1, получили бы 413 не по адресу.
+	quota := newQuotaMock(100)
+
+	req := newUploadRequest(t, channelID, "a.bin", []byte("hello"), userID)
+	req.ContentLength = -1
+
+	signer := attachlink.NewSigner("test-secret", time.Hour)
+	h := handler.NewAttachmentHandler(uc, quota, signer, 30<<20, slog.Default())
+	rec := httptest.NewRecorder()
+	h.Upload(rec, req)
+
+	assert.Equal(t, http.StatusCreated, rec.Code)
+	quota.AssertNotCalled(t, "For", mock.Anything)
+}
+
+func TestUploadAllowsFileNearLimitDespiteEnvelopeOverhead(t *testing.T) {
+	// Файл сам по себе не превышает лимит, но ContentLength (файл + границы
+	// частей + их заголовки + поле channel_id) вылезает за лимит на десятки
+	// байт. Наивная проверка "ContentLength > лимит" забраковала бы такую
+	// валидную загрузку; проверка с запасом на конверт обязана её пропустить.
+	userID, channelID := uuid.New(), uuid.New()
+	attID := uuid.New()
+	fileSize := 1000
+	content := bytes.Repeat([]byte("y"), fileSize)
+
+	uc := new(MockAttachmentUseCase)
+	uc.On("Upload", mock.MatchedBy(func(in domain.AttachmentUpload) bool {
+		return in.Size == int64(fileSize)
+	})).Return(&domain.Attachment{ID: attID, Kind: domain.AttachmentKindFile}, nil)
+	quota := newQuotaMock(int64(fileSize)) // лимит равен размеру файла впритык
+
+	req := newUploadRequest(t, channelID, "near-limit.bin", content, userID)
+	// Sanity-check самого теста: без конверта, вылезающего за лимит, тест не
+	// проверял бы ничего интересного.
+	require.Greater(t, req.ContentLength, int64(fileSize))
+
+	signer := attachlink.NewSigner("test-secret", time.Hour)
+	h := handler.NewAttachmentHandler(uc, quota, signer, 30<<20, slog.Default())
+	rec := httptest.NewRecorder()
+	h.Upload(rec, req)
+
+	assert.Equal(t, http.StatusCreated, rec.Code)
+	uc.AssertExpectations(t)
 }

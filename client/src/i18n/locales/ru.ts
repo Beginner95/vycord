@@ -423,7 +423,7 @@ export const ru = {
     sticker_name_required: 'Введите имя стикера',
     sticker_name_too_long: 'Имя стикера не длиннее 100 символов',
     sticker_with_text: 'Сообщение-стикер не может содержать текст',
-    attachment_too_large: 'Файл слишком большой. Максимальный размер — 25 МБ',
+    attachment_too_large: 'Файл слишком большой. Максимальный размер — {{maxSize}}',
     attachment_required: 'Не выбран файл',
     attachment_not_found: 'Вложение не найдено',
     attachment_already_attached: 'Это вложение уже отправлено',
