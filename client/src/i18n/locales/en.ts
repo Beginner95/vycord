@@ -15,6 +15,8 @@ export const en: Dictionary = {
     back: 'Back',
     logout: 'Log out',
     logoutConfirm: 'Are you sure you want to log out?',
+    logoutTitle: 'Log out?',
+    logoutBody: 'You can sign back in at any time.',
     yes: 'Yes',
     no: 'No',
     minimize: 'Minimize',

@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo, type MouseEvent } from 'react';
 import { ChevronDown, ChevronLeft, Hash, Plus, Mic, MicOff, Volume2, Headphones, Settings as SettingsIcon, LogOut } from 'lucide-react';
 import type { Server, Channel, User, MemberWithUser } from '@/types';
 import { Settings } from '@/components/Settings';
+import { ConfirmModal } from '@/components/ConfirmModal';
 import { Avatar } from '@/components/Avatar';
 import { ContextMenu } from '@/components/ContextMenu';
 import { EditChannelModal } from '@/components/EditChannelModal';
@@ -295,19 +296,14 @@ export function ChannelSidebar({
 
       <Settings isOpen={settingsOpen} onClose={() => setSettingsOpen(false)} />
 
-      {confirmLogout && (
-        <div className="modal-overlay" onClick={() => setConfirmLogout(false)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <h2>{t('common.logoutConfirm')}</h2>
-            <div className="modal-actions">
-              <button onClick={() => setConfirmLogout(false)}>{t('common.no')}</button>
-              <button type="button" onClick={onLogout} className="primary">
-                {t('common.yes')}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <ConfirmModal
+        open={confirmLogout}
+        title={t('common.logoutTitle')}
+        body={t('common.logoutBody')}
+        confirmLabel={t('common.logout')}
+        onConfirm={onLogout}
+        onCancel={() => setConfirmLogout(false)}
+      />
 
       {channelMenu && (
         <ContextMenu

@@ -14,6 +14,8 @@ export const ru = {
     back: 'Назад',
     logout: 'Выйти',
     logoutConfirm: 'Вы точно хотите выйти из системы?',
+    logoutTitle: 'Выйти из аккаунта?',
+    logoutBody: 'Вы сможете снова войти в любой момент.',
     yes: 'Да',
     no: 'Нет',
     minimize: 'Свернуть',
