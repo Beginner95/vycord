@@ -82,6 +82,14 @@ func (h *AttachmentHandler) Upload(w http.ResponseWriter, r *http.Request) {
 			// через QuotaUseCase.CheckUpload.
 			h.log.Error("get quota for early upload check failed", "request_id", middleware.RequestIDFromContext(r.Context()), "error", err)
 		} else if r.ContentLength > q.MaxFileBytes+multipartEnvelopeSlack {
+			// Дренируем тело до ответа, а не просто закрываем соединение: если
+			// вернуться из хендлера, не дочитав тело, net/http дренирует лишь
+			// небольшой хвост и закрывает соединение сам. nginx в этот момент
+			// ещё дописывает наверх тело запроса, получает обрыв TCP — и
+			// клиенту вместо нашего честного 413 уходит его собственный 502.
+			// На вид это "лишнее чтение перед отказом", но убирать его нельзя:
+			// именно оно и есть тот самый честный отказ.
+			h.drainBody(r)
 			h.sendError(w, http.StatusRequestEntityTooLarge, httperr.CodeAttachmentTooLarge, "file is too large")
 			return
 		}
@@ -114,6 +122,13 @@ func (h *AttachmentHandler) Upload(w http.ResponseWriter, r *http.Request) {
 			break
 		}
 		if err != nil {
+			// Тот же приём, что и у раннего 413 выше: часть тела, идущая за
+			// сломанным конвертом, могла остаться непрочитанной, а без
+			// дренажа возврат из хендлера рвёт соединение и подменяет наш
+			// статус на 502 от nginx. Здесь дренаж почти всегда безвреден
+			// (после битого конверта читать обычно уже нечего), но приём
+			// применяем единообразно — не полагаясь на "почти".
+			h.drainBody(r)
 			h.sendError(w, http.StatusBadRequest, httperr.CodeInvalidBody, "invalid multipart body")
 			return
 		}
@@ -123,11 +138,17 @@ func (h *AttachmentHandler) Upload(w http.ResponseWriter, r *http.Request) {
 			raw, err := io.ReadAll(io.LimitReader(part, 128))
 			part.Close()
 			if err != nil {
+				h.drainBody(r)
 				h.sendError(w, http.StatusBadRequest, httperr.CodeInvalidChannelID, "invalid channel id")
 				return
 			}
 			channelID, err = uuid.Parse(string(raw))
 			if err != nil {
+				// Самый неприятный случай в этой группе: файловая часть идёт
+				// в конверте сразу за channel_id и при битом UUID остаётся
+				// непрочитанной целиком — до h.maxRequestBytes. Без дренажа
+				// это тот же 502 вместо честного 400.
+				h.drainBody(r)
 				h.sendError(w, http.StatusBadRequest, httperr.CodeInvalidChannelID, "invalid channel id")
 				return
 			}
@@ -141,6 +162,7 @@ func (h *AttachmentHandler) Upload(w http.ResponseWriter, r *http.Request) {
 			// Любой авторизованный клиент мог бы так забить диск.
 			if tmp != nil {
 				part.Close()
+				h.drainBody(r)
 				h.sendError(w, http.StatusBadRequest, httperr.CodeInvalidBody, "only one file per request is allowed")
 				return
 			}
@@ -149,6 +171,7 @@ func (h *AttachmentHandler) Upload(w http.ResponseWriter, r *http.Request) {
 			// прежде, чем сработает грошовая проверка UUID.
 			if !haveChan {
 				part.Close()
+				h.drainBody(r)
 				h.sendError(w, http.StatusBadRequest, httperr.CodeInvalidChannelID, "channel_id must precede the file part")
 				return
 			}
@@ -158,16 +181,39 @@ func (h *AttachmentHandler) Upload(w http.ResponseWriter, r *http.Request) {
 			if err != nil {
 				part.Close()
 				h.log.Error("create temp file failed", "request_id", middleware.RequestIDFromContext(r.Context()), "error", err)
+				h.drainBody(r)
 				h.sendError(w, http.StatusInternalServerError, httperr.CodeInternalError, "internal server error")
 				return
 			}
 			size, err = io.Copy(tmp, io.LimitReader(part, h.maxRequestBytes+1))
 			part.Close()
 			if err != nil {
+				// У этой ошибки два разных источника, и польза дренажа для
+				// них разная:
+				//  - файл больше лимита -> сработал MaxBytesReader (строка
+				//    98); он сам закрывает соединение на уровне net/http и
+				//    пропускает автодренаж, drainBody здесь фактически no-op
+				//    (проверено: результат идентичен с ним и без);
+				//  - сбой ЗАПИСИ на диск при файле, который в лимит
+				//    укладывается (например, кончилось место), — тело ещё
+				//    не исчерпано MaxBytesReader, и здесь drainBody реально
+				//    нужен, иначе тот же обрыв 502, что мы чиним во всём
+				//    остальном файле.
+				// Ветку не убираем и не различаем эти два случая: разница не
+				// стоит усложнения, а drainBody безвреден в обоих.
+				h.drainBody(r)
 				h.sendError(w, http.StatusBadRequest, httperr.CodeInvalidBody, "failed to read uploaded file")
 				return
 			}
 			if size > h.maxRequestBytes {
+				// При текущей проводке эта ветка не достигается: как и в первой
+				// причине ошибки выше, MaxBytesReader делит один бюджет на весь
+				// запрос и обрывает io.Copy раньше, чем size смог бы превысить
+				// maxRequestBytes. Дренаж здесь сейчас бесполезен, но ветка
+				// оставлена как честная защита на случай, если лимиты
+				// MaxBytesReader и файла когда-нибудь разъединят — полагаться на
+				// нынешний побочный эффект совпадения бюджетов не стоит.
+				h.drainBody(r)
 				h.sendError(w, http.StatusRequestEntityTooLarge, httperr.CodeAttachmentTooLarge, "file is too large")
 				return
 			}
@@ -374,4 +420,16 @@ func (h *AttachmentHandler) sendJSON(w http.ResponseWriter, status int, data int
 
 func (h *AttachmentHandler) sendError(w http.ResponseWriter, status int, code, message string) {
 	httperr.Write(w, status, code, message)
+}
+
+// drainBody вычерпывает тело запроса в io.Discard, ничего не сохраняя на
+// диск, — только это и нужно раннему отказу: он должен погасить непрочитанные
+// байты, а не начать их запись во временный файл. Граница — h.maxRequestBytes,
+// та же, что и MaxBytesReader ниже по потоку: тело больше nginx и так не
+// пропустит, а честность Content-Length клиента гарантировать нельзя, так что
+// вычерпывать сверх этой границы бессмысленно и небезопасно.
+// Ошибку игнорируем: если клиент сам оборвал соединение, отвечать всё равно
+// уже некому.
+func (h *AttachmentHandler) drainBody(r *http.Request) {
+	_, _ = io.Copy(io.Discard, io.LimitReader(r.Body, h.maxRequestBytes))
 }

@@ -351,6 +351,66 @@ func TestUploadRejectsContentLengthOverLimitBeforeReadingBody(t *testing.T) {
 	uc.AssertNotCalled(t, "Upload", mock.Anything)
 }
 
+func TestUploadDrainsBodyBeforeEarlyContentLengthReject(t *testing.T) {
+	// Регрессия прод-инцидента: ранний 413 отвечал и возвращал управление, не
+	// дочитав тело запроса. net/http после выхода из хендлера дренирует лишь
+	// небольшой хвост недочитанного тела и закрывает соединение — а nginx в
+	// этот момент ещё дописывает тело наверх, ловит обрыв и отдаёт клиенту
+	// свой 502 вместо нашего честного 413. Проверяем на уровне юнит-теста
+	// наблюдаемое следствие дренажа: после возврата из Upload тело запроса
+	// должно быть прочитано до конца.
+	before := countTempUploads(t)
+	uc := new(MockAttachmentUseCase)
+	quota := newQuotaMock(100)
+	signer := attachlink.NewSigner("test-secret", time.Hour)
+	h := handler.NewAttachmentHandler(uc, quota, signer, 30<<20, slog.Default())
+
+	req := newUploadRequest(t, uuid.New(), "big.bin", bytes.Repeat([]byte("x"), 10_000), uuid.New())
+
+	rec := httptest.NewRecorder()
+	h.Upload(rec, req)
+
+	assert.Equal(t, http.StatusRequestEntityTooLarge, rec.Code)
+	assert.Equal(t, before, countTempUploads(t), "временные файлы не должны оставаться на диске")
+
+	remaining, err := io.ReadAll(req.Body)
+	require.NoError(t, err)
+	assert.Empty(t, remaining, "тело запроса должно быть дочитано до конца перед ранним отказом")
+}
+
+func TestUploadDrainsBodyBeforeInvalidChannelIDReject(t *testing.T) {
+	// Самый реалистичный из "проглоченных" случаев: невалидный UUID в
+	// channel_id, а следом в конверте — крупная файловая часть. part.Close()
+	// дренирует только текущую часть multipart, а не остаток тела; без
+	// явного h.drainBody(r) файловая часть остаётся непрочитанной целиком, и
+	// на реальном соединении это тот же обрыв и 502 от nginx вместо нашего
+	// честного 400.
+	before := countTempUploads(t)
+	var buf bytes.Buffer
+	w := multipart.NewWriter(&buf)
+	require.NoError(t, w.WriteField("channel_id", "not-a-uuid"))
+	part, err := w.CreateFormFile("file", "big.bin")
+	require.NoError(t, err)
+	_, err = part.Write(bytes.Repeat([]byte("x"), 10_000))
+	require.NoError(t, err)
+	require.NoError(t, w.Close())
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/attachments", &buf)
+	req.Header.Set("Content-Type", w.FormDataContentType())
+	req = req.WithContext(context.WithValue(req.Context(), "user_id", uuid.New()))
+
+	rec := httptest.NewRecorder()
+	newAttachmentHandler(new(MockAttachmentUseCase)).Upload(rec, req)
+
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Contains(t, rec.Body.String(), "invalid_channel_id")
+	assert.Equal(t, before, countTempUploads(t), "временные файлы не должны оставаться на диске")
+
+	remaining, err := io.ReadAll(req.Body)
+	require.NoError(t, err)
+	assert.Empty(t, remaining, "тело запроса должно быть дочитано до конца перед ранним отказом")
+}
+
 func TestUploadContentLengthUnknownSkipsEarlyCheck(t *testing.T) {
 	// Chunked-передача без заявленной длины (ContentLength == -1): ранней
 	// проверки просто нет — обычная загрузка не должна из-за этого сломаться,
