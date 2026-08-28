@@ -263,7 +263,7 @@ export function ChannelSidebar({
       <CallDock onGoToCall={onGoToCall} />
 
       <div className="user-panel">
-        <span className="user-avatar-wrap online">
+        <span className="user-avatar-wrap is-online">
           <Avatar url={user?.avatar_url} username={user?.username ?? ''} className="user-avatar small" />
         </span>
         <div className="user-details">
@@ -284,7 +284,7 @@ export function ChannelSidebar({
           </button>
           <button
             type="button"
-            className="panel-icon-btn danger"
+            className="panel-icon-btn is-danger"
             onClick={() => setConfirmLogout(true)}
             title={t('common.logout')}
           >

@@ -120,7 +120,7 @@ export function UserList({ onMobileBack, voiceParticipants }: UserListProps) {
     const voiceName = online ? voiceChannelNameFor(m.user_id, voiceParticipants, channels) : null;
     return (
       <div key={m.user_id} className={`user-item${online ? '' : ' offline'}`}>
-        <span className={`user-avatar-wrap${online ? ' online' : ''}`}>
+        <span className={`user-avatar-wrap${online ? ' is-online' : ''}`}>
           <Avatar url={m.avatar_url} username={m.username} className="user-avatar list" />
         </span>
         <div className="user-item-text">

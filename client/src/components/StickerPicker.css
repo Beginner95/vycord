@@ -14,7 +14,7 @@
   border: 1px solid var(--line);
   border-radius: 12px;
   box-shadow: var(--shadow-popover);
-  animation: fadeIn 0.12s var(--ease-out);
+  animation: fade-in 0.12s var(--ease-out);
 }
 
 .sticker-picker-grid {

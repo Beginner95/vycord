@@ -64,7 +64,7 @@
   object-fit: cover;
 }
 
-.user-item .user-avatar-wrap.online::after {
+.user-item .user-avatar-wrap.is-online::after {
   width: 11px;
   height: 11px;
 }

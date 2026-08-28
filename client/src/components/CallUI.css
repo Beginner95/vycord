@@ -27,7 +27,7 @@
   border: 1px solid var(--line);
   border-radius: var(--radius-modal);
   box-shadow: var(--shadow-modal);
-  animation: modalIn 0.18s var(--ease-out);
+  animation: modal-in 0.18s var(--ease-out);
 }
 
 .p2p-modal-tile {

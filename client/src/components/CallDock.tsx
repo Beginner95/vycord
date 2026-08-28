@@ -53,7 +53,7 @@ export function CallDock({ onGoToCall }: CallDockProps) {
         </button>
         <button
           type="button"
-          className="panel-icon-btn danger"
+          className="panel-icon-btn is-danger"
           onClick={() => useCallStore.getState().leave()}
           title={t('call.leaveCall')}
         >

@@ -8,7 +8,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  animation: fadeIn 0.2s var(--ease-out);
+  animation: fade-in 0.2s var(--ease-out);
 }
 
 .settings-modal {
@@ -21,7 +21,7 @@
   flex-direction: column;
   box-shadow: var(--shadow-xl);
   border: 1px solid var(--border-subtle);
-  animation: scaleIn 0.25s var(--ease-out);
+  animation: scale-in 0.25s var(--ease-out);
   overflow: hidden;
 }
 
