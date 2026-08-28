@@ -329,7 +329,7 @@
 
 .chat-input textarea {
   width: 100%;
-  padding: 13px 18px;
+  padding: 13px 46px 13px 18px;
   border: 1.5px solid var(--border-color);
   border-radius: var(--radius-lg);
   background: var(--bg-primary);
@@ -351,6 +351,33 @@
 .chat-input textarea:focus {
   border-color: var(--brand-color);
   box-shadow: 0 0 0 3px var(--brand-subtle), var(--shadow-md);
+}
+
+/* Отправка кнопкой нужна и без текста: одни вложения не отправить через
+   enter в пустом textarea — это неочевидно, кнопка даёт явный триггер. */
+.composer-send-btn {
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--brand-color);
+  cursor: pointer;
+  transition: all var(--transition);
+}
+
+.composer-send-btn:hover:not(:disabled) { background: var(--brand-50); }
+
+.composer-send-btn:disabled {
+  color: var(--text-muted);
+  cursor: default;
+  opacity: 0.5;
 }
 
 /* ── Title Bar ── */

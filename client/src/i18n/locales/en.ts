@@ -103,6 +103,7 @@ export const en: Dictionary = {
     attachVideo: 'Video',
     attachAudio: 'Audio',
     attachFile: 'File',
+    send: 'Send',
     removeAttachment: 'Remove attachment',
     dropFilesHere: 'Drop the file to attach it',
     retry: 'Retry',

@@ -106,6 +106,7 @@ export const ru = {
     attachVideo: 'Видео',
     attachAudio: 'Аудио',
     attachFile: 'Файл',
+    send: 'Отправить',
     removeAttachment: 'Убрать вложение',
     dropFilesHere: 'Отпустите файл, чтобы прикрепить',
     retry: 'Повторить',
