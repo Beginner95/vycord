@@ -3,8 +3,6 @@ package usecase_test
 import (
 	"bytes"
 	"encoding/base64"
-	"encoding/binary"
-	"hash/crc32"
 	"image"
 	"image/color"
 	"image/jpeg"
@@ -92,26 +90,33 @@ func TestAnalyzeImageRewindsReader(t *testing.T) {
 	assert.Equal(t, data[:n], rest[:n], "чтение обязано начаться с начала файла")
 }
 
-// pngHeaderClaiming собирает PNG из одного IHDR с заявленными размерами.
-// Пикселей в нём нет — ровно этим и опасен настоящий «pixel bomb»: заголовок
-// стоит байты, а разворачивается он в гигабайты.
-func pngHeaderClaiming(w, h uint32) []byte {
-	ihdr := []byte("IHDR")
-	ihdr = binary.BigEndian.AppendUint32(ihdr, w)
-	ihdr = binary.BigEndian.AppendUint32(ihdr, h)
-	ihdr = append(ihdr, 8, 6, 0, 0, 0) // 8 бит на канал, RGBA, без чересстрочности
+// largeValidPNG собирает НАСТОЯЩУЮ картинку заданных размеров — с корректными
+// данными пикселей, которая честно декодируется.
+//
+// Это принципиально для теста на потолок площади. Заголовок-обманка (IHDR с
+// огромными размерами и без данных) не годится: декодер валится на обрыве
+// потока раньше, чем дело дошло бы до потолка, и такой тест остаётся зелёным
+// даже если защиту убрать. С настоящей картинкой тест падает ровно тогда,
+// когда убирают защиту, — и только тогда.
+//
+// Оттенки серого и сплошная заливка выбраны ради стоимости: 8000×8000 занимает
+// 64 МБ в памяти против 256 МБ у RGBA, а сжимается в единицы килобайт.
+func largeValidPNG(t *testing.T, w, h int) []byte {
+	t.Helper()
 
-	out := []byte("\x89PNG\r\n\x1a\n")
-	out = binary.BigEndian.AppendUint32(out, uint32(len(ihdr)-4))
-	out = append(out, ihdr...)
-	return binary.BigEndian.AppendUint32(out, crc32.ChecksumIEEE(ihdr))
+	var buf bytes.Buffer
+	require.NoError(t, png.Encode(&buf, image.NewGray(image.Rect(0, 0, w, h))))
+	return buf.Bytes()
 }
 
 func TestAnalyzeImageRejectsOversizedImage(t *testing.T) {
-	// 30000×30000 — это ~3.6 ГБ RGBA. Отказ обязан случиться на заголовке,
-	// до выделения памяти под пиксели: иначе несколько параллельных загрузок
-	// кладут процесс, и никакой recover() не поможет.
-	_, ok := usecase.AnalyzeImage(bytes.NewReader(pngHeaderClaiming(30000, 30000)))
+	// 8000×8000 — это 64 Мп при потолке в 50 Мп. Картинка настоящая и
+	// декодируется, поэтому без потолка AnalyzeImage вернул бы ok=true.
+	//
+	// Отказ обязан случиться на заголовке, до выделения памяти под пиксели:
+	// иначе несколько параллельных загрузок кладут процесс, а recover() тут
+	// не поможет — OOM он не ловит.
+	_, ok := usecase.AnalyzeImage(bytes.NewReader(largeValidPNG(t, 8000, 8000)))
 
 	assert.False(t, ok)
 }
