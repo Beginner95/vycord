@@ -49,10 +49,11 @@ interface ChatAreaProps {
   onJoinVoice?: (channel: Channel) => void;
   onShowCall?: () => void;
   onCreateServer?: () => void;
+  onFindServer?: () => void;
   voiceParticipants?: Map<string, string[]>;
 }
 
-export function ChatArea({ channel, user, onMobileBack, onShowMembers, onJoinVoice, onShowCall, onCreateServer, voiceParticipants }: ChatAreaProps) {
+export function ChatArea({ channel, user, onMobileBack, onShowMembers, onJoinVoice, onShowCall, onCreateServer, onFindServer, voiceParticipants }: ChatAreaProps) {
   const callChannelId = useCallStore((s) => s.callChannelId);
   const t = useT();
   const tp = useTp();
@@ -513,9 +514,16 @@ logger.error('Failed to jump to message:', err, { module: 'chat' });
             title={t('chat.noServersTitle')}
             body={t('chat.noServersBody')}
             action={
-              <button type="button" className="btn btn-primary" onClick={() => onCreateServer?.()}>
-                {t('server.create')}
-              </button>
+              <div className="chat-empty-actions">
+                <button type="button" className="btn btn-primary" onClick={() => onCreateServer?.()}>
+                  {t('server.create')}
+                </button>
+                {onFindServer && (
+                  <button type="button" className="btn btn-secondary" onClick={onFindServer}>
+                    {t('chat.haveCode')}
+                  </button>
+                )}
+              </div>
             }
           />
         ) : (

@@ -294,6 +294,24 @@
   margin-top: 4px;
 }
 
+/* Both blocks must stay AFTER `.chat-empty-card .btn` above: `.chat-empty-actions .btn`
+   is (0,2,0), identical to it, so source order is the only tie-break — placed
+   earlier it would silently do nothing (and splitting the margin-top out into a
+   second `.chat-empty-actions` rule trips no-duplicate-selectors, so it is
+   merged here). Without the override the two-button column ships an 8px gap
+   plus 4px of inherited margin = 12px, where board 1d specifies 8px; the
+   column's own 4px keeps the lift the single button used to provide. */
+.chat-empty-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.chat-empty-actions .btn {
+  margin-top: 0;
+}
+
 /* The send-error toast lives in primitives.css as `.error-toast` — ChatArea
    renders that shared class instead of maintaining a twin (final-review fix 5;
    `.chat-error-toast` and its byte-identical keyframe were deleted here). */

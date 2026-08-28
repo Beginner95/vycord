@@ -96,6 +96,7 @@ export const en: Dictionary = {
     newMessages: 'New messages',
     noServersTitle: 'No servers yet',
     noServersBody: 'Create a server — or find an existing one via the search in the left rail.',
+    haveCode: 'I have a code',
     noStickers: 'No stickers in this server yet',
     manageStickers: 'Manage stickers',
     manageStickersTitle: 'Server stickers',
@@ -291,6 +292,19 @@ export const en: Dictionary = {
     join: 'Join',
     noneFound: 'No servers found',
     orSeparator: 'or',
+
+    // Find-server modal (board 1d): one field — a name AND an invite code
+    findServer: {
+      title: 'Find a server',
+      description: 'Enter a server name or an invite code',
+      placeholder: 'Name or code…',
+      results: 'Results',
+      joinAction: 'Join',
+      byInvite: 'By invite code',
+      noResults: 'Nothing found for “{{query}}”',
+      footerQuestion: "Can't find your server?",
+      createOwn: 'Create your own',
+    },
 
     // Context menu
     editMenu: 'Server settings',

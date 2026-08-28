@@ -8,6 +8,7 @@ import { logger } from '@/utils/logger';
 import { ServerList } from '@/components/ServerList';
 import { ChannelSidebar } from '@/components/ChannelSidebar';
 import { ChatArea } from '@/components/ChatArea';
+import { FindServerModal } from '@/components/FindServerModal';
 import { UserList } from '@/components/UserList';
 import { TitleBar } from '@/components/TitleBar';
 import { CallUI } from '@/components/CallUI';
@@ -78,6 +79,7 @@ export function AppPage() {
   const { servers, setServers, setServersLoaded, setCurrentServer, currentServer, setChannels, channels, currentChannel, setCurrentChannel, setMembers, members, setPermissions } = useServerStore();
   const { setMessages } = useMessageStore();
   const [showCreateServer, setShowCreateServer] = useState(false);
+  const [findServerOpen, setFindServerOpen] = useState(false);
   const [newServerName, setNewServerName] = useState('');
   const [newServerIsPrivate, setNewServerIsPrivate] = useState(false);
   const [createServerError, setCreateServerError] = useState('');
@@ -605,8 +607,7 @@ logger.error('Failed to create server:', err, { module: 'app' });
           user={user}
           onSelectServer={handleSelectServer}
           onCreateServer={() => { setShowCreateServer(true); setCreateServerError(''); }}
-          onJoinServer={handleJoinServer}
-          onServerJoined={handleServerJoined}
+          onOpenFindServer={() => setFindServerOpen(true)}
           onServerDeleted={handleServerRemoved}
         />
 
@@ -653,6 +654,7 @@ logger.error('Failed to create server:', err, { module: 'app' });
                 : undefined
             }
             onCreateServer={() => { setShowCreateServer(true); setCreateServerError(''); }}
+            onFindServer={() => setFindServerOpen(true)}
             voiceParticipants={voiceParticipants}
           />
         </div>
@@ -661,6 +663,14 @@ logger.error('Failed to create server:', err, { module: 'app' });
             делят колонку, и прятать соседнюю панель больше не за чем. */}
         <UserList onMobileBack={() => setMobilePanel('chat')} voiceParticipants={voiceParticipants} />
       </div>
+
+      <FindServerModal
+        open={findServerOpen}
+        onClose={() => setFindServerOpen(false)}
+        onJoinServer={handleJoinServer}
+        onServerJoined={handleServerJoined}
+        onCreateServer={() => { setShowCreateServer(true); setCreateServerError(''); }}
+      />
 
       {showCreateServer && (
         <div className="modal-overlay" onClick={() => { setShowCreateServer(false); setCreateServerError(''); }}>

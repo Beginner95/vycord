@@ -99,6 +99,7 @@ export const ru = {
     newMessages: 'Новые сообщения',
     noServersTitle: 'Пока ни одного сервера',
     noServersBody: 'Создайте сервер — или найдите существующий через поиск в левой панели.',
+    haveCode: 'У меня есть код',
     noStickers: 'В этом сервере пока нет стикеров',
     manageStickers: 'Управлять стикерами',
     manageStickersTitle: 'Стикеры сервера',
@@ -296,6 +297,19 @@ export const ru = {
     join: 'Присоединиться',
     noneFound: 'Серверы не найдены',
     orSeparator: 'или',
+
+    // Модалка «Найти сервер» (board 1d): одно поле — и название, и код
+    findServer: {
+      title: 'Найти сервер',
+      description: 'Введите название сервера или код приглашения',
+      placeholder: 'Название или код…',
+      results: 'Результаты',
+      joinAction: 'Войти',
+      byInvite: 'По коду приглашения',
+      noResults: 'Ничего не найдено по запросу «{{query}}»',
+      footerQuestion: 'Нет нужного сервера?',
+      createOwn: 'Создать свой',
+    },
 
     // Контекстное меню
     editMenu: 'Настройки сервера',

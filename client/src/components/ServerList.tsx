@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react';
 import { Home, Plus, Search } from 'lucide-react';
-import type { Server, User, InvitePreview } from '@/types';
-import { apiService, apiErrorText, resolveUploadUrl } from '@/services/api';
+import type { Server, User } from '@/types';
+import { resolveUploadUrl } from '@/services/api';
 import { useServerStore } from '@/stores/serverStore';
 import { ServerMenu } from '@/components/ServerMenu';
 import { can, PERMISSIONS } from '@/utils/permissions';
@@ -14,8 +14,7 @@ interface ServerListProps {
   user: User | null;
   onSelectServer: (server: Server) => void;
   onCreateServer: () => void;
-  onJoinServer: (server: Server) => void;
-  onServerJoined: (server: Server) => void;
+  onOpenFindServer: () => void;
   onServerDeleted: (serverId: string) => void;
 }
 
@@ -25,73 +24,16 @@ export function ServerList({
   user,
   onSelectServer,
   onCreateServer,
-  onJoinServer,
-  onServerJoined,
+  onOpenFindServer,
   onServerDeleted,
 }: ServerListProps) {
   const t = useT();
-  const [searchOpen, setSearchOpen] = useState(false);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [searchResults, setSearchResults] = useState<Server[]>([]);
-  const [searchLoading, setSearchLoading] = useState(false);
   // seq — тот же контракт, что в ChannelSidebar: каждое открытие меню
   // монтирует свежий ServerMenu, иначе правый клик во время тоста ошибки попал
   // бы в уже смонтированный экземпляр (меню не открылось бы, а якорь молча
   // переехал бы на другой сервер).
   const [menu, setMenu] = useState<{ x: number; y: number; server: Server; seq: number } | null>(null);
   const menuSeq = useRef(0);
-
-  const [inviteCodeInput, setInviteCodeInput] = useState('');
-  const [invitePreview, setInvitePreview] = useState<InvitePreview | null>(null);
-  const [inviteError, setInviteError] = useState('');
-  const [inviteBusy, setInviteBusy] = useState(false);
-
-  const handleSearch = async () => {
-    if (!searchQuery.trim()) return;
-    setSearchLoading(true);
-    try {
-      const results = await apiService.searchServers(searchQuery) as Server[];
-      setSearchResults(results);
-    } catch {
-      setSearchResults([]);
-    } finally {
-      setSearchLoading(false);
-    }
-  };
-
-  const handlePreviewInvite = async () => {
-    const code = inviteCodeInput.trim();
-    if (!code) return;
-    setInviteBusy(true);
-    setInviteError('');
-    setInvitePreview(null);
-    try {
-      const preview = await apiService.previewInvite(code);
-      setInvitePreview(preview);
-    } catch (err) {
-      setInviteError(apiErrorText(err, t));
-    } finally {
-      setInviteBusy(false);
-    }
-  };
-
-  const handleJoinByInvite = async () => {
-    const code = inviteCodeInput.trim();
-    if (!code) return;
-    setInviteBusy(true);
-    setInviteError('');
-    try {
-      const server = await apiService.joinViaInvite(code);
-      setSearchOpen(false);
-      setInviteCodeInput('');
-      setInvitePreview(null);
-      onServerJoined(server);
-    } catch (err) {
-      setInviteError(apiErrorText(err, t));
-    } finally {
-      setInviteBusy(false);
-    }
-  };
 
   return (
     <>
@@ -135,93 +77,12 @@ export function ServerList({
             <span className="server-icon-symbol"><Plus size={20} strokeWidth={1.8} /></span>
             <span className="server-icon-name">{t('server.create')}</span>
           </div>
-          <div className="server-icon search" onClick={() => setSearchOpen(true)} title={t('server.explore')}>
+          <div className="server-icon search" onClick={onOpenFindServer} title={t('server.explore')}>
             <span className="server-icon-symbol"><Search size={18} strokeWidth={1.8} /></span>
             <span className="server-icon-name">{t('server.explore')}</span>
           </div>
         </div>
       </aside>
-
-      {searchOpen && (
-        <div className="modal-overlay">
-          <div className="modal explore-server-modal" onClick={(e) => e.stopPropagation()}>
-            <h2>{t('server.explore')}</h2>
-            <button
-              type="button"
-              className="explore-server-close"
-              title={t('common.close')}
-              aria-label={t('common.close')}
-              onClick={() => setSearchOpen(false)}
-            >
-              ✕
-            </button>
-            <div className="search-bar">
-              <input
-                type="text"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
-                placeholder={t('server.searchPlaceholder')}
-                autoFocus
-              />
-              <button onClick={handleSearch} disabled={searchLoading}>
-                {searchLoading ? t('server.searching') : t('server.search')}
-              </button>
-            </div>
-
-            {searchResults.length > 0 && (
-              <div className="search-results">
-                {searchResults.map((s) => (
-                  <div key={s.id} className="search-result-item">
-                    <span>{s.name}</span>
-                    <button onClick={() => { onJoinServer(s); setSearchOpen(false); }}>
-                      {t('server.join')}
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {searchQuery && searchResults.length === 0 && !searchLoading && (
-              <p className="search-empty">{t('server.noneFound')}</p>
-            )}
-
-            <div className="explore-server-divider">
-              <span>{t('server.orSeparator')}</span>
-            </div>
-
-            <div className="form-group">
-              <label htmlFor="invite-code-input">{t('server.joinByCode.label')}</label>
-              <div className="search-bar">
-                <input
-                  id="invite-code-input"
-                  type="text"
-                  value={inviteCodeInput}
-                  onChange={(e) => { setInviteCodeInput(e.target.value); setInvitePreview(null); setInviteError(''); }}
-                  onKeyDown={(e) => e.key === 'Enter' && handlePreviewInvite()}
-                  placeholder={t('server.joinByCode.placeholder')}
-                />
-                <button onClick={handlePreviewInvite} disabled={inviteBusy || !inviteCodeInput.trim()}>
-                  {t('server.joinByCode.preview')}
-                </button>
-              </div>
-            </div>
-
-            {inviteError && <p className="modal-error">{inviteError}</p>}
-
-            {invitePreview && (
-              <div className="search-result-item">
-                <span>
-                  {invitePreview.server_name} · {t('server.joinByCode.memberCount', { count: String(invitePreview.member_count) })}
-                </span>
-                <button onClick={handleJoinByInvite} disabled={inviteBusy}>
-                  {t('server.join')}
-                </button>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
 
       {menu && (
         <ServerMenu

@@ -66,7 +66,24 @@ export function useModalFocus(
     return () => {
       document.removeEventListener('keydown', onKey);
       modalStack.splice(modalStack.indexOf(token), 1);
-      if (prev && document.contains(prev)) prev.focus();
+      // Не возвращаем фокус, если он уже уехал куда-то ещё. Реальный случай
+      // (M4 T5): «Создать свой» в FindServerModal делает onClose(); onCreateServer()
+      // одним коммитом — commit-фаза React ставит autoFocus на поле новой
+      // модалки, а этот cleanup выполняется ПОЗЖЕ, в passive-фазе, и утаскивал
+      // фокус обратно в `prev`. А `prev` здесь — <textarea class="composer-input">
+      // (Composer.tsx автофокусит его при входе в канал), который по Enter
+      // ОТПРАВЛЯЕТ СООБЩЕНИЕ. Пользователь набирал бы имя сервера в невидимый
+      // композер под оверлеем и Enter'ом публиковал бы его в канал.
+      //
+      // Проверка именно «фокус не на body и не внутри контейнера»: наивное
+      // «фокус ушёл за пределы контейнера» отключило бы восстановление ВСЕГДА —
+      // к моменту cleanup контейнер уже отсоединён в mutation-фазе, поэтому
+      // activeElement при обычном закрытии равен body. Для ConfirmModal и
+      // Settings (обе закрываются размонтированием) это body → восстановление
+      // работает ровно как раньше.
+      const cur = document.activeElement as HTMLElement | null;
+      const movedElsewhere = !!cur && cur !== document.body && !container?.contains(cur);
+      if (!movedElsewhere && prev && document.contains(prev)) prev.focus();
     };
   }, [active, containerRef]);
 }
