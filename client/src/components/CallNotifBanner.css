@@ -1,0 +1,59 @@
+/* Incoming-call banner — the accent-soft banner recipe (board 1f, VoiceBanner
+   family): --accent-soft fill, --accent-border hairline, r12.
+
+   The fixed top-RIGHT anchor is carried verbatim from the rules this file
+   replaces (AppPage.css pre-T10: top: 16px; right: 16px). The migrated
+   keyframe slides in along +X, which only reads correctly against that edge.
+
+   The join button is the `.btn btn-primary` role; only its flex behaviour is
+   owned here. The dismiss button is the `.modal-close-btn` primitive outright
+   and is deliberately NOT restyled here — one namespace, one owner file. */
+.call-notif-banner {
+  position: fixed;
+  top: 16px;
+  right: 16px;
+  z-index: 2000;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: 340px;
+  padding: 12px 14px;
+  background: var(--accent-soft);
+  border: 1px solid var(--accent-border);
+  border-radius: 12px;
+  box-shadow: var(--shadow-modal);
+  animation: call-notif-slide-in 0.2s var(--ease-out);
+}
+
+.call-notif-icon {
+  flex-shrink: 0;
+  color: var(--accent-text);
+}
+
+.call-notif-text {
+  flex: 1;
+  min-width: 0;
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--accent-text);
+}
+
+.call-notif-text strong {
+  font-weight: 700;
+}
+
+.call-notif-join {
+  flex-shrink: 0;
+}
+
+@keyframes call-notif-slide-in {
+  from {
+    opacity: 0;
+    transform: translateX(20px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}

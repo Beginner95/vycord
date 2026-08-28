@@ -14,11 +14,8 @@ export const en: Dictionary = {
     removing: 'Removing...',
     back: 'Back',
     logout: 'Log out',
-    logoutConfirm: 'Are you sure you want to log out?',
     logoutTitle: 'Log out?',
     logoutBody: 'You can sign back in at any time.',
-    yes: 'Yes',
-    no: 'No',
     minimize: 'Minimize',
     maximize: 'Maximize',
     imageOpenFailed: 'Failed to open the image',
@@ -60,7 +57,6 @@ export const en: Dictionary = {
     linkUrlInvalid: 'Enter a valid link (http/https/www/mailto)',
     insert: 'Insert',
     cancel: 'Cancel',
-    deleteConfirm: 'Delete message?',
     deleteTitle: 'Delete message?',
     deleteBody: 'The message will be deleted forever. This cannot be undone.',
     back: 'Back',
@@ -156,7 +152,6 @@ export const en: Dictionary = {
     groupCallTitle: 'Group Call',
     resizeSplit: 'Resize call area',
     showCall: 'Call',
-    screenSharingActive: 'Screen sharing active',
     isSharingScreen: '{{name}} is sharing their screen',
     view: 'View',
     dismiss: 'Dismiss',
@@ -294,14 +289,8 @@ export const en: Dictionary = {
     nameLabel: 'Server Name',
     namePlaceholder: 'My Awesome Server',
 
-    // Server search
+    // Rail search tile (ServerList): its title and caption
     explore: 'Explore Servers',
-    searchPlaceholder: 'Search servers...',
-    search: 'Search',
-    searching: 'Searching...',
-    join: 'Join',
-    noneFound: 'No servers found',
-    orSeparator: 'or',
 
     // Find-server modal (board 1d): one field — a name AND an invite code
     findServer: {
@@ -319,7 +308,6 @@ export const en: Dictionary = {
     // Context menu
     editMenu: 'Server settings',
     deleteMenu: 'Delete server',
-    deleteConfirm: 'Delete server “{{name}}”? This cannot be undone.',
     deleteTitle: 'Delete server “{{name}}”?',
     deleteBody: 'The server, its channels and all messages will be permanently deleted.',
 
@@ -363,11 +351,8 @@ export const en: Dictionary = {
       copyLink: 'Copy link',
     },
 
-    // Join by code
+    // Join by code: the found-server preview inside the find-server modal
     joinByCode: {
-      label: 'Have an invite code?',
-      placeholder: 'Invite code',
-      preview: 'Check',
       memberCount: 'members: {{count}}',
     },
   },
@@ -384,7 +369,6 @@ export const en: Dictionary = {
     editMenu: 'Edit',
     deleteMenu: 'Delete channel',
     deleteLastDisabled: 'Cannot delete the last channel of a server',
-    deleteConfirm: 'Delete channel “{{name}}”?',
     deleteTitle: 'Delete channel “{{name}}”?',
     deleteBody: 'All messages in this channel will be permanently deleted.',
 
@@ -405,6 +389,17 @@ export const en: Dictionary = {
     restartAndInstall: 'Restart and install',
     failed: 'Automatic update failed',
     downloadManually: 'Download manually',
+  },
+  crash: {
+    title: 'Something went wrong',
+    body: 'We already know about this error. Try reloading the app.',
+    reload: 'Reload',
+    copyId: 'Copy',
+    eventId: 'ID: {{id}}',
+    feedbackSummary: 'What were you doing when this happened?',
+    feedbackPlaceholder: 'Optional, but it really helps',
+    feedbackSend: 'Send',
+    feedbackSent: 'Thanks, sent',
   },
   errors: {
     unknown: 'Unknown error',

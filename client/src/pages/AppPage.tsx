@@ -13,6 +13,7 @@ import { UserList } from '@/components/UserList';
 import { TitleBar } from '@/components/TitleBar';
 import { CallUI } from '@/components/CallUI';
 import { CallStage } from '@/components/CallStage';
+import { CallNotifBanner } from '@/components/CallNotifBanner';
 import { groupCallService } from '@/services/groupCall';
 import { useCallStore, initCallBridge } from '@/stores/callStore';
 import { useT } from '@/i18n';
@@ -715,35 +716,22 @@ logger.error('Failed to create server:', err, { module: 'app' });
       )}
 
       {callNotif && (
-        <div className="call-notif-banner">
-          <span className="call-notif-icon">🔔</span>
-          <span className="call-notif-text">
-            <strong>{callNotif.callerName}</strong> {t('call.invitesTo')}{' '}
-            <strong>#{callNotif.channelName}</strong>
-          </span>
-          <button
-            className="call-notif-join"
-            onClick={() => {
-              stopRingtoneRef.current?.();
-              stopRingtoneRef.current = null;
-              const ch = channels.find((c) => c.id === callNotif.channelId);
-              if (ch) { handleSelectChannel(ch); handleJoinVoice(ch); }
-              setCallNotif(null);
-            }}
-          >
-            {t('call.joinCall')}
-          </button>
-          <button
-            className="call-notif-dismiss"
-            onClick={() => {
-              stopRingtoneRef.current?.();
-              stopRingtoneRef.current = null;
-              setCallNotif(null);
-            }}
-          >
-            ✕
-          </button>
-        </div>
+        <CallNotifBanner
+          callerName={callNotif.callerName}
+          channelName={callNotif.channelName}
+          onJoin={() => {
+            stopRingtoneRef.current?.();
+            stopRingtoneRef.current = null;
+            const ch = channels.find((c) => c.id === callNotif.channelId);
+            if (ch) { handleSelectChannel(ch); handleJoinVoice(ch); }
+            setCallNotif(null);
+          }}
+          onDismiss={() => {
+            stopRingtoneRef.current?.();
+            stopRingtoneRef.current = null;
+            setCallNotif(null);
+          }}
+        />
       )}
       <CallUI />
     </div>

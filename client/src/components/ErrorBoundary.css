@@ -1,3 +1,11 @@
+/* Crash fallback — a centred card on --canvas (board 2a empty-state card):
+   --line hairline, r16, --shadow-modal. The icon tile is the 56px / r18
+   empty-state tile recipe, tinted --danger-soft.
+
+   Both keyframes stay PRIVATE to this file on purpose; primitives.css's
+   shared-animation ledger records that and lists the two names. The buttons
+   are `.btn` role consumers (primary / ghost / secondary) and the textarea is
+   an `.input` consumer, so only geometry lives here. */
 .error-boundary-overlay {
   position: fixed;
   inset: 0;
@@ -5,146 +13,112 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--bg-base);
+  padding: 24px;
+  background: var(--canvas-2);
   animation: error-boundary-fade-in 0.2s var(--ease-out);
 }
 
 .error-boundary-card {
-  background: var(--bg-primary);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-xl);
-  box-shadow: var(--shadow-xl);
-  width: 92%;
-  max-width: 440px;
-  padding: 32px;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 16px;
+  gap: 14px;
+  width: 100%;
+  max-width: 440px;
+  padding: 32px;
   text-align: center;
-  animation: error-boundary-scale-in 0.25s var(--ease-out);
+  background: var(--canvas);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-modal);
+  box-shadow: var(--shadow-modal);
+  animation: error-boundary-scale-in 0.18s var(--ease-out);
 }
 
-.error-boundary-icon {
-  width: 56px;
-  height: 56px;
-  border-radius: var(--radius-full);
-  background: var(--red-50);
+.error-boundary-tile {
   display: flex;
+  flex-shrink: 0;
   align-items: center;
   justify-content: center;
-  font-size: 28px;
-  flex-shrink: 0;
+  width: 56px;
+  height: 56px;
+  color: var(--danger-text);
+  background: var(--danger-soft);
+  border-radius: 18px;
 }
 
-.error-boundary-card h1 {
+.error-boundary-title {
+  margin: 0;
   font-size: 18px;
   font-weight: 700;
-  color: var(--text-primary);
-  margin: 0;
+  color: var(--ink);
 }
 
-.error-boundary-card p {
-  font-size: 14px;
-  color: var(--text-secondary);
+.error-boundary-body {
   margin: 0;
-  line-height: 1.5;
+  font-size: 13.5px;
+  line-height: 1.55;
+  color: var(--muted);
 }
 
 .error-boundary-reload-btn {
   width: 100%;
-  padding: 10px 16px;
-  border: none;
-  border-radius: var(--radius-md);
-  background: var(--brand-color);
-  color: var(--text-inverse);
-  font-size: 14px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: background var(--transition);
-}
-
-.error-boundary-reload-btn:hover {
-  background: var(--brand-hover);
 }
 
 .error-boundary-event-row {
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 12px;
-  color: var(--text-muted);
 }
 
 .error-boundary-copy-btn {
-  border: 1px solid var(--border-color);
-  background: transparent;
-  color: var(--text-secondary);
-  border-radius: var(--radius-sm);
-  padding: 2px 8px;
-  font-size: 12px;
-  cursor: pointer;
-}
-
-.error-boundary-copy-btn:hover {
-  background: var(--bg-hover);
+  height: 26px;
+  padding: 0 10px;
+  font-size: 11px;
 }
 
 .error-boundary-feedback {
   width: 100%;
   text-align: left;
-  margin-top: 4px;
 }
 
 .error-boundary-feedback summary {
-  font-size: 13px;
-  color: var(--text-link);
+  font-size: 12.5px;
+  color: var(--accent-text);
   cursor: pointer;
   user-select: none;
 }
 
-.error-boundary-feedback textarea {
-  width: 100%;
+.error-boundary-feedback-input {
   margin-top: 10px;
-  padding: 8px 10px;
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-md);
-  background: var(--bg-secondary);
-  color: var(--text-primary);
-  font-size: 13px;
-  font-family: inherit;
-  resize: vertical;
   min-height: 64px;
-  box-sizing: border-box;
+  padding: 8px 10px;
+  font-family: inherit;
+  font-size: 13px;
+  resize: vertical;
 }
 
 .error-boundary-feedback-submit {
   margin-top: 8px;
-  padding: 6px 14px;
-  border: none;
-  border-radius: var(--radius-md);
-  background: var(--bg-tertiary);
-  color: var(--text-primary);
-  font-size: 13px;
-  font-weight: 600;
-  cursor: pointer;
-}
-
-.error-boundary-feedback-submit:hover:not(:disabled) {
-  background: var(--border-color);
-}
-
-.error-boundary-feedback-submit:disabled {
-  cursor: default;
-  color: var(--text-muted);
 }
 
 @keyframes error-boundary-fade-in {
-  from { opacity: 0; }
-  to { opacity: 1; }
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
 }
 
 @keyframes error-boundary-scale-in {
-  from { opacity: 0; transform: scale(0.96); }
-  to { opacity: 1; transform: scale(1); }
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
 }

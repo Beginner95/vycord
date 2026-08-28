@@ -13,11 +13,8 @@ export const ru = {
     removing: 'Удаление...',
     back: 'Назад',
     logout: 'Выйти',
-    logoutConfirm: 'Вы точно хотите выйти из системы?',
     logoutTitle: 'Выйти из аккаунта?',
     logoutBody: 'Вы сможете снова войти в любой момент.',
-    yes: 'Да',
-    no: 'Нет',
     minimize: 'Свернуть',
     maximize: 'Развернуть',
     imageOpenFailed: 'Не удалось открыть изображение',
@@ -59,7 +56,6 @@ export const ru = {
     linkUrlInvalid: 'Введите корректную ссылку (http/https/www/mailto)',
     insert: 'Вставить',
     cancel: 'Отмена',
-    deleteConfirm: 'Удалить сообщение?',
     deleteTitle: 'Удалить сообщение?',
     deleteBody: 'Сообщение будет удалено навсегда. Это действие нельзя отменить.',
     back: 'Назад',
@@ -161,7 +157,6 @@ export const ru = {
     groupCallTitle: 'Групповой звонок',
     resizeSplit: 'Изменить высоту звонка',
     showCall: 'Звонок',
-    screenSharingActive: 'Идёт демонстрация экрана',
     isSharingScreen: '{{name}} показывает экран',
     view: 'Смотреть',
     dismiss: 'Скрыть',
@@ -299,14 +294,8 @@ export const ru = {
     nameLabel: 'Название сервера',
     namePlaceholder: 'Мой классный сервер',
 
-    // Поиск серверов
+    // Плитка «Обзор серверов» в рейле (ServerList): title и подпись
     explore: 'Обзор серверов',
-    searchPlaceholder: 'Поиск серверов...',
-    search: 'Найти',
-    searching: 'Поиск...',
-    join: 'Присоединиться',
-    noneFound: 'Серверы не найдены',
-    orSeparator: 'или',
 
     // Модалка «Найти сервер» (board 1d): одно поле — и название, и код
     findServer: {
@@ -324,7 +313,6 @@ export const ru = {
     // Контекстное меню
     editMenu: 'Настройки сервера',
     deleteMenu: 'Удалить сервер',
-    deleteConfirm: 'Удалить сервер «{{name}}»? Это действие необратимо.',
     deleteTitle: 'Удалить сервер «{{name}}»?',
     deleteBody: 'Сервер, его каналы и вся переписка будут удалены безвозвратно.',
 
@@ -368,11 +356,8 @@ export const ru = {
       copyLink: 'Скопировать ссылку',
     },
 
-    // Вступление по коду
+    // Вступление по коду: превью найденного сервера в модалке «Найти сервер»
     joinByCode: {
-      label: 'Есть код приглашения?',
-      placeholder: 'Код приглашения',
-      preview: 'Проверить',
       memberCount: 'участников: {{count}}',
     },
   },
@@ -389,7 +374,6 @@ export const ru = {
     editMenu: 'Редактировать',
     deleteMenu: 'Удалить канал',
     deleteLastDisabled: 'Нельзя удалить последний канал сервера',
-    deleteConfirm: 'Удалить канал «{{name}}»?',
     deleteTitle: 'Удалить канал «{{name}}»?',
     deleteBody: 'Все сообщения канала будут удалены безвозвратно.',
 
@@ -410,6 +394,17 @@ export const ru = {
     restartAndInstall: 'Перезапустить и установить',
     failed: 'Не удалось обновиться автоматически',
     downloadManually: 'Скачать вручную',
+  },
+  crash: {
+    title: 'Что-то пошло не так',
+    body: 'Мы уже знаем об этой ошибке. Попробуйте перезагрузить приложение.',
+    reload: 'Перезагрузить',
+    copyId: 'Скопировать',
+    eventId: 'ID: {{id}}',
+    feedbackSummary: 'Что вы делали, когда это произошло?',
+    feedbackPlaceholder: 'Необязательно, но очень помогает разобраться',
+    feedbackSend: 'Отправить',
+    feedbackSent: 'Спасибо, отправлено',
   },
   errors: {
     unknown: 'Неизвестная ошибка',
