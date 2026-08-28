@@ -293,9 +293,11 @@ export const en: Dictionary = {
     orSeparator: 'or',
 
     // Context menu
-    editMenu: 'Edit',
+    editMenu: 'Server settings',
     deleteMenu: 'Delete server',
     deleteConfirm: 'Delete server “{{name}}”? This cannot be undone.',
+    deleteTitle: 'Delete server “{{name}}”?',
+    deleteBody: 'The server, its channels and all messages will be permanently deleted.',
 
     // Edit modal
     editTitle: 'Edit server',
@@ -359,6 +361,8 @@ export const en: Dictionary = {
     deleteMenu: 'Delete channel',
     deleteLastDisabled: 'Cannot delete the last channel of a server',
     deleteConfirm: 'Delete channel “{{name}}”?',
+    deleteTitle: 'Delete channel “{{name}}”?',
+    deleteBody: 'All messages in this channel will be permanently deleted.',
 
     // Edit modal
     editTitle: 'Edit channel',

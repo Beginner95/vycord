@@ -1,11 +1,9 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { Home, Plus, Search } from 'lucide-react';
 import type { Server, User, InvitePreview } from '@/types';
 import { apiService, apiErrorText, resolveUploadUrl } from '@/services/api';
 import { useServerStore } from '@/stores/serverStore';
-import { ContextMenu } from '@/components/ContextMenu';
-import { EditServerModal } from '@/components/EditServerModal';
-import { ManageInvitesModal } from '@/components/ManageInvitesModal';
+import { ServerMenu } from '@/components/ServerMenu';
 import { can, PERMISSIONS } from '@/utils/permissions';
 import { useT } from '@/i18n';
 import './ServerList.css';
@@ -36,10 +34,12 @@ export function ServerList({
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<Server[]>([]);
   const [searchLoading, setSearchLoading] = useState(false);
-  const [menu, setMenu] = useState<{ x: number; y: number; server: Server } | null>(null);
-  const [editingServerId, setEditingServerId] = useState<string | null>(null);
-  const [invitingServerId, setInvitingServerId] = useState<string | null>(null);
-  const editingServer = servers.find((s) => s.id === editingServerId) ?? null;
+  // seq — тот же контракт, что в ChannelSidebar: каждое открытие меню
+  // монтирует свежий ServerMenu, иначе правый клик во время тоста ошибки попал
+  // бы в уже смонтированный экземпляр (меню не открылось бы, а якорь молча
+  // переехал бы на другой сервер).
+  const [menu, setMenu] = useState<{ x: number; y: number; server: Server; seq: number } | null>(null);
+  const menuSeq = useRef(0);
 
   const [inviteCodeInput, setInviteCodeInput] = useState('');
   const [invitePreview, setInvitePreview] = useState<InvitePreview | null>(null);
@@ -93,18 +93,6 @@ export function ServerList({
     }
   };
 
-  const handleDeleteServer = async (server: Server) => {
-    if (!window.confirm(t('server.deleteConfirm', { name: server.name }))) return;
-    try {
-      await apiService.deleteServer(server.id);
-      useServerStore.getState().removeServer(server.id);
-      onServerDeleted(server.id);
-    } catch (err) {
-      console.error('Failed to delete server:', err);
-      alert(apiErrorText(err, t));
-    }
-  };
-
   return (
     <>
       <aside className="server-list">
@@ -130,7 +118,7 @@ export function ServerList({
               const canInvite = can(perms, PERMISSIONS.CREATE_INVITE);
               if (!canManage && !canInvite) return;
               e.preventDefault();
-              setMenu({ x: e.clientX, y: e.clientY, server });
+              setMenu({ x: e.clientX, y: e.clientY, server, seq: ++menuSeq.current });
             }}
             title={server.name}
           >
@@ -235,38 +223,15 @@ export function ServerList({
         </div>
       )}
 
-      {menu && (() => {
-        const menuPerms = useServerStore.getState().permissions.get(menu.server.id);
-        const canManageMenu = can(menuPerms, PERMISSIONS.MANAGE_SERVER) || menu.server.owner_id === user?.id;
-        const canInviteMenu = can(menuPerms, PERMISSIONS.CREATE_INVITE);
-        return (
-          <ContextMenu
-            x={menu.x}
-            y={menu.y}
-            onClose={() => setMenu(null)}
-            items={[
-              ...(canInviteMenu
-                ? [{ label: t('server.inviteMenu'), onClick: () => setInvitingServerId(menu.server.id) }]
-                : []),
-              ...(canManageMenu
-                ? [{ label: t('server.editMenu'), onClick: () => setEditingServerId(menu.server.id) }]
-                : []),
-              // Удаление сервера — привилегия владения и на бэкенде (DeleteServer
-              // проверяет только owner_id), роль с MANAGE_SERVER снести сервер не может.
-              ...(menu.server.owner_id === user?.id
-                ? [{ label: t('server.deleteMenu'), danger: true, onClick: () => handleDeleteServer(menu.server) }]
-                : []),
-            ]}
-          />
-        );
-      })()}
-
-      {editingServer && (
-        <EditServerModal server={editingServer} onClose={() => setEditingServerId(null)} />
-      )}
-
-      {invitingServerId && (
-        <ManageInvitesModal serverId={invitingServerId} onClose={() => setInvitingServerId(null)} />
+      {menu && (
+        <ServerMenu
+          key={`${menu.server.id}:${menu.seq}`}
+          server={menu.server}
+          user={user}
+          anchor={menu}
+          onClose={() => setMenu(null)}
+          onDeleted={onServerDeleted}
+        />
       )}
     </>
   );

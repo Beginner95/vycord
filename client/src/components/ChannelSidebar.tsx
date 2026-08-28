@@ -1,5 +1,5 @@
-import { useState, useEffect, useMemo, type MouseEvent } from 'react';
-import { ChevronDown, ChevronLeft, Hash, Plus, Mic, MicOff, Volume2, Headphones, Settings as SettingsIcon, LogOut } from 'lucide-react';
+import { useState, useEffect, useMemo, useRef, type MouseEvent } from 'react';
+import { ChevronDown, ChevronLeft, Hash, Plus, Mic, MicOff, Volume2, Headphones, Settings as SettingsIcon, LogOut, Pencil, Trash2 } from 'lucide-react';
 import type { Server, Channel, User, MemberWithUser } from '@/types';
 import { Settings } from '@/components/Settings';
 import { ConfirmModal } from '@/components/ConfirmModal';
@@ -7,8 +7,7 @@ import { Avatar } from '@/components/Avatar';
 import { ContextMenu } from '@/components/ContextMenu';
 import { EditChannelModal } from '@/components/EditChannelModal';
 import { CreateChannelModal } from '@/components/CreateChannelModal';
-import { EditServerModal } from '@/components/EditServerModal';
-import { ManageInvitesModal } from '@/components/ManageInvitesModal';
+import { ServerMenu } from '@/components/ServerMenu';
 import { CallDock } from '@/components/CallDock';
 import { apiService, apiErrorText } from '@/services/api';
 import { useServerStore } from '@/stores/serverStore';
@@ -56,9 +55,15 @@ export function ChannelSidebar({
   const [editingChannel, setEditingChannel] = useState<Channel | null>(null);
   const [creatingChannel, setCreatingChannel] = useState(false);
   const [confirmLogout, setConfirmLogout] = useState(false);
-  const [serverMenu, setServerMenu] = useState<{ x: number; y: number } | null>(null);
-  const [editingServer, setEditingServer] = useState(false);
-  const [invitingServer, setInvitingServer] = useState(false);
+  // seq делает каждое открытие меню новым React-ключом: ServerMenu живёт до
+  // dismiss тоста ошибки, и без нового ключа повторный клик по кнопке попадал
+  // бы в уже смонтированный экземпляр с menuDismissed === true — меню не
+  // открывалось бы до 5 секунд.
+  const [serverMenu, setServerMenu] = useState<{ x: number; y: number; seq: number } | null>(null);
+  const serverMenuSeq = useRef(0);
+  const deletingChannelRef = useRef(false);
+  const [confirmDeleteChannel, setConfirmDeleteChannel] = useState<Channel | null>(null);
+  const [channelError, setChannelError] = useState<string | null>(null);
   const callChannelId = useCallStore((s) => s.callChannelId);
   const isMuted = useCallStore((s) => s.isMuted);
   const remoteMicMuted = useCallStore((s) => s.remoteMicMuted);
@@ -70,30 +75,35 @@ export function ChannelSidebar({
   const isOwner = server?.owner_id === user?.id;
   const hasServerMenu = canManageServer || canInvite || isOwner;
 
-  const handleDeleteServer = async () => {
-    if (!server) return;
-    if (!window.confirm(t('server.deleteConfirm', { name: server.name }))) return;
-    try {
-      await apiService.deleteServer(server.id);
-      useServerStore.getState().removeServer(server.id);
-      onServerDeleted(server.id);
-    } catch (err) {
-      console.error('Failed to delete server:', err);
-      alert(apiErrorText(err, t));
-    }
-  };
-
+  // Подтверждение удаления канала — ConfirmModal, ошибка — .error-toast
+  // (решение 15/16): нативные confirm/alert с этой поверхности убраны.
   const handleDeleteChannel = async (channel: Channel) => {
-    if (!server) return;
-    if (channels.length <= 1) return;
-    if (!window.confirm(t('channel.deleteConfirm', { name: channel.name }))) return;
+    if (!server) {
+      setConfirmDeleteChannel(null);
+      return;
+    }
+    // Гейт последнего канала: список мог измениться (WS от другого клиента),
+    // пока модалка открыта. Раньше здесь был голый return — модалка оставалась
+    // на экране с неработающей кнопкой «Удалить».
+    if (channels.length <= 1) {
+      setConfirmDeleteChannel(null);
+      setChannelError(t('channel.deleteLastDisabled'));
+      setTimeout(() => setChannelError(null), 5000);
+      return;
+    }
+    if (deletingChannelRef.current) return;
+    deletingChannelRef.current = true;
     try {
       await apiService.deleteChannel(server.id, channel.id);
       useServerStore.getState().removeChannel(channel.id);
       onChannelDeleted(channel.id);
+      setConfirmDeleteChannel(null);
     } catch (err) {
-      console.error('Failed to delete channel:', err);
-      alert(apiErrorText(err, t));
+      setConfirmDeleteChannel(null);
+      setChannelError(apiErrorText(err, t));
+      setTimeout(() => setChannelError(null), 5000);
+    } finally {
+      deletingChannelRef.current = false;
     }
   };
 
@@ -158,7 +168,7 @@ export function ChannelSidebar({
             aria-label={t('server.serverMenu')}
             onClick={(e) => {
               const r = e.currentTarget.getBoundingClientRect();
-              setServerMenu({ x: r.left, y: r.bottom + 4 });
+              setServerMenu({ x: r.left, y: r.bottom + 4, seq: ++serverMenuSeq.current });
             }}
           >
             <ChevronDown size={18} strokeWidth={1.8} />
@@ -309,18 +319,24 @@ export function ChannelSidebar({
         <ContextMenu
           x={channelMenu.x}
           y={channelMenu.y}
+          label={channelMenu.channel.name}
           onClose={() => setChannelMenu(null)}
           items={[
             ...(canManageChannels
-              ? [{ label: t('channel.editMenu'), onClick: () => setEditingChannel(channelMenu.channel) }]
+              ? [{
+                  label: t('channel.editMenu'),
+                  icon: <Pencil size={16} strokeWidth={1.8} />,
+                  onClick: () => setEditingChannel(channelMenu.channel),
+                }]
               : []),
             ...(canManageChannels
               ? [{
                   label: t('channel.deleteMenu'),
+                  icon: <Trash2 size={16} strokeWidth={1.8} />,
                   danger: true,
                   disabled: channels.length <= 1,
                   disabledReason: t('channel.deleteLastDisabled'),
-                  onClick: () => handleDeleteChannel(channelMenu.channel),
+                  onClick: () => setConfirmDeleteChannel(channelMenu.channel),
                 }]
               : []),
           ]}
@@ -339,20 +355,29 @@ export function ChannelSidebar({
         <CreateChannelModal serverId={server.id} onClose={() => setCreatingChannel(false)} />
       )}
 
+      <ConfirmModal
+        open={confirmDeleteChannel !== null}
+        title={t('channel.deleteTitle', { name: confirmDeleteChannel?.name ?? '' })}
+        body={t('channel.deleteBody')}
+        confirmLabel={t('common.delete')}
+        onConfirm={() => {
+          if (confirmDeleteChannel) void handleDeleteChannel(confirmDeleteChannel);
+        }}
+        onCancel={() => setConfirmDeleteChannel(null)}
+      />
+
+      {channelError && <div className="error-toast">{channelError}</div>}
+
       {serverMenu && server && (
-        <ContextMenu
-          x={serverMenu.x}
-          y={serverMenu.y}
+        <ServerMenu
+          key={serverMenu.seq}
+          server={server}
+          user={user}
+          anchor={serverMenu}
           onClose={() => setServerMenu(null)}
-          items={[
-            ...(canInvite ? [{ label: t('server.inviteMenu'), onClick: () => setInvitingServer(true) }] : []),
-            ...(canManageServer ? [{ label: t('server.editMenu'), onClick: () => setEditingServer(true) }] : []),
-            ...(isOwner ? [{ label: t('server.deleteMenu'), danger: true, onClick: handleDeleteServer }] : []),
-          ]}
+          onDeleted={onServerDeleted}
         />
       )}
-      {editingServer && server && <EditServerModal server={server} onClose={() => setEditingServer(false)} />}
-      {invitingServer && server && <ManageInvitesModal serverId={server.id} onClose={() => setInvitingServer(false)} />}
     </nav>
   );
 }
