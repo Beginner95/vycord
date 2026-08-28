@@ -1,4 +1,5 @@
 import { useRef, useState } from 'react';
+import { ChevronDown } from 'lucide-react';
 import { useAuthStore } from '@/stores/authStore';
 import { useLocaleStore, type Locale } from '@/stores/localeStore';
 import { useT } from '@/i18n';
@@ -62,7 +63,7 @@ export function ProfileSettings() {
         <div className="profile-avatar-actions">
           <button
             type="button"
-            className="profile-avatar-btn"
+            className="btn btn-secondary"
             onClick={() => fileInputRef.current?.click()}
           >
             {t('settings.changeAvatar')}
@@ -70,7 +71,7 @@ export function ProfileSettings() {
           {user?.avatar_url && (
             <button
               type="button"
-              className="profile-avatar-btn secondary"
+              className="btn btn-ghost"
               onClick={handleRemove}
               disabled={removing}
             >
@@ -89,36 +90,41 @@ export function ProfileSettings() {
       </div>
 
       <div className="settings-section">
-        <h3>{t('settings.account')}</h3>
-        <div className="setting-item">
-          <div className="setting-info">
-            <label>{t('settings.usernameLabel')}</label>
-            <p className="setting-description">{user?.username}</p>
+        <h3 className="settings-section-title">{t('settings.account')}</h3>
+        <div className="setting-row">
+          <div className="setting-row-info">
+            <span className="setting-row-title">{t('settings.usernameLabel')}</span>
+            <p className="setting-row-desc">{user?.username}</p>
           </div>
         </div>
-        <div className="setting-item">
-          <div className="setting-info">
-            <label>{t('settings.emailLabel')}</label>
-            <p className="setting-description">{user?.email}</p>
+        <div className="setting-row">
+          <div className="setting-row-info">
+            <span className="setting-row-title">{t('settings.emailLabel')}</span>
+            <p className="setting-row-desc">{user?.email}</p>
           </div>
         </div>
       </div>
 
       <div className="settings-section">
-        <h3>{t('settings.language')}</h3>
-        <div className="setting-item">
-          <div className="setting-info">
-            <label>{t('settings.interfaceLanguage')}</label>
-            <p className="setting-description">{t('settings.languageDescription')}</p>
+        <h3 className="settings-section-title">{t('settings.language')}</h3>
+        <div className="setting-row">
+          <div className="setting-row-info">
+            <span className="setting-row-title">{t('settings.interfaceLanguage')}</span>
+            <p className="setting-row-desc">{t('settings.languageDescription')}</p>
           </div>
-          <select
-            className="setting-select"
-            value={locale}
-            onChange={(e) => setLocale(e.target.value as Locale)}
-          >
-            <option value="ru">{t('settings.languageNameRu')}</option>
-            <option value="en">{t('settings.languageNameEn')}</option>
-          </select>
+          <span className="select-wrap">
+            <select
+              className="select-control"
+              value={locale}
+              onChange={(e) => setLocale(e.target.value as Locale)}
+            >
+              <option value="ru">{t('settings.languageNameRu')}</option>
+              <option value="en">{t('settings.languageNameEn')}</option>
+            </select>
+            <span className="select-chevron">
+              <ChevronDown size={14} strokeWidth={1.8} />
+            </span>
+          </span>
         </div>
       </div>
 

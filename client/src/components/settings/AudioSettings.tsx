@@ -1,6 +1,8 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
+import { ChevronDown, MessageSquare, Phone, LogIn, LogOut } from 'lucide-react';
 import { noiseCancellationService, NoiseCancellationService } from '@/services/noiseCancellation';
 import { audioService } from '@/services/audio';
+import { useMicLevel } from '@/hooks/useMicLevel';
 import { useT } from '@/i18n';
 import { logger } from '@/utils/logger';
 
@@ -13,6 +15,12 @@ export function AudioSettings() {
   const [callSound, setCallSound] = useState(true);
   const [voiceSound, setVoiceSound] = useState(true);
   const [volume, setVolume] = useState(0.5);
+  const [testStream, setTestStream] = useState<MediaStream | null>(null);
+  const [micError, setMicError] = useState(false);
+  // Ref, а не state: читается и пишется синхронно внутри одного обработчика,
+  // до того как React успеет применить setState (см. toggleMicTest).
+  const micTestPending = useRef(false);
+  const level = useMicLevel(testStream, false);
 
   useEffect(() => {
     setIsSupported(NoiseCancellationService.isSupported());
@@ -36,6 +44,11 @@ export function AudioSettings() {
     setVolume(settings.volume);
   }, []);
 
+  // Захват/освобождение парой: эффект перерегистрируется на каждый новый поток и
+  // останавливает предыдущий при смене и при размонтировании. Вариант с пустым
+  // массивом зависимостей утёк бы первым потоком при повторной проверке.
+  useEffect(() => () => { testStream?.getTracks().forEach((tr) => tr.stop()); }, [testStream]);
+
   const handleToggleNoiseCancellation = async () => {
     if (ncLoading) return;
     try {
@@ -47,201 +60,229 @@ export function AudioSettings() {
     }
   };
 
+  // getUserMedia вызывается прямо из компонента: services/ вне зоны этой задачи.
+  //
+  // Защита от повторного входа. Пока getUserMedia в полёте, testStream ещё null,
+  // поэтому второй клик прошёл бы в ту же ветку и открыл ВТОРОЙ захват. Если бы
+  // оба результата попали в один коммит React, очистка эффекта сработала бы для
+  // замыкания над null и первый поток остался бы висеть — микрофон включён, а
+  // кнопка управляет уже вторым потоком, отпустить нечем.
+  const toggleMicTest = async () => {
+    if (micTestPending.current) return;
+    micTestPending.current = true;
+    try {
+      if (testStream) {
+        testStream.getTracks().forEach((tr) => tr.stop());
+        setTestStream(null);
+        return;
+      }
+      setMicError(false);
+      try {
+        setTestStream(await navigator.mediaDevices.getUserMedia({ audio: true }));
+      } catch (err) {
+        logger.error('Mic test getUserMedia failed:', err, { module: 'settings' });
+        setMicError(true);
+      }
+    } finally {
+      micTestPending.current = false;
+    }
+  };
+
   return (
-    <div className="settings-section">
-      <h3>{t('settings.audio')}</h3>
+    <>
+      <div className="settings-section">
+        <h3 className="settings-section-title">{t('settings.sectionSounds')}</h3>
 
-      <div className="setting-item">
-        <div className="setting-info">
-          <label>{t('settings.messageNotifications')}</label>
-          <p className="setting-description">{t('settings.messageNotificationsDescription')}</p>
+        <div className="setting-row">
+          <div className="setting-row-info">
+            <span className="setting-row-title">{t('settings.messageNotifications')}</span>
+            <p className="setting-row-desc">{t('settings.messageNotificationsDescription')}</p>
+          </div>
+          <label className="toggle-switch">
+            <input
+              type="checkbox"
+              checked={msgSound}
+              onChange={(e) => {
+                setMsgSound(e.target.checked);
+                audioService.updateSettings({ messageSound: e.target.checked });
+              }}
+            />
+            <span className="toggle-track" />
+          </label>
         </div>
-        <label className="toggle-switch">
+
+        <div className="setting-row">
+          <div className="setting-row-info">
+            <span className="setting-row-title">{t('settings.callSounds')}</span>
+            <p className="setting-row-desc">{t('settings.callSoundsDescription')}</p>
+          </div>
+          <label className="toggle-switch">
+            <input
+              type="checkbox"
+              checked={callSound}
+              onChange={(e) => {
+                setCallSound(e.target.checked);
+                audioService.updateSettings({ callSound: e.target.checked });
+              }}
+            />
+            <span className="toggle-track" />
+          </label>
+        </div>
+
+        <div className="setting-row">
+          <div className="setting-row-info">
+            <span className="setting-row-title">{t('settings.voiceJoinLeaveSounds')}</span>
+            <p className="setting-row-desc">{t('settings.voiceJoinLeaveSoundsDescription')}</p>
+          </div>
+          <label className="toggle-switch">
+            <input
+              type="checkbox"
+              checked={voiceSound}
+              onChange={(e) => {
+                setVoiceSound(e.target.checked);
+                audioService.updateSettings({ voiceSound: e.target.checked });
+              }}
+            />
+            <span className="toggle-track" />
+          </label>
+        </div>
+
+        <div className="setting-row">
+          <div className="setting-row-info">
+            <span className="setting-row-title">{t('settings.volume')}</span>
+            <p className="setting-row-desc">{t('settings.volumeDescription')}</p>
+          </div>
           <input
-            type="checkbox"
-            checked={msgSound}
+            type="range"
+            className="slider-input"
+            min="0"
+            max="1"
+            step="0.05"
+            value={volume}
+            style={{ '--slider-fill': `${Math.round(volume * 100)}%` } as React.CSSProperties}
             onChange={(e) => {
-              setMsgSound(e.target.checked);
-              audioService.updateSettings({ messageSound: e.target.checked });
+              const v = parseFloat(e.target.value);
+              setVolume(v);
+              audioService.setVolume(v);
             }}
           />
-          <span className="toggle-slider"></span>
-        </label>
-      </div>
-
-      <div className="setting-item">
-        <div className="setting-info">
-          <label>{t('settings.callSounds')}</label>
-          <p className="setting-description">{t('settings.callSoundsDescription')}</p>
         </div>
-        <label className="toggle-switch">
-          <input
-            type="checkbox"
-            checked={callSound}
-            onChange={(e) => {
-              setCallSound(e.target.checked);
-              audioService.updateSettings({ callSound: e.target.checked });
-            }}
-          />
-          <span className="toggle-slider"></span>
-        </label>
-      </div>
 
-      <div className="setting-item">
-        <div className="setting-info">
-          <label>{t('settings.voiceJoinLeaveSounds')}</label>
-          <p className="setting-description">{t('settings.voiceJoinLeaveSoundsDescription')}</p>
-        </div>
-        <label className="toggle-switch">
-          <input
-            type="checkbox"
-            checked={voiceSound}
-            onChange={(e) => {
-              setVoiceSound(e.target.checked);
-              audioService.updateSettings({ voiceSound: e.target.checked });
-            }}
-          />
-          <span className="toggle-slider"></span>
-        </label>
-      </div>
-
-      <div className="setting-item">
-        <div className="setting-info">
-          <label>{t('settings.volume')}</label>
-          <p className="setting-description">{t('settings.volumeDescription')}</p>
-        </div>
-        <input
-          type="range"
-          min="0"
-          max="1"
-          step="0.05"
-          value={volume}
-          onChange={(e) => {
-            const v = parseFloat(e.target.value);
-            setVolume(v);
-            audioService.setVolume(v);
-          }}
-          style={{ width: 120, accentColor: 'var(--brand-color)' }}
-        />
-      </div>
-
-      <div className="setting-item">
-        <div className="setting-info">
-          <label>{t('settings.testSounds')}</label>
-          <p className="setting-description">{t('settings.testSoundsDescription')}</p>
-        </div>
-        <div style={{ display: 'flex', gap: 8 }}>
-          <button
-            onClick={() => audioService.playMessage()}
-            style={{
-              padding: '6px 14px',
-              border: '1.5px solid var(--border-color)',
-              borderRadius: 'var(--radius-md)',
-              background: 'var(--bg-primary)',
-              color: 'var(--text-primary)',
-              fontSize: 13,
-              cursor: 'pointer',
-            }}
-          >
-            💬 {t('settings.testMessage')}
-          </button>
-          <button
-            onClick={() => {
-              audioService.startRingtone();
-              setTimeout(() => audioService.stopRingtone(), 3000);
-            }}
-            style={{
-              padding: '6px 14px',
-              border: '1.5px solid var(--border-color)',
-              borderRadius: 'var(--radius-md)',
-              background: 'var(--bg-primary)',
-              color: 'var(--text-primary)',
-              fontSize: 13,
-              cursor: 'pointer',
-            }}
-          >
-            📞 {t('settings.testRing')}
-          </button>
-          <button
-            onClick={() => audioService.playUserJoined()}
-            style={{
-              padding: '6px 14px',
-              border: '1.5px solid var(--border-color)',
-              borderRadius: 'var(--radius-md)',
-              background: 'var(--bg-primary)',
-              color: 'var(--text-primary)',
-              fontSize: 13,
-              cursor: 'pointer',
-            }}
-          >
-            ➡️ {t('settings.testJoin')}
-          </button>
-          <button
-            onClick={() => audioService.playUserLeft()}
-            style={{
-              padding: '6px 14px',
-              border: '1.5px solid var(--border-color)',
-              borderRadius: 'var(--radius-md)',
-              background: 'var(--bg-primary)',
-              color: 'var(--text-primary)',
-              fontSize: 13,
-              cursor: 'pointer',
-            }}
-          >
-            ⬅️ {t('settings.testLeave')}
-          </button>
+        <div className="setting-row">
+          <div className="setting-row-info">
+            <span className="setting-row-title">{t('settings.testSounds')}</span>
+            <p className="setting-row-desc">{t('settings.testSoundsDescription')}</p>
+          </div>
+          <div className="setting-row-actions">
+            <button type="button" className="btn btn-secondary" onClick={() => audioService.playMessage()}>
+              <MessageSquare size={16} strokeWidth={1.8} /> {t('settings.testMessage')}
+            </button>
+            <button
+              type="button"
+              className="btn btn-secondary"
+              onClick={() => {
+                audioService.startRingtone();
+                setTimeout(() => audioService.stopRingtone(), 3000);
+              }}
+            >
+              <Phone size={16} strokeWidth={1.8} /> {t('settings.testRing')}
+            </button>
+            <button type="button" className="btn btn-secondary" onClick={() => audioService.playUserJoined()}>
+              <LogIn size={16} strokeWidth={1.8} /> {t('settings.testJoin')}
+            </button>
+            <button type="button" className="btn btn-secondary" onClick={() => audioService.playUserLeft()}>
+              <LogOut size={16} strokeWidth={1.8} /> {t('settings.testLeave')}
+            </button>
+          </div>
         </div>
       </div>
 
-      <div className="setting-item">
-        <div className="setting-info">
-          <label>{t('settings.noiseCancellation')}</label>
-          <p className="setting-description">
-            {ncLoading
-              ? t('settings.noiseCancellationLoading')
-              : t('settings.noiseCancellationDescription')}
-          </p>
+      <div className="settings-section">
+        <h3 className="settings-section-title">{t('settings.sectionMicrophone')}</h3>
+
+        <div className="setting-row">
+          <div className="setting-row-info">
+            <span className="setting-row-title">{t('settings.noiseCancellation')}</span>
+            <p className="setting-row-desc">
+              {ncLoading
+                ? t('settings.noiseCancellationLoading')
+                : t('settings.noiseCancellationDescription')}
+            </p>
+          </div>
+          <label className="toggle-switch">
+            <input
+              type="checkbox"
+              checked={noiseCancellation}
+              onChange={handleToggleNoiseCancellation}
+              disabled={!isSupported || ncLoading}
+            />
+            <span className="toggle-track" />
+          </label>
         </div>
-        <label className="toggle-switch">
-          <input
-            type="checkbox"
-            checked={noiseCancellation}
-            onChange={handleToggleNoiseCancellation}
-            disabled={!isSupported || ncLoading}
-          />
-          <span className="toggle-slider"></span>
-        </label>
+
+        {!isSupported && (
+          <p className="setting-warning">{t('settings.noiseCancellationUnsupported')}</p>
+        )}
+
+        <div className="setting-row">
+          <div className="setting-row-info">
+            <span className="setting-row-title">{t('settings.micTest')}</span>
+            <p className="setting-row-desc">{t('settings.micTestDescription')}</p>
+          </div>
+          <div className="mic-test-block">
+            <div
+              className="level-meter"
+              style={{ '--meter-level': `${Math.min(100, Math.round(level * 100))}%` } as React.CSSProperties}
+            >
+              <div className="level-meter-fill" />
+            </div>
+            <div className="level-meter-caption">{t('settings.inputLevel')}</div>
+            <button
+              type="button"
+              className="btn btn-secondary"
+              onClick={() => { void toggleMicTest(); }}
+            >
+              {testStream ? t('settings.micTestStop') : t('settings.micTestStart')}
+            </button>
+          </div>
+        </div>
+
+        {micError && <p className="setting-warning">{t('settings.micTestError')}</p>}
       </div>
 
-      {!isSupported && (
-        <p className="setting-warning">
-          {t('settings.noiseCancellationUnsupported')}
-        </p>
-      )}
+      <div className="settings-section">
+        <h3 className="settings-section-title">{t('settings.sectionDevices')}</h3>
 
-      <div className="setting-item">
-        <div className="setting-info">
-          <label>{t('settings.inputDevice')}</label>
-          <p className="setting-description">
-            {t('settings.inputDeviceDescription')}
-          </p>
+        <div className="setting-row">
+          <div className="setting-row-info">
+            <span className="setting-row-title">{t('settings.inputDevice')}</span>
+            <p className="setting-row-desc">{t('settings.inputDeviceDescription')}</p>
+          </div>
+          <span className="select-wrap">
+            <select className="select-control">
+              <option>{t('settings.defaultMicrophone')}</option>
+            </select>
+            <span className="select-chevron">
+              <ChevronDown size={14} strokeWidth={1.8} />
+            </span>
+          </span>
         </div>
-        <select className="setting-select">
-          <option>{t('settings.defaultMicrophone')}</option>
-        </select>
-      </div>
 
-      <div className="setting-item">
-        <div className="setting-info">
-          <label>{t('settings.outputDevice')}</label>
-          <p className="setting-description">
-            {t('settings.outputDeviceDescription')}
-          </p>
+        <div className="setting-row">
+          <div className="setting-row-info">
+            <span className="setting-row-title">{t('settings.outputDevice')}</span>
+            <p className="setting-row-desc">{t('settings.outputDeviceDescription')}</p>
+          </div>
+          <span className="select-wrap">
+            <select className="select-control">
+              <option>{t('settings.defaultSpeakers')}</option>
+            </select>
+            <span className="select-chevron">
+              <ChevronDown size={14} strokeWidth={1.8} />
+            </span>
+          </span>
         </div>
-        <select className="setting-select">
-          <option>{t('settings.defaultSpeakers')}</option>
-        </select>
       </div>
-    </div>
+    </>
   );
 }
