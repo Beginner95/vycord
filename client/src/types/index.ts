@@ -1,3 +1,23 @@
+export type AttachmentKind = 'image' | 'video' | 'audio' | 'file';
+
+export interface Attachment {
+  id: string;
+  channel_id: string;
+  user_id: string;
+  message_id?: string;
+  kind: AttachmentKind;
+  file_name: string;
+  content_type: string;
+  size_bytes: number;
+  width?: number;
+  height?: number;
+  /** Подписанная ссылка на содержимое. Протухает — тогда см. getAttachment. */
+  url: string;
+  /** Только для картинок. */
+  thumb_url?: string;
+  created_at: string;
+}
+
 export interface User {
   id: string;
   username: string;
@@ -60,7 +80,7 @@ export interface Message {
   channel_id: string;
   user_id: string;
   content: string;
-  attachments?: string[];
+  attachments?: Attachment[];
   sticker_id?: string;
   sticker?: Sticker;
   created_at: string;

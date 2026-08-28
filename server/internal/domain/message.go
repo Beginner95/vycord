@@ -7,15 +7,15 @@ import (
 )
 
 type Message struct {
-	ID          uuid.UUID  `json:"id"`
-	ChannelID   uuid.UUID  `json:"channel_id"`
-	UserID      uuid.UUID  `json:"user_id"`
-	Content     string     `json:"content"`
-	Attachments []string   `json:"attachments,omitempty"`
-	StickerID   *uuid.UUID `json:"sticker_id,omitempty"`
-	Sticker     *Sticker   `json:"sticker,omitempty"`
-	CreatedAt   time.Time  `json:"created_at"`
-	UpdatedAt   time.Time  `json:"updated_at"`
+	ID          uuid.UUID     `json:"id"`
+	ChannelID   uuid.UUID     `json:"channel_id"`
+	UserID      uuid.UUID     `json:"user_id"`
+	Content     string        `json:"content"`
+	Attachments []*Attachment `json:"attachments,omitempty"`
+	StickerID   *uuid.UUID    `json:"sticker_id,omitempty"`
+	Sticker     *Sticker      `json:"sticker,omitempty"`
+	CreatedAt   time.Time     `json:"created_at"`
+	UpdatedAt   time.Time     `json:"updated_at"`
 }
 
 // MessageWithAuthor — сообщение с юзернеймом автора: результаты поиска

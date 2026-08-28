@@ -7,11 +7,11 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"strings"
 	"syscall"
 	"time"
 
 	"github.com/joho/godotenv"
+	"github.com/vycord/server/internal/attachments"
 	"github.com/vycord/server/internal/config"
 	"github.com/vycord/server/internal/delivery/http/handler"
 	"github.com/vycord/server/internal/delivery/http/middleware"
@@ -19,6 +19,7 @@ import (
 	presencepkg "github.com/vycord/server/internal/presence"
 	"github.com/vycord/server/internal/repository/postgres"
 	"github.com/vycord/server/internal/usecase"
+	"github.com/vycord/server/pkg/attachlink"
 	"github.com/vycord/server/pkg/filestorage"
 	"github.com/vycord/server/pkg/logger"
 )
@@ -79,6 +80,8 @@ func main() {
 	inviteRepo := postgres.NewInviteRepository(db)
 	stickerRepo := postgres.NewStickerRepository(db)
 	refreshTokenRepo := postgres.NewRefreshTokenRepository(db)
+	attachmentRepo := postgres.NewAttachmentRepository(db)
+	planRepo := postgres.NewPlanRepository(db)
 
 	// Initialize file storage
 	storage, err := filestorage.NewLocal(cfg.UploadDir, "/uploads")
@@ -95,8 +98,15 @@ func main() {
 	roleUseCase := usecase.NewRoleUseCase(serverRepo, roleRepo, permissionUseCase)
 	serverUseCase := usecase.NewServerUseCase(serverRepo, channelRepo, userRepo, roleRepo, storage, permissionUseCase)
 	voiceTokenUseCase := usecase.NewVoiceTokenUseCase(serverUseCase, cfg.JWTSecret)
-	messageUseCase := usecase.NewMessageUseCase(messageRepo, channelRepo, serverRepo, stickerRepo, permissionUseCase)
+	messageUseCase := usecase.NewMessageUseCase(messageRepo, channelRepo, serverRepo, stickerRepo, permissionUseCase, attachmentRepo, storage)
 	stickerUseCase := usecase.NewStickerUseCase(stickerRepo, serverRepo, permissionUseCase, storage)
+
+	// Кэш плана на 5 минут: таблица крошечная и меняется редко, ходить в БД
+	// на каждую загрузку незачем, а смена тарифа подхватится сама.
+	quotaUseCase := usecase.NewQuotaUseCase(planRepo, attachmentRepo, 5*time.Minute)
+	attachmentUseCase := usecase.NewAttachmentUseCase(attachmentRepo, channelRepo, permissionUseCase, quotaUseCase, storage)
+
+	attachmentSigner := attachlink.NewSigner(cfg.JWTSecret, cfg.AttachmentLinkTTL)
 	callUseCase := usecase.NewCallUseCase(callRepo)
 	turnUseCase := usecase.NewTURNUseCase(cfg.TURNSecret, cfg.TURNURLs, cfg.TURNTTL)
 
@@ -105,34 +115,44 @@ func main() {
 	hub.SetVoiceAudienceResolver(serverUseCase.GetChannelAudience)
 	go hub.Run()
 
+	// Общий контекст фоновых задач: его отмена останавливает и воркер
+	// voice-presence, и уборщик вложений. Создаётся безусловно — уборщик
+	// обязан работать даже там, где presence выключен, — поэтому не
+	// переносить внутрь условия ниже.
+	bgCtx, stopBackgroundWorkers := context.WithCancel(context.Background())
+	defer stopBackgroundWorkers()
+
 	// Voice-presence reconciliation against the SFU's own /presence snapshot
 	// (VYC-78 step 4) — corrects drift in hub.voiceChannels instead of trusting
 	// client-driven voice_joined/voice_left as the sole source of truth. Both
 	// vars empty just means the worker doesn't run: this is a correctness
 	// safety net, not something API startup should ever depend on.
-	presenceCtx, stopPresenceWorker := context.WithCancel(context.Background())
-	defer stopPresenceWorker()
 	if cfg.SFUInternalURL != "" && cfg.SFUInternalSecret != "" {
 		fetcher := presencepkg.NewHTTPFetcher(cfg.SFUInternalURL, cfg.SFUInternalSecret)
 		presenceWorker := presencepkg.NewWorker(fetcher, hub, log)
-		go presenceWorker.Run(presenceCtx)
+		go presenceWorker.Run(bgCtx)
 		log.Info("voice-presence reconciliation started", "sfu_url", cfg.SFUInternalURL, "interval", presencepkg.DefaultInterval)
 	} else {
 		log.Warn("SFU_INTERNAL_URL or SFU_INTERNAL_SECRET not set — voice-presence reconciliation disabled")
 	}
+
+	// Уборщик брошенных (не привязанных к сообщению) и протухших вложений.
+	janitor := attachments.NewJanitor(attachmentRepo, storage, log)
+	go janitor.Run(bgCtx)
 
 	// Initialize handlers
 	authHandler := handler.NewAuthHandler(authUseCase, log)
 	userHandler := handler.NewUserHandler(userUseCase, hub, log)
 	serverHandler := handler.NewServerHandler(serverUseCase, inviteUseCase, hub, log)
 	inviteHandler := handler.NewInviteHandler(inviteUseCase, log)
-	messageHandler := handler.NewMessageHandler(messageUseCase, hub, log)
+	messageHandler := handler.NewMessageHandler(messageUseCase, hub, log, attachmentSigner)
 	stickerHandler := handler.NewStickerHandler(stickerUseCase, log)
 	onlineUsersHandler := handler.NewOnlineUsersHandler(hub, userRepo, log)
 	wsHandler := handler.NewWebSocketHandler(hub, authUseCase, callUseCase, userUseCase, serverUseCase, log)
 	turnHandler := handler.NewTURNHandler(turnUseCase, log)
 	roleHandler := handler.NewRoleHandler(roleUseCase, permissionUseCase, log)
 	voiceTokenHandler := handler.NewVoiceTokenHandler(voiceTokenUseCase, log)
+	attachmentHandler := handler.NewAttachmentHandler(attachmentUseCase, quotaUseCase, attachmentSigner, cfg.MaxUploadBytes, log)
 
 	// Setup router
 	router := http.NewServeMux()
@@ -212,21 +232,25 @@ func main() {
 	router.HandleFunc("PATCH /api/v1/channels/{channel_id}/messages/{message_id}", authMid.RequireAuth(messageHandler.UpdateMessage))
 	router.HandleFunc("DELETE /api/v1/channels/{channel_id}/messages/{message_id}", authMid.RequireAuth(messageHandler.DeleteMessage))
 
+	// Вложения. Загрузка, метаданные и удаление — под авторизацией.
+	router.HandleFunc("POST /api/v1/attachments", authMid.RequireAuth(attachmentHandler.Upload))
+	router.HandleFunc("GET /api/v1/attachments/{id}", authMid.RequireAuth(attachmentHandler.Get))
+	router.HandleFunc("DELETE /api/v1/attachments/{id}", authMid.RequireAuth(attachmentHandler.Delete))
+
+	// Отдача содержимого — БЕЗ RequireAuth: <img src> и <video src> не умеют
+	// слать заголовок Authorization, поэтому доступ даёт подпись в URL
+	// (см. pkg/attachlink).
+	router.HandleFunc("GET /api/v1/attachments/{id}/content", attachmentHandler.Content)
+	router.HandleFunc("GET /api/v1/attachments/{id}/thumb", attachmentHandler.Thumb)
+
 	// Voice token — short-lived, room-scoped JWT for the SFU (see private channels design doc)
 	router.HandleFunc("POST /api/v1/channels/{channel_id}/voice-token", authMid.RequireAuth(voiceTokenHandler.IssueToken))
 
 	// TURN credentials for WebRTC (ephemeral, per-user)
 	router.HandleFunc("GET /api/v1/turn/credentials", authMid.RequireAuth(turnHandler.GetCredentials))
 
-	// Static file serving for uploaded avatars (local disk storage)
-	uploadsFileServer := http.FileServer(http.Dir(cfg.UploadDir))
-	router.Handle("GET /uploads/", http.StripPrefix("/uploads/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "" || strings.HasSuffix(r.URL.Path, "/") {
-			http.NotFound(w, r)
-			return
-		}
-		uploadsFileServer.ServeHTTP(w, r)
-	})))
+	// Статика загрузок: только публичные подкаталоги (см. newUploadsHandler).
+	router.Handle("GET /uploads/", newUploadsHandler(cfg.UploadDir))
 
 	// WebSocket route
 	router.HandleFunc("GET /ws", wsHandler.HandleWebSocket)

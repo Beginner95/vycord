@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -33,6 +34,18 @@ type Config struct {
 	// functionality.
 	SFUInternalURL    string
 	SFUInternalSecret string
+	// AttachmentLinkTTL — срок жизни подписанной ссылки на вложение.
+	// Неделя: достаточно долго, чтобы открытая вкладка не теряла картинки,
+	// и достаточно коротко, чтобы утёкшая ссылка не жила вечно.
+	AttachmentLinkTTL time.Duration
+	// MaxUploadBytes — предохранитель на сырое тело запроса загрузки
+	// (env MAX_UPLOAD_BYTES, в байтах). Это НЕ лимит размера файла — тот
+	// живёт в таблице plans и проверяется QuotaUseCase. Это значение обязано
+	// быть не меньше max_file_bytes самого щедрого тарифа, иначе платный
+	// тариф не заработает: запрос обрубит этот предохранитель раньше, чем
+	// дело дойдёт до проверки по плану. См. также client_max_body_size в
+	// nginx — тот же инвариант действует и для него.
+	MaxUploadBytes int64
 }
 
 func New() (*Config, error) {
@@ -60,6 +73,8 @@ func New() (*Config, error) {
 		UploadDir:              getEnv("UPLOAD_DIR", "./uploads"),
 		SFUInternalURL:         getEnv("SFU_INTERNAL_URL", ""),
 		SFUInternalSecret:      getEnv("SFU_INTERNAL_SECRET", ""),
+		AttachmentLinkTTL:      parseDuration(getEnv("ATTACHMENT_LINK_TTL", "168h")),
+		MaxUploadBytes:         getEnvInt64("MAX_UPLOAD_BYTES", 30<<20),
 	}
 
 	return cfg, nil
@@ -100,6 +115,21 @@ func getEnv(key, fallback string) string {
 		return value
 	}
 	return fallback
+}
+
+// getEnvInt64 читает целочисленную настройку из окружения. Невалидное
+// значение — не повод падать при старте (это предохранитель, а не секрет
+// вроде JWT_SECRET), поэтому тихо откатываемся на fallback.
+func getEnvInt64(key string, fallback int64) int64 {
+	raw := os.Getenv(key)
+	if raw == "" {
+		return fallback
+	}
+	v, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil {
+		return fallback
+	}
+	return v
 }
 
 func parseDuration(s string) time.Duration {
