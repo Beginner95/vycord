@@ -208,7 +208,6 @@
   height: 32px;
   font-size: 14px;
   border-radius: var(--radius-tile);
-  object-fit: cover;
 }
 
 .message-search-result-main {
