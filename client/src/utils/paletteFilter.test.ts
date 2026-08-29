@@ -86,7 +86,14 @@ describe('buildPalette', () => {
   });
 
   it('gives each group a `from` index that indexes into the flat row list', () => {
-    const model = buildPalette({ ...base, query: 'ген' });
+    const model = buildPalette({
+      ...base, query: 'ген',
+      // Тот же приём, что и в тесте порядка групп выше: без совпадающего
+      // действия выжила бы только группа channels и `from` всегда был бы 0 —
+      // тест не смог бы отличить правильную арифметику от жёстко зашитого нуля.
+      actions: [action('a', 'Войти в голосовой «генерал»')],
+    });
+    expect(model.groups.length).toBeGreaterThanOrEqual(2);
     for (const group of model.groups) {
       group.rows.forEach((row, i) => expect(model.rows[group.from + i]).toBe(row));
     }
