@@ -1,17 +1,20 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Hash, Moon, Plus, Search, Settings as SettingsIcon, Sun, Volume2 } from 'lucide-react';
 import type { ReactNode } from 'react';
-import type { Channel } from '@/types';
-import { useT } from '@/i18n';
+import type { Channel, MessageSearchResponse } from '@/types';
+import { useT, useDateFormat } from '@/i18n';
 import { useServerStore } from '@/stores/serverStore';
 import { usePaletteStore } from '@/stores/paletteStore';
 import { useCallStore } from '@/stores/callStore';
 import { useThemeStore } from '@/stores/themeStore';
 import { useModalFocus } from '@/hooks/useModalFocus';
 import { can, PERMISSIONS } from '@/utils/permissions';
+import { apiService, apiErrorText } from '@/services/api';
+import { Avatar } from '@/components/Avatar';
+import { snippetAround, splitMatches } from '@/utils/searchSnippet';
 import {
-  buildPalette, moveSelection, PALETTE_MAX_QUERY,
-  type PaletteActionDef, type PaletteRow,
+  buildPalette, moveSelection, PALETTE_MAX_QUERY, PALETTE_DEBOUNCE_MS, PALETTE_MIN_QUERY, CAP_MESSAGES,
+  type PaletteActionDef, type PaletteRow, type PaletteMessage,
 } from '@/utils/paletteFilter';
 import './CommandPalette.css';
 
@@ -22,12 +25,14 @@ interface CommandPaletteProps {
   onCreateServer: () => void;
   onFindServer: () => void;
   onJoinVoice: (channel: Channel) => void;
+  onShowChat: () => void;
 }
 
 export function CommandPalette({
-  onSelectChannel, onOpenSettings, onCreateChannel, onCreateServer, onFindServer, onJoinVoice,
+  onSelectChannel, onOpenSettings, onCreateChannel, onCreateServer, onFindServer, onJoinVoice, onShowChat,
 }: CommandPaletteProps) {
   const t = useT();
+  const fmt = useDateFormat();
   const isOpen = usePaletteStore((s) => s.isOpen);
   const close = usePaletteStore((s) => s.close);
   const channels = useServerStore((s) => s.channels);
@@ -50,6 +55,39 @@ export function CommandPalette({
   const theme = useThemeStore((s) => s.theme);
   const setTheme = useThemeStore((s) => s.setTheme);
 
+  const [messages, setMessages] = useState<PaletteMessage[]>([]);
+  const [messagesTotal, setMessagesTotal] = useState(0);
+  const [messagesLoading, setMessagesLoading] = useState(false);
+  const [messagesError, setMessagesError] = useState<string | null>(null);
+
+  const trimmed = query.trim();
+  useEffect(() => {
+    if (!isOpen || !currentChannel || trimmed.length < PALETTE_MIN_QUERY) {
+      setMessages([]); setMessagesTotal(0); setMessagesError(null); setMessagesLoading(false);
+      return;
+    }
+    setMessagesLoading(true);
+    let cancelled = false;
+    // 120ms — board 2c. Панель MessageSearch намеренно осталась на 300ms:
+    // она листает подтверждённый запрос, палитра показывает превью.
+    const timer = setTimeout(async () => {
+      try {
+        const data = (await apiService.searchMessages(
+          currentChannel.id, trimmed, CAP_MESSAGES, 0,
+        )) as MessageSearchResponse;
+        if (cancelled) return;
+        setMessages(data.results);
+        setMessagesTotal(data.total);
+        setMessagesError(null);
+      } catch (err) {
+        if (!cancelled) setMessagesError(apiErrorText(err, t));
+      } finally {
+        if (!cancelled) setMessagesLoading(false);
+      }
+    }, PALETTE_DEBOUNCE_MS);
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [isOpen, currentChannel, trimmed, t]);
+
   // Иконки живут рядом с реестром: paletteFilter — чистый модуль и ничего не
   // знает про React (решение 12).
   const actionIcons: Record<string, ReactNode> = {
@@ -61,6 +99,7 @@ export function CommandPalette({
       : <Moon size={17} strokeWidth={1.8} className="palette-row-icon" />,
     'create-server': <Plus size={17} strokeWidth={1.8} className="palette-row-icon" />,
     'find-server': <Search size={17} strokeWidth={1.8} className="palette-row-icon" />,
+    'search-in-channel': <Search size={17} strokeWidth={1.8} className="palette-row-icon" />,
   };
 
   const canManageChannels = can(permissions, PERMISSIONS.MANAGE_CHANNELS);
@@ -84,22 +123,32 @@ export function CommandPalette({
     });
     defs.push({ id: 'create-server', label: t('palette.createServer'), run: onCreateServer });
     defs.push({ id: 'find-server', label: t('palette.findServer'), run: onFindServer });
+    if (currentChannel) {
+      defs.push({
+        id: 'search-in-channel',
+        label: t('palette.searchInChannel', { channel: currentChannel.name }),
+        run: () => {
+          onShowChat();
+          usePaletteStore.getState().searchInChannel(currentChannel.id, '');
+        },
+      });
+    }
     return defs;
   }, [t, currentServer, canManageChannels, currentChannel, callChannelId, theme,
-      onCreateChannel, onJoinVoice, onOpenSettings, setTheme, onCreateServer, onFindServer]);
+      onCreateChannel, onJoinVoice, onOpenSettings, setTheme, onCreateServer, onFindServer, onShowChat]);
 
   const model = useMemo(
     () => buildPalette({
       query,
       channels,
       actions,
-      messages: [],
-      messagesTotal: 0,
-      hasChannel: false,
-      messagesLoading: false,
-      messagesError: null,
+      messages,
+      messagesTotal,
+      hasChannel: !!currentChannel,
+      messagesLoading,
+      messagesError,
     }),
-    [query, channels, actions],
+    [query, channels, actions, messages, messagesTotal, currentChannel, messagesLoading, messagesError],
   );
 
   // Список поменялся — выделение всегда возвращается на первую строку.
@@ -116,6 +165,13 @@ export function CommandPalette({
   const activate = (row: PaletteRow) => {
     if (row.kind === 'channel') { close(); onSelectChannel(row.channel); }
     else if (row.kind === 'action') { close(); row.action.run(); }
+    else if (row.kind === 'message' && currentChannel) {
+      close(); onShowChat();
+      usePaletteStore.getState().jumpToMessage(currentChannel.id, row.message.id);
+    } else if (row.kind === 'show-all' && currentChannel) {
+      close(); onShowChat();
+      usePaletteStore.getState().searchInChannel(currentChannel.id, trimmed);
+    }
   };
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -166,7 +222,11 @@ export function CommandPalette({
               <div className="palette-group-label">{t(groupLabel[group.key])}</div>
               {group.rows.map((row, i) => {
                 if (row.kind === 'status') {
-                  return <div className="palette-status" key={row.id}>{row.text}</div>;
+                  return (
+                    <div className="palette-status" key={row.id}>
+                      {row.id === 'messages-loading' ? t('palette.searching') : row.text}
+                    </div>
+                  );
                 }
                 const index = group.from + i;
                 const isSelected = index === selected;
@@ -193,6 +253,23 @@ export function CommandPalette({
                       <>
                         {actionIcons[row.action.id]}
                         <span className="palette-row-name palette-row-action">{row.action.label}</span>
+                      </>
+                    )}
+                    {row.kind === 'message' && (
+                      <>
+                        <Avatar username={row.message.username} className="palette-avatar" />
+                        <span className="palette-snippet">
+                          {splitMatches(snippetAround(row.message.content, trimmed), trimmed).map((part, i) =>
+                            part.match ? <mark key={i}>{part.text}</mark> : <span key={i}>{part.text}</span>,
+                          )}
+                        </span>
+                        <span className="palette-date">{fmt.formatDayMonth(new Date(row.message.created_at))}</span>
+                      </>
+                    )}
+                    {row.kind === 'show-all' && (
+                      <>
+                        <Search size={17} strokeWidth={1.8} className="palette-row-icon" />
+                        <span className="palette-row-name palette-row-action">{t('palette.showAll')}</span>
                       </>
                     )}
                   </div>

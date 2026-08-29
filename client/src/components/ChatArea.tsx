@@ -14,6 +14,8 @@ import { collectUnresolvedUserIds } from '@/utils/userCache';
 import { isContinuation } from '@/utils/messageGroups';
 import { can, PERMISSIONS } from '@/utils/permissions';
 import { useFloatingSelectionToolbar } from '@/hooks/useFloatingSelectionToolbar';
+import { isBlockingOverlayOpen } from '@/hooks/useModalFocus';
+import { usePaletteStore } from '@/stores/paletteStore';
 import { MessageSearch } from '@/components/MessageSearch';
 import { MessageRow } from '@/components/MessageRow';
 import { Composer, type ComposerHandle } from '@/components/Composer';
@@ -68,10 +70,27 @@ export function ChatArea({ channel, user, onMobileBack, onShowMembers, onJoinVoi
   const composerRef = useRef<ComposerHandle>(null);
   const chatMessagesRef = useRef<HTMLDivElement>(null);
   const [searchOpen, setSearchOpen] = useState(false);
+  const [searchSeed, setSearchSeed] = useState<{ id: number; query: string } | null>(null);
+  const paletteCommand = usePaletteStore((s) => s.command);
+  const clearPaletteCommand = usePaletteStore((s) => s.clearCommand);
   const [historyMode, setHistoryMode] = useState(false);
   const [highlightedId, setHighlightedId] = useState<string | null>(null);
   const [stickerManagerOpen, setStickerManagerOpen] = useState(false);
   const [serverStickers, setServerStickers] = useState<Sticker[]>([]);
+
+  // Канал команд палитры (решение 5): MessageSearch и jumpToMessage живут
+  // только здесь, поэтому только два действия палитры доходят через
+  // paletteStore, а не прямым колбэком из AppPage.
+  useEffect(() => {
+    const cmd = paletteCommand;
+    if (!cmd) return;
+    // Снимаем команду ПЕРВЫМ делом: повторный заход эффекта становится no-op.
+    clearPaletteCommand(cmd.id);
+    // Канал мог смениться между открытием палитры и ↵ — тогда команда чужая.
+    if (!channel || cmd.channelId !== channel.id) return;
+    if (cmd.kind === 'chat-search') { setSearchSeed({ id: cmd.id, query: cmd.query }); setSearchOpen(true); }
+    else jumpToMessage(cmd.messageId);
+  }, [paletteCommand, channel, clearPaletteCommand]);
 
   // Unread divider anchor (spec §4.4): computed once per channel entry from
   // the persisted mark, then pinned — new messages arriving while the user is
@@ -139,6 +158,10 @@ export function ChatArea({ channel, user, onMobileBack, onShowMembers, onJoinVoi
   useEffect(() => {
     setEditingId(null);
     setSearchOpen(false);
+    // Иначе стартовавший в канале A запрос из палитры переживает переключение
+    // канала и всплывает как initialQuery при следующем РУЧНОМ открытии через
+    // кнопку в канале B (тот путь не трогает searchSeed — см. header-кнопку).
+    setSearchSeed(null);
     setHistoryMode(false);
     setHighlightedId(null);
     setConfirmDeleteId(null);
@@ -218,10 +241,12 @@ export function ChatArea({ channel, user, onMobileBack, onShowMembers, onJoinVoi
 
   useEffect(() => {
     const handler = (e: globalThis.KeyboardEvent) => {
+      if (isBlockingOverlayOpen()) return;
       if (e.ctrlKey && e.shiftKey && (e.key === 'F' || e.key === 'f' || e.code === 'KeyF')) {
         e.preventDefault();
-        setSearchOpen((open) => !open);
-      }
+        setSearchSeed(null);      // безусловно: клавиатурное открытие — это
+        setSearchOpen((o) => !o); // всегда новый ручной поиск, а не повтор
+      }                           // запроса из палитры
     };
     document.addEventListener('keydown', handler);
     return () => document.removeEventListener('keydown', handler);
@@ -583,7 +608,10 @@ logger.error('Failed to jump to message:', err, { module: 'chat' });
           <button
             type="button"
             className={`chat-search-btn${searchOpen ? ' is-active' : ''}`}
-            onClick={() => setSearchOpen((open) => !open)}
+            onClick={() => {
+              if (searchOpen) { setSearchOpen(false); setSearchSeed(null); }
+              else setSearchOpen(true);
+            }}
             aria-label={t('chat.searchMessages')}
             title={t('chat.searchHint')}
           >
@@ -716,9 +744,11 @@ logger.error('Failed to jump to message:', err, { module: 'chat' });
       )}
       {searchOpen && (
         <MessageSearch
+          key={searchSeed?.id ?? 0}
           channel={channel}
+          initialQuery={searchSeed?.query}
           onJumpToMessage={jumpToMessage}
-          onClose={() => setSearchOpen(false)}
+          onClose={() => { setSearchOpen(false); setSearchSeed(null); }}
         />
       )}
       {historyMode && (

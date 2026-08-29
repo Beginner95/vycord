@@ -1,9 +1,10 @@
-import { useState, useEffect, useRef, type ReactNode } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { SearchX } from 'lucide-react';
 import { apiService, apiErrorText } from '@/services/api';
 import type { Channel, MessageWithAuthor, MessageSearchResponse } from '@/types';
 import { useT, useTp, useDateFormat } from '@/i18n';
 import { avatarColor } from '@/utils/avatarColor';
+import { snippetAround, splitMatches } from '@/utils/searchSnippet';
 import './MessageSearch.css';
 
 const MIN_QUERY_LEN = 2;
@@ -12,6 +13,7 @@ const DEBOUNCE_MS = 300;
 
 interface MessageSearchProps {
   channel: Channel;
+  initialQuery?: string;
   onJumpToMessage: (messageId: string) => void;
   onClose: () => void;
 }
@@ -26,38 +28,11 @@ function formatResultDate(
   return `${day}, ${time}`;
 }
 
-// Обрезает длинный текст окном вокруг первого совпадения.
-function snippetAround(content: string, query: string, radius = 80): string {
-  if (content.length <= radius * 2) return content;
-  const idx = content.toLowerCase().indexOf(query.toLowerCase());
-  if (idx === -1) return `${content.slice(0, radius * 2)}…`;
-  const start = Math.max(0, idx - radius);
-  const end = Math.min(content.length, idx + query.length + radius);
-  return `${start > 0 ? '…' : ''}${content.slice(start, end)}${end < content.length ? '…' : ''}`;
-}
-
-function highlightMatches(text: string, query: string): ReactNode[] {
-  const lower = text.toLowerCase();
-  const q = query.toLowerCase();
-  const parts: ReactNode[] = [];
-  let pos = 0;
-  let key = 0;
-  for (;;) {
-    const idx = lower.indexOf(q, pos);
-    if (idx === -1) break;
-    if (idx > pos) parts.push(text.slice(pos, idx));
-    parts.push(<mark key={key++}>{text.slice(idx, idx + q.length)}</mark>);
-    pos = idx + q.length;
-  }
-  if (pos < text.length) parts.push(text.slice(pos));
-  return parts;
-}
-
-export function MessageSearch({ channel, onJumpToMessage, onClose }: MessageSearchProps) {
+export function MessageSearch({ channel, initialQuery = '', onJumpToMessage, onClose }: MessageSearchProps) {
   const t = useT();
   const tp = useTp();
   const fmt = useDateFormat();
-  const [query, setQuery] = useState('');
+  const [query, setQuery] = useState(initialQuery);
   const [results, setResults] = useState<MessageWithAuthor[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
@@ -193,7 +168,9 @@ export function MessageSearch({ channel, onJumpToMessage, onClose }: MessageSear
                     <span className="message-search-result-date">{formatResultDate(msg.created_at, fmt)}</span>
                   </div>
                   <p className="message-search-result-text">
-                    {highlightMatches(snippetAround(msg.content, trimmed), trimmed)}
+                    {splitMatches(snippetAround(msg.content, trimmed), trimmed).map((part, i) =>
+                      part.match ? <mark key={i}>{part.text}</mark> : <span key={i}>{part.text}</span>,
+                    )}
                   </p>
                 </div>
               </button>

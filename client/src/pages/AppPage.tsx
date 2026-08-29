@@ -755,6 +755,7 @@ logger.error('Failed to create server:', err, { module: 'app' });
         onCreateServer={() => { setShowCreateServer(true); setCreateServerError(''); }}
         onFindServer={() => setFindServerOpen(true)}
         onJoinVoice={handleJoinVoice}
+        onShowChat={() => setMobilePanel('chat')}
       />
       <CallUI />
     </div>
