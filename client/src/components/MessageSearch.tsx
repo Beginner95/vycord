@@ -1,9 +1,9 @@
 import { useState, useEffect, useRef } from 'react';
-import { SearchX } from 'lucide-react';
+import { Search, SearchX, X } from 'lucide-react';
 import { apiService, apiErrorText } from '@/services/api';
 import type { Channel, MessageWithAuthor, MessageSearchResponse } from '@/types';
 import { useT, useTp, useDateFormat } from '@/i18n';
-import { avatarColor } from '@/utils/avatarColor';
+import { Avatar } from '@/components/Avatar';
 import { snippetAround, splitMatches } from '@/utils/searchSnippet';
 import './MessageSearch.css';
 
@@ -96,10 +96,11 @@ export function MessageSearch({ channel, initialQuery = '', onJumpToMessage, onC
     <aside className="message-search" aria-label={t('chat.searchMessages')}>
       <div className="message-search-header">
         <div className="message-search-input-wrap">
-          <svg className="message-search-input-icon" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          <Search size={17} strokeWidth={1.8} className="message-search-input-icon" />
           <input
             ref={inputRef}
             type="text"
+            className="input message-search-field"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={(e) => {
@@ -113,12 +114,12 @@ export function MessageSearch({ channel, initialQuery = '', onJumpToMessage, onC
           />
           {query && (
             <button type="button" className="message-search-clear" aria-label={t('common.clear')} onClick={() => setQuery('')}>
-              <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+              <X size={14} strokeWidth={1.8} />
             </button>
           )}
         </div>
         <button type="button" className="message-search-close" aria-label={t('chat.closeSearch')} onClick={onClose}>
-          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          <X size={16} strokeWidth={1.8} />
         </button>
       </div>
 
@@ -129,7 +130,7 @@ export function MessageSearch({ channel, initialQuery = '', onJumpToMessage, onC
       <div className="message-search-body">
         {trimmed.length < MIN_QUERY_LEN ? (
           <div className="message-search-hint">
-            <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+            <Search size={22} strokeWidth={1.8} />
             <p>{tp('chat.minQueryLength', MIN_QUERY_LEN)}</p>
           </div>
         ) : loading ? (
@@ -145,6 +146,7 @@ export function MessageSearch({ channel, initialQuery = '', onJumpToMessage, onC
             <div className="message-search-empty-tile">
               <SearchX size={22} strokeWidth={1.8} />
             </div>
+            <h3 className="message-search-empty-title">{t('chat.nothingFoundTitle')}</h3>
             <p>{t('chat.nothingFound', { query: trimmed })}</p>
           </div>
         ) : (
@@ -156,12 +158,7 @@ export function MessageSearch({ channel, initialQuery = '', onJumpToMessage, onC
                 className="message-search-result"
                 onClick={() => onJumpToMessage(msg.id)}
               >
-                <div
-                  className="message-search-result-avatar"
-                  style={{ background: avatarColor(msg.username) }}
-                >
-                  {msg.username.charAt(0).toUpperCase()}
-                </div>
+                <Avatar username={msg.username} className="message-search-result-avatar" />
                 <div className="message-search-result-main">
                   <div className="message-search-result-meta">
                     <span className="message-search-result-author">{msg.username}</span>

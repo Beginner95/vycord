@@ -84,6 +84,7 @@ export const ru = {
       many: 'Введите минимум {{count}} символов для поиска по каналу',
       other: 'Введите минимум {{count}} символа для поиска по каналу',
     }),
+    nothingFoundTitle: 'Ничего не нашлось',
     nothingFound: 'Ничего не найдено по запросу «{{query}}»',
     loadMore: 'Показать ещё',
     legacyRoleOwner: 'Владелец',

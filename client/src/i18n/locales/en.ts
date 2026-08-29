@@ -81,6 +81,7 @@ export const en: Dictionary = {
       one: 'Enter at least {{count}} character to search this channel',
       other: 'Enter at least {{count}} characters to search this channel',
     }),
+    nothingFoundTitle: 'Nothing found',
     nothingFound: 'Nothing found for “{{query}}”',
     loadMore: 'Load more',
     legacyRoleOwner: 'Owner',

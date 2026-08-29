@@ -1,132 +1,119 @@
-/* ── Search Panel ── */
+/* ═══ Deep search panel — M5 restyle. Board 2c owns the palette; this panel is
+   an unspecced surface (spec §2 "survives restyled"), so geometry is the
+   shipped one and only the system changes: tokens, .input, lucide, Avatar.
+   Legacy aliases removed here — M6's alias sweep loses this file. ═══ */
 .message-search {
   position: absolute;
-  top: 58px; /* высота .chat-header */
+  top: 58px; /* .chat-header */
   right: 0;
   bottom: 0;
-  width: 360px;
+  z-index: 20;
   display: flex;
   flex-direction: column;
-  background: var(--bg-primary);
-  border-left: 1px solid var(--border-color);
-  box-shadow: -4px 0 16px rgba(0, 0, 0, 0.08);
-  z-index: 20;
-  animation: message-search-slide-in 0.18s ease-out;
+  width: 360px;
+  background: var(--canvas);
+  border-left: 1px solid var(--line);
+  box-shadow: var(--shadow-menu);
+  animation: message-search-slide-in 0.18s var(--ease-out);
 }
 
 @keyframes message-search-slide-in {
   from {
-    transform: translateX(24px);
     opacity: 0;
+    transform: translateX(24px);
   }
+
   to {
-    transform: translateX(0);
     opacity: 1;
+    transform: translateX(0);
   }
 }
 
 .message-search-header {
   display: flex;
-  align-items: center;
   gap: 8px;
+  align-items: center;
   padding: 12px;
-  border-bottom: 1px solid var(--border-color);
+  border-bottom: 1px solid var(--line);
 }
 
 .message-search-input-wrap {
   position: relative;
-  flex: 1;
   display: flex;
+  flex: 1;
   align-items: center;
 }
 
 .message-search-input-icon {
   position: absolute;
-  left: 10px;
-  color: var(--text-muted);
+  left: 12px;
+  color: var(--muted-2);
   pointer-events: none;
 }
 
-.message-search-input-wrap input {
-  width: 100%;
-  padding: 8px 30px 8px 30px;
+.input.message-search-field {
+  padding: 9px 34px 9px 38px;
   font-size: 14px;
-  color: var(--text-primary);
-  background: var(--bg-secondary);
-  border: 1px solid transparent;
-  border-radius: var(--radius-md);
-  outline: none;
-  transition: border-color 0.15s;
-}
-
-.message-search-input-wrap input:focus {
-  border-color: var(--brand-color);
-}
-
-.message-search-input-wrap input::placeholder {
-  color: var(--text-muted);
 }
 
 .message-search-clear {
   position: absolute;
-  right: 8px;
+  right: 10px;
   display: flex;
   align-items: center;
   padding: 2px;
-  color: var(--text-muted);
+  color: var(--muted-2);
   background: none;
   border: none;
-  cursor: pointer;
 }
 
 .message-search-clear:hover {
-  color: var(--text-primary);
+  color: var(--ink);
 }
 
 .message-search-close {
   display: flex;
   align-items: center;
   padding: 6px;
-  color: var(--text-secondary);
+  color: var(--muted);
   background: none;
   border: none;
-  border-radius: var(--radius-sm);
-  cursor: pointer;
+  border-radius: var(--radius-chip);
 }
 
 .message-search-close:hover {
-  color: var(--text-primary);
-  background: var(--bg-hover);
+  color: var(--ink);
+  background: var(--canvas-2);
 }
 
 .message-search-count {
   padding: 8px 14px;
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--text-secondary);
+  font-size: var(--fs-group);
+  font-weight: 700;
+  letter-spacing: var(--ls-group);
+  color: var(--muted-2);
   text-transform: uppercase;
-  letter-spacing: 0.02em;
-  border-bottom: 1px solid var(--border-color);
+  border-bottom: 1px solid var(--line);
 }
 
 .message-search-body {
-  flex: 1;
-  overflow-y: auto;
-  padding: 8px;
   display: flex;
+  flex: 1;
   flex-direction: column;
   gap: 4px;
+  padding: 8px;
+  overflow-y: auto;
 }
 
 .message-search-hint {
-  flex: 1;
   display: flex;
+  flex: 1;
   flex-direction: column;
+  gap: 10px;
   align-items: center;
   justify-content: center;
-  gap: 10px;
   padding: 24px;
-  color: var(--text-muted);
+  color: var(--muted-2);
   text-align: center;
 }
 
@@ -136,17 +123,18 @@
 }
 
 .message-search-error {
-  color: var(--red-color);
+  color: var(--danger-text);
 }
 
-/* ═══ No-results — icon tile from the empty-state card recipe (board 2a) ═══ */
+/* ═══ No results — board 2a card, title + body (no suggestion chips: nothing
+   in the client can suggest a query) ═══ */
 .message-search-empty {
   display: flex;
   flex: 1;
   flex-direction: column;
+  gap: 14px;
   align-items: center;
   justify-content: center;
-  gap: 14px;
   padding: 24px;
   text-align: center;
 }
@@ -160,22 +148,30 @@
   height: 56px;
   color: var(--muted-2);
   background: var(--canvas-2);
-  border-radius: 18px;
+  border-radius: var(--radius-bar);
+}
+
+.message-search-empty-title {
+  font-size: 17px;
+  font-weight: 800;
+  line-height: 1.25;
+  letter-spacing: -0.01em;
+  color: var(--ink);
 }
 
 .message-search-empty p {
   max-width: 250px;
   font-size: 13px;
   line-height: 1.55;
-  color: var(--text-muted);
+  color: var(--muted);
 }
 
 .message-search-spinner {
   width: 24px;
   height: 24px;
-  border: 3px solid var(--bg-tertiary);
-  border-top-color: var(--brand-color);
-  border-radius: var(--radius-full);
+  border: 3px solid var(--line);
+  border-top-color: var(--accent);
+  border-radius: var(--radius-pill);
   animation: message-search-spin 0.7s linear infinite;
 }
 
@@ -185,37 +181,34 @@
   }
 }
 
-/* ── Result Card ── */
+/* ═══ Result rows ═══ */
 .message-search-result {
   display: flex;
-  align-items: flex-start;
   gap: 10px;
+  align-items: flex-start;
   width: 100%;
   padding: 10px;
   text-align: left;
   background: none;
   border: none;
-  border-radius: var(--radius-md);
-  cursor: pointer;
-  transition: background 0.12s;
+  border-radius: var(--radius-row);
+  transition: background var(--transition);
 }
 
 .message-search-result:hover {
-  background: var(--bg-hover);
+  background: var(--canvas-2);
 }
 
 .message-search-result-avatar {
-  flex-shrink: 0;
-  width: 32px;
-  height: 32px;
   display: flex;
+  flex-shrink: 0;
   align-items: center;
   justify-content: center;
+  width: 32px;
+  height: 32px;
   font-size: 14px;
-  font-weight: 700;
-  color: #fff;
-  background: var(--brand-color);
-  border-radius: var(--radius-full);
+  border-radius: var(--radius-tile);
+  object-fit: cover;
 }
 
 .message-search-result-main {
@@ -225,36 +218,37 @@
 
 .message-search-result-meta {
   display: flex;
-  align-items: baseline;
   gap: 8px;
+  align-items: baseline;
   margin-bottom: 2px;
 }
 
 .message-search-result-author {
   font-size: 13px;
   font-weight: 700;
-  color: var(--text-primary);
+  color: var(--ink);
 }
 
 .message-search-result-date {
-  font-size: 11px;
-  color: var(--text-muted);
+  font-size: var(--fs-caption);
+  font-weight: 500;
+  color: var(--faint);
 }
 
 .message-search-result-text {
   font-size: 13px;
   line-height: 1.45;
-  color: var(--text-secondary);
-  word-break: break-word;
+  color: var(--muted);
+  overflow-wrap: break-word;
   white-space: pre-wrap;
 }
 
 .message-search-result-text mark {
   padding: 0 1px;
-  color: var(--text-primary);
-  background: var(--brand-subtle);
+  font-weight: 700;
+  color: var(--hl-ink);
+  background: var(--hl-bg);
   border-radius: 2px;
-  box-shadow: 0 1px 0 var(--brand-color);
 }
 
 .message-search-more {
@@ -262,15 +256,10 @@
   padding: 8px;
   font-size: 13px;
   font-weight: 600;
-  color: var(--brand-color);
-  background: var(--brand-subtle);
+  color: var(--accent);
+  background: var(--accent-soft);
   border: none;
-  border-radius: var(--radius-md);
-  cursor: pointer;
-}
-
-.message-search-more:hover:not(:disabled) {
-  background: var(--brand-100);
+  border-radius: var(--radius-row);
 }
 
 .message-search-more:disabled {
@@ -278,8 +267,12 @@
   cursor: default;
 }
 
+.message-search-more:hover:not(:disabled) {
+  background: var(--accent-border);
+}
+
 /* Мобильный: панель на всю ширину */
-@media (max-width: 768px) {
+@media (width <= 768px) {
   .message-search {
     width: 100%;
     border-left: none;
