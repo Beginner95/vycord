@@ -87,3 +87,16 @@ export function useModalFocus(
     };
   }, [active, containerRef]);
 }
+
+/** Открыт ли сейчас блокирующий оверлей. Нужен глобальным хоткеям: ⌘K не
+ *  должен открывать палитру поверх модалки (решение 8), а Ctrl+Shift+F —
+ *  переключать панель поиска под оверлеем (решение 11).
+ *
+ *  Двойная проверка не избыточна. Стек знает только про адоптеров хука — а это
+ *  ровно ConfirmModal, FindServerModal и Settings; остальные восемь модалок
+ *  приложения к нему не подключены (адоптация app-wide — за M6, ruling 13 M4).
+ *  Зато `.modal-overlay` рисуют ВСЕ, включая саму палитру, — что заодно даёт
+ *  «только открывает» без отдельного флага. */
+export function isBlockingOverlayOpen(): boolean {
+  return modalStack.length > 0 || document.querySelector('.modal-overlay') !== null;
+}

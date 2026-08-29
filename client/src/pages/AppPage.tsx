@@ -9,6 +9,7 @@ import { ServerList } from '@/components/ServerList';
 import { ChannelSidebar } from '@/components/ChannelSidebar';
 import { ChatArea } from '@/components/ChatArea';
 import { FindServerModal } from '@/components/FindServerModal';
+import { CommandPalette } from '@/components/CommandPalette';
 import { UserList } from '@/components/UserList';
 import { TitleBar } from '@/components/TitleBar';
 import { CallUI } from '@/components/CallUI';
@@ -16,6 +17,7 @@ import { CallStage } from '@/components/CallStage';
 import { CallNotifBanner } from '@/components/CallNotifBanner';
 import { groupCallService } from '@/services/groupCall';
 import { useCallStore, initCallBridge } from '@/stores/callStore';
+import { usePaletteHotkey } from '@/hooks/usePaletteHotkey';
 import { useT } from '@/i18n';
 import type { Server, Channel, Message, MemberWithUser } from '@/types';
 import './AppPage.css';
@@ -76,6 +78,7 @@ function startCallRingtone(): () => void {
 
 export function AppPage() {
   const t = useT();
+  usePaletteHotkey();
   const { user, accessToken, logout } = useAuthStore();
   const { servers, setServers, setServersLoaded, setCurrentServer, currentServer, setChannels, channels, currentChannel, setCurrentChannel, setMembers, members, setPermissions } = useServerStore();
   const { setMessages } = useMessageStore();
@@ -733,6 +736,7 @@ logger.error('Failed to create server:', err, { module: 'app' });
           }}
         />
       )}
+      <CommandPalette onSelectChannel={handleSelectChannel} />
       <CallUI />
     </div>
   );

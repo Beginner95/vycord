@@ -1,0 +1,174 @@
+/* ═══ Command palette (board 2c) — 600px dialog, r16, palette shadow ═══
+   Оверлей переиспользует .modal-overlay (скрим, blur, fade-in) и меняет ровно
+   три декларации. z-index 1150, а не 1000: .context-menu лежит на 1050 и иначе
+   рисовался бы поверх палитры, а 1100 занято — .screen-share-picker и
+   .volume-popover (решение 10). Компонентный CSS выигрывает у базового слоя по
+   порядку источника — доказано в dev и в dist (M2 T1). */
+.palette-overlay {
+  align-items: flex-start;
+  padding: 12vh 16px 16px;
+  z-index: 1150;
+}
+
+.palette-dialog {
+  display: flex;
+  flex-direction: column;
+  width: min(600px, 100%);
+  overflow: hidden;
+  background: var(--canvas);
+  border-radius: var(--radius-modal);
+  box-shadow: var(--shadow-palette);
+  animation: modal-in 0.18s var(--ease-out);
+}
+
+/* ═══ Search row ═══ */
+.palette-search {
+  display: flex;
+  gap: 11px;
+  align-items: center;
+  padding: 16px 18px;
+  border-bottom: 1px solid var(--line);
+}
+
+.palette-search-icon {
+  flex-shrink: 0;
+  color: var(--muted-2);
+}
+
+.palette-input {
+  flex: 1;
+  min-width: 0;
+  font-family: inherit;
+  font-size: 15px;
+  font-weight: 400;
+  color: var(--ink);
+  background: none;
+  border: none;
+  outline: none;
+  caret-color: var(--accent);
+}
+
+.palette-input::placeholder {
+  color: var(--faint);
+}
+
+/* Кольцо фокуса снято намеренно (решение 26): поле автофокусное и
+   единственное внутри ловушки, сигнал фокуса — акцентная каретка. */
+.palette-input:focus-visible {
+  outline: none;
+}
+
+.kbd.palette-esc {
+  flex-shrink: 0;
+  padding: 3px 8px;
+  font-weight: 600;
+  color: var(--muted-2);
+  border: none;
+}
+
+/* ═══ Results ═══ */
+.palette-list {
+  max-height: min(52vh, 420px);
+  padding: 10px 8px 12px;
+  overflow-y: auto;
+}
+
+.palette-group-label {
+  padding: 14px 12px 6px;
+  font-size: var(--fs-group);
+  font-weight: 700;
+  letter-spacing: var(--ls-group);
+  color: var(--muted-2);
+  text-transform: uppercase;
+}
+
+.palette-group:first-child .palette-group-label {
+  padding-top: 8px;
+}
+
+.palette-row {
+  display: flex;
+  gap: 11px;
+  align-items: center;
+  padding: 9px 12px;
+  border-radius: var(--radius-btn);
+  cursor: pointer;
+}
+
+.palette-row.is-selected {
+  background: var(--accent-soft);
+}
+
+.palette-row-icon {
+  flex-shrink: 0;
+  color: var(--muted-2);
+}
+
+.palette-row.is-selected .palette-row-icon {
+  color: var(--accent);
+}
+
+.palette-row-name {
+  overflow: hidden;
+  font-size: var(--fs-label);
+  font-weight: 600;
+  color: var(--ink);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.palette-row.is-selected .palette-row-name {
+  font-weight: 700;
+}
+
+.kbd.palette-enter {
+  flex-shrink: 0;
+  margin-left: auto;
+  padding: 3px 8px;
+  font-weight: 600;
+  color: var(--accent);
+  background: var(--canvas);
+  border-color: var(--accent-border);
+}
+
+.palette-status,
+.palette-empty {
+  padding: 9px 12px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+/* ═══ Footer hint bar ═══ */
+.palette-footer {
+  display: flex;
+  gap: 14px;
+  align-items: center;
+  padding: 10px 18px;
+  background: var(--canvas-3);
+  border-top: 1px solid var(--line);
+}
+
+.palette-hint {
+  font-size: var(--fs-caption);
+  font-weight: 500;
+  color: var(--muted-2);
+}
+
+.palette-hint-end {
+  margin-left: auto;
+}
+
+.palette-key {
+  font-family: var(--font-mono);
+  color: var(--muted);
+}
+
+@media (width <= 640px) {
+  .palette-overlay {
+    padding: 8vh 12px 12px;
+  }
+
+  .palette-list {
+    max-height: 60vh;
+  }
+}
