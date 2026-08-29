@@ -10,6 +10,8 @@ import { ChannelSidebar } from '@/components/ChannelSidebar';
 import { ChatArea } from '@/components/ChatArea';
 import { FindServerModal } from '@/components/FindServerModal';
 import { CommandPalette } from '@/components/CommandPalette';
+import { Settings } from '@/components/Settings';
+import { CreateChannelModal } from '@/components/CreateChannelModal';
 import { UserList } from '@/components/UserList';
 import { TitleBar } from '@/components/TitleBar';
 import { CallUI } from '@/components/CallUI';
@@ -84,6 +86,8 @@ export function AppPage() {
   const { setMessages } = useMessageStore();
   const [showCreateServer, setShowCreateServer] = useState(false);
   const [findServerOpen, setFindServerOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [createChannelOpen, setCreateChannelOpen] = useState(false);
   const [newServerName, setNewServerName] = useState('');
   const [newServerIsPrivate, setNewServerIsPrivate] = useState(false);
   const [createServerError, setCreateServerError] = useState('');
@@ -629,6 +633,8 @@ logger.error('Failed to create server:', err, { module: 'app' });
           onChannelDeleted={handleChannelRemoved}
           onGoToCall={handleGoToCall}
           onServerDeleted={handleServerRemoved}
+          onOpenSettings={() => setSettingsOpen(true)}
+          onCreateChannel={() => setCreateChannelOpen(true)}
         />
 
         {/* Сцена звонка показывается только в том канале, где идёт звонок:
@@ -675,6 +681,12 @@ logger.error('Failed to create server:', err, { module: 'app' });
         onServerJoined={handleServerJoined}
         onCreateServer={() => { setShowCreateServer(true); setCreateServerError(''); }}
       />
+
+      <Settings isOpen={settingsOpen} onClose={() => setSettingsOpen(false)} onLogout={handleLogout} />
+
+      {createChannelOpen && currentServer && (
+        <CreateChannelModal serverId={currentServer.id} onClose={() => setCreateChannelOpen(false)} />
+      )}
 
       {showCreateServer && (
         <div className="modal-overlay" onClick={() => { setShowCreateServer(false); setCreateServerError(''); }}>
@@ -736,7 +748,14 @@ logger.error('Failed to create server:', err, { module: 'app' });
           }}
         />
       )}
-      <CommandPalette onSelectChannel={handleSelectChannel} />
+      <CommandPalette
+        onSelectChannel={handleSelectChannel}
+        onOpenSettings={() => setSettingsOpen(true)}
+        onCreateChannel={() => setCreateChannelOpen(true)}
+        onCreateServer={() => { setShowCreateServer(true); setCreateServerError(''); }}
+        onFindServer={() => setFindServerOpen(true)}
+        onJoinVoice={handleJoinVoice}
+      />
       <CallUI />
     </div>
   );

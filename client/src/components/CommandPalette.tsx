@@ -1,10 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Hash, Search } from 'lucide-react';
+import { Hash, Moon, Plus, Search, Settings as SettingsIcon, Sun, Volume2 } from 'lucide-react';
+import type { ReactNode } from 'react';
 import type { Channel } from '@/types';
 import { useT } from '@/i18n';
 import { useServerStore } from '@/stores/serverStore';
 import { usePaletteStore } from '@/stores/paletteStore';
+import { useCallStore } from '@/stores/callStore';
+import { useThemeStore } from '@/stores/themeStore';
 import { useModalFocus } from '@/hooks/useModalFocus';
+import { can, PERMISSIONS } from '@/utils/permissions';
 import {
   buildPalette, moveSelection, PALETTE_MAX_QUERY,
   type PaletteActionDef, type PaletteRow,
@@ -13,9 +17,16 @@ import './CommandPalette.css';
 
 interface CommandPaletteProps {
   onSelectChannel: (channel: Channel) => void;
+  onOpenSettings: () => void;
+  onCreateChannel: () => void;
+  onCreateServer: () => void;
+  onFindServer: () => void;
+  onJoinVoice: (channel: Channel) => void;
 }
 
-export function CommandPalette({ onSelectChannel }: CommandPaletteProps) {
+export function CommandPalette({
+  onSelectChannel, onOpenSettings, onCreateChannel, onCreateServer, onFindServer, onJoinVoice,
+}: CommandPaletteProps) {
   const t = useT();
   const isOpen = usePaletteStore((s) => s.isOpen);
   const close = usePaletteStore((s) => s.close);
@@ -32,7 +43,50 @@ export function CommandPalette({ onSelectChannel }: CommandPaletteProps) {
     if (isOpen) { setQuery(''); setSelected(0); }
   }, [isOpen]);
 
-  const actions: PaletteActionDef[] = useMemo(() => [], []); // Task 4 наполняет реестр
+  const currentServer = useServerStore((s) => s.currentServer);
+  const currentChannel = useServerStore((s) => s.currentChannel);
+  const permissions = useServerStore((s) => (s.currentServer ? s.permissions.get(s.currentServer.id) : undefined));
+  const callChannelId = useCallStore((s) => s.callChannelId);
+  const theme = useThemeStore((s) => s.theme);
+  const setTheme = useThemeStore((s) => s.setTheme);
+
+  // Иконки живут рядом с реестром: paletteFilter — чистый модуль и ничего не
+  // знает про React (решение 12).
+  const actionIcons: Record<string, ReactNode> = {
+    'create-channel': <Plus size={17} strokeWidth={1.8} className="palette-row-icon" />,
+    'join-voice': <Volume2 size={17} strokeWidth={1.8} className="palette-row-icon" />,
+    'open-settings': <SettingsIcon size={17} strokeWidth={1.8} className="palette-row-icon" />,
+    theme: theme === 'dark'
+      ? <Sun size={17} strokeWidth={1.8} className="palette-row-icon" />
+      : <Moon size={17} strokeWidth={1.8} className="palette-row-icon" />,
+    'create-server': <Plus size={17} strokeWidth={1.8} className="palette-row-icon" />,
+    'find-server': <Search size={17} strokeWidth={1.8} className="palette-row-icon" />,
+  };
+
+  const canManageChannels = can(permissions, PERMISSIONS.MANAGE_CHANNELS);
+  const actions: PaletteActionDef[] = useMemo(() => {
+    const defs: PaletteActionDef[] = [];
+    if (currentServer && canManageChannels) {
+      defs.push({ id: 'create-channel', label: t('palette.createChannel'), run: onCreateChannel });
+    }
+    if (currentChannel && callChannelId !== currentChannel.id) {
+      defs.push({
+        id: 'join-voice',
+        label: t('palette.joinVoice', { channel: currentChannel.name }),
+        run: () => onJoinVoice(currentChannel),
+      });
+    }
+    defs.push({ id: 'open-settings', label: t('palette.openSettings'), run: onOpenSettings });
+    defs.push({
+      id: 'theme',
+      label: theme === 'dark' ? t('palette.themeLight') : t('palette.themeDark'),
+      run: () => setTheme(theme === 'dark' ? 'light' : 'dark'),
+    });
+    defs.push({ id: 'create-server', label: t('palette.createServer'), run: onCreateServer });
+    defs.push({ id: 'find-server', label: t('palette.findServer'), run: onFindServer });
+    return defs;
+  }, [t, currentServer, canManageChannels, currentChannel, callChannelId, theme,
+      onCreateChannel, onJoinVoice, onOpenSettings, setTheme, onCreateServer, onFindServer]);
 
   const model = useMemo(
     () => buildPalette({
@@ -61,6 +115,7 @@ export function CommandPalette({ onSelectChannel }: CommandPaletteProps) {
 
   const activate = (row: PaletteRow) => {
     if (row.kind === 'channel') { close(); onSelectChannel(row.channel); }
+    else if (row.kind === 'action') { close(); row.action.run(); }
   };
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -132,6 +187,12 @@ export function CommandPalette({ onSelectChannel }: CommandPaletteProps) {
                         {isSelected && (
                           <span className="kbd palette-enter">↵ {t('palette.enterOpen')}</span>
                         )}
+                      </>
+                    )}
+                    {row.kind === 'action' && (
+                      <>
+                        {actionIcons[row.action.id]}
+                        <span className="palette-row-name palette-row-action">{row.action.label}</span>
                       </>
                     )}
                   </div>

@@ -1,12 +1,10 @@
 import { useState, useEffect, useMemo, useRef, type MouseEvent } from 'react';
 import { ChevronDown, ChevronLeft, Hash, Plus, Mic, MicOff, Volume2, Headphones, Settings as SettingsIcon, LogOut, Pencil, Trash2 } from 'lucide-react';
 import type { Server, Channel, User, MemberWithUser } from '@/types';
-import { Settings } from '@/components/Settings';
 import { ConfirmModal } from '@/components/ConfirmModal';
 import { Avatar } from '@/components/Avatar';
 import { ContextMenu } from '@/components/ContextMenu';
 import { EditChannelModal } from '@/components/EditChannelModal';
-import { CreateChannelModal } from '@/components/CreateChannelModal';
 import { ServerMenu } from '@/components/ServerMenu';
 import { CallDock } from '@/components/CallDock';
 import { apiService, apiErrorText } from '@/services/api';
@@ -31,6 +29,8 @@ interface ChannelSidebarProps {
   onChannelDeleted: (channelId: string) => void;
   onGoToCall: (serverId: string | null, channelId: string) => void;
   onServerDeleted: (serverId: string) => void;
+  onOpenSettings: () => void;
+  onCreateChannel: () => void;
 }
 
 export function ChannelSidebar({
@@ -47,13 +47,13 @@ export function ChannelSidebar({
   onChannelDeleted,
   onGoToCall,
   onServerDeleted,
+  onOpenSettings,
+  onCreateChannel,
 }: ChannelSidebarProps) {
   const t = useT();
-  const [settingsOpen, setSettingsOpen] = useState(false);
   const [ncEnabled, setNcEnabled] = useState(false);
   const [channelMenu, setChannelMenu] = useState<{ x: number; y: number; channel: Channel } | null>(null);
   const [editingChannel, setEditingChannel] = useState<Channel | null>(null);
-  const [creatingChannel, setCreatingChannel] = useState(false);
   const [confirmLogout, setConfirmLogout] = useState(false);
   // seq делает каждое открытие меню новым React-ключом: ServerMenu живёт до
   // dismiss тоста ошибки, и без нового ключа повторный клик по кнопке попадал
@@ -184,7 +184,7 @@ export function ChannelSidebar({
               type="button"
               className="channel-category-add"
               title={t('channel.createChannelMenu')}
-              onClick={() => setCreatingChannel(true)}
+              onClick={() => onCreateChannel()}
             >
               <Plus size={15} strokeWidth={1.8} />
             </button>
@@ -288,7 +288,7 @@ export function ChannelSidebar({
           <button
             type="button"
             className="panel-icon-btn"
-            onClick={() => setSettingsOpen(true)}
+            onClick={() => onOpenSettings()}
             title={t('settings.title')}
           >
             <SettingsIcon size={16} strokeWidth={1.8} />
@@ -303,8 +303,6 @@ export function ChannelSidebar({
           </button>
         </div>
       </div>
-
-      <Settings isOpen={settingsOpen} onClose={() => setSettingsOpen(false)} onLogout={onLogout} />
 
       <ConfirmModal
         open={confirmLogout}
@@ -349,10 +347,6 @@ export function ChannelSidebar({
           channel={editingChannel}
           onClose={() => setEditingChannel(null)}
         />
-      )}
-
-      {creatingChannel && server && (
-        <CreateChannelModal serverId={server.id} onClose={() => setCreatingChannel(false)} />
       )}
 
       <ConfirmModal

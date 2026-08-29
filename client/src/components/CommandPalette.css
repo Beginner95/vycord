@@ -104,6 +104,17 @@
   color: var(--muted-2);
 }
 
+/* Иконка действия на полтона темнее иконки канала (board 2c: --muted
+   против --muted-2). Селектор именно :has(): иконка стоит в разметке ПЕРЕД
+   лейблом, поэтому `.palette-row-action ~ .palette-row-icon` не совпал бы
+   никогда. Правило живёт МЕЖДУ базовым .palette-row-icon (0,1,0) и
+   .is-selected (0,3,0): оно само (0,3,0), так что порядок остаётся
+   неубывающим (no-descending-specificity), а выделенная строка действия
+   получает --accent так же, как выделенный канал. */
+.palette-row:has(.palette-row-action) .palette-row-icon {
+  color: var(--muted);
+}
+
 .palette-row.is-selected .palette-row-icon {
   color: var(--accent);
 }
@@ -115,6 +126,10 @@
   color: var(--ink);
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.palette-row-action {
+  font-weight: 600;
 }
 
 .palette-row.is-selected .palette-row-name {
