@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   rankByName, buildPalette, moveSelection,
-  CAP_CHANNELS, PALETTE_MIN_QUERY, type PaletteActionDef,
+  CAP_CHANNELS, CAP_MESSAGES, PALETTE_MIN_QUERY, type PaletteActionDef,
 } from './paletteFilter';
 import type { Channel } from '@/types';
 
@@ -28,14 +28,28 @@ describe('rankByName', () => {
   it('ranks a prefix match above a substring match', () =>
     expect(rankByName(items, 'ген', (c) => c.name, 6).map((c) => c.id)).toEqual(['2', '3']));
 
-  it('keeps source order inside the same rank', () =>
-    expect(rankByName(items, 'р', (c) => c.name, 6).map((c) => c.id)).toEqual(['3', '2']));
+  it('keeps source order inside the same rank', () => {
+    // Все три имени намеренно попадают в один и тот же бакет (префикс на 'ген'),
+    // так что тест проверяет именно сохранение порядка внутри бакета — приоритет
+    // префикса над подстрокой уже проверен отдельным тестом выше. Запрос 'р' из
+    // прежней фикстуры клал по одному элементу в каждый бакет и не проверял tie
+    // вообще: prefix.reverse() перед конкатенацией всё равно прошёл бы.
+    const tied = [ch('x', 'генерал-один'), ch('y', 'генерал-два'), ch('z', 'генерал-три')];
+    expect(rankByName(tied, 'ген', (c) => c.name, 6).map((c) => c.id)).toEqual(['x', 'y', 'z']);
+  });
 
   it('returns nothing when nothing matches', () =>
     expect(rankByName(items, 'zzz', (c) => c.name, 6)).toEqual([]));
 
-  it('never returns more than the cap', () =>
-    expect(rankByName(items, '', (c) => c.name, CAP_CHANNELS).length).toBeLessThanOrEqual(CAP_CHANNELS));
+  it('never returns more than the cap', () => {
+    // Непустой запрос и фикстура строго больше cap: пустой запрос уходит в
+    // ранний return `items.slice(0, cap)` и не проверяет `.slice(0, cap)` на
+    // общем пути ранжирования (решение 15 — cap не должен быть тихим по построению).
+    const many = Array.from({ length: CAP_CHANNELS + 2 }, (_, i) => ch(String(i), `генерал-${i}`));
+    const result = rankByName(many, 'ген', (c) => c.name, CAP_CHANNELS);
+    expect(result).toHaveLength(CAP_CHANNELS);
+    expect(result.map((c) => c.id)).toEqual(['0', '1', '2', '3', '4', '5']);
+  });
 });
 
 describe('buildPalette', () => {
@@ -83,6 +97,21 @@ describe('buildPalette', () => {
     const many = buildPalette({ ...base, query: 'ген', messages: [shown], messagesTotal: 9 });
     expect(few.rows.some((r) => r.kind === 'show-all')).toBe(false);
     expect(many.rows.some((r) => r.kind === 'show-all')).toBe(true);
+  });
+
+  it('caps the messages group at CAP_MESSAGES even when more are supplied', () => {
+    // Отдельный, независимый слайс от `rankByName` — CAP_MESSAGES применяется
+    // внутри buildPalette к messages.slice(...), а не через rankByName.
+    const supplied = Array.from({ length: CAP_MESSAGES + 2 }, (_, i) => ({
+      id: `m${i}`, username: 'a', content: 'ген', created_at: '2026-08-25T12:00:00Z',
+    }));
+    const model = buildPalette({ ...base, query: 'ген', messages: supplied, messagesTotal: supplied.length });
+    const messages = model.groups.find((g) => g.key === 'messages');
+    const messageRows = messages?.rows.filter((r) => r.kind === 'message') ?? [];
+    expect(messageRows).toHaveLength(CAP_MESSAGES);
+    expect(messageRows.map((r) => r.id)).toEqual(
+      supplied.slice(0, CAP_MESSAGES).map((m) => `message-${m.id}`),
+    );
   });
 
   it('gives each group a `from` index that indexes into the flat row list', () => {
