@@ -41,6 +41,8 @@
   --white:           #FFFFFF;
   --chip-bg:  #F2F4F9; /* board 1d: modal close button, kbd chip */
   --track-bg: #E9ECF5; /* board 1d: slider / level-meter track */
+  --hl-bg:  #FEF3C7; /* board 2c: search-match highlight (palette + deep panel) */
+  --hl-ink: #101322; /* readable ink ON --hl-bg; the mark rule must set both */
 
   /* ── Status ── */
   --online:      #12B76A;
@@ -134,6 +136,8 @@
   --row-hover: rgba(255, 255, 255, 0.05); /* board: nav hover in dark */
   --chip-bg:  rgb(255 255 255 / 8%);  /* refine in M6 */
   --track-bg: rgb(255 255 255 / 12%); /* refine in M6 */
+  --hl-bg:  rgb(245 158 11 / 28%); /* refine in M6 */
+  --hl-ink: #FDF3DC;               /* refine in M6 */
 
   --online:      #4ADE96;
   --online-soft: rgba(18, 183, 106, 0.14);
