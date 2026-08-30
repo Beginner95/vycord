@@ -125,9 +125,19 @@
   background: var(--accent-border);
 }
 
+/* --danger-text, NOT --danger. This is real TEXT on its own --accent-soft over
+   the chat canvas. --accent-soft is translucent, so the ground is composited
+   arithmetically from browser-resolved values rather than read as a pixel (no
+   DOM API returns a composited pixel); on that ground --danger computes 4.22:1
+   in dark and 3.53:1 in light, both below WCAG 1.4.3's 4.5:1, and --danger-text
+   computes 8.76:1 dark / 5.22:1 light. --danger itself stays theme-invariant (it is a
+   FILL token — see the comment beside it in tokens.css), so a foreground
+   needing contrast has to move. M6 T3, human ruling 2026-08-30; deliberate,
+   disclosed colour change. No hover rule on this selector, so nothing
+   collapses. */
 .msg-mention-everyone {
   font-weight: 600;
-  color: var(--danger);
+  color: var(--danger-text);
   background: var(--accent-soft);
 }
 

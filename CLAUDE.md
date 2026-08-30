@@ -69,12 +69,12 @@ Measure them yourself before treating any result as a regression.
 
 ### Client
 
-Run from `client/`. Expected results as of 2026-08-30 / `bab71ef`:
+Run from `client/`. Expected results as of 2026-08-30, re-measured at M6 T3:
 
 ```bash
 npx tsc --noEmit                 # exit 0, no output
 npm run check:i18n               # "непереведённых строк не найдено."
-npm run lint:css 2>&1 | tail -3  # ✖ 188 problems
+npm run lint:css 2>&1 | tail -3  # ✖ 51 problems
 npm test 2>&1 | tail -6          # Test Files 1 failed | 35 passed (36)
                                  # Tests      3 failed | 227 passed (230)
 ```
@@ -91,9 +91,25 @@ implementation:
 asserts does not exist, and writing it is a behaviour change nobody asked for.
 The gate is that **no other file appears in a `FAIL` line**.
 
-The `188` is a **dated baseline, not an invariant**: 118 of the 188 live in
-`src/styles/tokens.css` alone, so any edit to that file moves the repo total
-arithmetically. Re-measure both numbers when you touch it.
+The `51` is a **dated baseline, not an invariant** — it has moved twice in M6
+alone: `188` → `54` (T2's `stylelint --fix` notation normalisation) → `51` (T3
+cleared the 2 `csstools/value-no-unknown-custom-properties` in `UserList.css` and
+suppressed the 1 `no-duplicate-selectors` in `tokens.css`). Re-measure rather than
+reasoning arithmetically from it.
+
+The earlier note that "118 of the 188 live in `src/styles/tokens.css`" is **no
+longer true and no longer the right warning**: `tokens.css` now lints clean, and
+T2's rewrite is what removed those. As measured at M6 T3, all 51 are in five
+files and split across exactly two rules:
+
+| Rule | Count | Where |
+|---|---|---|
+| `selector-class-pattern` | 43 | `ChannelSidebar.css` 16 · `ServerList.css` 14 · `UserList.css` 12 · `TitleBar.css` 1 |
+| `no-descending-specificity` | 8 | `ChannelSidebar.css` 6 · `UserList.css` 1 · `Auth.css` 1 |
+
+Check the **breakdown**, not just the total: a total reached by a different mix
+hides a new warning offsetting a cleared one. M6 T13 moves this figure again when
+it deletes the legacy-alias block.
 
 ## Never `git add -A`
 

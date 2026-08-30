@@ -454,8 +454,22 @@
   color: var(--online);
 }
 
+/* --danger-text, NOT --danger. This icon sits on .voice-card's --accent-soft
+   over the sidebar's --panel. --accent-soft is translucent in dark, so the
+   ground is composited arithmetically from browser-resolved values rather than
+   read as a pixel (no DOM API returns a composited pixel); on that ground
+   --danger computes 3.92:1 in dark and 3.53:1 in light, --danger-text 8.15:1
+   dark / 5.22:1 light. --danger itself stays theme-invariant (it is a FILL token —
+   see the comment beside it in tokens.css), so a foreground that needs contrast
+   on dark ground has to move rather than wait for an override that is never
+   coming. M6 T3, human ruling 2026-08-30; deliberate, disclosed colour change.
+   No hover rule on this selector, so nothing collapses — unlike
+   .settings-nav-logout, which keeps --danger for exactly that reason.
+   (Note: as a 14px icon this is non-text content, so the applicable threshold is
+   WCAG 1.4.11's 3:1, which 3.92:1 already met. It is moved because 1.4.3's
+   4.5:1 is the gate this milestone measures against and the move is free.) */
 .voice-participant-mic.off {
-  color: var(--danger);
+  color: var(--danger-text);
 }
 
 .voice-card-join {

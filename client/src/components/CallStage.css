@@ -276,7 +276,7 @@
 }
 
 .stage-plate-mic.is-muted {
-  color: var(--danger);
+  color: var(--stage-danger);
 }
 
 /* 2e equalizer: bars 5→13px, 0.7s, staggered .12s */
@@ -349,7 +349,7 @@
   gap: 5px;
   padding: 4px 10px;
   border-radius: 7px;
-  background: var(--accent);
+  background: var(--stage-accent);
   color: var(--white);
   font-size: 11px;
   font-weight: 600;
@@ -416,7 +416,7 @@
 
 .stage-focus-btn:hover,
 .stage-volume-btn:hover {
-  background: var(--accent);
+  background: var(--stage-accent);
 }
 
 .stage-tile:hover .stage-focus-btn,
@@ -457,7 +457,7 @@
    and paints --canvas, so it IS theme-adaptive. */
 .stage-conn.is-good { color: var(--stage-online); }
 .stage-conn.is-medium { color: var(--warning); }
-.stage-conn.is-poor { color: var(--danger); }
+.stage-conn.is-poor { color: var(--stage-danger); }
 .stage-conn.is-unknown { color: var(--muted-2); }
 .stage-conn.is-good .stage-conn-bar { opacity: 1; }
 
@@ -592,7 +592,7 @@
   padding: 0 14px;
   border: none;
   border-radius: var(--radius-row);
-  background: var(--accent);
+  background: var(--stage-accent);
   color: var(--white);
   font-size: 13px;
   font-weight: 600;
@@ -601,7 +601,7 @@
 }
 
 .stage-share-banner-btn:hover {
-  background: var(--accent-hover);
+  background: var(--stage-accent-hover);
 }
 
 .stage-share-banner-dismiss {
@@ -651,7 +651,7 @@
   padding: 0 12px;
   border: none;
   border-radius: 7px;
-  background: var(--accent);
+  background: var(--stage-accent);
   color: var(--white);
   font-size: 11px;
   font-weight: 600;
@@ -710,7 +710,7 @@
 }
 
 .stage-ctl-btn.is-on {
-  background: var(--accent);
+  background: var(--stage-accent);
   color: var(--white);
 }
 
@@ -832,7 +832,7 @@
   gap: 4px;
   padding: 2px 8px;
   border-radius: var(--radius-chip);
-  background: var(--accent);
+  background: var(--stage-accent);
   font-size: 11px;
   font-weight: 600;
 }
@@ -900,7 +900,7 @@
 }
 
 .stage-focus-ctrl-btn:hover {
-  background: var(--accent);
+  background: var(--stage-accent);
 }
 
 /* Uses the .is-fullscreen class, not :fullscreen, so it also fires on the
@@ -959,7 +959,7 @@
 }
 
 .stage-thumb.is-focused {
-  box-shadow: 0 0 0 2px var(--accent);
+  box-shadow: 0 0 0 2px var(--stage-accent);
 }
 
 /* --speak-level is JS-injected (invisible to importFrom) — fallback required. */
@@ -1005,7 +1005,7 @@
   display: flex;
   padding: 3px 5px;
   border-radius: var(--radius-chip);
-  background: var(--accent);
+  background: var(--stage-accent);
   color: var(--white);
   z-index: 2;
 }

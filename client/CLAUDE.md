@@ -30,12 +30,38 @@ All claims re-verified against the tree on **2026-08-30** at `bab71ef`.
 `src/styles/tokens.css` is the only file that may contain a raw colour value.
 It has three blocks:
 
-1. `:root` (lines 5–123) — the **canonical** light-theme tokens.
-2. `[data-theme="dark"]` (126–170) — dark overrides. Two families deliberately do
+Line numbers below were **re-derived from the tree at M6 T3's final commit** (the
+file is **413** lines). They have moved in every M6 task so far, and moved twice
+*within* T3 — T2 added two `value-keyword-case` suppressions, T3 added four
+tokens with their rationale comments, then a large `--danger` rationale block,
+then that block grew again in review — so **run the grep, do not trust the
+numbers**. An earlier revision of this section shipped figures stale by 26
+against the very command below, which is how this warning got written:
+
+```bash
+grep -n '^:root {\|^\[data-theme="dark"\] {\|^:root, \[data-theme="dark"\] {' client/src/styles/tokens.css
+```
+
+1. `:root` (lines 5–269) — the **canonical** light-theme tokens.
+2. `[data-theme="dark"]` (298–343) — dark overrides. Two families deliberately do
    **not** appear here and must not be added: `--stage-*` and `--media-*` sit on
    ground that is dark in both themes (a call stage, a photo, the lightbox
    scrim). Their comments say so; read them before "fixing" the omission.
-3. **`LEGACY ALIASES — DELETE IN M6`** (172–239) — every pre-redesign name
+   `--stage-accent`, `--stage-accent-hover` and `--stage-danger` (M6 T3) are part
+   of that family. `--stage-accent` `#6366F1` and `--stage-accent-hover` `#818CF8`
+   are the dark theme's `--accent` / `--accent-hover`. **`--stage-danger`
+   `#FCA5A5` is the dark `--danger-text`, not a dark `--danger`** — there is no
+   dark `--danger`, by decision (see the comment beside that token; a dark
+   override was measured and ruled out). Do not read this line as licence to add
+   one.
+   Conversely, **`--warning-text` IS theme-split on purpose** (M6 T3): `#B45309`
+   on `:root`, `#F59E0B` here. It exists to fix a **light**-theme contrast
+   failure on `.setting-warning` (2.01:1 → 4.69:1), and the dark override exists
+   only to stop that light value regressing dark from 8.16:1 to 3.49:1. Do not
+   "simplify" it to a single value — measured, both directions.
+3. **`LEGACY ALIASES — DELETE IN M6`** (350–413, in two rules: 350–398 plus a
+   trailing `[data-theme="dark"]` at 409–413; `alias-sentinel.mjs` reports this
+   span independently and is the better source) — every pre-redesign name
    (`--bg-*`, `--text-*`, `--border-*`, `--brand-*`, `--green-*`/`--red-*`/
    `--yellow-*`/`--blue-*`, `--shadow-sm|md|lg|xl`, `--radius-sm|md|lg|xl|full`)
    mapped onto the new system so unmigrated CSS keeps rendering. It is scheduled
@@ -70,15 +96,20 @@ MUST carry a fallback.**
 | `--avatar-color` | `Avatar.tsx:32` |
 
 Measured, not assumed: `primitives.css:235,268` write `var(--slider-fill, 0%)` /
-`var(--meter-level, 0%)` and lint clean, while `UserList.css:111,112` write bare
-`var(--avatar-color)` inside `color-mix()` and produce
-`Unexpected custom property "--avatar-color"`. **Exactly 2 lint errors are those
-two lines** — this contract documents a live violation of its own rule.
-`UserList.css` is **M6-owned**, like the four raw-colour sites above; do not
-"helpfully" add the fallbacks in passing. Doing so drops the repo lint total by
-2, which falsifies the figure in the root `CLAUDE.md` gate table and its dated
-baseline paragraph. Fix it as M6 work, and update the root file in the same
-commit.
+`var(--meter-level, 0%)` and lint clean.
+
+**This was a live violation of the contract's own rule until M6 T3, and is now
+closed.** `UserList.css:111,112` used to write bare `var(--avatar-color)` inside
+`color-mix()` and produce two `Unexpected custom property "--avatar-color"`
+errors — the last 2 of that rule in the repo. T3 gave both a fallback
+(`var(--avatar-color, var(--accent))`) and moved the root `CLAUDE.md` gate figure
+from 54 to **51** in the same commit, as this section used to instruct.
+
+**There are now zero `csstools/value-no-unknown-custom-properties` errors, and
+that zero is M6 T13's audit gate.** So the rule now cuts the other way: **do not
+add a `var(--x, fallback)` anywhere you are not explicitly told to.** A gratuitous
+fallback silences the very rule T13 uses to find unmigrated properties, and it
+does so without changing the lint total, so nothing catches it.
 
 **The rule is wider than "JS-injected": it is "not declared in `tokens.css` or
 `base.css`."** The plugin knows only those two files, so a property declared in a

@@ -189,7 +189,7 @@
 }
 
 .p2p-plate-mic.is-muted {
-  color: var(--danger);
+  color: var(--stage-danger);
 }
 
 /* Local PiP: 96px clears the control bar (28px bottom + 46px toggle + 4px gap

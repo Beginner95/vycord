@@ -108,8 +108,15 @@
 }
 
 [data-theme="dark"] .user-item.offline .user-avatar.list {
-  --avatar-bg: color-mix(in srgb, var(--avatar-color) 30%, transparent);
-  --avatar-ink: color-mix(in srgb, var(--avatar-color) 55%, var(--white));
+  /* --avatar-color is JS-injected (Avatar.tsx:32), so `importFrom` cannot see it
+     and a bare var() flags csstools/value-no-unknown-custom-properties. These two
+     fallbacks are the LAST sanctioned ones (M6 T3, step 7) — every remaining bare
+     var() is task 13's audit gate, and a fallback added elsewhere silences it.
+     --avatar-bg / --avatar-ink are read ONLY from Avatar.tsx:33,34 and by no CSS
+     file: rename either and the member list's avatars break with no lint error,
+     no type error and no failing test. */
+  --avatar-bg: color-mix(in srgb, var(--avatar-color, var(--accent)) 30%, transparent);
+  --avatar-ink: color-mix(in srgb, var(--avatar-color, var(--accent)) 55%, var(--white));
 }
 
 .user-item.offline img.user-avatar.list {

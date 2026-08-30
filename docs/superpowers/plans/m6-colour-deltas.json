@@ -1,0 +1,34 @@
+{
+  "_README": [
+    "M6 colour-delta allowlist. Consumed as:",
+    "  node <tools>/compare-colours.mjs docs/superpowers/plans/m6-colour-baseline.json <captured.json> --allow docs/superpowers/plans/m6-colour-deltas.json",
+    "Created by M6 T3 under Ruling A. The baseline (m6-colour-baseline.json, captured at 5de16ee before any M6 edit) is frozen and must never be modified; this file is the disclosed, ruled set of changes on top of it, so T13's headline gate -- 'nothing changed except the disclosed deltas' -- stays checkable.",
+    "THEME KEYS ONLY ARE READ. compare-colours.mjs treats every top-level key as a theme; keys beginning with '_' are skipped as prose. That skip was ADDED BY M6 T3 to the stale-entry loop (it previously existed only in themes()); without it a '_disclosures' key became a phantom theme and every member was reported 'STALE ALLOWLIST ENTRY'. The harness is gitignored, so T13 inherits that edit -- if compare-colours.mjs is ever restored from an older copy, re-apply it or move these notes out.",
+    "VALUES ARE COMPUTED STRINGS, NOT HEX. The comparator does an exact string compare against getComputedStyle output, so an entry must read 'rgb(120, 53, 15)', not '#78350F'.",
+    "A STALE ENTRY FAILS. An entry naming a token that did not actually change is reported and exits 1, so this file cannot silently over-permit."
+  ],
+  "_disclosures": {
+    "light --hl-ink": {
+      "theme": "light",
+      "token": "--hl-ink",
+      "before": "rgb(16, 19, 34)",
+      "after": "rgb(120, 53, 15)",
+      "before_hex": "#101322",
+      "after_hex": "#78350F",
+      "decision": "M6 T3 step 5",
+      "reason": "The light --hl-ink was byte-identical to --ink, so the search-match highlight declared an ink it never actually changed. (The declaration was not dead -- Chrome's UA sheet gives `mark` color rgb(0,0,0) -- but it was visually indistinguishable from inherited body text, so it read as a chosen value when no choice had been made.) #78350F is amber-900 against --hl-bg's amber-100 and is coherent with the amber-700 --warning-text added in the same task. MEASURED in Chrome: 8.15:1 on --hl-bg, versus --ink's 16.57:1. Consumed by `.palette-snippet mark` (CommandPalette.css:186) and `.message-search-result-text mark` (MessageSearch.css:248).",
+      "dark_side": "UNCHANGED at rgb(253, 243, 220). Board 2d gives no dark highlight pair at all, so the dark values are interpolations with nothing to migrate toward; M6 T3 kept them BY DECISION and deleted their `refine in M6` markers rather than inventing a board value in the final milestone."
+    }
+  },
+  "_changes_that_cannot_appear_as_drift": {
+    "_note": "probe-colour-tokens.js snapshots a frozen list of the 81 canonical :root tokens. Tokens ADDED by M6 T3 are not on that list, so they can never show as drift and need no allowlist entry. Recorded here so the task's full colour surface is auditable from one place.",
+    "--stage-accent": "#6366F1 -- NEW on :root. Decision 2: the stage is dark in BOTH themes, so its accent is pinned to the dark value. Replaces var(--accent) at 9 CallStage.css sites.",
+    "--stage-accent-hover": "#818CF8 -- NEW on :root. CORRECTION TO THE PLAN by M6 T3: the plan routed .stage-share-banner-btn:hover (CallStage.css:604) to --stage-accent, but CallStage.css:595 is that button's REST state, so both would have become the same colour and the hover affordance would have been silently deleted. #818CF8 is the dark theme's --accent-hover, pinned exactly as --stage-accent is the dark theme's --accent.",
+    "--stage-danger": "#FCA5A5 -- NEW on :root. Decision 6. Replaces var(--danger) at 3 sites (.stage-plate-mic.is-muted, .stage-conn.is-poor, .p2p-plate-mic.is-muted). .stage-tip.is-poor deliberately KEEPS --danger: it paints var(--canvas) and is theme-adaptive.",
+    "_site_reroutes": "Two SITES changed which token they read (no token value changed, so the 81-token gate cannot see these either). Cited by SELECTOR, not line number -- each site's own explanatory comment pushed its line out from under an earlier line-number citation here. .voice-participant-mic.off (ChannelSidebar.css) and .msg-mention-everyone (MessageRow.css) moved from --danger to --danger-text: on their real composited dark grounds --danger computed 3.92:1 and 4.22:1, below AA. Now 8.15:1 and 8.76:1 dark, 5.22:1 both in light. Ground values are browser-resolved but composited arithmetically (--accent-soft is translucent), so these are computed ratios, not read pixels. Human ruling 2026-08-30. This is why the --danger census in tokens.css drops from 5 foregrounds to 3: the three that remain (.context-menu-item.is-danger, .settings-nav-logout, .stage-tip.is-poor) pass on dark ground at 4.82 / 4.54 / 4.82:1 and were left alone. --danger itself takes no dark override -- see the comment beside it in tokens.css.",
+    "--warning-text": "#B45309 on :root, #F59E0B under [data-theme=\"dark\"] -- NEW. M6 T3 step 4. Light .setting-warning was 2.01:1; it is 4.69:1 now. The dark override is a CORRECTION TO THE PLAN, which said none was needed: true of --warning itself (8.16:1 on dark --canvas-2) but not of the plan's own remedy, since once `color` reads --warning-text the dark theme reads it too and the :root value measures only 3.49:1 there."
+  },
+  "light": {
+    "--hl-ink": "rgb(120, 53, 15)"
+  }
+}

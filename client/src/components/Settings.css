@@ -143,11 +143,18 @@
   margin: 8px 0 0;
   padding: 8px 14px;
   border-radius: var(--radius-row);
+
+  /* The BORDER stays on --warning — a 1px border is not text, and the amber
+     border is this surface's whole visual identity. Only the foreground moves:
+     --warning on light --canvas-2 measures 2.01:1, --warning-text 4.69:1.
+     --warning-text DOES take a dark override (back to the amber, 8.16:1) — the
+     plan said it would not need one, which stopped being true the moment this
+     `color` started reading it in both themes. See tokens.css. */
   border: 1px solid var(--warning);
   background: var(--canvas-2);
   font-size: 12px;
   font-weight: 500;
-  color: var(--warning);
+  color: var(--warning-text);
 }
 
 /* Row-level control layouts the panes need and primitives does not own.
