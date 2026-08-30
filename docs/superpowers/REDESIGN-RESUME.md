@@ -1,82 +1,63 @@
 # vycord Frontend Redesign — RESUME HERE
 
-**Written:** 2026-08-29, at the end of the M5 planning session.
+**Written:** 2026-08-29 at the end of the M5 planning session; **updated 2026-08-30 at M5 close.**
 **Purpose:** the single document that lets a cold session pick this work up. It carries the current stage, the
 binding constraints, the measured debt register, and the exact prompt to run next. Every number in it was
-re-measured on 2026-08-29 against `redesign` at `45f9e14` unless the line says otherwise.
+re-measured on **2026-08-30 against `redesign` at `8aa1e75`** (M5's close) unless the line says otherwise.
 
-**State: M0–M4 shipped. M5 is planned and grand-reviewed but NOT executed. M6 is not planned yet.**
+**State: M0–M5 shipped. M6 is not planned yet — it is the last milestone.**
 
 ---
 
 ## §0. START HERE — the next action
 
-The next action is **executing M5**. The plan is written, Opus grand-reviewed, and committed. Paste the block
-below into a fresh session. Nothing else needs to be prepared first.
+The next action is **planning M6**, the final milestone. Nothing is prepared yet: M6 has no plan. Read §7 for
+its scope and how to plan it, then paste the block below into a fresh session.
 
 ```
-Execute the M5 milestone (Command palette) of the vycord frontend redesign at
-/Users/nm/Projects/experiments/vycord using superpowers:subagent-driven-development.
+Plan the M6 milestone (Polish & closure) of the vycord frontend redesign at
+/Users/nm/Projects/experiments/vycord. M6 is the LAST milestone — after it the
+branch is releasable as a single version.
 
-Plan: docs/superpowers/plans/2026-08-25-redesign-m5-palette.md — Opus grand-reviewed
-before execution; its Global Constraints and decisions 1–29 are BINDING. Read it in
-full before dispatching anything, including the "Review provenance" section at the end.
-
-Read docs/superpowers/REDESIGN-RESUME.md first for the environment, the harness truth
-table, the gate numbers and the debt register. Where it and older plan text disagree,
-the RESUME file and the M4 closeout win.
-
-State: branch redesign, HEAD 45f9e14 (the M5 plan commit — it is the range's base), not
-pushed, main untouched (verify `git log redesign..main` is empty in Task 1; if it is not
-empty, STOP and surface). Working tree clean apart from the intentionally untracked
-design_handoff_discord_redesign/.
+Read docs/superpowers/REDESIGN-RESUME.md first, in full. It carries the current
+state, the binding constraints, the measured gate numbers, the harness truth
+table and the debt register. §7 is M6's scope and says how to plan it.
 
 Also binding as inherited context:
-- docs/superpowers/specs/2026-08-25-frontend-redesign-design.md (§5's M5 bullet is the
-  clause list; §2, §3, §4.4, §6, §7)
-- docs/superpowers/plans/2026-08-25-redesign-m4-closeout.md (24 rulings; supersedes older
-  text), and the M3 and M2 closeouts it inherits from
-- docs/superpowers/backlog/post-redesign-backlog.md — EXCLUDED scope. Plan and fix nothing
-  from its §1; if a task brushes one of those items, record the contact and move on.
+- docs/superpowers/specs/2026-08-25-frontend-redesign-design.md — §5's M6 bullet
+  is the clause list; §2, §3, §4.4, §6, §7, §8.
+- docs/superpowers/plans/2026-08-25-redesign-m5-closeout.md — the rulings table,
+  the freshest harness truth, the corrected z-index census, the residue
+  forensics, and the whole-branch review's four seam findings. Supersedes older
+  text, including several M4 facts it corrects.
+- The M4, M3 and M2 closeouts it inherits from.
+- docs/superpowers/backlog/post-redesign-backlog.md — EXCLUDED scope. Nothing in
+  its §1 may be planned or fixed by a redesign milestone.
 
-Execution rules:
-- One commit per task; branch redesign only; never `git add -A`.
-- Task 1 MUST `cp -R` the harness forward from
-  .superpowers/sdd/2026-08-25-redesign-m4-modals/tools/ — it is gitignored, 31M, and the
-  ONLY copy. If it is lost, every visual claim in M5 and M6 loses its instrument.
-- Every probe is written and run against the PRE-task state first and must fail loudly
-  there. A failing probe does NOT make smoke.mjs exit non-zero — it prints "PROBE ERROR:"
-  and exits 0, so evidence is the printed output, never the exit code. Before citing any
-  inherited probe, check that it can fail; the plan lists the ones that cannot.
-- Gates at every task boundary, all run from client/: `npm run lint:css` (196 → 188,
-  never above 531; stylelint from client/ ONLY — a repo-root run is an ENOENT crash, not
-  a lint result), every M5-created/rewritten file individually 0 problems, the raw-value
-  grep at zero rows, `npx tsc --noEmit` clean, `npm run check:i18n` at ZERO, and
-  `npm test` RED only in api.network-retry.test.ts. M5 Task 2 legitimately changes the
-  test shape — record its exact numbers and compare later tasks against those. Every test
-  paste must show the FAIL lines naming the file.
-- Dev server: cd client && npm run dev:vite → port 3000 EXACTLY; kill stale servers; a
-  server predating HEAD invalidates visual evidence; a task that edits a base-layer file
-  restarts the server before probing.
-- Test account redesign_smoke@vycord.local / RedesignSmoke2026!, server «Redesign Smoke».
-  Residue accounting must cover every probe an invocation runs, not only the probe the
-  task is about.
-- Instruct every implementer to PUSH BACK when the plan is wrong rather than comply. M4
-  had five such catches, including two of the controller's own rulings, and three cases
-  where the implementer produced a better solution than the prescribed one.
-- Record every ruling in the ledger AS IT IS MADE, not only in the prompt that carries it
-  — a reviewer reading only the on-disk record must not see invented authority.
+Plan it the way M4 and M5 were planned: superpowers:brainstorming →
+superpowers:writing-plans, with numbered binding decisions that each state what
+they cost if wrong, Global Constraints copied forward from §3 with the
+alias-deletion exception flipped ON, and a grand review before execution.
 
-Finish with a whole-branch review of the full range, a fix wave if it returns findings, a
-scoped re-review of that wave, and then transcribe everything into
-docs/superpowers/plans/2026-08-25-redesign-m5-closeout.md — the SDD workspace is
-gitignored and dies with the session, so anything not transcribed is LOST. The M5 plan's
-"What the closeout must record" section lists the pre-agreed contents. Then update
-docs/superpowers/REDESIGN-RESUME.md: move M5 to shipped, refresh the gate numbers, and
-fold any new debt into §6.
+M6 is §5's M6 clause list PLUS the whole of §6b and §6c — expect it to be the
+largest milestone since M2. Four things to settle early:
+- The alias deletion IS the audit (spec §8). Sequence it late and gate it on
+  BOTH greps coming up empty — the name grep alone misses raw values.
+- M6 is the milestone that reopens primitives.css, so the accessible-name
+  recipes, the dead .channel-type-options block and its wrong keyframe comment
+  all land there together.
+- Colour work needs a NEW KIND OF PROBE. Every probe on this branch asserts
+  geometry; the dark-parity findings were derived from tokens.css and would not
+  have been caught. Build a computed-colour probe early and run it in both
+  themes. M5's `resolveVar` scratch-element pattern is the working form.
+- Decide up front whether M6 also answers §6f's open questions, since several
+  are one-liners once a human rules.
 ```
 
-**After M5 ships, the next action is planning M6** — see §7, which already carries its scope and its inputs.
+**The harness must be carried forward with `cp -R` from
+`.superpowers/sdd/2026-08-25-redesign-m5-palette/tools/`** — it is gitignored, ~31M, and the **only copy**.
+The M5 workspace was deliberately NOT deleted at close for exactly this reason (M5 ruling R28).
+
 
 ---
 
@@ -85,8 +66,8 @@ fold any new debt into §6.
 | | |
 |---|---|
 | Branch | `redesign`, **not pushed** |
-| HEAD | `45f9e14` — *docs(redesign): M5 plan* |
-| `main` | untouched; `git log redesign..main` is **empty** (re-verified 2026-08-29) |
+| HEAD | the **M5 closeout** commit — *docs(redesign): M5 closeout* — which is the branch tip. M5's **code** range is `f95e5a7..8aa1e75`; the closeout sits on top of it. Run `git log --oneline -1` for the current SHA rather than trusting one written here |
+| `main` | untouched; `git log redesign..main` is **empty** (re-verified 2026-08-30 at M5 close) |
 | Working tree | clean apart from the intentionally untracked `design_handoff_discord_redesign/` |
 | Delivery model | one long-lived branch, milestone PRs, released as a single version — **no mixed-design releases** |
 
@@ -97,8 +78,8 @@ fold any new debt into §6.
 | **M2** Chat | shipped | 19 commits `f39e699..3ada3cc` |
 | **M3** Calls | shipped | 8 commits `f07c7d1..a3cc52e` |
 | **M4** Modals/menus/settings | shipped | 11 commits `41b93e8..08aa58f`; closed out at `2dc4974` |
-| **M5** Command palette | **planned, grand-reviewed, NOT executed** | plan commit `45f9e14` |
-| **M6** Polish & closure | **not planned** | scope in §7 |
+| **M5** Command palette | **shipped** | 13 commits `f95e5a7..8aa1e75`; closeout `2026-08-25-redesign-m5-closeout.md` |
+| **M6** Polish & closure | **not planned — the last milestone** | scope in §7 |
 
 ---
 
@@ -111,9 +92,12 @@ plan text that was factually wrong.
 1. `docs/superpowers/specs/2026-08-25-frontend-redesign-design.md` — **the contract.** §5's milestone bullets
    are the clause lists each milestone must satisfy; §2 scope decisions, §3 current-state facts (incl. the
    server-side constraints), §4 architecture, §6 testing, §7 out of scope.
-2. `docs/superpowers/plans/2026-08-25-redesign-m4-closeout.md` — **24 rulings, the freshest harness truth,**
-   deferred-finding triage, reasoned-not-measured list, and the process notes on false comments and false cost
-   estimates. Supersedes older text.
+2. `docs/superpowers/plans/2026-08-25-redesign-m5-closeout.md` — **the rulings table, the freshest harness truth,**
+   the corrected z-index census, the residue forensics, the whole-branch review's four seam findings, and the
+   deferred-finding triage. **Supersedes all older text**, including several M4 facts it corrects.
+3. `docs/superpowers/plans/2026-08-25-redesign-m4-closeout.md` — 24 rulings, deferred-finding triage, and the
+   process notes on false comments and false cost estimates. **Two of its records are now known wrong:** the
+   "18 probe messages" residue figure (43 at its close, 45 today) and the `.screen-share-picker` class name.
 3. `docs/superpowers/plans/2026-08-25-redesign-m3-closeout.md` — 21 rulings + harness corrections.
 4. `docs/superpowers/plans/2026-08-25-redesign-m2-closeout.md` — 17 rulings + the stylelint baseline history
    and the cascade-order fact every later milestone leans on.
@@ -121,7 +105,10 @@ plan text that was factually wrong.
    open (§6).
 6. `docs/superpowers/backlog/post-redesign-backlog.md` — **excluded scope.** Nothing in its §1 may be planned
    or fixed by a redesign milestone.
-7. `docs/superpowers/plans/2026-08-25-redesign-m5-palette.md` — the next thing to execute.
+7. `docs/superpowers/plans/2026-08-25-redesign-m5-palette.md` — **executed; superseded by its closeout.** Its
+   decision 10 (wrong z-index class name), its Task 6 step text (the struck "Avatar gains the uploaded-image
+   branch" claim), its residue baseline, its Task 7 Step 3 probe citations, and every probe-only harness command
+   it prints are all known-wrong. Read the closeout, not this.
 8. **Pixel truth:** `design_handoff_discord_redesign/README.md` (token tables + per-screen specs) and
    `Redesign.dc.html` (the board; open in a browser). Board option ids: `1c` main screen, `1d` modals/menus,
    `1e` call, `1f` mobile, `2a` empty states, `2b` unread/typing/avatars, `2c` ⌘K palette, `2d` dark theme,
@@ -157,28 +144,35 @@ plan text that was factually wrong.
 
 ## §4. Environment and gates
 
-### Gate state, measured 2026-08-29 at `45f9e14`
+### Gate state, measured 2026-08-30 at `8aa1e75`
 
 | Gate | Value | Rule |
 |---|---|---|
-| `npm run lint:css` total | **196** | never above **531**; it should only fall. M5 takes it to 188. |
-| Files individually 0 | all 13 M4-owned + all M3-owned | every file a milestone creates or rewrites must be 0 |
+| `npm run lint:css` total | **188** | never above **531**; it should only fall |
+| Files individually 0 | all M5-, M4- and M3-owned | every file a milestone creates or rewrites must be 0 |
 | `npm run check:i18n` | **ZERO warnings**, exit 0 | must stay at zero — M4 earned this |
 | `npx tsc --noEmit` | clean | the real ru/en parity gate |
 | `npm test` | **RED by design** | see below |
 | `git log redesign..main` | empty | re-check each milestone |
 
-**Remaining stylelint total decomposes across 7 files** (M5 removes `MessageSearch.css`'s 8):
+**The remaining 188 decomposes across 7 files** — `MessageSearch.css` and `CommandPalette.css` are both at 0
+and absent from this list:
 `tokens.css` 118 · `ChannelSidebar.css` 23 · `UserList.css` 16 · `ServerList.css` 15 · `Auth.css` 10 ·
-`MessageSearch.css` 8 · `AppPage.css` 4 · `TitleBar.css` 2. **These are M6's** — do not mass-fix them earlier.
+`AppPage.css` 4 · `TitleBar.css` 2. **These are M6's** — do not mass-fix them earlier.
+
+**Baseline history:** 531 (M2 start) → 196 (M4 close) → **188** (M5 close). M5's 196 → 188 was measured at
+*both* ends — the base tree was linted via `git archive f95e5a7`, not inferred by arithmetic.
 
 **`npm test` is RED at baseline and always has been.** Three tests in
 `src/services/__tests__/api.network-retry.test.ts` were merged without their implementation, plus 2 unhandled
-rejections from the same file. Current shape: `Test Files 1 failed | 22 passed (23)` ·
-`Tests 3 failed | 149 passed (152)` · `Errors 2 errors`. **Never fix that file** (it is under the `services/`
+rejections from the same file. Current shape at M5 close: `Test Files 1 failed | 25 passed (26)` ·
+`Tests 3 failed | 178 passed (181)` · `Errors 2 errors`. **Never fix that file** (it is under the `services/`
 scope wall). The gate is: no *other* file fails, new tests pass, and **a paste that says "same file" without
 the `FAIL` lines naming it is not evidence.** Adding test files legitimately changes the counts — record the
 new shape when it happens and compare forward against that.
+
+**M5's own test files are 19 / 4 / 6** — `utils/paletteFilter.test.ts` 19, `stores/__tests__/paletteStore.test.ts` 4,
+`utils/searchSnippet.test.ts` 6. (The M5 *plan* projected 18/6/5; fix rounds moved them. Only the total matches.)
 
 ### Running things
 
@@ -214,12 +208,30 @@ new shape when it happens and compare forward against that.
 ## §5. Verification harness — the truth table
 
 The harness lives at `.superpowers/sdd/<milestone>/tools/`, is **gitignored**, is ~31M, and **is the only
-copy**. Each milestone carries it forward with `cp -R` in Task 1. Newest copy:
-`.superpowers/sdd/2026-08-25-redesign-m4-modals/tools/`. **If it is lost, every visual claim loses its
-instrument.**
+copy**. Each milestone carries it forward with `cp -R` in Task 1. **Newest copy:
+`.superpowers/sdd/2026-08-25-redesign-m5-palette/tools/`** — the M5 workspace was deliberately not deleted at
+close for this reason. **If it is lost, every visual claim loses its instrument.**
 
 **These corrections override older plan text. They were each learned the hard way.**
 
+- **`--out` is MANDATORY, not merely the screenshot flag.** `smoke.mjs` hard-exits **2** without one, so every
+  probe-only command printed in the M2–M5 plans (`node smoke.mjs --probe X --wait 4000`) is **invalid as
+  written**. Supply a throwaway `--out` path when you do not want the image. *(New in M5.)*
+- **Each invocation creates a fresh `mkdtemp` Chrome profile and deletes it in `finally`** (`smoke.mjs:422`),
+  so **`localStorage` cannot leak between probe runs**. **Server-side state can and does** — `last_channel_id`,
+  channels, messages, invites, stickers. Assert server preconditions; you may ignore browser-storage ones.
+  *(New in M5 — it narrows an earlier, overstated cross-run hazard.)*
+- **The app opens on the smoke user's persisted `last_channel_id`, not `#general`.** Navigate explicitly.
+  *(New in M5.)*
+- **To assert that a token is actually consumed by a rule, use a SCRATCH ELEMENT** — create one, set
+  `background: var(--X)`, append it so it computes, read the **computed** value, compare, remove.
+  **Never `getComputedStyle(documentElement).getPropertyValue('--X')`**: that returns the *declared* value
+  regardless of whether any rule consumes it, and returns hex against an `rgb()`, so the comparison is
+  always-true. *(New in M5, and the working form for M6's computed-colour probe.)*
+- **`mark` carries UA-origin declarations for BOTH `color` and `background-color`** — measured as
+  `rgb(0,0,0)` on `rgb(255,255,0)` in **both** light and `color-scheme: dark` (Chrome 150). So a
+  "background is transparent" check on a `mark` can never fire, and a "colour differs from surrounding text"
+  check passes even when the declaration is deleted. *(New in M5.)*
 - **`--out <file.png>` is the screenshot flag**, not `--shot`. Full argument set: `--out`, `--theme`, `--path`,
   `--wait`, `--anon`, `--click` + `--after` (default 1500ms), `--click2` + `--after2` (default 800ms),
   `--size WxH` (default `1440x900`), `--touch`, `--fake-media`, `--focus-emulation`, `--fake-electron`,
@@ -250,13 +262,23 @@ instrument.**
   against a frequency-domain reader. **No brief may carry the 1%-rounding sentence forward.** M3's speaking-ring
   evidence and backlog §3d both rest on it and need re-checking.
 
-**Probes that cannot be trusted** (check before citing, always):
-`probe-callstate.js` — inert, **banned as evidence**. `probe-confirm-modal.js` — stale M2 residue, dead
-selectors, **zero `throw`**. `probe-t5fix-handoff-focus.js:35` — `… || true`, a field that cannot fail.
-`probe-t11-flow.js` — `toastPresent` queries a deleted class, permanently false. `probe-chat.js` — a real gate
-since M4 T1, **but** two descriptive fields are optional-chained with no `fail()` and its continuation-row
-assertions no-op on an empty list. Reference implementation of a correct probe: `probe-screen-picker.js` (22
-`fail(` sites, every assertion thrown, none merely recorded).
+**Probes that cannot be trusted** (check before citing, always). Counts below were re-derived in M5:
+
+| Probe | `fail(` | Status |
+|---|---|---|
+| `probe-shell.js` | **0** | **Pure reporter — asserts nothing.** *New in M5:* the M5 plan cited it as a regression gate and was wrong. |
+| `probe-sidebar.js` | **0** | **Pure reporter — asserts nothing.** Same. |
+| `probe-callstate.js` | 0 | inert, **banned as evidence** |
+| `probe-confirm-modal.js` | 0 | stale M2 residue, dead selectors |
+| `probe-t5fix-handoff-focus.js` | — | `:35` is `… || true`, a field that cannot fail |
+| `probe-t11-flow.js` | — | `toastPresent` queries `.chat-error-toast`, deleted in favour of the shared `.error-toast` — permanently false |
+| `probe-modal-sweep.js` | **136** | real gate, 6 phases; **cleans up the invite it creates** |
+| `probe-chat.js` | **35** | real gate — **but see the residue warning below**, and its continuation-row assertions no-op on an empty list, so cite `continuation.count` as proof the block ran |
+| `probe-palette-*.js` (5 files) | 17–24 each | M5's, all real gates |
+
+> **`probe-chat.js` WRITES TWO MESSAGES TO THE PRODUCTION SMOKE SERVER PER RUN AND NEVER CLEANS UP** — 30
+> messages across 15 runs, **65% of all probe residue on the branch**. Point it at a disposable channel or give
+> it a cleanup pass before running it casually. *(Found in M5.)*
 
 **Two nominal gates in M4 turned out not to be gates**, on top of M2's six false-passing probes. The standing
 rule: *a probe is evidence only once it has been shown to fail against the broken version of the code it is
@@ -269,11 +291,15 @@ meant to catch.*
 Consolidated from the M1–M4 closeouts, the backlog and the M5 plan. **Every item marked (measured 08-29) was
 re-verified against the tree on 2026-08-29;** the rest are carried as recorded and are flagged as such.
 
-### 6a. Owned by M5 (already planned — no action needed here)
+### 6a. Was owned by M5 — ALL DISCHARGED, no action needed
 
-`MessageSearch.css` 8 → 0 and off the legacy aliases · the four hand-inlined SVGs in `MessageSearch.tsx` ·
-board `2a`'s two-line empty state · the header ⌘K chip question, closed with an explicit answer · the
-`Ctrl+Shift+F` document listener becoming overlay-aware.
+`MessageSearch.css` 8 → 0 and off the legacy aliases ✔ · the four hand-inlined SVGs in `MessageSearch.tsx` ✔ ·
+board `2a`'s two-line empty state ✔ · the header ⌘K chip question, closed with an explicit answer ✔ (deliberately
+not shipped — a `⌘K` chip on a control that opens the deep panel would be a false label; **awaiting the human**,
+§6f) · the `Ctrl+Shift+F` document listener becoming overlay-aware ✔.
+
+**M5's new debt is folded into §6b, §6c, §6e and §6f below.** Full detail and the 28 rulings live in
+`2026-08-25-redesign-m5-closeout.md`.
 
 ### 6b. Owned by M6 — the alias sweep
 
@@ -282,7 +308,7 @@ board `2a`'s two-line empty state · the header ⌘K chip question, closed with 
 | File | Alias refs | Note |
 |---|---|---|
 | `styles/tokens.css` | 50 | **this is the alias block itself — deleting it is the milestone task** |
-| `components/MessageSearch.css` | 37 | **M5 removes this file from the list** |
+| ~~`components/MessageSearch.css`~~ | ~~37~~ → **0** | **DONE — M5 took this file off the aliases entirely.** M6's sweep loses a third file, after `ErrorBoundary.css` and `UpdateBanner.css` |
 | `pages/Auth.css` | 30 | never touched by the redesign; the largest remaining consumer |
 | `components/ServerList.css` | 19 | |
 | `pages/AppPage.css` | 7 | |
@@ -318,7 +344,10 @@ raw values.
 - **Is the call stage's accent theme-invariant or not?** 12 sites use `--accent`/`--accent-hover` on a stage
   whose every other token is `:root`-only. The handoff gives no separate dark-stage accent — **this one has no
   board answer and needs a human** (backlog §2b).
-- M5 adds `--hl-bg`/`--hl-ink`; their dark values are **interpolations**, not board values.
+- **`--hl-bg`/`--hl-ink` need work at BOTH ends.** Their **dark** values are interpolations, not board values —
+  the board gives no dark highlight pair. And **`--hl-ink` is byte-identical to `--ink` in LIGHT theme** (both
+  `#101322`, `tokens.css:16` vs `:45`), so `mark { color: var(--hl-ink) }` is **inert in light** and reads as an
+  intentional value when it is not one. *(Measured in M5.)*
 - Colour findings across the branch are **derived from `tokens.css`, not measured in a browser** — every probe
   to date asserts geometry, so "both themes PASS" would not have caught any of these.
 
@@ -373,11 +402,40 @@ budget audit.
   `useModalFocus` adoption — it holds only while *every* modal renders `.modal-overlay` (true today across all
   ten modal components plus `AppPage`'s inline one). The five non-stack-aware document Escape listeners
   (`ContextMenu.tsx:35`, `VolumeControlPopover.tsx:57`, `ScreenSharePicker.tsx:24` **and** `:88`,
-  `useFloatingSelectionToolbar.ts:67`) are M6's if it takes that adoption. The z-index tier is crowded —
-  1050 context menu · 1100 screen-share picker **and** volume popover · 1150 palette · 1200 stage tooltip ·
-  2000 toast and call banner · 9999 update banner and error boundary — and may want a named scale.
-- **New from the M5 plan:** with the call stage fullscreen on **desktop**, a palette chat command lands in a
-  `display: none` chat area (`AppPage.css:67-72`). Accepted for M5, M6 owns it.
+  `useFloatingSelectionToolbar.ts:67`) are M6's if it takes that adoption.
+- **The z-index census, corrected and complete (M5).** Twelve declarations at ≥1000 across seven distinct
+  values: `.modal-overlay` 1000 (`primitives.css:342`) · `CallUI.css:11` 1000 · `FloatingQuoteButton.css:6` 1000 ·
+  `.context-menu` 1050 (`primitives.css:637`) · **`.screen-picker-backdrop`** 1100 (`ScreenSharePicker.css:5`) ·
+  `.volume-popover` 1100 (`VolumeControlPopover.css:14`) · `.palette-overlay` 1150 (`CommandPalette.css:15`) ·
+  `.stage-tip` 1200 (`CallStage.css:477`) · `CallNotifBanner.css:15` 2000 · `.error-toast` 2000
+  (`primitives.css:729`) · `ErrorBoundary.css:12` 9999 · `UpdateBanner.css:19` 9999.
+  **`.screen-share-picker` DOES NOT EXIST** — earlier text in this file and in the M5 plan named it; the real
+  class is `.screen-picker-backdrop`. This map was wrong in five separate places during M5, always in the
+  *summary counts*, never in the entries. M6 should decide whether these want a named token scale.
+- **The call stage's fullscreen has TWO dead ends, not one.** (a) the CSS variant — `AppPage.css:67-72` sets
+  `display: none` on `.chat-area`, so a palette chat command lands hidden. (b) **the Fullscreen-API variant,
+  which is worse and which M5's plan missed:** `CallStage.tsx:75-78` promotes `.call-stage` to the **top layer**,
+  and the palette mounts as a sibling of `.app-layout`, so it **paints behind the backdrop — invisible** — while
+  still mounting, trapping focus and flipping `isBlockingOverlayOpen()` true (which then blocks ⌘K from
+  reopening it and kills Ctrl+Shift+F). **The codebase already solves this elsewhere**: `CallStage.tsx:106-110`
+  re-parents the quality tooltip into `document.fullscreenElement` on hover. Generalise it — portal the palette
+  into `document.fullscreenElement ?? document.body`, recomputing on `fullscreenchange`.
+- **`isBlockingOverlayOpen()`'s invariant is a convention, not a contract**, and it was already broken once:
+  `.screen-picker-backdrop` is a fixed-inset blocking scrim carrying neither `.modal-overlay` nor
+  `useModalFocus`. M5's fix wave widened the selector, but **any future backdrop that rolls its own class
+  reopens the hole silently.** M6's `useModalFocus` sweep should either make adoption the only source of truth
+  (deleting the DOM half) or add a check that every such scrim carries `.modal-overlay`.
+- **The palette's ARIA tree is not a conforming listbox** — `role="option"` sits inside unroled `.palette-group`
+  divs, and `aria-expanded` is computed from selectable rows while status rows render. Keyboard nav works; the
+  semantics are approximate. Lands with M6's accessible-name work at the primitives recipes.
+- **`Ctrl+K` is `preventDefault`ed before the gate, unconditionally** (`usePaletteHotkey.ts:16-17`), so it is
+  swallowed in every text field app-wide — including the composer, where on macOS it is "kill to end of line".
+  Largely inherent to the chord choice; M6 should rule deliberately.
+- **A test-coverage gap parked from M5's fix wave:** `selectedIndexOf(rows, selectedId)` and
+  `shouldShowEmptyState(model, query)` are natural pure extractions into `paletteFilter.ts` (the module already
+  hosts `moveSelection` with its own tests). Also, `paletteFilter.test.ts:117-129` **asserts a universal its own
+  module does not satisfy** for status-bearing groups — it passes only because the fixture never builds one, and
+  a one-word change (`messagesLoading: true`) turns it RED today.
 
 **Corrections M6 must not re-inherit wrong**
 - **`no-descending-specificity` is context-dependent, not false.** M2 and M3 each disproved a copied instance
@@ -418,9 +476,14 @@ redesign milestone**; if you touch their neighbourhood, record the contact and m
 
 ### 6e. Harness debt (gitignored, ships nothing)
 
-Repair or delete before anything cites them: `probe-chat.js`'s two optional-chained fields and its
-no-op-on-empty continuation assertions · `probe-t5fix-handoff-focus.js:35`'s `|| true` ·
-`probe-confirm-modal.js` (zero `throw`s — delete or rename so it is never mistaken for a gate) ·
+Repair or delete before anything cites them: **`probe-chat.js`'s uncleaned 2-messages-per-run residue (the
+branch's single largest source, 65%)** and its no-op-on-empty continuation assertions · **`probe-shell.js` and
+`probe-sidebar.js`, which have ZERO assertions yet were cited as regression gates** · `probe-t5fix-handoff-focus.js:35`'s
+`|| true` · `probe-confirm-modal.js` and `probe-callstate.js` (zero `throw`s — delete or rename so they are never
+mistaken for gates) · `probe-t11-flow.js:51`'s permanently-false `toastPresent` ·
+**`probe-palette-board.js:261-266`'s `heightMatchesOneRow`, which is an identity that cannot fail** (`.palette-footer`
+is `display: flex` with no wrap and no `min-height`, so its auto height *is* tallest-item + padding + border) ·
+`probe-palette-actions.js:84`'s restore click, the one call not routed through `fail()` ·
 `probe-primitives-toggle.js`'s three recorded minors are **moot** (the collision it measured was retired by
 M4 T7) — close them.
 
@@ -428,8 +491,10 @@ M4 T7) — close them.
 
 | # | Question | Owner once decided |
 |---|---|---|
-| 1 | **The header search button keeps opening the deep panel, so board `1c`'s dark-theme ⌘K chip is NOT shipped on it** (M5 decision 7). If you want that button to become the palette entry instead, it is a two-line change. | M6 |
+| 1 | **The header search button keeps opening the deep panel, so board `1c`'s dark-theme ⌘K chip is NOT shipped on it** (M5 decision 7). A `⌘K` chip on a control that does not open the ⌘K palette would be a false label. If you want that button to become the palette entry instead, it is a two-line change. | M6 |
 | 2 | **Board `2c`'s per-row server name is dropped** as unreachable — the client holds one server's channels, so it would be a constant (M5 decision 2). | M6 |
+| 2b | **Board `2c`'s footer copy is hidden below 640px** — all three hints wrapped at 390px, and «Открывается на ⌘K из любого места» is *false* on a touch device, not merely cramped (M5). | M6 |
+| 2c | **The handoff contradicts itself on the palette footer**: `README.md:145` says `canvas-2`, `Redesign.dc.html:118` gives `#FBFCFE` = `--canvas-3`. Root cause: `README.md:46` maps `canvas-2` onto two hexes. **The shipped code follows the hex.** Someone should fix the handoff. | board |
 | 3 | **Is the call stage's accent theme-invariant?** No board answer exists. | M6 dark pass |
 | 4 | **The focused screen-share view is 126.59px tall in the default split.** Read the three corrections in the backlog before touching it — the obvious fix is wrong, and the largest lever is the thumbnail strip, not the split. | M6 |
 | 5 | **The call's leave button is a pill, not r14** — the most visible board departure in M3, never formally ruled. | board |
@@ -504,10 +569,22 @@ These are not ceremony. Each was bought with a defect that shipped or nearly shi
 
 ## §9. Smoke-server state (so the next probe author is not surprised)
 
-As of M4 close, verified against the REST API rather than the DOM: **1 server** («Redesign Smoke») · exactly
-**2 pre-existing invites** · **1 sticker** (`t8seed68113`, dated 2026-08-26, M3-era) · **3 pre-M4 channels** ·
-**18 probe messages** in `#general`. M4 created no servers, channels or stickers and left no live invites.
-`last_channel_id` points at `general`.
+Measured at **M5 close** against the REST API (message counts taken two independent ways — a full paginated
+dump *and* the server's own search `.total` — which agree on every cell):
+
+**1 server** («Redesign Smoke») · **3 channels** (`general`, `second-smoke`, `t9-empty-channel`) · exactly
+**2 invites**, both `uses=0`, both dated 2026-08-25 · **1 sticker** (`t8seed68113`) · **1 member** ·
+`last_channel_id` → `general` · `#general` holds **83 messages, of which 45 match `probe`** ·
+`#second-smoke` 4 (1 probe) · `#t9-empty-channel` **still 0**, so M4's empty-state fixture is intact.
+
+> **M4's recorded "18 probe messages" was wrong by 25.** 43 existed at M4 close. The mechanism is
+> `probe-chat.js`, which writes two messages per run and never cleans up: 28 of those 43 are its
+> `probe-a-`/`probe-b-` pairs. **M5 itself created exactly 2 messages**, both from a single `probe-chat.js` run
+> during its Task 7 — timestamp-partitioned against the commit timeline. No server, channel, invite or sticker
+> leaked. **Do not diff against 18.**
+
+**`#general` is now 54% probe noise and drifting.** Any future probe asserting on message counts or scroll
+position there is working against a moving fixture. Fix `probe-chat.js` before relying on it.
 
 **A single test account means three branches have been reasoned about rather than measured:** remote
 participants, incoming calls, and not-own-message rendering. **A second test account would close all three** —
