@@ -93,14 +93,27 @@
 }
 
 /* Desktop-only: collapse the left sidebar block. Scoped to min-width so the
-   fixed 'hidden' attribute never competes with the mobile panel rules. */
-@media (width >= 769px) {
+   fixed 'hidden' attribute never competes with the mobile panel rules.
+   M6 T7: this pair moved 769/768 → 900/899 (decision 5). The 17 component
+   blocks that also sit at the old 768/769 boundary (CallStage.css ×6,
+   ChannelSidebar.css, ChatArea.css, Composer.css, MediaLightbox.css,
+   MessageAttachments.css, MessageRow.css, MessageSearch.css, ServerList.css,
+   UserList.css, VideoPlayer.css, VoiceBanner.css) deliberately stayed at 768 —
+   moving all 19 would be an unrequested behaviour change on lint-clean blocks
+   the previous milestone just certified, some with no smoke fixture to catch
+   a regression. Only this shell pair moves. */
+@media (width >= 900px) {
   .app-layout[data-left-sidebar="hidden"] .server-list { display: none; }
   .app-layout[data-left-sidebar="hidden"] .channel-sidebar { display: none; }
 }
 
-/* ── Mobile ── */
-@media (width <= 768px) {
+/* ── Mobile ──
+   M6 T7: boundary moved 768 → 899 (decision 5); the 17 component blocks at
+   the old 768/769 boundary deliberately did not move — see the comment on
+   the block above. This widens the single-panel mobile model to cover
+   769–899px, a range where those 17 component blocks still render their
+   desktop styling; task 8's responsive band system is what reconciles them. */
+@media (width <= 899px) {
   .app-page .title-bar {
     display: none;
   }
