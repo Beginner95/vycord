@@ -224,12 +224,22 @@
   }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .channel-join-voice,
-  .channel-join-voice-label {
-    transition: none;
-  }
+/* M6 T6 reconciliation with base.css's reduced-motion policy.
 
+   The `transition: none` half that used to sit here is DELETED: it was
+   subsumed, and it was over-suppressing. base.css now narrows
+   `transition-property` globally, which already drops this pill's moving parts
+   (`max-width`, `gap`, `padding`, `transform`) while keeping its `background`,
+   `color` and `opacity` cross-fade. `transition: none` killed that fade too —
+   measured pre-task, `.channel-join-voice-label` computed
+   `transition-property: none`, so the label popped instead of fading.
+
+   The `:active` rule below is NOT subsumed and stays. It suppresses a STATIC
+   transform on a press state, not a transition or an animation, and base.css's
+   policy governs only the latter two — nothing there can reach a plain
+   `transform: scale(0.96)`. Without this rule the button would still visibly
+   shrink under the pointer for a user who asked for reduced motion. */
+@media (prefers-reduced-motion: reduce) {
   .channel-join-voice:active {
     transform: none;
   }

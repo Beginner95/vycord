@@ -294,8 +294,9 @@
    "0px"] at 120ms, so board 2e's three bars pop in one at a time every time
    speaking starts. `height: 5px` was chosen over animation-fill-mode: backwards
    because it makes the resting height a property of the bar rather than of the
-   animation — it survives M6's prefers-reduced-motion sweep, which will disable
-   the animation. background is --stage-online for the reason at .stage-live-dot. */
+   animation — it survives M6's prefers-reduced-motion sweep, which (as of M6 T6)
+   sets `animation: none` on this selector from base.css. background is
+   --stage-online for the reason at .stage-live-dot. */
 .stage-eq span {
   width: 2.5px;
   height: 5px;

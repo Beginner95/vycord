@@ -81,11 +81,81 @@ a:hover {
   text-decoration: underline;
 }
 
-/* ── Reduced motion ── */
+/* ── Reduced motion — a policy, not a blanket ──
+   The spec's M6 clause is "prefers-reduced-motion (drop loops, keep fades)"
+   (docs/superpowers/specs/2026-08-25-frontend-redesign-design.md). The block this
+   replaces was `*, *::before, *::after { animation-duration: 0.01ms !important;
+   animation-iteration-count: 1 !important; transition-duration: 0.01ms
+   !important }`, which dropped the loops AND the fades — a user who asked for
+   reduced motion got no entrance at all rather than a gentler one.
+
+   Animations are addressed BY NAME because they are declared at ~16 enumerable
+   sites and the wildcard is precisely what over-suppressed. Transitions are
+   still addressed by `*`, because they fire on arbitrary state changes on
+   arbitrary elements and cannot be enumerated — but there the property LIST is
+   narrowed instead of the duration zeroed, so colour and opacity still
+   cross-fade while geometry snaps.
+
+   Keyframe census (re-measured 2026-08-31, comments stripped). The line drawn:
+   a translate of ≤6px or a scale of ≥0.95 reads as a fade and keeps running;
+   ≥10px of travel is re-pointed at the shared `fade-in`.
+     keep   fade-in · screen-picker-fade · error-boundary-fade-in (opacity only)
+     keep   msg-jump-flash 2.2s — animates `background` only, no transform, so
+            its budget exceedance is a colour fade, not movement
+     keep   modal-in 4px · msg-in 6px · stage-tip-in 4px · scale-in 0.95 ·
+            error-boundary-scale-in 0.96
+     fade   slide-down 10px · call-notif-slide-in 20px ·
+            message-search-slide-in 24px
+     off    the four `infinite` loops below
+
+   Every selector below is prefixed `:root` deliberately: base.css is imported
+   at main.tsx:10, BEFORE primitives.css and every component sheet, so an
+   equal-specificity rule here would LOSE on source order. The prefix wins on
+   specificity instead — source order is a fact to diagnose with, not to ship
+   on, and Vite HMR can re-inject a base-layer file out of order. */
 @media (prefers-reduced-motion: reduce) {
+  /* The four indefinite loops — the actual vestibular hazard.
+     stage-eq-bar 0.7s (CallStage.css:304) · p2p-pulse 2.5s (CallUI.css:43) ·
+     chat-shimmer 1.2s (ChatArea.css:220) · message-search-spin 0.7s
+     (MessageSearch.css:175). Each element keeps a resting style that does not
+     depend on its keyframes — see the note at CallStage.css's `.stage-eq span`,
+     whose `height: 5px` exists so the bars survive exactly this rule. */
+  :root .stage-eq span,
+  :root .p2p-modal-tile,
+  :root .chat-skel-avatar,
+  :root .chat-skel-line,
+  :root .message-search-spinner {
+    animation: none;
+  }
+
+  /* Real travel (10–24px) loses the slide but keeps its fade, at the duration
+     each surface already authored. `.error-toast` carries its own
+     `transform: translateX(-50%)` centring in its base rule, so dropping the
+     keyframe's transform does not decentre it. */
+  :root .error-toast,
+  :root .call-notif-banner,
+  :root .message-search {
+    animation-name: fade-in;
+  }
+
+  /* The only two wildcards left, and neither can suppress a fade.
+
+     `animation-iteration-count` is a forward guard: a loop added later is
+     capped to a single pass even if nobody adds it to the list above. It
+     leaves every duration untouched, and one-shot entrances already run
+     exactly one iteration, so no fade is affected. The named rules above are
+     what stop the four CURRENT loops from playing even once.
+
+     `transition-property` drops movement while keeping fades. Narrowing the
+     property list — rather than zeroing `transition-duration`, which is what
+     the old blanket did — is what lets a declared `opacity var(--transition)`
+     still fade while `max-width`, `transform`, `gap`, `padding`, `width` and
+     `height` snap to their end state. Elements that declare no transition are
+     unaffected: their `transition-duration` stays at its `0s` initial value,
+     so nothing new starts animating. */
   *, *::before, *::after {
-    animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
-    transition-duration: 0.01ms !important;
+    transition-property:
+      opacity, color, background, border-color, box-shadow, filter, fill, stroke !important;
   }
 }
