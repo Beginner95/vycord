@@ -99,3 +99,53 @@ Backend/API changes of any kind; typing indicators; read receipts; reactions; at
 - **Long-lived branch drift vs `main`** — rebase the `redesign` branch on `main` at each milestone boundary.
 - **Alias layer masking missed conversions** — M6 alias deletion doubles as the audit: build + grep for old token names, **plus** a grep for raw hex/`rgba()` values outside `tokens.css`, must both come up empty (token-name grep alone misses the raw values listed in §3).
 - **Optimistic send vs current send path** — reconciliation keyed on server-assigned id via the existing WS message event; retry re-invokes the same API call.
+
+## 9. Amendment — 2026-08-30 (M5.5 trunk integration)
+
+Appended, not merged into the text above: §§1–8 stand as written and as dated.
+Each item below names the clause it amends.
+
+1. **`develop` is the trunk; `main` has not moved since the branch point.**
+   §8's *"Long-lived branch drift vs `main`* — rebase the `redesign` branch on
+   `main` at each milestone boundary"* is superseded on both halves. `origin/main`
+   (`d17bddd`) is an ancestor of `redesign`, so it is not a drift source;
+   `origin/develop` is. And `origin/redesign` is **published** (`2dc4974`, an
+   ancestor of local `redesign`), so the branch **merges** from `origin/develop`
+   and is **never rebased**. The drift gate is
+   `git fetch --all --prune && git log redesign..origin/develop` — the fetch is
+   part of the gate, not a precondition someone may skip.
+
+2. **Attachments arrived from trunk (VYC-82).** §2 lists "attachment cards" under
+   *Skip until a backend phase* and §7 lists "attachment upload/rendering" as out
+   of scope. Both remain correct as written: the feature stays out of scope **to
+   build**. It shipped on `develop` independently, so the merged tree now
+   contains it, and §2's *Unspecced surfaces* clause — "restyle everything to the
+   new system, extrapolating the design language" — extends to it. That clause's
+   named list is illustrative, not exhaustive: **treat `MessageAttachments`,
+   `AttachmentTray`, `AttachmentButton`, `VideoPlayer`, `AudioPlayer` and
+   `MediaLightbox` as included in it** (§2's own text is unchanged — this
+   amendment records the reading, it does not edit the list). M5.5 restyles these
+   six surfaces; they are not otherwise redesigned, and no attachment behaviour
+   is added.
+
+3. **The §1/§7 scope wall means "no redesign-authored changes"**, not "these
+   paths never change." §1 fixes the REST/WS contracts (`services/api.ts`,
+   `services/websocket.ts`, `types/index.ts`) and §7 excludes `services/` and all
+   backend work. Trunk changes to those paths arriving via a merge from
+   `origin/develop` are **not violations** of either clause. The wall constrains
+   what this branch may author, and the merge-vs-rebase rule in item 1 is what
+   keeps the distinction auditable in history.
+
+4. **§8's raw-value audit gate is scoped to `*.css`**, with a named non-CSS
+   allowlist. Taken literally — "a grep for raw hex/`rgba()` values outside
+   `tokens.css` must come up empty" — the gate could never pass, because three
+   non-CSS sites legitimately hold raw colour:
+   - `utils/avatarColor.ts:5–12` — the 8-colour avatar palette §4.3 mandates;
+   - `AvatarCropModal.tsx:109,116` — `ctx.fillStyle` / `ctx.strokeStyle` canvas
+     fills (`rgba()`, not hex), which cannot read a CSS custom property;
+   - `Avatar.tsx:34` — the `#FFFFFF` fallback in `var(--avatar-ink, #FFFFFF)`.
+
+   Those three are permanently exempt. The CSS half of the gate is **not yet
+   met** as of `bab71ef`: four sites remain outside `tokens.css` —
+   `pages/Auth.css:90,127,140` and `TitleBar.css:34`. Clearing them is M6's work,
+   and the gate passes when that grep is empty over `*.css` alone.
