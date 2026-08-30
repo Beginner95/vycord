@@ -306,6 +306,16 @@
   color: var(--danger-text);
 }
 
+/* .panel-icon-btn:hover above is (0,2,0) — 1 class + :hover — the SAME
+   specificity as .is-off's (0,2,0) two lines up, so the tie is broken by
+   source order: .is-off, declared LATER, always wins — hover's colour never
+   applies to an off button and it visibly does nothing on hover (M1 item,
+   fixed M6 T4). This compound selector is (0,3,0) and wins unconditionally,
+   independent of where it is declared, per Ruling A. */
+.panel-icon-btn.is-off:hover {
+  color: var(--ink);
+}
+
 .panel-icon-btn.is-danger:hover {
   background: var(--danger);
   color: var(--white);
@@ -346,14 +356,20 @@
 /* Shared animation vocabulary. Kebab-case since M4 T2 (keyframes-name-pattern);
    every consumer of the old camelCase names was renamed in that same commit.
    Live consumers, RE-DERIVED from `rg -n 'fade-in|scale-in|modal-in' src/` at
-   M4 T9 — every line number below was re-checked, not carried forward — so
+   M6 T4 — every line number below was re-checked, not carried forward — so
    check before deleting any of these:
      fade-in  — .modal-overlay below; EmojiPicker.css:18, StickerPicker.css:17
      scale-in — .context-menu below. NO external consumers left: T9's
                 AvatarCropModal.css rewrite dropped the last one (it was the
                 only file outside primitives.css using it).
-     modal-in — .modal and the radio ::after below; ConfirmModal.css:9,
-                CallUI.css:30, Settings.css:14
+     modal-in — .modal below; ConfirmModal.css:9, CallUI.css:30,
+                Settings.css:14, CommandPalette.css:26 (added in M5 T3, after
+                the M4 T9 re-derivation below — that's why it was missing
+                here until this pass). The radio `::after` this comment used
+                to list as a second internal consumer was deleted in M6 T4
+                with the rest of the dead `.channel-type-options` block
+                (orphaned pre-M4 by VYC-77, commit 4674032) — modal-in now
+                has exactly one internal consumer.
    T9 also removed AvatarCropModal.css's fade-in reference: its overlay is the
    `.modal-overlay` primitive now, so it takes fade-in transitively — exactly
    like Settings.css. ErrorBoundary.css deliberately owns private copies
@@ -439,65 +455,6 @@
 }
 
 /* ── Custom checkbox (e.g. "private server" toggle) ── */
-.modal .channel-type-options {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.modal .channel-type-options label {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 8px 10px;
-  border-radius: var(--radius-row);
-  font-size: 14px;
-  font-weight: 500;
-  color: var(--ink);
-  cursor: pointer;
-  user-select: none;
-  transition: background var(--transition);
-}
-
-.modal .channel-type-options label:hover {
-  background: var(--canvas-2);
-}
-
-.modal .channel-type-options input[type="radio"] {
-  width: 18px;
-  height: 18px;
-  min-width: 18px;
-  padding: 0;
-  margin: 0;
-  border: 1.5px solid var(--line-strong);
-  border-radius: 50%;
-  background: var(--canvas);
-  cursor: pointer;
-  appearance: none;
-  flex-shrink: 0;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  transition: all var(--transition);
-}
-
-.modal .channel-type-options input[type="radio"]:hover {
-  border-color: var(--accent);
-}
-
-.modal .channel-type-options input[type="radio"]:checked {
-  border-color: var(--accent);
-}
-
-.modal .channel-type-options input[type="radio"]:checked::after {
-  content: '';
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--accent);
-  animation: modal-in 0.15s var(--ease-out);
-}
-
 .modal .form-group.form-checkbox label {
   display: flex;
   align-items: center;

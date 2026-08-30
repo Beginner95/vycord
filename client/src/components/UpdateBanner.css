@@ -34,7 +34,16 @@
 }
 
 /* .btn-ghost's --muted is tuned for --canvas; on the accent-soft fill the
-   dismiss action reads as part of the banner instead. */
-.update-banner-dismiss {
+   dismiss action reads as part of the banner instead — including on hover,
+   where .btn-ghost:hover's color: var(--ink) at (0,2,0) otherwise beats this
+   rule's (0,1,0) unconditionally (specificity outranks state, M6 T4 — the
+   button used to revert to plain ink on hover, exactly the state this
+   comment says the override prevents). The compound selector below is
+   (0,3,0) and wins regardless of source order, per Ruling A.
+   At REST the two rules are tied at (0,1,0); the override still wins there,
+   but only because this file loads after primitives.css — that source-order
+   dependency is pre-existing, out of this fix's scope, and left as-is. */
+.update-banner-dismiss,
+.update-banner-dismiss.btn-ghost:hover {
   color: var(--accent-text);
 }
