@@ -71,6 +71,11 @@ Copied forward from RESUME §3. Every task's requirements implicitly include thi
 - **Any class rename must sweep `.superpowers/sdd/<milestone>/tools/*.js`.** The harness is gitignored
   and ungated: a rename that leaves a stale selector produces no error and no failing test — the probe
   just stops being able to fail.
+- **Search the harness with `rg --no-ignore --hidden`, or with `grep`. Never with a bare `rg`.**
+  `.superpowers/` is gitignored and ripgrep honours `.gitignore` by default, so a plain `rg` **returns
+  nothing and reports a false zero** — which is indistinguishable from a real zero. `--hidden` alone
+  does not defeat it, and neither does passing the directory as an explicit path. This plan shipped a
+  false "zero alias references in the harness" from exactly this (Appendix A, C9).
 - **Pair every negative precondition with a positive one** wherever the state is achievable — assert
   present → act → assert absent. A bare `!document.querySelector('.x')` goes permanently true the
   moment `.x` is renamed.
@@ -95,10 +100,16 @@ Copied forward from RESUME §3. Every task's requirements implicitly include thi
 
 ## Numbered binding decisions
 
-Each states **what it costs if wrong**. Decisions 1–4 are inherited human rulings from the
-2026-08-30 M6 *design* session; decisions 5–8 are human rulings from the 2026-08-30 M6 *planning*
-session (this one). **Do not re-litigate 1–8.** Decisions 9–20 are planner calls and may be
-overturned by an implementer with a measurement.
+Each states **what it costs if wrong**.
+
+- **Decisions 1–4** — inherited human rulings from the 2026-08-30 M6 *design* session (RESUME §7.1).
+- **Decisions 5–8** — human rulings from the 2026-08-30 M6 *planning* session.
+- **Decisions 22–25** — human rulings from the same session, taken **after the grand review** surfaced
+  four questions the plan had answered by accident, by silence, or by deferring into execution.
+- **Decisions 9–21** — **planner calls.** These may be overturned by an implementer **with a
+  measurement**.
+
+**Do not re-litigate 1–8 or 22–25.**
 
 ### Human rulings — inherited (RESUME §7.1)
 
@@ -166,10 +177,18 @@ looked like stage sites; **only three are**:
 comment already says so and applies the identical carve-out to `--online`: *"Theme-adaptive surfaces
 (`.stage-tip` on `--canvas`, the p2p incoming modal) keep `--online`."* Follow that precedent exactly.
 
-**The value is a measured AA fix.** `#E7444A` computes **4.21:1 on `--stage-tile` — below AA's
-4.5:1** (and 4.85:1 on the `--stage-plate` composite `#0d0f18`, which only just clears). `#FCA5A5`
-computes **10.07:1** on the same ground. This is therefore a **disclosed, deliberate colour change on
-three call-surface sites**, and task 14 must check it against board `1e`.
+**The value is a measured AA fix. Bind every ratio to its ground — the two colours are not measured
+against the same background:**
+
+| ground | `#E7444A` | `#FCA5A5` |
+|---|---|---|
+| `--stage-tile` `#1A1E2B` | **4.21:1 — below AA** | 8.75:1 |
+| `--stage-tile-2` `#20252F` | **3.89:1 — below AA** | 8.09:1 |
+| `--stage` `#0E1017` | 4.82:1 | 10.01:1 |
+| `--stage-plate` over `--stage-tile` (`#0D0F18`) | 4.85:1 | 10.07:1 |
+
+So this is a **disclosed, deliberate colour change on three call-surface sites**, and task 14 must
+check it against board `1e`.
 *Cost if wrong:* one token definition and three references to revert. The alternative — pinning
 `--stage-danger: #E7444A` to move zero pixels — is **rejected**: it would ship a known AA failure on
 the stage out of the milestone whose clause is dark-theme parity.
@@ -184,10 +203,48 @@ revisit. The alternative costs users the one-click route to per-channel deep sea
 Closes RESUME §6f #4 via backlog §2a's own analysis: `.stage-thumbs` (`CallStage.css:920–921`,
 `height: 110px`) is **41% of the stage chrome** and is the largest single lever. The two remedies
 backlog §2a rules **out** stay out: `height: max(var(--call-stage-height, 55%), 75%)` is wrong
-because the drag handle clamps to 20–80% (`AppPage.tsx:130`), and the split itself is
+because the drag handle clamps to 20–80% (**`AppPage.tsx:139`** — backlog §2a's `:130` is the
+persistence guard, a different expression with the same two numbers), and the split itself is
 user-draggable by design.
 *Cost if wrong:* the thumbnail strip becomes conditional, so a user in a short stage loses participant
 thumbnails — reversible in one rule.
+
+### Human rulings — post-grand-review (2026-08-30)
+
+The grand review surfaced four questions the plan had answered by accident, by silence, or by
+deferring into execution. Each was put to the human as an explicit costed question. **These are
+rulings, not planner calls.**
+
+**22. The member-list band runs `900px ≤ width < 1200px`, closing the spec's 900–999px hole.**
+Spec §5 names ≥1200, 1000–1200, <900 and <640 — and is **silent on 900–999px**. The review found the
+plan's first band sketch answered it by accident, letting all four columns return at 900–999 while
+1000–1200 hid the member list: **more columns at 950px than at 1100px**, an inversion. The band now
+meets the mobile model exactly at 900, with no gap.
+*Cost if wrong:* a 950px window gets a treatment the board drew for 1000–1200 — the only reading with
+no discontinuity, against an alternative that shipped the inversion.
+
+**23. The `<900px` "sidebar drawer" clause is satisfied by the existing mobile single-panel model,
+recorded as a formal deviation from board `1f`.**
+The tree switches whole panels via `data-mobile-panel`; that is **not** a drawer, and the plan
+originally treated the two as equivalent **silently**. It is M2's model, it works, and **every mobile
+probe on the branch asserts against it** (`probe-t12-mobile.js`, `probe-stage-mobile.js`).
+*Cost if wrong:* the board's drawer treatment never ships — as a **recorded deliberate departure**
+rather than an unnoticed gap. **Task 14 must carry this ruling** so board QA has an answer rather
+than a surprise.
+
+**24. The CSS-fullscreen dead end is fixed, not declined.**
+A palette chat command must exit CSS-fullscreen so the chat column is visible, symmetric with the
+portal fix for the Fullscreen-API variant. Task 11 probed both and fixed one, which left the task
+**unable to close** — its own fail-first would still fail afterwards.
+*Cost if wrong:* a user in CSS fullscreen who runs a chat command is dropped out of fullscreen, which
+is the outcome asking for chat implies.
+
+**25. `AppPage.tsx:610`'s `▶`/`◀` become lucide chevrons.**
+The last emoji-as-icon in the tree, excluded by M1's own plan and open ever since.
+`ChevronRight`/`ChevronLeft`, `strokeWidth={1.8}`, explicit `size` matched to the neighbouring
+surface. **Re-measure the line number** — the record's old `:603` was already stale once.
+*Cost if wrong:* a small visual change on the sidebar collapse control, against shipping
+`client/CLAUDE.md`'s "no emoji-as-icon" contract with a permanent documented exception.
 
 ### Planner decisions
 
@@ -583,11 +640,17 @@ out.VERDICT = FAIL.length === 0 ? 'PASS' : 'FAIL (' + FAIL.length + ')';
 Convert to the throwing house convention so `smoke.mjs` surfaces failures without a reader inspecting
 `VERDICT`.
 
-**Restate the figure in the report.** The record says "48 of its 88 assertions have never executed".
-Measured: **40 `check()` sites sit above `:193` and 48 below**; the 40 above *do* execute but their
-results **die with `out`** when the `TypeError` is swallowed into a `PROBE ERROR:` string. Net: **0 of
-88 produce a readable verdict**, not 48 — and the failure is **loud**, not silent. What was silent is
-that nobody ran it. (§8.9: a correction must be tighter than what it corrects.)
+**Restate the figure in the report, and count it rather than deriving it.** The record says "48 of its
+88 assertions have never executed". Measured by occurrence, not by arithmetic: **41 `check(` above
+`:193`, 48 at/below, 89 total.** (`:17` is the *definition*, written `const check = (name, …` — it
+contains no `check(` and is therefore **not** in the 89.) The 41 above *do* execute, but their results
+**die with `out`** when the `TypeError` is swallowed into a `PROBE ERROR:` string. Net: **0 of 89
+produce a readable verdict** — and the failure is **loud**, not silent. What was silent is that nobody
+ran it.
+
+*An earlier draft of this plan said 40/88 — inheriting the RESUME's 88 and deriving 40 by subtraction,
+which is exactly the move E2 forbids. The grand review caught it. §8.9: a correction must be tighter
+than what it corrects.*
 
 - [ ] **Step 6: Give `probe-shell.js` and `probe-sidebar.js` real gates**
 
@@ -606,8 +669,9 @@ have zero assertions of any kind. `probe-lightbox-escape.js`'s own line 1 says *
 same fix. M5.5 **nearly certified it as a gate** in the one table whose entire function is separating
 the two.
 
-Note in the report: **143 `probe-*.js` files exist** and the §5 truth table covers ~20. Roughly **45**
-have no assertion machinery at all. Renaming three is a convention beachhead, not a completed audit.
+Note in the report: **143 `probe-*.js` files exist** and the §5 truth table covers ~20. Exactly **43**
+have no assertion machinery at all — no `fail(`, no `throw`, no `VERDICT`, no `FAIL.push`. Renaming
+three is a convention beachhead, not a completed audit.
 
 - [ ] **Step 7b: Discharge the rest of §6e's named harness debt**
 
@@ -629,22 +693,57 @@ anything cites them**:
 **`#general` is 54% probe noise and drifting.** Any probe asserting on message counts or scroll
 position there is working against a moving fixture.
 
-- [ ] **Step 8: Write `alias-sentinel.mjs` and `selector-sweep.mjs`**
+- [ ] **Step 8: Write the colour comparator — the half the probe does not cover**
 
-The sentinel strips `/* … */` **before counting** — the comment trap produced a wrong alias census for
-**four separate parties**, including one reviewer whose own grep was wrong while the document was
-right. It reads `tokens.css` lines 177–239 and prints unique-name and declaration counts.
+`probe-colour-tokens.js` throws only when a token resolves to **nothing** (step 3 proves that mode).
+But the gates that matter — task 2's "all 81 byte-identical to the baseline" and task 13's "nothing
+changed except the disclosed deltas" — are a **diff**, and a diff nobody is specified to run is
+`probe-chat.js`'s original sin rebuilt at the milestone's most important verification: **a renamed
+token throws, a mangled value does not.**
 
-`selector-sweep.mjs --class <name>` reports, separately:
-1. `className` string emissions in `src/**/*.tsx`
-2. `querySelector`/`querySelectorAll`/`closest`/`matches` string arguments in `tools/**/*.js`
-3. `classList.{add,remove,toggle,contains}` arguments in `tools/**/*.js`
+Write `compare-colours.mjs <baseline.json> <captured.json> [--allow deltas.json]`. It **exits
+non-zero and prints every drift** not named in the allowlist. Prove it can fail **on a value change,
+not a name change**: edit one token's value in a scratch copy of the baseline, run the comparator,
+observe the throw, discard the scratch copy.
 
-It must **never** report bare token matches. Prove it on `.channel`: token grep says 254 TSX / 246
-harness; the sweep must say **1 emission** (`ChannelSidebar.tsx:250`) and **45 harness selector
-sites**.
+- [ ] **Step 9: Write `alias-sentinel.mjs` — anchored on the banner, never on line numbers**
 
-- [ ] **Step 9: Gates, sentinel, residue, commit**
+**Do not hard-code lines 177–239.** Tasks 3 and 11 both insert tokens *above* the alias block
+(`--stage-accent`, `--stage-danger`, `--warning-text`, dark `--danger`, seven `--z-*` plus a comment),
+shifting it ~10+ lines down. A fixed window would then straddle the canonical dark block while
+truncating the alias block — and the failure mode that matters is not the false alarm, it is the
+window **coincidentally still counting 47/50**: a gate that stopped gating, inside the very instrument
+decision 10 introduces to *replace* a retired gate.
+
+Anchor on the `LEGACY ALIASES — DELETE IN M6` banner and parse to the end of the trailing
+`[data-theme="dark"]` rule. **Strip `/* … */` before counting** — the comment trap produced a wrong
+alias census for four separate parties. Distinguish **"block absent → 0 / 0"** from **"window empty"**;
+they are the same number and opposite meanings.
+
+**Fail-first it, like everything else:** delete one alias line in a scratch copy, assert the sentinel
+reports **46 unique / 49 declarations**, discard the copy.
+
+- [ ] **Step 10: Write `selector-sweep.mjs`**
+
+Reports, separately:
+1. `className` string emissions in `src/**/*.tsx` — **including conditional fragments**
+2. `querySelector`/`querySelectorAll`/`closest`/`matches` arguments in `tools/**/*.js` **and `src/**`**
+   (measured zero in `src/` today, so the pattern is free insurance)
+3. `classList.{add,remove,toggle,contains}` arguments in both
+
+It must **never** report bare token matches. **Run it with `--no-ignore --hidden` semantics or plain
+`grep`** — see the warning in task 13 step 1.
+
+**Two positive controls, because one is not enough:**
+- `.channel` — the easy case, a plain template head. Token grep says 254 TSX / 246 harness; the sweep
+  must say **1 emission** (`ChannelSidebar.tsx:250`) and **45 harness selector sites**.
+- `active` — **the hard case, and the one task 10 depends on.** It appears only as a *conditional
+  fragment*: `` `channel${isActive ? ' active' : ''}` `` (`ChannelSidebar.tsx:250`) and
+  `ServerList.tsx:45,55`. A sweep that handles template heads but misses fragments would report
+  **0 emissions** here and look like it worked. Expect **3 emissions**, 11 selector + 9 `classList`
+  harness sites.
+
+- [ ] **Step 11: Gates, sentinel, residue, commit**
 
 Envelope E5–E8. Lint must still be **188** — this task changes no CSS.
 
@@ -697,11 +796,18 @@ Expected exactly:
 ```
 **If any other rule appears, stop** — `--fix` did something this plan did not predict.
 
-- [ ] **Step 4: Prove the rewrite is value-preserving — this is the whole point of task 1**
+- [ ] **Step 4: Prove the rewrite is value-preserving — and know what the proof does NOT cover**
 
 Restart the dev server (HMR cascade inversion), then re-run the colour probe in **both** themes and
-diff against `m6-colour-baseline.json`. **Every one of the 81 tokens must be byte-identical in both
-themes.**
+run `compare-colours.mjs` against `m6-colour-baseline.json`. **Every one of the 81 tokens must be
+byte-identical in both themes.**
+
+**Scope, stated honestly:** the 81-token snapshot covers `tokens.css`'s custom properties. `--fix`
+also rewrites colour notation **inside the six component files** — `Auth.css:90,127,140`'s `rgba()`
+shadows and borders among them — and those are *declarations*, not tokens, so **the snapshot never
+sees them.** The rewrite is mechanically value-preserving, but "prove the rewrite is value-preserving"
+overstates the instrument. **Spot-check one rewritten declaration per component file** by reading its
+computed value before and after, and record which files were spot-checked rather than snapshotted.
 
 The rewrites are notation-only — `#FFFFFF` → `#FFF`, `rgba(255, 255, 255, 0.07)` →
 `rgb(255 255 255 / 7%)`, `alpha-value-notation` `0.07` → `7%`. **50 lines change in `tokens.css`**
@@ -781,10 +887,12 @@ not touch `CallStage.css`, but verify rather than assume. `CallUI.css` and `AppP
 
 ```css
   --stage-danger: #FCA5A5; /* Stage chrome is dark in BOTH themes, so its danger
-                              foreground cannot follow --danger's light value:
-                              #E7444A computes 4.21:1 on --stage-tile, BELOW AA.
-                              #FCA5A5 computes 10.07:1. Deliberate, disclosed
-                              colour change on three sites (decision 6). */
+                              foreground cannot follow --danger's light value.
+                              Measured on --stage-tile: #E7444A is 4.21:1, BELOW
+                              AA's 4.5:1; #FCA5A5 is 8.75:1. (On --stage-tile-2
+                              #E7444A is worse still, 3.89:1.) Deliberate,
+                              disclosed colour change on three sites — see
+                              decision 6. */
 ```
 
 Switch **three** sites — `CallStage.css:279` (`.stage-plate-mic.is-muted`), `:460`
@@ -852,9 +960,15 @@ This surface carries the NC-unsupported and mic-permission messages.
 
 `--hl-ink` is **byte-identical to `--ink` in LIGHT** (both `#101322`, `tokens.css:45` vs `:16`), so
 `mark { color: var(--hl-ink) }` is **inert in light** and reads as an intentional value when it is
-not one. The dark pair are interpolations — the board gives no dark highlight pair. Set a light
-`--hl-ink` that is genuinely distinct on `--hl-bg` `#FEF3C7`, and drop the `/* refine in M6 */`
-comments on `--hl-bg`/`--hl-ink`.
+not one. Set a light `--hl-ink` that is genuinely distinct on `--hl-bg` `#FEF3C7`.
+
+**The dark end is a ruling, not an action.** The dark pair are interpolations because **the board
+gives no dark highlight pair at all** — there is nothing to migrate toward, and inventing one in the
+final milestone would be a planner substituting for the board. **Keep the dark interpolations, and
+record that as the decision** rather than leaving `/* refine in M6 */` to imply unfinished work. Drop
+the marker on both regardless: a marker naming the milestone it survived is a false comment.
+
+*(This is why step 6's board-`2d` review list excludes the pair — not an oversight.)*
 
 **The probe cannot assert this on a `mark` element.** `mark` carries **UA-origin declarations for
 both `color` and `background-color`** — measured `rgb(0,0,0)` on `rgb(255,255,0)` in **both** light
@@ -879,9 +993,36 @@ JS-injected (`Avatar.tsx:32`) so `importFrom` cannot see it. Add fallbacks:
 either name**, so renaming either breaks the member list's avatars with no lint error, no type error
 and no failing test. Touch the values, never the names.
 
-- [ ] **Step 8: The 1 `no-duplicate-selectors` in `tokens.css`**
+**Update `client/CLAUDE.md` §1 in THIS commit, not at task 13.** That file documents these two lines
+as a **live** violation of its own rule and says so explicitly: *"Fix it as M6 work, and update the
+root file in the same commit."* Fixing them here while deferring the doc to task 13 would leave the
+committed contract false on disk for ten tasks. Update `client/CLAUDE.md` §1 and the root
+`CLAUDE.md`'s gate figure together with the fix; task 13 updates them again for the alias block.
 
-The one warning `--fix` could not resolve. Merge the duplicated rule by hand.
+- [ ] **Step 8: The 1 `no-duplicate-selectors` — SUPPRESS it, do not merge it**
+
+**Do not "merge the duplicated rule by hand".** Measured: the warning is
+**`tokens.css:235`, `Duplicate selector "[data-theme="dark"]", first used at line 126`** — the
+duplicate is **the alias block's own trailing dark rule**. Merging it into the canonical dark block
+would:
+- move the 3 alias dark overrides **out** of the alias block, so the sentinel reads **47 / 47** and
+  contradicts this task's own closing expectation of 47 / 50; **and**
+- put them outside task 13's deletion range, so `--brand-subtle`'s dark override survives the
+  deletion — changing Auth's dark focus ring **ten tasks before** decision 14 migrates it.
+
+Suppress instead, so the warning dies with the block it belongs to:
+
+```css
+/* stylelint-disable-next-line no-duplicate-selectors -- deliberate: this rule is
+   part of the LEGACY ALIASES block and is deleted whole in M6 T13. Merging it
+   into the canonical dark block at :126 would move three alias overrides out of
+   the block and out of T13's deletion range. */
+[data-theme="dark"] {
+```
+
+**This changes the lint trajectory: task 3 closes at 51, and task 13 clears this warning by deleting
+the rule rather than by fixing it.** The three expectations — lint 51, sentinel 47/50, and task 13's
+deletion range — cannot all hold under a merge; they all hold under a suppression.
 
 - [ ] **Step 9: Gates, sentinel, residue, commit**
 
@@ -979,8 +1120,11 @@ There is **1**.
 
 - [ ] **Step 3: The level meter (decision 4's second half)**
 
-Copy the trunk-authored precedent at `AttachmentTray.tsx:63`, which is the tree's only existing
-`role="progressbar"`:
+`AttachmentTray.tsx:63` is the tree's only existing `role="progressbar"` and establishes the pattern —
+but **it is a precedent for the role, not a template to copy literally**: it carries only
+`role="progressbar"` and `aria-valuenow`, with no `aria-valuemin`/`aria-valuemax`/`aria-label`. The
+snippet below is the complete form; use it, and consider back-filling the tray's own attributes if
+task 5 has room.
 
 ```tsx
 <div
@@ -1004,10 +1148,22 @@ key in one and not the other is a **`tsc` error**, which is the real parity gate
 
 - [ ] **Step 5: The chat column's missing `h1`**
 
-The chat column has **no `h1` at all** — `ChatArea.tsx:41` renders `<h2 className="chat-empty-title">`
-where the old quiet-channel state used `<h1>`. The only `<h1>`s in `src/` are `LoginPage.tsx:44`,
-`RegisterPage.tsx:53`, `ErrorBoundary.tsx:45`. Promote the chat column's channel heading to `h1` and
-verify no CSS rule keyed on `h2` is orphaned by the change.
+The chat column has **no `h1` at all** — the only `<h1>`s in `src/` are `LoginPage.tsx:44`,
+`RegisterPage.tsx:53`, `ErrorBoundary.tsx:45`.
+
+**Be precise about which element, because there are two and they are different states.**
+`ChatArea.tsx:41` is the **empty-state** title (`.chat-empty-title`); the **persistent channel header**
+is a separate element that renders whenever a channel is open. A document should carry exactly one
+`h1` in **both** states, so:
+
+- **The persistent channel header becomes the `h1`** — it is the document's subject whenever a channel
+  is open, which is the overwhelmingly common state.
+- **`.chat-empty-title` stays an `h2`.** It renders only when no channel is selected; promoting it too
+  would give the no-channel state an `h1` that names an absence, and promoting *both* would produce
+  two `h1`s whenever the empty state renders inside an open channel.
+
+Verify no CSS rule keyed on the old tag is orphaned, and assert in the probe that **exactly one `h1`
+exists in each of the two states** — not merely that one exists.
 
 - [ ] **Step 6: The palette's ARIA tree**
 
@@ -1124,10 +1280,17 @@ rule is at `ChatArea.css:349`, already `@media (width <= 768px)` and **not** par
 
 **Interfaces:** **Consumes** task 7's 900px pair. **Produces** the spec's four bands.
 
-- [ ] **Step 1: Fail-first — `probe-bands.js` at four widths**
+- [ ] **Step 1: Fail-first — `probe-bands.js` at FIVE widths, and 950 is the load-bearing one**
 
-Drive `--size WxH` at **1280×900**, **1100×900**, **850×900** and **600×900** and assert the column
-set at each. Pre-task, the 1000–1200 band does not exist and 850 shows a dead members button.
+Drive `--size WxH` at **1280×900**, **1100×900**, **950×900**, **850×900** and **600×900**, asserting
+the exact column set at each. Pre-task, the member-list band does not exist and 850 shows a dead
+members button.
+
+**950 exists because the plan's own first sketch was wrong there and its own first probe could not
+see it.** A four-width probe at 1280/1100/850/600 steps straight over the 900–999 gap, so it would
+have gone green on a layout that showed more columns at 950px than at 1100px. Assert **explicitly**
+that the column count is monotonic across the five widths — never increasing as the viewport narrows.
+A band probe that samples only inside the bands it knows about cannot discover a band it does not.
 
 - [ ] **Step 2: The four bands (spec §5)**
 
@@ -1139,19 +1302,21 @@ the pair task 7 migrated:
 /* ≥1200: all four columns. This is the base layout — no media query needed;
    the bands below are subtractive. */
 
-@media (1000px <= width < 1200px) {
-  /* Member list leaves the flow and is revealed by .chat-members-btn.
-     The toggle already sets data-mobile-panel; step 3 makes that meaningful
-     on desktop rather than only below the mobile boundary. */
+/* 900–1199: member list leaves the flow and is revealed by .chat-members-btn.
+   The LOWER BOUND IS 900, NOT 1000 (decision 22). Spec §5 names 1000–1200 and
+   is silent on 900–999; bounding this at 1000 would let all four columns
+   return at 900–999, i.e. MORE columns at 950px than at 1100px. 900 meets the
+   mobile model exactly, leaving no gap. */
+@media (900px <= width < 1200px) {
   .app-layout .user-list { display: none; }
   .app-layout[data-members-open="1"] .user-list { display: flex; }
 }
 
-@media (width < 900px) {
-  /* Sidebar becomes a drawer. The mobile single-panel model that task 7
-     moved to `width <= 899px` already owns this range — extend it rather
-     than adding a competing rule, or the two will fight on specificity. */
-}
+/* <900: the mobile single-panel model that task 7 moved to `width <= 899px`
+   owns this range. Per decision 23 this SATISFIES spec §5's "sidebar drawer"
+   clause as a RECORDED DEVIATION from board 1f — it is panel-switching, not a
+   drawer. Do not add a competing rule here; extend the existing block, or the
+   two will fight on specificity. */
 ```
 
 **Do not add a fifth boundary.** `<640px` is already served by `CommandPalette.css:223` and
@@ -1321,7 +1486,7 @@ activation (notably `requestFullscreen`) rejects on that path — `userGesture: 
 probe-eval call site, and `--probe2`/`--probe3` each run in their own `Runtime.evaluate`, which is the
 only way to spend more than one activation.
 
-- [ ] **Step 2: Portal the palette into the fullscreen element**
+- [ ] **Step 2: Fix (b) — portal the palette into the fullscreen element**
 
 **The codebase already solves this elsewhere** — `CallStage.tsx:106–110` re-parents the quality
 tooltip into `document.fullscreenElement` on hover. Generalise it: portal the palette into
@@ -1329,6 +1494,16 @@ tooltip into `document.fullscreenElement` on hover. Generalise it: portal the pa
 
 Chromium keeps a **fullscreen element stack**, and the viewport resizes a frame *after*
 `fullscreenchange` — settle before measuring.
+
+- [ ] **Step 2b: Fix (a) — exit CSS fullscreen on palette chat navigation (decision 24)**
+
+`AppPage.css:67–72` sets `display: none` on `.chat-area` in the CSS-fullscreen state, so a palette
+chat command lands on a hidden column. When a palette command navigates to chat, clear that state.
+
+**This step exists because step 1 probes both dead ends.** An earlier draft probed both and fixed only
+(b), which left the task unable to close: its own fail-first would still have failed afterwards. A
+task whose probe asserts more than its steps deliver is a task that must either grow the fix or narrow
+the probe — never one that ships with a known-failing assertion re-labelled as expected.
 
 - [ ] **Step 3: Close the `isBlockingOverlayOpen()` hole**
 
@@ -1342,9 +1517,15 @@ invariant is a **convention, not a contract**, and was already broken twice:
 `.screen-picker-backdrop` is hard-coded into the selector for exactly that reason, and VYC-82's
 `MediaLightbox` did it again.
 
-Pick one and say which: either **make adoption the only source of truth** (delete the DOM half), or
-**add a check that every fixed-inset blocking scrim carries `.modal-overlay`**. Do not leave a third
-future backdrop able to reopen the hole silently.
+**Take the second option: add a check that every fixed-inset blocking scrim carries
+`.modal-overlay`.** The two are **not** equal-cost, and an earlier draft's "pick one and say which"
+wrongly implied they were. Deleting the DOM half requires all **8** non-adopter modals to adopt
+`useModalFocus` — files outside this task's list, each gaining a Tab trap, `[data-autofocus]`
+behaviour and focus restore, late in the final milestone. That is a new behavioural surface, not a
+cleanup. The scrim check is small, closes the hole this task is about, and leaves the adoption
+sweep as an honest backlog item.
+
+If you disagree after measuring, say so with the measurement — but do not size option A by assumption.
 
 **M5.5's CF-4b is the counterfactual that matters:** removing the `useModalFocus` call while keeping
 the class left **the ⌘K gate still passing** — the class alone satisfies the gate. A probe asserting
@@ -1415,9 +1596,13 @@ problems on the same line.
 chrome is 56 (top bar) + ~101 (control bar) + **110 (thumbs)** = 267px — the strip is **41% of the
 chrome** and the largest single lever.
 
-**Do not** use `height: max(var(--call-stage-height, 55%), 75%)`: the drag handle clamps to 20–80%
-(`AppPage.tsx:130`), so that rule collapses the effective range inside a focus view to 75–80% and
-destroys the draggability the whole park relies on.
+**Do not** use `height: max(var(--call-stage-height, 55%), 75%)`: the drag handle clamps to 20–80% at
+**`AppPage.tsx:139`** (`Math.min(80, Math.max(20, pct))`), so that rule collapses the effective range
+inside a focus view to 75–80% and destroys the draggability the whole park relies on.
+
+*(Backlog §2a cites `:130` for this clamp. **`:130` is the persistence guard**,
+`saved >= 20 && saved <= 80 ? saved : 55` — a different expression with the same two numbers.
+Re-measured 2026-08-30.)*
 
 - [ ] **Step 2: The dead fallbacks**
 
@@ -1441,11 +1626,18 @@ file today.** Re-derive the wrapper selector from the current tree before touchi
 `.stage-focus-label` hard-clips with no ellipsis · `.stage-plate`/`.stage-state-chip` overlap by 8px
 on a 265px tile · the share badge / focus button overlap at 641–768px (**never measured by anyone** —
 measure it or say you did not) · `.stage-tip-arrow` no longer points at its chip when the tooltip is
-clamped · `.stage-focus-ctrl-btn` is 36×36 against decision 22's 40px floor · a screen-share error
+clamped · `.stage-focus-ctrl-btn` is 36×36 against **M3's 40px touch floor** (M3's plan decision 22 —
+*not* a decision in this plan; this plan's decision 22 is the member-list band) · a screen-share error
 toast is invisible during focus fullscreen.
 
-`AppPage.tsx:610` renders `▶`/`◀` as glyph-icons — **explicitly excluded by M1's own plan**. Leave it
-or rule on it; do not fix it silently.
+- [ ] **Step 4b: Replace the `▶`/`◀` glyph-icons with lucide chevrons (decision 25)**
+
+`AppPage.tsx:610` renders `▶`/`◀` as glyph-icons — the **last emoji-as-icon in the tree**, excluded by
+M1's own plan and open ever since. Replace with `ChevronRight`/`ChevronLeft`, `strokeWidth={1.8}`, an
+explicit `size` matched to the neighbouring icon in that surface.
+
+**Re-measure the line number before editing** — the record carried `:603` for this item until it was
+corrected to `:610` on 2026-08-30, and tasks 7, 8 and 11 all touch `AppPage.tsx` before this one.
 
 - [ ] **Step 5: `useModalFocus.ts` docstring — fix ONLY the half that is stale**
 
@@ -1494,13 +1686,39 @@ a positive control — and `importFrom` is scoped to `tokens.css` + `base.css`. 
 alias names makes every surviving reference a parse-based error that comments cannot fool.**
 
 **Measured support the record does not have (Appendix A):** there are **zero** alias references in
-`*.ts`/`*.tsx`, **zero** in the harness, and **no canonical token depends on an alias**. The alias
-surface is **100% CSS**, which is what makes stylelint *provably* sufficient rather than merely
-chosen.
+`*.ts`/`*.tsx`, and **no canonical token depends on an alias**. So within `src/`, the alias surface is
+**100% CSS**, which is what makes stylelint sufficient over `src/` rather than merely chosen.
 
 **The one standing condition: a `var(--x, fallback)` silences the rule, and none of the 70 uses one.**
 Re-verify, and **introduce none during the sweep.** A single fallback added in passing turns that site
 silent.
+
+**BUT stylelint cannot see the harness, and the harness DOES consume aliases.** The grand review
+caught this and it is a genuine hole:
+
+| site | what it does |
+|---|---|
+| `probe-palette-messages2.js:49` | `resolveVar('background-color', 'var(--brand-subtle)')` — an **expected value** |
+| `probe-palette-messages2.js:50` | `resolveVar('color', 'var(--text-primary)')` — an **expected value** |
+| `smoke.mjs:351` | `getPropertyValue('--bg-primary')` into every run's report |
+| `probe-primitives-cascade.js:28,40` | `getPropertyValue('--radius-md')`, and a `br.includes('--radius-md')` branch |
+| `probe-t13-toast.js:68` | `getPropertyValue('--radius-md')` |
+
+`probe-palette-messages2.js` is one of the **five M5 palette probes RESUME §5 certifies as real
+gates**. After this task deletes the 47 names, its two expectations resolve to nothing and the gate
+**breaks or goes vacuous** — in a gitignored, ungated directory. That is mechanism-for-mechanism the
+§6e disarm task 1 exists to repair.
+
+**So task 13 sweeps `tools/` for all 47 names, under the same rule as the rename tasks.** Comment-only
+hits (`probe-attachments.js:181`, `probe-callnotif.js:18`, `probe-t9-dropzone-error.js:7`,
+`probe-screen-picker.js:11`, `probe-updatebanner.js:9`, `probe-server-menu.js:7`,
+`probe-modal-sweep.js:400`) need no code change but **should be corrected** — a probe comment naming a
+deleted token is a false comment in a file nothing gates.
+
+> **Search the harness with `rg --no-ignore --hidden`, or use `grep`.** `.superpowers/` is
+> **gitignored**, so a plain `rg` **silently returns nothing** and reports a false zero. This plan
+> asserted "zero alias references in the harness" for exactly that reason, and the claim survived
+> into a commit. **A false zero from a skipped directory is indistinguishable from a real zero.**
 
 - [ ] **Step 2: Migrate the 28 live aliases**
 
@@ -1621,10 +1839,22 @@ Capture both themes for every board id. **`--out` is mandatory.** Restart the de
 confirm no stale server predates HEAD — three were alive at M3 start and two mid-M4, and a stale
 server invalidates every visual claim.
 
-- [ ] **Step 3: Check the three disclosed deltas from task 13**
+- [ ] **Step 3: Check every disclosed delta, and carry the two board deviations**
 
-`ServerList.css:208`, `ServerList.css:253`, `Auth.css:139` at +1px radius; the auth input focus ring
-at its new alpha; and both accent-ramp gradients.
+**Disclosed colour/geometry deltas:** `ServerList.css:208`, `ServerList.css:253`, `Auth.css:139` at
++1px radius (decision 13); the auth input focus ring at its new alpha (decision 14); both accent-ramp
+gradients (decision 15); the **three** call-surface `--stage-danger` sites (decision 6); the call
+stage's ten `--stage-accent` sites (decision 2); `.setting-warning`'s light foreground (task 3).
+
+**Two rulings mean the board and the app will not match, and that is expected — carry them into QA
+rather than discovering them here:**
+- **Decision 23** — `<900px` ships the mobile single-panel model, **not** board `1f`'s drawer. A
+  recorded deviation.
+- **Decision 7** — board `1c`'s dark-theme ⌘K chip is **not** on the header search button, because
+  that button opens the deep panel.
+
+A QA pass that flags these as defects has not read its own plan; a QA pass that silently passes over
+them has not read the board.
 
 - [ ] **Step 4: Label what cannot be measured, and give evidence for the "cannot"**
 
@@ -1663,7 +1893,8 @@ what was reasoned rather than measured.
 
 **Record every ruling in the ledger as it is made, and record who ruled it** — a reviewer reading only
 the on-disk record must never see invented authority. The four human rulings 5–8 in this plan were put
-to the human as explicit costed questions in the 2026-08-30 M6 planning session; **decisions 9–20 are
+to the human as explicit costed questions in the 2026-08-30 M6 planning session, as were **22–25**
+after the grand review; **decisions 9–21 are
 the planner's** and must not be attributed to the human.
 
 - [ ] **Step 2: Rewrite the RESUME for a post-M6 world**
@@ -1708,14 +1939,30 @@ Measured 2026-08-30 at `dc0a873`, comments stripped. Each falsifies a load-beari
 | **C3** | §6c: M4 introduced "the tree's **only two** uses of `--danger` as a foreground" | **8** `color: var(--danger)` sites; 22 CSS consumers total. **3 sit on stage ground** and collide with ruling 2; a 4th (`.stage-tip.is-poor`) only looks like one — `.stage-tip` sets `background: var(--canvas)` at `CallStage.css:480` and is theme-adaptive | Decision 6, task 3 |
 | **C4** | §5/§7: "both sides of the 768/769px pair migrate to 900", implying the 5 legacy blocks | **19** blocks sit at that boundary; **14 already use range syntax**. The *pair* is `AppPage.css:96`/`:102`, verified complementary. Notation and boundary are orthogonal | Decision 5, tasks 2/7 |
 | **C5** | §6c/§7.4: the reduced-motion clause treats `base.css:85` as the only such block | **`ChannelSidebar.css:227–236` is a second, pre-existing `prefers-reduced-motion` block** | Decision 17, task 6 |
-| **C6** | §5: `probe-composer.js` is "silently dead from line 193 down — 48 of 88 assertions have never executed" | It uses **deferred flush**, not throwing `fail()`. The 40 checks above `:193` **execute but die with `out`**. Net **0 of 88** produce a readable verdict — and the failure is **loud** (`PROBE ERROR:`) | Decision 12, task 1 |
+| **C6** | §5: `probe-composer.js` is "silently dead from line 193 down — 48 of 88 assertions have never executed" | It uses **deferred flush**, not throwing `fail()`. Counted by occurrence: **41 above `:193`, 48 at/below, 89 total** (`:17` is the definition, `check = (`, and contains no `check(`). The 41 above **execute but die with `out`**. Net **0 of 89** produce a readable verdict — and the failure is **loud** (`PROBE ERROR:`) | Decision 12, task 1 |
 | **C7** | §6c: "on the Settings panes, 4 toggles, **2 range sliders** and 5 selects" | **1** range on the panes (11 sites total); **5** `type="range"` exist tree-wide | Decision 16, task 5 |
 | **C8** | §6c: the five non-stack-aware Escape listeners at `ContextMenu.tsx:35`, `VolumeControlPopover.tsx:57`, `ScreenSharePicker.tsx:24`/`:88`, `useFloatingSelectionToolbar.ts:67` | **All five line numbers are stale**: `:38`, `:61`, `:26`/`:90`, `:77` | Task 11 |
 
 **New facts with no prior claim to correct:**
-- **Zero alias references in `*.ts`/`*.tsx`; zero in the harness; no canonical token depends on an
-  alias.** The alias surface is 100% CSS — this is what makes stylelint *provably* sufficient as the
-  audit gate (task 13).
+- **Zero alias references in `*.ts`/`*.tsx`, and no canonical token depends on an alias.** Within
+  `src/`, the alias surface is 100% CSS — which is what makes stylelint sufficient as the audit gate
+  **over `src/`** (task 13).
+
+> **C9 — a correction to THIS PLAN, found by the grand review.** An earlier version of the line above
+> also claimed **"zero in the harness"**. **That is false.** The harness consumes aliases at
+> `probe-palette-messages2.js:49,50` (as **expected values**, in one of the five palette probes
+> RESUME §5 certifies as *real gates*), `smoke.mjs:351`, `probe-primitives-cascade.js:28,40` and
+> `probe-t13-toast.js:68`, plus seven comment-only mentions. Task 13 gained a harness sweep as a
+> result.
+>
+> **The mechanism is worth more than the fact.** The claim came from `rg <pattern> .superpowers/…`,
+> which returned nothing — because **`.superpowers/` is gitignored and ripgrep honours `.gitignore`
+> by default**, so the directory was never searched. Neither `--hidden` alone nor an explicit path
+> argument defeats this; it needs `--no-ignore`, or `grep`. **A false zero from a skipped directory is
+> indistinguishable from a real zero**, and it went on to justify an instrument decision and survive
+> into a commit. This is the §6e disarm mechanism wearing a new hat: not a probe that stopped
+> asserting, but a *search* that stopped searching. **Search the harness with
+> `rg --no-ignore --hidden`, or with `grep`. Never with a bare `rg`.**
 - **28 of the 47 alias names are live; 19 are dead** and delete with no migration.
 - **143 `probe-*.js` files** exist (the §5 truth table covers ~20); ~45 have no assertion machinery of
   any kind; **two** assertion conventions coexist.
