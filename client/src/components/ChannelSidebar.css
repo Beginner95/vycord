@@ -320,7 +320,7 @@
   display: none;
 }
 
-@media (max-width: 768px) {
+@media (width <= 768px) {
   .channel-sidebar {
     width: 100vw;
     min-width: 100vw;

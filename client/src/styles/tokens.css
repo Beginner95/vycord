@@ -24,21 +24,21 @@
   --panel:        #EBEEF6;
   --panel-line:   #DCE1EE;
   --panel-footer: #E2E6F1;
-  --canvas:       #FFFFFF;
+  --canvas:       #FFF;
   --canvas-2:     #F6F7FB;
   --canvas-3:     #FBFCFE;
-  --composer:     #FFFFFF;
+  --composer:     #FFF;
   --rail:         #171B29;
-  --rail-item:    rgba(255, 255, 255, 0.07);
-  --rail-line:    rgba(255, 255, 255, 0.14);
+  --rail-item:    rgb(255 255 255 / 7%);
+  --rail-line:    rgb(255 255 255 / 14%);
   --rail-ink:        #E4E7F0;
   --rail-muted:      #C9CFDE;
-  --rail-item-hover: rgba(255, 255, 255, 0.12);
-  --rail-create-bg:  rgba(18, 183, 106, 0.16);
+  --rail-item-hover: rgb(255 255 255 / 12%);
+  --rail-create-bg:  rgb(18 183 106 / 16%);
   --rail-create-ink: #4ADE96;
-  --row-hover:       rgba(255, 255, 255, 0.6);
+  --row-hover:       rgb(255 255 255 / 60%);
   --avatar-offline:  #E3E6EF;
-  --white:           #FFFFFF;
+  --white:           #FFF;
   --chip-bg:  #F2F4F9; /* board 1d: modal close button, kbd chip */
   --track-bg: #E9ECF5; /* board 1d: slider / level-meter track */
   --hl-bg:  #FEF3C7; /* board 2c: search-match highlight (palette + deep panel) */
@@ -78,12 +78,12 @@
   --scrim:          rgb(16 19 34 / 50%);
 
   /* ── Shadows ── */
-  --shadow-row:     0 1px 2px rgba(16, 19, 34, 0.06);
-  --shadow-card:    0 2px 10px rgba(16, 19, 34, 0.07);
-  --shadow-popover: 0 4px 14px rgba(16, 19, 34, 0.10);
-  --shadow-menu:    0 14px 34px rgba(16, 19, 34, 0.14);
-  --shadow-modal:   0 18px 46px rgba(16, 19, 34, 0.14);
-  --shadow-palette: 0 22px 50px rgba(16, 19, 34, 0.16);
+  --shadow-row:     0 1px 2px rgb(16 19 34 / 6%);
+  --shadow-card:    0 2px 10px rgb(16 19 34 / 7%);
+  --shadow-popover: 0 4px 14px rgb(16 19 34 / 10%);
+  --shadow-menu:    0 14px 34px rgb(16 19 34 / 14%);
+  --shadow-modal:   0 18px 46px rgb(16 19 34 / 14%);
+  --shadow-palette: 0 22px 50px rgb(16 19 34 / 16%);
 
   /* ── Radii ── */
   --radius-chip:     6px;
@@ -97,14 +97,38 @@
   --radius-pill:     999px;
 
   /* ── Focus ── */
-  --focus-ring: 0 0 0 3px rgba(79, 70, 229, 0.13);
+  --focus-ring: 0 0 0 3px rgb(79 70 229 / 13%);
 
   /* ── Motion ── */
   --ease-out:   cubic-bezier(0.16, 1, 0.3, 1);
   --transition: 0.16s var(--ease-out);
 
   /* ── Fonts ── */
+  /* stylelint-disable-next-line value-keyword-case -- BlinkMacSystemFont and
+     Roboto are exempt from this rule for two different reasons; do not treat
+     them as the same claim.
+     BlinkMacSystemFont: MEASURED, 2026-08-30, Chrome, against the running app.
+     It is a Blink-internal keyword, NOT a font family name, and Blink matches
+     it CASE-SENSITIVELY. `BlinkMacSystemFont` computes to "system-ui" and
+     renders at 483.28px; `blinkmacsystemfont` computes to itself and renders
+     at 469.31px — the exact width of a nonexistent font. Lowercasing it
+     silently deletes the Chrome-on-macOS system-font fallback.
+     Roboto: REASONED, not measured — the font is not installed in this
+     environment, so no render-width check was possible here. CSS Fonts
+     matches real family names ASCII-case-insensitively, so both casings are
+     expected to resolve identically; kept in its original casing to match the
+     rest of this file's real font names rather than to fix a bug. The original
+     casing is ALSO required for byte-identity against
+     docs/superpowers/plans/m6-colour-baseline.json, which task 13 re-compares —
+     lowercasing it and dropping this suppression will fail that comparison
+     even though the rendered font is unaffected. */
   --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  /* stylelint-disable-next-line value-keyword-case -- Consolas: REASONED, not
+     measured — same basis as Roboto above (real font family name, ASCII
+     case-insensitive per CSS Fonts, not installed in this environment so no
+     render-width check was possible here). Kept in its original casing, which
+     is also required for byte-identity against
+     docs/superpowers/plans/m6-colour-baseline.json (task 13 re-compares). */
   --font-mono: 'JetBrains Mono', ui-monospace, Consolas, monospace;
 
   /* ── Media chrome (attachments, players, lightbox) — M5.5 T5 ──
@@ -127,46 +151,41 @@
   --accent:        #6366F1;
   --accent-hover:  #818CF8;
   --accent-text:   #A5B4FC;
-  --accent-soft:   rgba(99, 102, 241, 0.14);
-  --accent-border: rgba(99, 102, 241, 0.35);
-  --own-msg-bg:    rgba(99, 102, 241, 0.12); /* refine in M6 */
-  --own-chip-bg:   rgba(255, 255, 255, 0.08);
-
+  --accent-soft:   rgb(99 102 241 / 14%);
+  --accent-border: rgb(99 102 241 / 35%);
+  --own-msg-bg:    rgb(99 102 241 / 12%); /* refine in M6 */
+  --own-chip-bg:   rgb(255 255 255 / 8%);
   --ink:     #E4E7F0;
   --muted:   #9AA2B4;
   --muted-2: #8A93A8; /* refine in M6 */
   --faint:   #6E778C;
-
-  --line:         rgba(255, 255, 255, 0.07);
-  --line-strong:  rgba(255, 255, 255, 0.12);
+  --line:         rgb(255 255 255 / 7%);
+  --line-strong:  rgb(255 255 255 / 12%);
   --panel:        #131722;
-  --panel-line:   rgba(255, 255, 255, 0.08);
+  --panel-line:   rgb(255 255 255 / 8%);
   --panel-footer: #0F131D;
   --canvas:       #0E1017;
   --canvas-2:     #151926; /* refine in M6 */
   --canvas-3:     #131722; /* refine in M6 */
   --composer:     #171B26;
   --rail:         #0A0C12;
-  --row-hover: rgba(255, 255, 255, 0.05); /* board: nav hover in dark */
+  --row-hover: rgb(255 255 255 / 5%); /* board: nav hover in dark */
   --chip-bg:  rgb(255 255 255 / 8%);  /* refine in M6 */
   --track-bg: rgb(255 255 255 / 12%); /* refine in M6 */
   --hl-bg:  rgb(245 158 11 / 28%); /* refine in M6 */
   --hl-ink: #FDF3DC;               /* refine in M6 */
-
   --online:      #4ADE96;
-  --online-soft: rgba(18, 183, 106, 0.14);
+  --online-soft: rgb(18 183 106 / 14%);
   --online-text: #5BE39B;
-  --danger-soft: rgba(231, 68, 74, 0.18);
+  --danger-soft: rgb(231 68 74 / 18%);
   --danger-text: #FCA5A5;
-
-  --shadow-row:     0 1px 2px rgba(0, 0, 0, 0.3);
-  --shadow-card:    0 2px 10px rgba(0, 0, 0, 0.35);
-  --shadow-popover: 0 4px 14px rgba(0, 0, 0, 0.4);
-  --shadow-menu:    0 14px 34px rgba(0, 0, 0, 0.5);
-  --shadow-modal:   0 18px 46px rgba(0, 0, 0, 0.5);
-  --shadow-palette: 0 22px 50px rgba(0, 0, 0, 0.55);
-
-  --focus-ring: 0 0 0 3px rgba(99, 102, 241, 0.25);
+  --shadow-row:     0 1px 2px rgb(0 0 0 / 30%);
+  --shadow-card:    0 2px 10px rgb(0 0 0 / 35%);
+  --shadow-popover: 0 4px 14px rgb(0 0 0 / 40%);
+  --shadow-menu:    0 14px 34px rgb(0 0 0 / 50%);
+  --shadow-modal:   0 18px 46px rgb(0 0 0 / 50%);
+  --shadow-palette: 0 22px 50px rgb(0 0 0 / 55%);
+  --focus-ring: 0 0 0 3px rgb(99 102 241 / 25%);
 }
 
 /* ═══════════════════════════════════════════════════════
@@ -182,10 +201,9 @@
   --bg-elevated:  var(--canvas);
   --bg-hover:     var(--canvas-2);
   --bg-active:    var(--accent-soft);
-
   --brand-color:  var(--accent);
   --brand-hover:  var(--accent-hover);
-  --brand-subtle: rgba(79, 70, 229, 0.10);
+  --brand-subtle: rgb(79 70 229 / 10%);
   --brand-50:     var(--accent-soft);
   --brand-100:    #E0E7FF;
   --brand-200:    var(--accent-border);
@@ -194,7 +212,6 @@
   --brand-500:    #6366F1;
   --brand-600:    var(--accent);
   --brand-700:    #4338CA;
-
   --green-50:    var(--online-soft);
   --green-500:   var(--online);
   --green-600:   var(--online-text);
@@ -208,21 +225,17 @@
   --yellow-color:#F59E0B;
   --blue-500:    #3B82F6;
   --blue-color:  #3B82F6;
-
   --text-primary:   var(--ink);
   --text-secondary: var(--muted);
   --text-muted:     var(--muted-2);
   --text-link:      var(--accent);
-  --text-inverse:   #FFFFFF;
-
+  --text-inverse:   #FFF;
   --border-color:  var(--line-strong);
   --border-subtle: var(--line);
-
   --shadow-sm: var(--shadow-row);
   --shadow-md: var(--shadow-card);
   --shadow-lg: var(--shadow-menu);
   --shadow-xl: var(--shadow-modal);
-
   --radius-sm:   6px;
   --radius-md:   9px;
   --radius-lg:   12px;
@@ -233,7 +246,7 @@
 /* Still part of the LEGACY ALIASES block above — dark-theme overrides for
    legacy names only. Delete together with that block in M6. */
 [data-theme="dark"] {
-  --brand-100:    rgba(99, 102, 241, 0.20);
-  --brand-subtle: rgba(99, 102, 241, 0.15);
-  --yellow-50:    rgba(245, 158, 11, 0.1);
+  --brand-100:    rgb(99 102 241 / 20%);
+  --brand-subtle: rgb(99 102 241 / 15%);
+  --yellow-50:    rgb(245 158 11 / 10%);
 }

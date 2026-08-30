@@ -31,5 +31,5 @@
 
 .title-bar button.close:hover {
   background: var(--danger);
-  color: #FFFFFF;
+  color: #FFF;
 }

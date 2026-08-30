@@ -35,6 +35,7 @@
   flex-shrink: 0;
   cursor: row-resize;
   background: var(--bg-elevated);
+
   /* Без touch-action браузер уводит вертикальный свайп по разделителю в скролл
      и глушит драг ещё до первого pointermove. */
   touch-action: none;
@@ -93,13 +94,13 @@
 
 /* Desktop-only: collapse the left sidebar block. Scoped to min-width so the
    fixed 'hidden' attribute never competes with the mobile panel rules. */
-@media (min-width: 769px) {
+@media (width >= 769px) {
   .app-layout[data-left-sidebar="hidden"] .server-list { display: none; }
   .app-layout[data-left-sidebar="hidden"] .channel-sidebar { display: none; }
 }
 
 /* ── Mobile ── */
-@media (max-width: 768px) {
+@media (width <= 768px) {
   .app-page .title-bar {
     display: none;
   }
@@ -116,6 +117,7 @@
 
   .app-layout[data-mobile-panel="servers"] .server-list { display: flex; }
   .app-layout[data-mobile-panel="channels"] .channel-sidebar { display: flex; }
+
   /* На мобильном сплита нет: сцена звонка и чат — две отдельные панели,
      переключаемые через data-mobile-panel, но обе живут внутри одного
      .channel-body (десктопный сплит-контейнер), поэтому его самого нужно

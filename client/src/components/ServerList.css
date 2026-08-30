@@ -131,7 +131,7 @@
 }
 
 /* ── Mobile Server List ── */
-@media (max-width: 768px) {
+@media (width <= 768px) {
   .server-list {
     width: 100vw;
     min-width: 100vw;
