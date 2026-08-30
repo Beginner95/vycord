@@ -106,6 +106,20 @@
   /* ── Fonts ── */
   --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   --font-mono: 'JetBrains Mono', ui-monospace, Consolas, monospace;
+
+  /* ── Media chrome (attachments, players, lightbox) — M5.5 T5 ──
+     Same rule as the stage block above: media chrome sits on the media's own
+     ground (a photo, a video frame, the lightbox scrim), which is dark in BOTH
+     themes, so these are declared once and are NOT overridden under
+     [data-theme="dark"]. Modern colour notation for the same reason as --stage-*:
+     legacy rgba() commas trip three lint rules each.
+     --media-scrim is deliberately darker than --scrim (50%): the lightbox shows
+     photographic content edge-to-edge and the chat behind it must not read
+     through. See the R6 ruling in task-5-report.md. */
+  --media-scrim:        rgb(16 19 34 / 88%);
+  --media-plate:        rgb(16 19 34 / 62%);
+  --media-chrome:       rgb(255 255 255 / 14%);
+  --media-chrome-hover: rgb(255 255 255 / 26%);
 }
 
 /* ── Dark theme (board option 2d; values marked refine-in-M6 are interpolations) ── */

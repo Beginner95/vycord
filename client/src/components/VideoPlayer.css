@@ -1,64 +1,101 @@
-.video-player { position: relative; width: 100%; }
+/* Inline video player, reused by the message row and by the lightbox.
+   Unspecced surface. The frame follows the message row (board 2b) —
+   --radius-card, --canvas-2 poster ground — while the transport bar sits ON
+   the video and therefore uses the --media-* group, which does not flip with
+   the theme. */
+.video-player {
+  position: relative;
+  width: 100%;
+}
 
 .video-player-media {
   display: block;
   width: 100%;
   height: auto;
   max-height: 340px;
-  border-radius: 8px;
+  border-radius: var(--radius-card);
+  background: var(--canvas-2);
   object-fit: cover;
   cursor: pointer;
-  background: var(--bg-hover);
 }
 
-.video-player--lightbox { width: auto; max-width: 92vw; }
+.video-player.is-lightbox {
+  width: auto;
+  max-width: 92vw;
+}
 
-.video-player--lightbox .video-player-media {
+.video-player.is-lightbox .video-player-media {
   width: auto;
   max-width: 92vw;
   max-height: 84vh;
-  border-radius: 6px;
+  border-radius: var(--radius-chip);
   object-fit: contain;
 }
 
 .video-player-bar {
   position: absolute;
-  left: 0;
   right: 0;
   bottom: 0;
+  left: 0;
   display: flex;
   align-items: center;
   gap: 8px;
   padding: 6px 10px;
-  background: linear-gradient(to top, rgb(0 0 0 / 65%), transparent);
-  border-radius: 0 0 8px 8px;
+  border-radius: 0 0 var(--radius-card) var(--radius-card);
+  background: linear-gradient(to top, var(--media-plate), transparent);
   opacity: 0;
-  transition: opacity 120ms ease;
+  transition: opacity var(--transition);
 }
 
 .video-player:hover .video-player-bar,
-.video-player:focus-within .video-player-bar { opacity: 1; }
+.video-player:focus-within .video-player-bar {
+  opacity: 1;
+}
 
-.video-player--lightbox .video-player-bar { opacity: 1; border-radius: 0 0 6px 6px; }
+.video-player.is-lightbox .video-player-bar {
+  border-radius: 0 0 var(--radius-chip) var(--radius-chip);
+  opacity: 1;
+}
 
 .video-play-btn,
 .video-mute-btn {
-  flex: none;
-  width: 26px;
-  height: 26px;
   display: flex;
+  flex: none;
   align-items: center;
   justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
   border: none;
   border-radius: 50%;
-  background: rgb(255 255 255 / 15%);
-  color: #fff;
+  background: var(--media-chrome);
+  color: var(--white);
   cursor: pointer;
+  transition: background var(--transition);
 }
 
 .video-play-btn:hover,
-.video-mute-btn:hover { background: rgb(255 255 255 / 30%); }
+.video-mute-btn:hover {
+  background: var(--media-chrome-hover);
+}
 
-.video-seek { flex: 1; min-width: 0; accent-color: var(--accent, #5865f2); }
+.video-seek {
+  flex: 1;
+  min-width: 0;
+  accent-color: var(--accent);
+}
 
-.video-time { flex: none; font-size: 11px; color: #fff; font-variant-numeric: tabular-nums; }
+.video-time {
+  flex: none;
+  color: var(--white);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+@media (width <= 768px) {
+  .video-play-btn,
+  .video-mute-btn {
+    width: 32px;
+    height: 32px;
+  }
+}

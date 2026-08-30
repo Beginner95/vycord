@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import type { Attachment } from '@/types';
 import { resolveUploadUrl } from '@/services/api';
 import { downloadUrl } from '@/utils/attachmentUrl';
+import { ChevronLeft, ChevronRight, Download, X } from 'lucide-react';
 import { useModalFocus } from '@/hooks/useModalFocus';
 import { useT } from '@/i18n';
 import { VideoPlayer } from './VideoPlayer';
@@ -70,7 +71,7 @@ export function MediaLightbox({ attachments, index, onIndexChange, onClose }: Me
 
   // Портал в body: иначе overflow и z-index ленты обрежут фуллскрин.
   return createPortal(
-    <div ref={ref} className="modal-overlay lightbox" role="dialog" aria-modal="true" onClick={onClose}>
+    <div ref={ref} className="modal-overlay lightbox-root" role="dialog" aria-modal="true" onClick={onClose}>
       <div className="lightbox-content" onClick={(e) => e.stopPropagation()}>
         {current.kind === 'video' ? (
           // В фуллскрине всегда оригинал: миниатюра нужна только ленте.
@@ -82,26 +83,33 @@ export function MediaLightbox({ attachments, index, onIndexChange, onClose }: Me
         <div className="lightbox-bar">
           <span className="lightbox-name">{current.file_name}</span>
           <a className="lightbox-download" href={downloadUrl(current.url)} title={t('chat.download')}>
+            <Download size={16} strokeWidth={1.8} />
             {t('chat.download')}
           </a>
         </div>
       </div>
 
       {index > 0 && (
-        <button type="button" className="lightbox-nav lightbox-nav--prev"
+        <button type="button" className="lightbox-nav is-prev"
           onClick={(e) => { e.stopPropagation(); onIndexChange(index - 1); }}
-          aria-label={t('chat.previous')}>‹</button>
+          aria-label={t('chat.previous')}>
+          <ChevronLeft size={20} strokeWidth={1.8} />
+        </button>
       )}
       {index < attachments.length - 1 && (
-        <button type="button" className="lightbox-nav lightbox-nav--next"
+        <button type="button" className="lightbox-nav is-next"
           onClick={(e) => { e.stopPropagation(); onIndexChange(index + 1); }}
-          aria-label={t('chat.next')}>›</button>
+          aria-label={t('chat.next')}>
+          <ChevronRight size={20} strokeWidth={1.8} />
+        </button>
       )}
 
       {/* Without an explicit target useModalFocus focuses the first focusable in
           DOM order, which here is the download link — landing the caret on a
           navigation away from the overlay. The close button is the safe default. */}
-      <button type="button" className="lightbox-close" data-autofocus onClick={onClose} aria-label={t('common.close')}>×</button>
+      <button type="button" className="lightbox-close" data-autofocus onClick={onClose} aria-label={t('common.close')}>
+        <X size={20} strokeWidth={1.8} />
+      </button>
     </div>,
     document.body,
   );

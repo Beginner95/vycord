@@ -1,3 +1,8 @@
+/* Attachment grid on a message row. Unspecced surface: extrapolated from the
+   message row (board 2b) — same --radius-card, same --line-strong hairline,
+   same --panel card fill as the quote/embed blocks that sit in the same
+   column. The chrome that floats ON the media (download / expand) uses the
+   --media-* group instead, because it sits on the image, not on the row. */
 .message-attachments {
   display: grid;
   gap: 4px;
@@ -5,64 +10,130 @@
   max-width: 560px;
 }
 
-.message-attachments.count-1 { grid-template-columns: 1fr; }
-.message-attachments.count-2,
-.message-attachments.count-3,
-.message-attachments.count-4 { grid-template-columns: repeat(2, 1fr); }
+.message-attachments.attachment-count-1 {
+  grid-template-columns: 1fr;
+}
 
-.attachment-cell { position: relative; min-width: 0; }
-.attachment-cell--wide { grid-column: 1 / -1; }
+.message-attachments.attachment-count-2,
+.message-attachments.attachment-count-3,
+.message-attachments.attachment-count-4 {
+  grid-template-columns: repeat(2, 1fr);
+}
+
+.attachment-cell {
+  position: relative;
+  min-width: 0;
+}
+
+.attachment-cell.is-wide {
+  grid-column: 1 / -1;
+}
 
 .attachment-image {
   display: block;
   width: 100%;
   height: auto;
   max-height: 340px;
-  border-radius: 8px;
+  border-radius: var(--radius-card);
+  background: var(--canvas-2);
   object-fit: cover;
   cursor: pointer;
-  background: var(--bg-hover);
 }
 
 .attachment-download,
 .attachment-expand {
   position: absolute;
   top: 6px;
-  opacity: 0;
-  width: 26px;
-  height: 26px;
   display: flex;
   align-items: center;
   justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
   border: none;
-  border-radius: 4px;
-  background: rgb(0 0 0 / 55%);
-  color: #fff;
+  border-radius: var(--radius-chip);
+  background: var(--media-plate);
+  color: var(--white);
   text-decoration: none;
+  opacity: 0;
   cursor: pointer;
-  transition: opacity 120ms ease;
+  transition: opacity var(--transition), background var(--transition);
 }
 
-.attachment-download { right: 6px; }
-.attachment-expand { right: 36px; }
+/* Touch has no hover, so the only route to download/expand would never appear.
+   Kept at the same 0-class-deep specificity as the base rule and placed before
+   the reveal rules below, so specificity stays ascending through the file. */
+@media (width <= 768px) {
+  .attachment-download,
+  .attachment-expand {
+    opacity: 1;
+  }
+
+  .message-attachments.attachment-count-2,
+  .message-attachments.attachment-count-3,
+  .message-attachments.attachment-count-4 {
+    grid-template-columns: 1fr;
+  }
+}
+
+.attachment-download {
+  right: 6px;
+}
+
+.attachment-expand {
+  right: 40px;
+}
+
+.attachment-download:hover,
+.attachment-expand:hover {
+  background: var(--media-scrim);
+}
 
 .attachment-cell:hover .attachment-download,
-.attachment-cell:hover .attachment-expand { opacity: 1; }
+.attachment-cell:hover .attachment-expand,
+.attachment-cell:focus-within .attachment-download,
+.attachment-cell:focus-within .attachment-expand {
+  opacity: 1;
+}
 
 .attachment-file {
   display: flex;
+  grid-column: 1 / -1;
   align-items: center;
   gap: 10px;
-  grid-column: 1 / -1;
   padding: 10px 12px;
-  border: 1px solid var(--border-color);
-  border-radius: 8px;
-  background: var(--bg-secondary);
-  color: var(--text-primary);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-card);
+  background: var(--panel);
+  color: var(--ink);
   text-decoration: none;
+  transition: background var(--transition);
 }
 
-.attachment-file:hover { background: var(--bg-hover); }
-.attachment-file-body { display: flex; flex-direction: column; min-width: 0; }
-.attachment-file-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; }
-.attachment-file-size { font-size: 11px; color: var(--text-muted); }
+.attachment-file:hover {
+  background: var(--row-hover);
+}
+
+.attachment-file-icon {
+  display: flex;
+  flex: none;
+  color: var(--muted);
+}
+
+.attachment-file-body {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.attachment-file-name {
+  overflow: hidden;
+  font-size: 14px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.attachment-file-size {
+  color: var(--muted-2);
+  font-size: 11px;
+}

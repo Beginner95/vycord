@@ -42,7 +42,7 @@ describe('VideoPlayer', () => {
   it('в режиме lightbox проставляет autoPlay и модификатор', () => {
     const { container } = render(<VideoPlayer src="/clip.mp4" autoPlay lightbox />);
 
-    expect(container.querySelector('.video-player--lightbox')).not.toBeNull();
+    expect(container.querySelector('.video-player.is-lightbox')).not.toBeNull();
     expect(container.querySelector('video')?.hasAttribute('autoplay')).toBe(true);
   });
 

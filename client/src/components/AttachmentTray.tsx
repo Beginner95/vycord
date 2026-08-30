@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { RotateCcw, X } from 'lucide-react';
 import type { DraftAttachment } from '@/stores/attachmentStore';
 import { useT, hasKey, type TKey } from '@/i18n';
 import { HARD_MAX_BYTES } from '@/hooks/useAttachmentUpload';
@@ -48,7 +49,7 @@ export function AttachmentTray({ drafts, onCancel, onRetry }: AttachmentTrayProp
         // d.errorCode, чтобы {{maxSize}} никогда не остался неподставленным.
         const errorVars = d.errorCode === 'attachment_too_large' ? { maxSize: formatSize(HARD_MAX_BYTES) } : undefined;
         return (
-          <div key={d.localId} className={`attach-chip attach-chip--${d.status}`}>
+          <div key={d.localId} className={`attach-chip is-${d.status}`}>
             <LocalPreview file={d.file} />
 
             <div className="attach-chip-body">
@@ -66,8 +67,8 @@ export function AttachmentTray({ drafts, onCancel, onRetry }: AttachmentTrayProp
             </div>
 
             {d.status === 'error' && (
-              <button type="button" className="attach-chip-btn" onClick={() => onRetry(d.localId)} title={t('chat.retryUpload')}>
-                ↻
+              <button type="button" className="attach-chip-btn" onClick={() => onRetry(d.localId)} aria-label={t('chat.retryUpload')} title={t('chat.retryUpload')}>
+                <RotateCcw size={16} strokeWidth={1.8} />
               </button>
             )}
             <button
@@ -77,7 +78,7 @@ export function AttachmentTray({ drafts, onCancel, onRetry }: AttachmentTrayProp
               aria-label={t('chat.removeAttachment')}
               title={t('chat.removeAttachment')}
             >
-              ×
+              <X size={16} strokeWidth={1.8} />
             </button>
           </div>
         );

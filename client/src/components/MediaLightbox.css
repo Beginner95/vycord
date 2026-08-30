@@ -1,40 +1,121 @@
-/* M5.5 T4 (D8): `.lightbox` now also wears the `.modal-overlay` primitive, which
-   supplies z-index: 1000 (primitives.css). The local declaration was deleted
-   rather than kept in sync — verified by computed style on the running app, not
-   by reading, since the two single-class rules live in different files and
-   source order decides. */
-.lightbox {
-  position: fixed;
-  inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: rgb(0 0 0 / 85%);
+/* Fullscreen media viewer. Unspecced surface: the shell is the modal shell
+   (board 1d) via the `.modal-overlay` primitive, which T4/D8 put on this
+   element for the modal stack; the chrome that floats on the media uses the
+   --media-* group, which is dark in both themes.
+
+   M5.5 T5, ruling R6 — three cascade facts T4 left open, each measured by
+   computed style on the running app (probe-attachments.js §7f), not read:
+
+   R6.1 BACKGROUND — the darker lightbox scrim is KEPT, but it no longer wins
+        by accident. `.lightbox` (single class) beat `.modal-overlay` (single
+        class) only because main.tsx imports primitives.css first; either file
+        moving in the import graph would have silently swapped the scrim. The
+        rule below is `.modal-overlay.lightbox-root` (two classes), so it wins
+        on specificity in any source order. It is kept rather than adopting
+        --scrim because this overlay shows photographic content edge to edge:
+        at --scrim's 50% the message list reads straight through the picture.
+   R6.2 BACKDROP-FILTER — the primitive's blur(6px) is DROPPED. Behind an 88%
+        scrim it contributes ~12% of the pixels, i.e. nothing visible, while
+        forcing a full-viewport backdrop compositing pass that runs for as long
+        as the lightbox is open — including while a video plays inside it.
+   R6.3 ANIMATION — the primitive's `fade-in 0.18s var(--ease-out)` is KEPT.
+        `.lightbox` never had an entrance and nobody measured this one when T4
+        adopted the primitive; on review it is the right default. Every other
+        overlay in the redesign enters, 0.18s is inside the ≤250ms budget, and
+        it reuses a shared keyframe rather than adding one. */
+.modal-overlay.lightbox-root {
+  background: var(--media-scrim);
+  backdrop-filter: none;
 }
 
-.lightbox-content { display: flex; flex-direction: column; gap: 8px; max-width: 92vw; max-height: 92vh; }
+.lightbox-content {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: 92vw;
+  max-height: 92vh;
+}
 
 .lightbox-media {
   max-width: 92vw;
   max-height: 84vh;
-  border-radius: 6px;
+  border-radius: var(--radius-chip);
   object-fit: contain;
 }
 
-.lightbox-bar { display: flex; align-items: center; justify-content: space-between; gap: 16px; color: #fff; }
-.lightbox-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; }
-.lightbox-download { color: #fff; font-size: 14px; text-decoration: underline; }
-
-.lightbox-nav,
-.lightbox-close {
-  position: absolute;
-  border: none;
-  background: rgb(255 255 255 / 10%);
-  color: #fff;
-  cursor: pointer;
+.lightbox-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  color: var(--white);
 }
 
-.lightbox-nav { top: 50%; width: 44px; height: 64px; transform: translateY(-50%); font-size: 32px; }
-.lightbox-nav--prev { left: 16px; border-radius: 0 6px 6px 0; }
-.lightbox-nav--next { right: 16px; border-radius: 6px 0 0 6px; }
-.lightbox-close { top: 16px; right: 16px; width: 36px; height: 36px; border-radius: 50%; font-size: 22px; }
+.lightbox-name {
+  overflow: hidden;
+  font-size: 14px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lightbox-nav,
+.lightbox-close,
+.lightbox-download {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: var(--media-chrome);
+  color: var(--white);
+  text-decoration: none;
+  cursor: pointer;
+  transition: background var(--transition);
+}
+
+.lightbox-download {
+  flex: none;
+  gap: 6px;
+  padding: 6px 10px;
+  border-radius: var(--radius-btn);
+  font-size: 13px;
+}
+
+.lightbox-nav {
+  position: absolute;
+  top: 50%;
+  width: 44px;
+  height: 64px;
+  transform: translateY(-50%);
+}
+
+.lightbox-nav.is-prev {
+  left: 16px;
+  border-radius: 0 var(--radius-btn) var(--radius-btn) 0;
+}
+
+.lightbox-nav.is-next {
+  right: 16px;
+  border-radius: var(--radius-btn) 0 0 var(--radius-btn);
+}
+
+.lightbox-close {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+}
+
+.lightbox-nav:hover,
+.lightbox-close:hover,
+.lightbox-download:hover {
+  background: var(--media-chrome-hover);
+}
+
+@media (width <= 768px) {
+  .lightbox-nav {
+    width: 34px;
+    height: 52px;
+  }
+}

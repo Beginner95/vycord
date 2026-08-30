@@ -86,15 +86,18 @@ export function AttachmentButton({ open, onToggle, onClose, onFiles }: Attachmen
         // stopPropagation обязателен: иначе mousedown закроет попап в
         // useDismissOnOutside, а следующий onClick тут же откроет его снова.
         onMouseDown={(e) => e.stopPropagation()}
-        // M5.5 T3 (R-P2): `toolbar-btn` → `composer-attach-btn` and nothing
-        // else. Deliberately NOT also `composer-icon-btn` — borrowing the
-        // redesign's icon styling here would silently close D10's open state
-        // ("AttachmentButton renders bare between T3 and T5") and destroy
-        // Task 5's only failure signal. The bare look is correct until T5.
-        // The ` active` modifier is likewise left alone: Task 5 Step 4 owns
-        // `active` → `is-active`, and splitting one className expression
-        // across two tasks is how a rename lands half-applied.
-        className={`composer-attach-btn${open ? ' active' : ''}`}
+        // M5.5 T5: closes D10. `composer-icon-btn` is the redesign's existing
+        // composer idiom (Composer.css:62) and already carries the `.is-active`
+        // state, so the sticker/emoji/attach toggles are now one shape rather
+        // than two namespaces for one role — measured, not read: the probe
+        // compares this button's computed box, colour, radius and transition
+        // against a sibling `.composer-icon-btn`.
+        // `composer-attach-btn` stays alongside as a pure IDENTITY HOOK — same
+        // `composer-` namespace, no rule of its own in any stylesheet — because
+        // T3's committed probe and the milestone plan both address the button
+        // by it. It is not residue; do not "clean" it up without re-pointing
+        // probe-attachments.js.
+        className={`composer-icon-btn composer-attach-btn${open ? ' is-active' : ''}`}
         aria-label={t('chat.attach')}
         aria-expanded={open}
         title={t('chat.attach')}

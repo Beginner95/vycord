@@ -1,4 +1,5 @@
 import { useRef, useState } from 'react';
+import { Pause, Play, Volume2, VolumeX } from 'lucide-react';
 import { useT } from '@/i18n';
 import { notifyPlaying } from '@/utils/chatMediaCoordinator';
 import './VideoPlayer.css';
@@ -54,7 +55,7 @@ export function VideoPlayer({ src, autoPlay = false, lightbox = false }: VideoPl
   };
 
   return (
-    <div className={`video-player${lightbox ? ' video-player--lightbox' : ''}`}>
+    <div className={`video-player${lightbox ? ' is-lightbox' : ''}`}>
       <video
         ref={ref}
         className="video-player-media"
@@ -71,7 +72,7 @@ export function VideoPlayer({ src, autoPlay = false, lightbox = false }: VideoPl
 
       <div className="video-player-bar">
         <button type="button" className="video-play-btn" onClick={toggle} aria-label={playing ? t('chat.pause') : t('chat.play')}>
-          {playing ? '❚❚' : '▶'}
+          {playing ? <Pause size={16} strokeWidth={1.8} /> : <Play size={16} strokeWidth={1.8} />}
         </button>
 
         <input
@@ -92,7 +93,7 @@ export function VideoPlayer({ src, autoPlay = false, lightbox = false }: VideoPl
         <span className="video-time">{formatTime(current)} / {formatTime(duration)}</span>
 
         <button type="button" className="video-mute-btn" onClick={toggleMute} aria-label={muted ? t('chat.unmute') : t('chat.mute')}>
-          {muted ? '🔇' : '🔊'}
+          {muted ? <VolumeX size={16} strokeWidth={1.8} /> : <Volume2 size={16} strokeWidth={1.8} />}
         </button>
       </div>
     </div>
