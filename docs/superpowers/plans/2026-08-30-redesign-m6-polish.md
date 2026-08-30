@@ -151,14 +151,28 @@ breakpoint pair" spec §5 names. The other **17** blocks at that boundary keep 7
 is an unrequested behaviour change on 14 lint-clean blocks including four trunk surfaces M5.5 just
 certified at lint 0, two of which (`AudioPlayer`, `VideoPlayer`) have **no fixture**.
 
-**6. `--stage-danger` on `:root` only, exactly parallel to decision 2.**
-`--danger` has 8 **foreground** sites (not the "only two" the record claims — see Appendix A, C3), and
-**four sit on the call stage / call UI**: `CallStage.css:279` (`.stage-plate-mic.is-muted`), `:460`
-(`.stage-conn.is-poor`), `:564` (`.stage-tip.is-poor`), `CallUI.css:192`
-(`.p2p-plate-mic.is-muted`). Those four switch to `--stage-danger`; `--danger` then takes a dark
-value freely for the other 18 consumers.
-*Cost if wrong:* one token definition and four references to revert — the same trivially-reversible
-shape already accepted for `--stage-accent`.
+**6. `--stage-danger: #FCA5A5` on `:root` only — THREE sites, and it is an AA fix, not a preference.**
+`--danger` has 8 **foreground** sites (not the "only two" the record claims — Appendix A, C3). Four
+looked like stage sites; **only three are**:
+
+| site | ground | takes |
+|---|---|---|
+| `CallStage.css:279` `.stage-plate-mic.is-muted` | `--stage-plate` over `--stage-tile` | `--stage-danger` |
+| `CallStage.css:460` `.stage-conn.is-poor` | absolute over `--stage-tile` / `--stage` | `--stage-danger` |
+| `CallUI.css:192` `.p2p-plate-mic.is-muted` | the p2p plate | `--stage-danger` |
+| **`CallStage.css:564` `.stage-tip.is-poor`** | **`background: var(--canvas)` (`:480`)** | **keeps `--danger`** |
+
+`.stage-tip` is a **theme-adaptive** surface, not stage ground — `tokens.css`'s own `--stage-*`
+comment already says so and applies the identical carve-out to `--online`: *"Theme-adaptive surfaces
+(`.stage-tip` on `--canvas`, the p2p incoming modal) keep `--online`."* Follow that precedent exactly.
+
+**The value is a measured AA fix.** `#E7444A` computes **4.21:1 on `--stage-tile` — below AA's
+4.5:1** (and 4.85:1 on the `--stage-plate` composite `#0d0f18`, which only just clears). `#FCA5A5`
+computes **10.07:1** on the same ground. This is therefore a **disclosed, deliberate colour change on
+three call-surface sites**, and task 14 must check it against board `1e`.
+*Cost if wrong:* one token definition and three references to revert. The alternative — pinning
+`--stage-danger: #E7444A` to move zero pixels — is **rejected**: it would ship a known AA failure on
+the stage out of the milestone whose clause is dark-theme parity.
 
 **7. The chat header's search button keeps opening the deep `MessageSearch` panel. No ⌘K chip.**
 Closes RESUME §6f #1. Board `1c`'s dark-theme ⌘K chip stays unshipped **by decision, not omission** —
@@ -288,6 +302,13 @@ disproved a copied instance, **but M4 tested a third and it fired**, as did M5.5
 *Cost if wrong:* tasks 4–12 change specificity in several files, so fixing these early means fixing
 them twice. **Test the counterfactual with a positive control at each of the 8; never copy a
 justification.**
+**The "8" is measured AT task 13, never carried from task 2.** Tasks 3–12 add declarations to files
+whose current lint is **0** (`CallStage.css`, `CallUI.css`, `Settings.css`, `primitives.css`,
+`MessageRow.css`) and change specificity in several, so the count can move either way — a new
+`custom-property-empty-line-before` or `no-descending-specificity` in one of them is entirely
+possible. **The lint trajectory in the task table is a projection, not a contract.** E2 requires
+measuring both ends at every task; a task whose measured number differs from the projection has
+**found something**, not failed. Record the difference and carry the measured number forward.
 
 ---
 
@@ -759,14 +780,22 @@ not touch `CallStage.css`, but verify rather than assume. `CallUI.css` and `AppP
 - [ ] **Step 3: `--stage-danger` (decision 6), then a dark `--danger`**
 
 ```css
-  --stage-danger: #FCA5A5; /* the dark --danger-text value: stage chrome is dark
-                              in both themes, so its danger foreground must not
-                              follow --danger's light value (decision 6). */
+  --stage-danger: #FCA5A5; /* Stage chrome is dark in BOTH themes, so its danger
+                              foreground cannot follow --danger's light value:
+                              #E7444A computes 4.21:1 on --stage-tile, BELOW AA.
+                              #FCA5A5 computes 10.07:1. Deliberate, disclosed
+                              colour change on three sites (decision 6). */
 ```
 
-Switch the four stage sites: `CallStage.css:279` (`.stage-plate-mic.is-muted`), `:460`
-(`.stage-conn.is-poor`), `:564` (`.stage-tip.is-poor`), `CallUI.css:192`
-(`.p2p-plate-mic.is-muted`). Then add the dark override:
+Switch **three** sites — `CallStage.css:279` (`.stage-plate-mic.is-muted`), `:460`
+(`.stage-conn.is-poor`), `CallUI.css:192` (`.p2p-plate-mic.is-muted`).
+
+**`CallStage.css:564` (`.stage-tip.is-poor`) KEEPS `--danger`.** `.stage-tip` sets
+`background: var(--canvas)` at `CallStage.css:480` — it is a theme-adaptive surface, not stage ground,
+and `tokens.css`'s `--stage-*` comment already applies the identical carve-out to `--online`. Putting
+a stage token on it would put a dark-ground colour on a light-ground popover.
+
+Then add the dark override:
 
 ```css
 [data-theme="dark"] {
@@ -798,21 +827,26 @@ tint — `--yellow-50` has a dark override, `--canvas-2` does not." Measured at 
 ```
 
 It **does not reference `--yellow-50` at all**, and **`--canvas-2` DOES have a dark override**
-(`tokens.css:146`, `#151926`). Computed contrast: light `#F59E0B` on `#F6F7FB` = **2.02:1** (which is
-why the recorded ~2.01 looked right); dark `#F59E0B` on `#151926` = **8.15:1**, comfortably AA.
+(`tokens.css:146`, `#151926`). Computed contrast: light `#F59E0B` on `#F6F7FB` = **2.01:1** (which is
+exactly the recorded figure — the *ratio* was right and only its *mechanism* was wrong); dark
+`#F59E0B` on `#151926` = **8.16:1**, comfortably AA.
 
-**The deficiency is light-theme-only.** Add a light-side foreground token and use it for `color`,
-leaving `border` on `--warning`:
+**The deficiency is light-theme-only.** Add a light-side foreground token and use it for `color`
+**only** — the `border` stays on `--warning`, because a 1px border is not text and the amber border is
+the surface's whole visual identity:
 
 ```css
-  --warning:      #F59E0B;
-  --warning-text: #B45309; /* AA on --canvas-2 in light; --warning itself is
-                              2.02:1 there. Dark needs no override: #F59E0B on
-                              --canvas-2 dark is 8.15:1. */
+  --warning:      #F59E0B; /* border + the dark-theme foreground */
+  --warning-text: #B45309; /* light-theme foreground: 4.69:1 on --canvas-2.
+                              --warning itself is 2.01:1 there. NO dark override
+                              needed — #F59E0B on dark --canvas-2 is 8.16:1. */
 ```
 
-Verify the new ratio with the probe, in **both** themes. This surface carries the NC-unsupported and
-mic-permission messages.
+`#B45309` is **measured at 4.69:1**, not asserted. If the probe disagrees, `#A16207` measures 4.60:1
+as a fallback; anything lighter than those fails. Verify in **both** themes — the dark side must not
+regress, and it takes no override, so the probe should show dark unchanged at 8.16:1.
+
+This surface carries the NC-unsupported and mic-permission messages.
 
 - [ ] **Step 5: `--hl-bg` / `--hl-ink` at both ends**
 
@@ -1513,7 +1547,14 @@ Note **no `--danger-color` token exists anywhere in the tree** — do not invent
 
 `tokens.css:172–239` — the banner comment, the `:root, [data-theme="dark"]` rule at `:177–231`, and
 the trailing `[data-theme="dark"]` rule at `:235–239` carrying the 3 dark overrides. **Re-measure the
-range**; tasks 2 and 3 both edited this file.
+range**; tasks 2, 3 and 11 all edited this file.
+
+**All three dark overrides delete cleanly, so the block's deletion changes no dark rendering by
+itself.** `--yellow-50` and `--brand-100` have **zero consumers** (both are in the dead 19), and
+`--brand-subtle`'s single consumer is handled by decision 14, which replaces it with `--focus-ring` —
+the one canonical token that carries its own dark override. The audit gate cannot tell you this,
+because a name with no consumers produces no error; it is worth stating so a reader does not have to
+re-derive it.
 
 - [ ] **Step 4: Run the audit — and make it fail first**
 
@@ -1663,8 +1704,8 @@ Measured 2026-08-30 at `dc0a873`, comments stripped. Each falsifies a load-beari
 | # | Claim in the record | Measured | Where it bites |
 |---|---|---|---|
 | **C1** | §7.2: the colour probe guards "`--fix`'s rewrite of **~117 declarations** in `tokens.css`" | **50 lines changed**; the 3 colour rules fire on **33 distinct declarations**; 48 distinct warning lines. Repo-wide, `--fix` takes **188 → 54** — 71% of the debt is mechanical | Task 2 |
-| **C2** | §6c: `.setting-warning` "lost its dark tint — `--yellow-50` has a dark override, `--canvas-2` does not" | The rule **never references `--yellow-50`**, and **`--canvas-2` DOES** have a dark override (`tokens.css:146`). Light 2.02:1, **dark 8.15:1**. The defect is **light-only**; the remedy inverts | Task 3 |
-| **C3** | §6c: M4 introduced "the tree's **only two** uses of `--danger` as a foreground" | **8** `color: var(--danger)` sites; 22 CSS consumers total. **4 sit on the call stage/UI**, colliding with ruling 2 | Decision 6, task 3 |
+| **C2** | §6c: `.setting-warning` "lost its dark tint — `--yellow-50` has a dark override, `--canvas-2` does not" | The rule **never references `--yellow-50`**, and **`--canvas-2` DOES** have a dark override (`tokens.css:146`). Light **2.01:1** (the recorded ratio was right; only its mechanism was wrong), **dark 8.16:1**. The defect is **light-only**; the remedy inverts | Task 3 |
+| **C3** | §6c: M4 introduced "the tree's **only two** uses of `--danger` as a foreground" | **8** `color: var(--danger)` sites; 22 CSS consumers total. **3 sit on stage ground** and collide with ruling 2; a 4th (`.stage-tip.is-poor`) only looks like one — `.stage-tip` sets `background: var(--canvas)` at `CallStage.css:480` and is theme-adaptive | Decision 6, task 3 |
 | **C4** | §5/§7: "both sides of the 768/769px pair migrate to 900", implying the 5 legacy blocks | **19** blocks sit at that boundary; **14 already use range syntax**. The *pair* is `AppPage.css:96`/`:102`, verified complementary. Notation and boundary are orthogonal | Decision 5, tasks 2/7 |
 | **C5** | §6c/§7.4: the reduced-motion clause treats `base.css:85` as the only such block | **`ChannelSidebar.css:227–236` is a second, pre-existing `prefers-reduced-motion` block** | Decision 17, task 6 |
 | **C6** | §5: `probe-composer.js` is "silently dead from line 193 down — 48 of 88 assertions have never executed" | It uses **deferred flush**, not throwing `fail()`. The 40 checks above `:193` **execute but die with `out`**. Net **0 of 88** produce a readable verdict — and the failure is **loud** (`PROBE ERROR:`) | Decision 12, task 1 |
