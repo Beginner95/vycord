@@ -85,6 +85,45 @@ If `channel` becomes `null` between a send and its rejection (last channel delet
 `ChatArea` early-returns before the toast can render. Deliberately left out of M2's fix-wave scope. Same class
 as 1b.
 
+### 1f. `services/api.ts` has no request timeout, and `request()`/`requestForm()` are uncancellable
+
+*Added 2026-08-30 at the close of M5.5 (trunk integration). Measured against `redesign@18322a8`.*
+
+Three separate facts, deliberately separated because a coarser statement of them is misleading:
+
+**(a) There is no request timeout anywhere in `api.ts`.** No `setTimeout`, no `AbortSignal.timeout`, no
+server-side deadline surfaced to the client. Every request waits for the network stack to give up, which on a
+stalled TCP connection can be minutes.
+
+**(b) The fetch-based `request()` and `requestForm()` take no `signal`,** so **every non-upload request in the
+app is uncancellable** — nothing can abort a navigation-triggered fetch, a `getMessages`, an invite create, or
+an avatar upload. There is no plumbing to pass one: `RequestInit` is constructed inside the method and no
+caller can reach it.
+
+**(c) The concrete user-visible trap is the avatar upload, and it is a complete one.** `uploadAvatar` →
+`requestForm('/api/v1/users/me/avatar')` (`api.ts:339,342`). `AvatarCropModal` disables all three of its exits
+while `saving` — the overlay click (`:171`), the header close (`:186`) and the cancel button (`:228`) — and
+the modal does **not** adopt `useModalFocus`, so there is no Escape path either. A stalled avatar upload
+therefore leaves the user with no way out of the modal except reloading the page. This is the item RESUME §6d
+points at.
+
+**What this is NOT, and the reason the entry is worded this way.** The M5.5 plan recorded that develop's
+VYC-82 "shipped file upload on top of no `AbortController`, timeout or `signal` anywhere in `services/api.ts`,
+so a stalled upload has no cancel path." That is literally true of those three identifiers and **materially
+misleading**: **attachment upload has a working cancel path.** `uploadAttachment` (`api.ts:601`) deliberately
+uses `XMLHttpRequest` rather than `fetch` — for upload progress — and returns `{ promise, abort }`
+(`:605,661-663`); `abort()` is stored on the draft in `attachmentStore` (`attachmentStore.ts:12`) and invoked
+by `useAttachmentUpload.cancel` (`useAttachmentUpload.ts:74-78`), which also handles the resulting
+`upload_aborted` `ApiError` (`:40`). Anyone fixing this must not "restore" a cancel path that already exists.
+
+**The fix** is a timeout plus an `AbortSignal` parameter threaded through `request()`/`requestForm()`, and
+`AvatarCropModal` adopting `useModalFocus` so its Escape works. Both halves need a **`services/` scope grant**,
+which spec §1 (fixed REST/WS contracts) and §7 (services out of scope) withhold from every redesign milestone —
+so no redesign milestone may do it, including M6.
+
+**Needs:** a `services/` scope grant. **Impact:** medium — a modal with no exit, reachable by any user on a bad
+connection.
+
 ---
 
 ## 2. Decisions that need you before anyone can execute
