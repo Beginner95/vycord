@@ -1,4 +1,5 @@
 import { useT } from '@/i18n';
+import { useDismissOnOutside } from '@/hooks/useDismissOnOutside';
 import type { Sticker } from '@/types';
 import { resolveUploadUrl } from '@/services/api';
 import './StickerPicker.css';
@@ -10,10 +11,11 @@ interface StickerPickerProps {
   onManage?: () => void;
 }
 
-export function StickerPicker({ stickers, onSelect, onManage }: StickerPickerProps) {
+export function StickerPicker({ stickers, onSelect, onClose, onManage }: StickerPickerProps) {
   const t = useT();
+  const ref = useDismissOnOutside<HTMLDivElement>(onClose);
   return (
-    <div className="sticker-picker" role="dialog">
+    <div className="sticker-picker" role="dialog" ref={ref}>
       <div className="sticker-picker-grid">
         {stickers.length === 0 ? (
           <div className="sticker-picker-empty">{t('chat.noStickers')}</div>

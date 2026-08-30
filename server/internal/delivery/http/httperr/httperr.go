@@ -105,6 +105,15 @@ const (
 	CodeRoleNotFound       = "role_not_found"
 	CodeInvalidPermissions = "invalid_permissions"
 	CodeInvalidRoleName    = "invalid_role_name"
+
+	// Вложения
+	CodeAttachmentTooLarge        = "attachment_too_large"
+	CodeAttachmentRequired        = "attachment_required"
+	CodeAttachmentNotFound        = "attachment_not_found"
+	CodeAttachmentAlreadyAttached = "attachment_already_attached"
+	CodeStorageQuotaExceeded      = "storage_quota_exceeded"
+	CodeAttachmentLinkExpired     = "attachment_link_expired"
+	CodeInvalidAttachmentID       = "invalid_attachment_id"
 )
 
 // Write отправляет JSON-ответ об ошибке. Статус и текст передаются как есть.
