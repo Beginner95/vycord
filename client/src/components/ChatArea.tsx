@@ -633,12 +633,24 @@ logger.error('Failed to jump to message:', err, { module: 'chat' });
           </button>
         )}
         <Hash size={17} strokeWidth={1.8} className="chat-header-hash" />
-        <h3 className="chat-header-name">{channel.name}</h3>
+        {/* The document's h1 (M6 T5). The open channel is what the page is
+            about, so the persistent header carries the level — NOT
+            `.chat-empty-title` (still an h2 at :41), which would either name an
+            absence in the no-channel state or produce a SECOND h1 whenever the
+            empty card renders inside an open channel.
+            BOTH copies below are h1, and that is deliberate: this name is
+            rendered twice on purpose (desktop one-liner + mobile two-line
+            wrapper) and ChatArea.css:377/:381 `display: none`s exactly one of
+            them at every viewport. display:none removes an element from the
+            accessibility tree, so precisely one h1 is ever exposed — whereas
+            promoting only one copy would leave the OTHER viewport with no h1
+            at all. */}
+        <h1 className="chat-header-name">{channel.name}</h1>
         {/* Mobile-only two-line title (board 1f): the plain .chat-header-name
             above hides on mobile, this wrapper (hidden on desktop) takes over
             with the channel name plus a server/participants subtitle. */}
         <div className="chat-header-title">
-          <h3 className="chat-header-name">{channel.name}</h3>
+          <h1 className="chat-header-name">{channel.name}</h1>
           <div className="chat-header-sub">
             {currentServer?.name} · {tp('call.participants', members.length)}
           </div>

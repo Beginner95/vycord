@@ -79,6 +79,7 @@ export function VolumeControlPopover({ value, position, onChange, onClose }: Vol
     >
       <input
         type="range"
+        aria-label={t('call.participantVolume')}
         min={0}
         max={100}
         value={value}

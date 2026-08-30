@@ -78,6 +78,7 @@ export function VideoPlayer({ src, autoPlay = false, lightbox = false }: VideoPl
         <input
           type="range"
           className="video-seek"
+          aria-label={t('chat.seekPosition')}
           min={0}
           max={duration || 0}
           step={0.1}

@@ -129,6 +129,8 @@ export const en: Dictionary = {
     unmute: 'Unmute',
     previous: 'Previous',
     next: 'Next',
+    seekPosition: 'Playback position',
+    uploadProgress: 'Upload progress',
   },
   call: {
     participants: plural({
@@ -147,6 +149,7 @@ export const en: Dictionary = {
     unitPercent: '%',
     unitMs: 'ms',
     unitKbps: 'kbps',
+    participantVolume: 'Participant volume',
 
     // Screen source picker modal
     selectScreen: 'Select a screen to share',
@@ -295,6 +298,7 @@ export const en: Dictionary = {
     defaultCamera: 'Default Camera',
 
     cropAvatarTitle: 'Crop avatar',
+    cropZoom: 'Zoom',
   },
   server: {
     listTitle: 'Servers',

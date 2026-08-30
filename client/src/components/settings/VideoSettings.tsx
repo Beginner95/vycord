@@ -13,7 +13,7 @@ export function VideoSettings() {
           <p className="setting-row-desc">{t('settings.cameraDescription')}</p>
         </div>
         <span className="select-wrap">
-          <select className="select-control">
+          <select className="select-control" aria-label={t('settings.camera')}>
             <option>{t('settings.defaultCamera')}</option>
           </select>
           <span className="select-chevron">

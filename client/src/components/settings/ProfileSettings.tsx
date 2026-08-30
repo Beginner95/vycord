@@ -115,6 +115,7 @@ export function ProfileSettings() {
           <span className="select-wrap">
             <select
               className="select-control"
+              aria-label={t('settings.interfaceLanguage')}
               value={locale}
               onChange={(e) => setLocale(e.target.value as Locale)}
             >

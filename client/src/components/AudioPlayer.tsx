@@ -53,6 +53,7 @@ export function AudioPlayer({ src, fileName }: AudioPlayerProps) {
         <input
           type="range"
           className="audio-seek"
+          aria-label={t('chat.seekPosition')}
           min={0}
           max={duration || 0}
           step={0.1}

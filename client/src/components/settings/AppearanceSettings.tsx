@@ -18,6 +18,7 @@ export function AppearanceSettings() {
         <span className="select-wrap">
           <select
             className="select-control"
+            aria-label={t('settings.theme')}
             value={theme}
             onChange={(e) => setTheme(e.target.value as 'light' | 'dark')}
           >

@@ -101,6 +101,7 @@ export function AudioSettings() {
           <label className="toggle-switch">
             <input
               type="checkbox"
+              aria-label={t('settings.messageNotifications')}
               checked={msgSound}
               onChange={(e) => {
                 setMsgSound(e.target.checked);
@@ -119,6 +120,7 @@ export function AudioSettings() {
           <label className="toggle-switch">
             <input
               type="checkbox"
+              aria-label={t('settings.callSounds')}
               checked={callSound}
               onChange={(e) => {
                 setCallSound(e.target.checked);
@@ -137,6 +139,7 @@ export function AudioSettings() {
           <label className="toggle-switch">
             <input
               type="checkbox"
+              aria-label={t('settings.voiceJoinLeaveSounds')}
               checked={voiceSound}
               onChange={(e) => {
                 setVoiceSound(e.target.checked);
@@ -155,6 +158,7 @@ export function AudioSettings() {
           <input
             type="range"
             className="slider-input"
+            aria-label={t('settings.volume')}
             min="0"
             max="1"
             step="0.05"
@@ -212,6 +216,7 @@ export function AudioSettings() {
           <label className="toggle-switch">
             <input
               type="checkbox"
+              aria-label={t('settings.noiseCancellation')}
               checked={noiseCancellation}
               onChange={handleToggleNoiseCancellation}
               disabled={!isSupported || ncLoading}
@@ -230,8 +235,18 @@ export function AudioSettings() {
             <p className="setting-row-desc">{t('settings.micTestDescription')}</p>
           </div>
           <div className="mic-test-block">
+            {/* role="progressbar" + the full value triple. AttachmentTray.tsx:63
+                is the tree's only other progressbar and carries role and
+                aria-valuenow ONLY — it is the precedent for the role, not the
+                template: a progressbar without min/max reports a bare number
+                against an unknown scale. Both are complete as of M6 T5. */}
             <div
               className="level-meter"
+              role="progressbar"
+              aria-label={t('settings.inputLevel')}
+              aria-valuenow={Math.min(100, Math.round(level * 100))}
+              aria-valuemin={0}
+              aria-valuemax={100}
               style={{ '--meter-level': `${Math.min(100, Math.round(level * 100))}%` } as React.CSSProperties}
             >
               <div className="level-meter-fill" />
@@ -259,7 +274,7 @@ export function AudioSettings() {
             <p className="setting-row-desc">{t('settings.inputDeviceDescription')}</p>
           </div>
           <span className="select-wrap">
-            <select className="select-control">
+            <select className="select-control" aria-label={t('settings.inputDevice')}>
               <option>{t('settings.defaultMicrophone')}</option>
             </select>
             <span className="select-chevron">
@@ -274,7 +289,7 @@ export function AudioSettings() {
             <p className="setting-row-desc">{t('settings.outputDeviceDescription')}</p>
           </div>
           <span className="select-wrap">
-            <select className="select-control">
+            <select className="select-control" aria-label={t('settings.outputDevice')}>
               <option>{t('settings.defaultSpeakers')}</option>
             </select>
             <span className="select-chevron">

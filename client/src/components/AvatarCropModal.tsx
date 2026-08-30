@@ -208,6 +208,7 @@ export function AvatarCropModal({ file, title, onCancel, onUpload }: AvatarCropM
           <input
             type="range"
             className="slider-input"
+            aria-label={t('settings.cropZoom')}
             min={MIN_ZOOM}
             max={MAX_ZOOM}
             step={0.05}

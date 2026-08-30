@@ -209,6 +209,16 @@ export function CommandPalette({
 
   const groupLabel = { channels: 'palette.groupChannels', messages: 'palette.groupMessages', actions: 'palette.groupActions' } as const;
 
+  // aria-expanded describes whether the popup shows anything, so it is computed
+  // from the RENDERED rows, not from `model.rows`. buildPalette keeps status
+  // rows out of `model.rows` (paletteFilter.ts:126) while still emitting them
+  // inside a group, so a query that matches no channel and no action but does
+  // trigger a message search renders a visible «Ищем…» row with
+  // `model.rows.length === 0` — a combobox reporting collapsed while its popup
+  // has content. `aria-activedescendant` stays bound to `model.rows`: a status
+  // row is not selectable and carries no id to point at.
+  const renderedRowCount = model.groups.reduce((n, g) => n + g.rows.length, 0);
+
   return (
     <div className="modal-overlay palette-overlay" onClick={close}>
       <div
@@ -225,7 +235,7 @@ export function CommandPalette({
             className="palette-input"
             type="text"
             role="combobox"
-            aria-expanded={model.rows.length > 0}
+            aria-expanded={renderedRowCount > 0}
             aria-controls="palette-list"
             aria-activedescendant={model.rows.length ? `palette-row-${selectedIndex}` : undefined}
             value={query}
@@ -240,8 +250,17 @@ export function CommandPalette({
 
         <div className="palette-list" id="palette-list" role="listbox" ref={listRef}>
           {model.groups.map((group) => (
-            <div className="palette-group" key={group.key}>
-              <div className="palette-group-label">{t(groupLabel[group.key])}</div>
+            // listbox → group → option is the valid nesting; role="option" sat
+            // inside an unroled <div> until M6 T5.
+            <div
+              className="palette-group"
+              key={group.key}
+              role="group"
+              aria-labelledby={`palette-group-label-${group.key}`}
+            >
+              <div className="palette-group-label" id={`palette-group-label-${group.key}`}>
+                {t(groupLabel[group.key])}
+              </div>
               {group.rows.map((row, i) => {
                 if (row.kind === 'status') {
                   return (

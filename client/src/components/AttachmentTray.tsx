@@ -60,7 +60,14 @@ export function AttachmentTray({ drafts, onCancel, onRetry }: AttachmentTrayProp
                   : formatSize(d.file.size)}
               </span>
               {d.status === 'uploading' && (
-                <div className="attach-chip-progress" role="progressbar" aria-valuenow={d.progress}>
+                <div
+                  className="attach-chip-progress"
+                  role="progressbar"
+                  aria-label={t('chat.uploadProgress')}
+                  aria-valuenow={d.progress}
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                >
                   <div className="attach-chip-progress-bar" style={{ width: `${d.progress}%` }} />
                 </div>
               )}
