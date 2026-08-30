@@ -5,6 +5,7 @@ import { FormattingToolbar } from '@/components/FormattingToolbar';
 import { MentionDropdown } from '@/components/MentionDropdown';
 import { EmojiPicker } from '@/components/EmojiPicker';
 import { LinkDialog } from '@/components/LinkDialog';
+import { MessageAttachments } from '@/components/MessageAttachments';
 import { useMentionAutocomplete } from '@/hooks/useMentionAutocomplete';
 import { toggleBullet, toggleNumbered, applyLineToggle, applyWrap, insertAtCaret, linkToken } from '@/utils/textTransforms';
 import { tokenizeMentions, LEGACY_ROLE_KEYS } from '@/utils/mentions';
@@ -117,6 +118,13 @@ interface MessageRowProps {
    * no API call and no confirm modal to justify.
    */
   onDiscard?: () => void;
+  /**
+   * M5.5 T3. The row renders its own attachments but does not own the
+   * lightbox: one fullscreen overlay per message would be wasteful and the
+   * column-level mount is ChatArea's. `index` is the row-local index into
+   * `msg.attachments`; ChatArea narrows it to the media subset.
+   */
+  onOpenAttachment?: (index: number) => void;
 }
 
 export function MessageRow(props: MessageRowProps) {
@@ -160,7 +168,17 @@ export function MessageRow(props: MessageRowProps) {
             ? <img className="msg-sticker" src={resolveUploadUrl(msg.sticker.image_url)} alt={msg.sticker.name} />
             : msg.sticker_id
               ? <div className="msg-body">{t('chat.stickerRemoved')}</div>
-              : <div className="msg-body">{renderMessageBody(msg.content, props.members, t, props.currentUserId)}</div>}
+              : msg.content
+                ? <div className="msg-body">{renderMessageBody(msg.content, props.members, t, props.currentUserId)}</div>
+                : null}
+        {/* An attachment-only message has empty content — the body above is
+            skipped so it does not render an empty block above the media. */}
+        {!isEditing && msg.attachments && msg.attachments.length > 0 && (
+          <MessageAttachments
+            attachments={msg.attachments}
+            onOpen={(index) => props.onOpenAttachment?.(index)}
+          />
+        )}
         {!isEditing && msg.deliveryState === 'sending' && (
           <span className="msg-delivery is-sending">
             <Clock size={12} strokeWidth={1.8} /> {t('chat.sending')}

@@ -16,6 +16,9 @@ import { MentionDropdown } from '@/components/MentionDropdown';
 import { EmojiPicker } from '@/components/EmojiPicker';
 import { StickerPicker } from '@/components/StickerPicker';
 import { LinkDialog } from '@/components/LinkDialog';
+import { AttachmentButton } from '@/components/AttachmentButton';
+import { AttachmentTray } from '@/components/AttachmentTray';
+import { useAttachmentUpload } from '@/hooks/useAttachmentUpload';
 import { useMentionAutocomplete } from '@/hooks/useMentionAutocomplete';
 import { useFloatingSelectionToolbar } from '@/hooks/useFloatingSelectionToolbar';
 import {
@@ -29,7 +32,7 @@ import {
 } from '@/utils/textTransforms';
 import { isUnsafeUrl } from '@/utils/markdown';
 import { useT } from '@/i18n';
-import type { Channel, MemberWithUser, Sticker as ServerSticker } from '@/types';
+import type { Attachment, Channel, MemberWithUser, Sticker as ServerSticker } from '@/types';
 import './Composer.css';
 
 const QUOTE_PREFIX = '> ';
@@ -62,8 +65,13 @@ interface ComposerProps {
    * ChatArea immediately, so the field clears synchronously here too. Any
    * failure surfaces later as the message row's own `danger` chip, not a
    * value this callback returns.
+   *
+   * M5.5 T3: `attachments` carries the already-uploaded blobs this message
+   * claims. ChatArea maps them to ids for the POST and also pins the array
+   * on the optimistic row, so a `failed` row still knows what it was
+   * carrying and its retry can re-send the same ids.
    */
-  onSend: (content: string) => void;
+  onSend: (content: string, attachments?: Attachment[]) => void;
   serverStickers: ServerSticker[];
   /** Resolves `true` on success; the picker stays open on failure. */
   onSendSticker: (sticker: ServerSticker) => Promise<boolean>;
@@ -96,6 +104,19 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
   const [emojiOpen, setEmojiOpen] = useState(false);
   const [stickerOpen, setStickerOpen] = useState(false);
   const [linkOpen, setLinkOpen] = useState(false);
+  // Own local boolean, in the same style as emojiOpen/stickerOpen above.
+  // Opening it does not close the other two — that non-exclusion is the
+  // picker-toggle seam Task 4 owns; deliberately not fixed here.
+  const [attachOpen, setAttachOpen] = useState(false);
+
+  // Shares one zustand store with ChatArea's own call of this hook: the hook
+  // holds no local state (a stable-reference selector plus useCallback
+  // wrappers over store actions), so two call sites are two views of the same
+  // drafts — nothing is prop-drilled between the drop overlay and the tray.
+  const uploads = useAttachmentUpload(channel.id);
+  const readyAttachments = uploads.drafts
+    .map((d) => d.attachment)
+    .filter((a): a is Attachment => !!a);
 
   const mention = useMentionAutocomplete({
     value: input,
@@ -155,14 +176,26 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
     e.preventDefault();
     if (submittingRef.current) return;
     const content = input.trim();
-    if (!content) return;
+    // A message is valid with text OR with at least one finished upload.
+    if (!content && readyAttachments.length === 0) return;
+    // While anything is still uploading, hold the send — the message must
+    // not leave without its file.
+    if (uploads.isUploading) return;
     submittingRef.current = true;
     queueMicrotask(() => { submittingRef.current = false; });
+    // Snapshot before clearing: clearSent must remove exactly what went out
+    // and nothing else, so an error chip stays put instead of vanishing with
+    // a successful neighbour.
+    const sent = readyAttachments;
     // Clear synchronously, before onSend does anything async — the field is
-    // empty well before any real second keypress could land.
+    // empty well before any real second keypress could land. develop cleared
+    // the tray only after the POST resolved; here send is optimistic (Task
+    // 11), so the tray follows the field and clears now. The attachments ride
+    // along on the optimistic row, so a failed send can still retry them.
     setInput('');
     setCaretInQuoteLine(false);
-    onSend(content);
+    uploads.clearSent(sent.map((a) => a.id));
+    onSend(content, sent.length ? sent : undefined);
   };
 
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -178,8 +211,16 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
     updateQuoteButtonActive(e.target.value, e.target.selectionStart ?? undefined);
   };
 
-  // Pasting a URL over a non-empty selection turns it into a markdown link.
+  // Pasting a URL over a non-empty selection turns it into a markdown link;
+  // pasting a file (usually a screenshot) is an attachment, not text.
   const handlePaste = (e: ClipboardEvent<HTMLTextAreaElement>) => {
+    const files = e.clipboardData?.files;
+    if (files && files.length > 0) {
+      e.preventDefault();
+      uploads.addFiles(files);
+      return;
+    }
+
     const el = e.currentTarget;
     const start = el.selectionStart ?? el.value.length;
     const end = el.selectionEnd ?? el.value.length;
@@ -249,6 +290,9 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
           quote={{ active: caretInQuoteLine, onToggle: toggleQuotePrefix }}
         />
       )}
+      {/* Pending uploads sit above the input row, so the chips never push the
+          field off its baseline mid-type. Renders nothing when empty. */}
+      <AttachmentTray drafts={uploads.drafts} onCancel={uploads.cancel} onRetry={uploads.retry} />
       <form className="composer-field" onSubmit={handleSubmit}>
         <textarea
           ref={inputRef}
@@ -292,7 +336,18 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
         >
           <Smile size={17} strokeWidth={1.8} />
         </button>
-        <button type="submit" className="composer-send" aria-label={t('chat.send')} disabled={!input.trim()}>
+        <AttachmentButton
+          open={attachOpen}
+          onToggle={() => setAttachOpen((v) => !v)}
+          onClose={() => setAttachOpen(false)}
+          onFiles={(files) => uploads.addFiles(files)}
+        />
+        <button
+          type="submit"
+          className="composer-send"
+          aria-label={t('chat.send')}
+          disabled={(!input.trim() && readyAttachments.length === 0) || uploads.isUploading}
+        >
           <SendHorizontal size={17} strokeWidth={1.8} />
         </button>
         <MentionDropdown mention={mention} />

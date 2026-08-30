@@ -1,4 +1,4 @@
-import { Fragment, useState, useEffect, useRef, useCallback, type ReactNode } from 'react';
+import { Fragment, useState, useEffect, useRef, useCallback, type DragEvent, type ReactNode } from 'react';
 import { ArrowDown, ChevronLeft, Hash, Headphones, Mic, Plus, Search, Users } from 'lucide-react';
 import { useMessageStore, type ChatMessage } from '@/stores/messageStore';
 import { useUnreadStore, firstUnreadId } from '@/stores/unreadStore';
@@ -23,7 +23,9 @@ import { FloatingQuoteButton } from '@/components/FloatingQuoteButton';
 import { DayDivider } from '@/components/DayDivider';
 import { ConfirmModal } from '@/components/ConfirmModal';
 import { VoiceBanner } from '@/components/VoiceBanner';
-import type { Channel, User } from '@/types';
+import { MediaLightbox, pickLightboxMedia } from '@/components/MediaLightbox';
+import { useAttachmentUpload } from '@/hooks/useAttachmentUpload';
+import type { Attachment, Channel, User } from '@/types';
 import type { Sticker } from '@/types';
 import { useT, useTp, useDateFormat, isSameCalendarDay } from '@/i18n';
 import './ChatArea.css';
@@ -77,6 +79,48 @@ export function ChatArea({ channel, user, onMobileBack, onShowMembers, onJoinVoi
   const [highlightedId, setHighlightedId] = useState<string | null>(null);
   const [stickerManagerOpen, setStickerManagerOpen] = useState(false);
   const [serverStickers, setServerStickers] = useState<Sticker[]>([]);
+
+  // Drag-and-drop is a column-level concern (the scrim covers the whole chat
+  // area, not just the composer), so ChatArea calls the upload hook too. The
+  // hook holds no local state of its own — a stable-reference zustand
+  // selector plus useCallback wrappers over store actions — so this and
+  // Composer's call are two views of one store, and nothing has to be
+  // drilled between them. Cost: ChatArea re-renders on each progress tick
+  // even though it only needs `addFiles`. Accepted, not fixed.
+  const uploads = useAttachmentUpload(channel?.id);
+
+  // Counter, not a boolean: dragleave fires from every child element the
+  // pointer crosses inside the chat, and a boolean would make the overlay
+  // flicker.
+  const [dragDepth, setDragDepth] = useState(0);
+
+  const handleDragEnter = (e: DragEvent<HTMLElement>) => {
+    if (!e.dataTransfer?.types.includes('Files')) return;
+    e.preventDefault();
+    setDragDepth((d) => d + 1);
+  };
+
+  const handleDragOver = (e: DragEvent<HTMLElement>) => {
+    if (e.dataTransfer?.types.includes('Files')) e.preventDefault();
+  };
+
+  const handleDragLeave = () => setDragDepth((d) => Math.max(0, d - 1));
+
+  const handleDrop = (e: DragEvent<HTMLElement>) => {
+    if (!e.dataTransfer?.files?.length) return;
+    e.preventDefault();
+    setDragDepth(0);
+    uploads.addFiles(e.dataTransfer.files);
+  };
+
+  // A drag left in flight when the user switches channels would strand the
+  // scrim over the new channel: no dragleave is ever delivered for the
+  // unmounted subtree.
+  useEffect(() => { setDragDepth(0); }, [channel?.id]);
+
+  /** Which message's media is open fullscreen; mounted once, at column level. */
+  const [lightbox, setLightbox] = useState<{ attachments: Attachment[]; index: number } | null>(null);
+  useEffect(() => { setLightbox(null); }, [channel?.id]);
 
   // Канал команд палитры (решение 5): MessageSearch и jumpToMessage живут
   // только здесь, поэтому только два действия палитры доходят через
@@ -396,16 +440,22 @@ logger.error('Failed to jump to message:', err, { module: 'chat' });
    * render. Falling back to the toast keeps the pre-M2 floor — a send never
    * fails silently — without reintroducing a toast on the path the chip owns.
    */
-  const sendMessage = async (content: string) => {
+  const sendMessage = async (content: string, attachments?: Attachment[]) => {
     if (!channel || !user) return;
     const tempId = `pending-${Date.now()}-${pendingSeqRef.current++}`;
     const now = new Date().toISOString();
+    // The attachments are already uploaded, so the optimistic row can render
+    // them straight away — and, if the POST fails, the `failed` row still
+    // knows its ids so `retrySend` can re-send exactly the same blobs.
     addMessage({
       id: tempId, channel_id: channel.id, user_id: user.id,
       content, created_at: now, updated_at: now, deliveryState: 'sending',
+      attachments,
     });
     try {
-      const msg = await apiService.createMessage(channel.id, content) as Message;
+      const msg = await apiService.createMessage(
+        channel.id, content, undefined, attachments?.length ? attachments.map((a) => a.id) : undefined,
+      ) as Message;
       replaceMessage(tempId, msg);
     } catch (err) {
       logger.error('Failed to send message:', err, { module: 'chat' });
@@ -430,7 +480,12 @@ logger.error('Failed to jump to message:', err, { module: 'chat' });
     if (!current || current.deliveryState !== 'failed') return;
     updateMessage(msg.id, { deliveryState: 'sending' });
     try {
-      const saved = await apiService.createMessage(channel.id, msg.content) as Message;
+      // Re-send the ids the failed row was carrying, or the retry would
+      // quietly drop the user's files and post a bare text message.
+      const saved = await apiService.createMessage(
+        channel.id, msg.content, undefined,
+        msg.attachments?.length ? msg.attachments.map((a) => a.id) : undefined,
+      ) as Message;
       replaceMessage(msg.id, saved);
     } catch (err) {
       logger.error('Failed to send message:', err, { module: 'chat' });
@@ -559,7 +614,18 @@ logger.error('Failed to jump to message:', err, { module: 'chat' });
   }
 
   return (
-    <main className="chat-area">
+    <main
+      className="chat-area"
+      onDragEnter={handleDragEnter}
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+    >
+      {dragDepth > 0 && (
+        <div className="chat-drop-overlay">
+          <span className="chat-drop-overlay-text">{t('chat.dropFilesHere')}</span>
+        </div>
+      )}
       <div className="chat-header">
         {onMobileBack && (
           <button type="button" className="chat-back-btn" onClick={onMobileBack} aria-label={t('chat.back')}>
@@ -710,6 +776,10 @@ logger.error('Failed to jump to message:', err, { module: 'chat' });
                   // Client-only row (never reached the server) — no API call,
                   // no confirm modal, just drop it from the store.
                   onDiscard={() => removeMessage(msg.id)}
+                  // pickLightboxMedia narrows the row-local index to the
+                  // image/video subset and returns null for a non-media
+                  // click (a pdf chip) — nothing to open fullscreen.
+                  onOpenAttachment={(index) => setLightbox(pickLightboxMedia(msg.attachments ?? [], index))}
                 />
               </Fragment>
             );
@@ -762,6 +832,18 @@ logger.error('Failed to jump to message:', err, { module: 'chat' });
           serverId={channel.server_id}
           onClose={() => setStickerManagerOpen(false)}
           onStickersChanged={refreshStickers}
+        />
+      )}
+      {/* Portals to <body> itself (MediaLightbox.tsx:62), so the mount point
+          only decides ownership, not stacking. Task 4 owns the overlay
+          contract — it is not registered with isBlockingOverlayOpen() and
+          that is left as observed. */}
+      {lightbox && (
+        <MediaLightbox
+          attachments={lightbox.attachments}
+          index={lightbox.index}
+          onIndexChange={(index) => setLightbox((cur) => (cur ? { ...cur, index } : cur))}
+          onClose={() => setLightbox(null)}
         />
       )}
       <ConfirmModal
