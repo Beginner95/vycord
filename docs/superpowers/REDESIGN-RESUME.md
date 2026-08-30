@@ -20,18 +20,27 @@ milestone.**
 
 ## §0. START HERE — the next action
 
-**M6 is now PLANNED.** The plan is `docs/superpowers/plans/2026-08-30-redesign-m6-polish.md`,
-committed at `a0f043c` and corrected at `340a7be` (2026-08-30 planning session). The next action is
+**M6 is now PLANNED and GRAND-REVIEWED.** The plan is
+`docs/superpowers/plans/2026-08-30-redesign-m6-polish.md`, at **`622fbca`** (written `a0f043c`,
+corrected by measurement `340a7be`, revised against the grand review `622fbca`). The next action is
 **executing it**.
 
 The plan supersedes §7's inherited brief wherever they disagree — it was measured later, and it
 records **eight corrections to this file** in its Appendix A. §7 is kept below as the record of what
 M6 inherited, **not** as current fact. Read the plan; read §7 only for provenance.
 
-**What the plan added to the brief:** four more human rulings (its decisions 5–8, from the planning
-session — the 900 migration is the `AppPage` pair only · `--stage-danger` on `:root` · the header
-search button keeps the deep panel · `.stage-thumbs` collapses), thirteen planner decisions (9–21,
-including the z-index token scale §6c left open), and a **15**-task shape rather than §7's 14.
+**What the plan added to the brief:** **eight** more human rulings — decisions 5–8 from the planning
+session (the 900 migration is the `AppPage` pair only · `--stage-danger` on `:root` · the header
+search button keeps the deep panel · `.stage-thumbs` collapses) and **22–25 after the grand review**
+(the member-list band runs 900–1200, closing a spec hole at 900–999px · `<900px` ships the mobile
+panel model as a **recorded deviation** from board `1f`'s drawer · the CSS-fullscreen dead end is
+fixed, not declined · the `▶`/`◀` glyphs become lucide chevrons) — plus thirteen planner decisions
+(9–21, including the z-index token scale §6c left open), and a **15**-task shape rather than §7's 14.
+
+> **The grand review found seven blocking issues, and the worst was the plan's own.** It had claimed
+> "zero alias references in the harness" and leaned on that to justify its audit instrument. The claim
+> came from a bare `rg` against `.superpowers/` — **which is gitignored, so ripgrep silently searched
+> nothing.** See §8.10; it is now a Global Constraint in the plan.
 
 Paste the block below into a fresh session.
 
@@ -899,6 +908,19 @@ These are not ceremony. Each was bought with a defect that shipped or nearly shi
    single short resume.
 9. **A correction to a prior report must be tighter than what it corrects.** M5.5 produced three corrections
    that were themselves wrong or overstated. Before writing "X is wrong, it is Y", measure Y.
+10. **`rg` silently does not search `.superpowers/`, and a false zero is indistinguishable from a real
+    one.** *(New at M6 planning, 2026-08-30.)* The harness is gitignored, and **ripgrep honours
+    `.gitignore` by default** — so `rg <pattern> .superpowers/…/tools/` returns **nothing**, prints no
+    warning and exits 0. Neither `--hidden` alone nor passing the directory as an explicit path
+    defeats it; it needs **`--no-ignore`**, or plain `grep`. The M6 plan asserted "zero alias
+    references in the harness" from exactly this, used it to justify an instrument decision, and
+    shipped it into a commit; the grand review caught it by running `grep`.
+    **This is §5's "a gate whose output cannot change is not a gate" in a new place** — not a probe
+    that stopped asserting, but a *search that stopped searching*. **Every zero any milestone measured
+    against `.superpowers/` with a bare `rg` is suspect and should be re-run.**
+    *(The counts that were right — M6's 77 rename selector sites — reproduced exactly under
+    `--no-ignore --hidden`. The instrument is not always wrong; it is **silently** wrong, which is
+    worse.)*
 
 ---
 
