@@ -253,8 +253,12 @@ Baseline history: 531 (M2 start) → 196 (M4 close) → 188 (M5 close) → 220 (
 
 **M5's own test files are 19 / 4 / 6** (re-verified 2026-08-30) — `utils/paletteFilter.test.ts` **19**,
 `stores/__tests__/paletteStore.test.ts` **4**, `utils/searchSnippet.test.ts` **6**. (The M5 *plan* projected
-18/6/5; fix rounds moved them, and only the total matched. Carried because it is the worked example of the
-rule above: a projected count is not a measured one.)
+**18 / 4 / 6** — `2026-08-25-redesign-m5-palette.md:503,604,1686`. Only `paletteFilter` moved, 18 → 19; the
+other two landed exactly as projected. So the per-file claim held twice and the **totals** are what diverged:
+28 projected against 29 measured. The earlier note here said "18/6/5 … only the total matched" — inherited
+verbatim from the pre-M5.5 RESUME and wrong in both halves; corrected 2026-08-30. Carried because it is the
+worked example of the rule above: a projected count is not a measured one — and a *carried* count is not one
+either.)
 
 **`npm test` is RED at baseline and always has been.** Three tests in
 `src/services/__tests__/api.network-retry.test.ts` were merged without their implementation, plus 2 unhandled

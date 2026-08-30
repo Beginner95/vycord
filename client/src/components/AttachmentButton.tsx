@@ -28,10 +28,10 @@ interface AttachmentButtonProps {
  *
  * M5.5 T3, verified empirically. That hook registers a CAPTURE-phase document
  * keydown listener which, on Escape, calls `preventDefault()` and
- * `stopPropagation()` (useDismissOnOutside.ts:27-31,34). Every other consumer
- * of the hook (EmojiPicker, StickerPicker, ContextMenu, …) is itself mounted
- * only while open, so its swallow lasts exactly as long as the surface that
- * wants Escape. AttachmentButton called the hook from the always-mounted
+ * `stopPropagation()` (useDismissOnOutside.ts:61-62, registered at :66). The
+ * hook's only other two call sites (EmojiPicker, StickerPicker) are themselves
+ * mounted only while open, so the swallow lasts exactly as long as the surface
+ * that wants Escape. AttachmentButton called the hook from the always-mounted
  * *button*, which was harmless only while the component was unreachable: the
  * moment T3 mounted it in the Composer, a capture-phase Escape swallower went
  * live for the whole lifetime of the channel and every bubble-phase document

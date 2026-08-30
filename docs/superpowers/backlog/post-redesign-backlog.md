@@ -19,7 +19,8 @@ repeatedly, deliberately declined; decisions that need a human before anyone can
 - **M6 owns** — the legacy `--text-muted` alias (still live in at least `ChannelSidebar.css:55`,
   `ErrorBoundary.css:76,139`, `MessageSearch.css:46,67`) and the rest of the alias-deletion sweep; the
   media-query range-syntax / iOS Safari <16.4 question (M2 ruling 17); `prefers-reduced-motion` for the four
-  looping animations (`chat-shimmer`, `stage-eq-bar`, `p2p-pulse`, and the incoming-call pulse); the
+  looping animations (`chat-shimmer`, `stage-eq-bar`, `message-search-spin`, and `p2p-pulse` — which *is* the
+  incoming-call pulse, not a fifth entry; RESUME §6c carries the measured list); the
   responsive 768→900 migration; the ~15 cosmetic call-surface deferrals catalogued in the M3 closeout.
 
 **Closed, contrary to an earlier record:** M1's closeout listed an *orphaned* `.chat-voice-btn.in-call` rule.
@@ -91,9 +92,11 @@ as 1b.
 
 Three separate facts, deliberately separated because a coarser statement of them is misleading:
 
-**(a) There is no request timeout anywhere in `api.ts`.** No `setTimeout`, no `AbortSignal.timeout`, no
-server-side deadline surfaced to the client. Every request waits for the network stack to give up, which on a
-stalled TCP connection can be minutes.
+**(a) There is no PER-REQUEST timeout anywhere in `api.ts`.** No `AbortSignal.timeout`, no deadline on any
+`fetch`, no server-side deadline surfaced to the client. Every request waits for the network stack to give up,
+which on a stalled TCP connection can be minutes. Worded precisely on purpose: `api.ts` **does** call
+`setTimeout` (`:59,141`), but only to schedule the access-token refresh — it bounds no request. "No
+`setTimeout` in `api.ts`" would be the same literally-checkable-and-false shape this entry exists to correct.
 
 **(b) The fetch-based `request()` and `requestForm()` take no `signal`,** so **every non-upload request in the
 app is uncancellable** — nothing can abort a navigation-triggered fetch, a `getMessages`, an invite create, or

@@ -105,9 +105,41 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
   const [stickerOpen, setStickerOpen] = useState(false);
   const [linkOpen, setLinkOpen] = useState(false);
   // Own local boolean, in the same style as emojiOpen/stickerOpen above.
-  // Opening it does not close the other two — that non-exclusion is the
-  // picker-toggle seam Task 4 owns; deliberately not fixed here.
   const [attachOpen, setAttachOpen] = useState(false);
+
+  /**
+   * The three popover surfaces are MUTUALLY EXCLUSIVE: opening one closes the
+   * others. Every toggle below goes through this, never through a bare setter.
+   *
+   * Exclusion has to live here because the toggles opt out of the only
+   * mechanism that would otherwise provide it. `useDismissOnOutside` dismisses
+   * on a DOCUMENT bubble-phase `mousedown`, and each toggle carries
+   * `onMouseDown={(e) => e.stopPropagation()}` so it can close its own picker
+   * (M5.5 T4). React's SyntheticEvent.stopPropagation() calls
+   * nativeEvent.stopPropagation() at the root container, so that press never
+   * reaches the document — and the document listener is also what would have
+   * dismissed the OTHER picker. The opt-out and cross-dismissal cannot both
+   * come from that one listener; the opt-out is the one worth keeping (it is
+   * what makes a toggle able to close its own picker), so exclusion is
+   * explicit state here.
+   *
+   * Measured, not assumed: `.emoji-picker` (264x240) and `.sticker-picker`
+   * (324x320) share `right:12px; bottom:calc(100% + 8px)` and `z-index:30`,
+   * and emoji renders before sticker below, so the sticker panel paints on top
+   * and fully contains the emoji one — sticker-then-emoji produced no visible
+   * change at all. Covered by tools/probe-picker-exclusion.js, which walks
+   * every ordered pair.
+   *
+   * `fmtOpen` and `linkOpen` are deliberately OUTSIDE the set. The formatting
+   * toolbar is a persistent strip rather than an occluding popover, and it is
+   * what renders the second emoji toggle — closing it on open would detach
+   * that button mid-interaction. `linkOpen` is a dialog with its own scrim.
+   */
+  const togglePicker = (which: 'emoji' | 'sticker' | 'attach') => {
+    setEmojiOpen((v) => (which === 'emoji' ? !v : false));
+    setStickerOpen((v) => (which === 'sticker' ? !v : false));
+    setAttachOpen((v) => (which === 'attach' ? !v : false));
+  };
 
   // Shares one zustand store with ChatArea's own call of this hook: the hook
   // holds no local state (a stable-reference selector plus useCallback
@@ -285,7 +317,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
           onBullet={() => applyLineToggle(target, toggleBullet)}
           onNumbered={() => applyLineToggle(target, toggleNumbered)}
           onLink={() => setLinkOpen(true)}
-          onEmojiToggle={() => setEmojiOpen((v) => !v)}
+          onEmojiToggle={() => togglePicker('emoji')}
           emojiOpen={emojiOpen}
           quote={{ active: caretInQuoteLine, onToggle: toggleQuotePrefix }}
         />
@@ -330,7 +362,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
           // toggle can never close its own picker. Same opt-out as
           // AttachmentButton's, which inherited it from develop.
           onMouseDown={(e) => e.stopPropagation()}
-          onClick={() => setStickerOpen((v) => !v)}
+          onClick={() => togglePicker('sticker')}
         >
           <Sticker size={17} strokeWidth={1.8} />
         </button>
@@ -342,13 +374,13 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
           // See the sticker toggle above: bubble-phase `mousedown` opt-out, or
           // the picker can never be closed by its own button.
           onMouseDown={(e) => e.stopPropagation()}
-          onClick={() => setEmojiOpen((v) => !v)}
+          onClick={() => togglePicker('emoji')}
         >
           <Smile size={17} strokeWidth={1.8} />
         </button>
         <AttachmentButton
           open={attachOpen}
-          onToggle={() => setAttachOpen((v) => !v)}
+          onToggle={() => togglePicker('attach')}
           onClose={() => setAttachOpen(false)}
           onFiles={(files) => uploads.addFiles(files)}
         />

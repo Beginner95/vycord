@@ -623,7 +623,7 @@ logger.error('Failed to jump to message:', err, { module: 'chat' });
     >
       {dragDepth > 0 && (
         <div className="chat-drop-overlay">
-          <span className="chat-drop-overlay-text">{t('chat.dropFilesHere')}</span>
+          <span>{t('chat.dropFilesHere')}</span>
         </div>
       )}
       <div className="chat-header">

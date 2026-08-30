@@ -28,13 +28,15 @@ export function FormattingToolbar({ onWrap, onBullet, onNumbered, onLink, onEmoj
   // was never enough. Both render sites of this toolbar (Composer and
   // MessageRow's message editor) get the fix from this one declaration.
   //
-  // Deliberately NOT folded into `prevent`: that handler is shared by the other
-  // six .fmt-btn buttons, and stopPropagation on a document-level `mousedown`
-  // starves EVERY document-mousedown dismisser for that click — measured call
-  // sites are ContextMenu.tsx:37, VolumeControlPopover.tsx:60 and
-  // useFloatingSelectionToolbar.ts:76, plus useDismissOnOutside.ts:33 itself.
-  // Widening the opt-out to all seven buttons would break outside-dismissal for
-  // those three surfaces to fix one button's problem.
+  // Deliberately NOT folded into `prevent`: that handler is shared by every
+  // other .fmt-btn here — seven at the Composer's render site (the optional
+  // quote button plus the six unconditional ones), six in MessageRow's editor,
+  // where `quote` is absent — and stopPropagation on a document-level
+  // `mousedown` starves EVERY document-mousedown dismisser for that click.
+  // Measured call sites: ContextMenu.tsx:37, VolumeControlPopover.tsx:60,
+  // useFloatingSelectionToolbar.ts:76, plus useDismissOnOutside.ts:65 itself.
+  // Widening the opt-out to all of them would break outside-dismissal for those
+  // three surfaces to fix one button's problem.
   const preventAndStop = (e: MouseEvent) => { e.preventDefault(); e.stopPropagation(); };
   return (
     <div className="fmt-toolbar" role="toolbar" aria-label={t('chat.formatting')}>

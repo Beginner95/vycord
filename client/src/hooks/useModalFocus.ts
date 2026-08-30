@@ -93,9 +93,9 @@ export function useModalFocus(
  *  переключать панель поиска под оверлеем (решение 11).
  *
  *  Тройная проверка не избыточна. Стек знает только про адоптеров хука — а это
- *  ровно ConfirmModal, FindServerModal, Settings и CommandPalette; остальные
- *  восемь модалок приложения к нему не подключены (адоптация app-wide — за
- *  M6, ruling 13 M4).
+ *  ровно ConfirmModal, FindServerModal, Settings, CommandPalette и MediaLightbox;
+ *  остальные восемь модалок приложения к нему не подключены (адоптация app-wide
+ *  — за M6, ruling 13 M4).
  *  `.modal-overlay` рисуют ВСЕ адоптеры примитива, включая саму палитру, — что
  *  заодно даёт «только открывает» без отдельного флага.
  *  `.screen-picker-backdrop` (ScreenSourcePicker/ScreenQualityPicker) — третий,
