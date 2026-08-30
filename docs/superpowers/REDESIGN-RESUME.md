@@ -20,57 +20,68 @@ milestone.**
 
 ## §0. START HERE — the next action
 
-The next action is **planning M6**, the final milestone. M6 was **designed** during M5.5 but deliberately not
-planned, because every one of its baselines moved at the trunk merge. §7 carries the inherited brief: four
-human-ruled decisions, three instrument decisions, a 14-task shape, and two findings measured against the
-post-merge tree. Read §7 in full, then paste the block below into a fresh session.
+**M6 is now PLANNED.** The plan is `docs/superpowers/plans/2026-08-30-redesign-m6-polish.md`,
+committed at `a0f043c` and corrected at `340a7be` (2026-08-30 planning session). The next action is
+**executing it**.
+
+The plan supersedes §7's inherited brief wherever they disagree — it was measured later, and it
+records **eight corrections to this file** in its Appendix A. §7 is kept below as the record of what
+M6 inherited, **not** as current fact. Read the plan; read §7 only for provenance.
+
+**What the plan added to the brief:** four more human rulings (its decisions 5–8, from the planning
+session — the 900 migration is the `AppPage` pair only · `--stage-danger` on `:root` · the header
+search button keeps the deep panel · `.stage-thumbs` collapses), thirteen planner decisions (9–21,
+including the z-index token scale §6c left open), and a **15**-task shape rather than §7's 14.
+
+Paste the block below into a fresh session.
 
 ```
-Plan the M6 milestone (Polish & closure) of the vycord frontend redesign at
+Execute the M6 milestone (Polish & closure) of the vycord frontend redesign at
 /Users/nm/Projects/experiments/vycord. M6 is the LAST milestone — after it the
 branch is releasable as a single version.
 
-Read docs/superpowers/REDESIGN-RESUME.md first, in full. It carries the current
-state, the binding constraints, the measured post-integration gate numbers, the
-harness truth table and the debt register. §7 is M6's INHERITED BRIEF — four
-decisions already ruled by the human, three instrument decisions, a 14-task
-shape and two measured findings. Do not re-litigate the four rulings; do
-re-measure anything you are about to act on.
+The plan is docs/superpowers/plans/2026-08-30-redesign-m6-polish.md. Read it in
+full before touching anything. It carries 21 numbered binding decisions each
+stating what it costs if wrong, a 15-task shape in dependency order, Global
+Constraints, a per-task envelope (E1–E9), and an Appendix A recording eight
+corrections it makes to the durable record.
 
-Also binding as inherited context:
+Decisions 1–8 are HUMAN RULINGS with recorded provenance — do not re-litigate
+them. Decisions 9–21 are the planner's and may be overturned by an implementer
+WITH A MEASUREMENT.
+
+Also binding:
+- docs/superpowers/REDESIGN-RESUME.md — current state, gates, harness truth
+  table, debt register. Its §7 is the brief M6 inherited, NOT current fact:
+  the plan's Appendix A falsifies eight of its figures. Where they disagree,
+  the plan was measured later — and re-measure anything you act on.
 - CLAUDE.md (repo root) and client/CLAUDE.md — the agent-facing design-system
-  contract, written at M5.5 T6 and committed. These are the shortest true
-  statement of the token, class-name, icon, primitive, overlay, motion, i18n
-  and harness rules. Read them before touching CSS.
-- docs/superpowers/specs/2026-08-25-frontend-redesign-design.md — §5's M6 bullet
-  is the clause list; §2, §3, §4.4, §6, §7, §8, and §9 (the 2026-08-30
-  amendment, which supersedes §8's rebase-on-main instruction).
-- docs/superpowers/plans/2026-08-25-redesign-m5-closeout.md — the M5 rulings
-  table, the harness truth, the residue forensics and the whole-branch review's
-  seam findings. Supersedes older text.
-- The M5.5 closeout (docs/superpowers/plans/, dated 2026-08-30) if it is on
-  disk by the time you read this — it carries the merge's eight conflict
-  resolutions, the execution rulings and the residue forensics.
-- The M4, M3 and M2 closeouts they inherit from.
-- docs/superpowers/backlog/post-redesign-backlog.md — EXCLUDED scope. Nothing in
-  its §1 may be planned or fixed by a redesign milestone.
+  contract. Read before touching CSS. Task 13 updates both.
+- docs/superpowers/specs/2026-08-25-frontend-redesign-design.md — §5's M6
+  bullet is the clause list; §9 (2026-08-30) supersedes §8's rebase-on-main
+  instruction.
+- docs/superpowers/plans/2026-08-30-redesign-m5.5-closeout.md and the M5
+  closeout it inherits from.
+- docs/superpowers/backlog/post-redesign-backlog.md — EXCLUDED scope. Nothing
+  in its §1 may be fixed by a redesign milestone, including §1f.
 
-Plan it the way M4 and M5 were planned: superpowers:brainstorming →
-superpowers:writing-plans, with numbered binding decisions that each state what
-they cost if wrong, Global Constraints copied forward from §3 with the
-alias-deletion exception flipped ON, and a grand review before execution.
+Start with Task 1 — it carries the harness forward with `cp -R` from
+.superpowers/sdd/2026-08-30-redesign-m5.5-trunk-integration/tools/ (33M, 477
+entries, gitignored, in no commit) and builds the three instruments every later
+task depends on. DO NOT delete the M5.5 workspace.
 
-M6 is §5's M6 clause list PLUS the whole of §6b and §6c — expect it to be the
-largest milestone since M2. Four things to settle early:
-- The alias deletion IS the audit (spec §8). Sequence it late. §7 records the
-  instrument decision: the gate is stylelint, not rg.
-- M6 is the milestone that reopens primitives.css, so the accessible-name work,
-  the dead .channel-type-options block and its wrong keyframe comment all land
-  there together.
-- Colour work needs a NEW KIND OF PROBE. Every probe on this branch asserts
-  geometry. §7 records the instrument decision: a before/after computed
-  snapshot over every token in both themes.
-- §6f's remaining open questions: decide up front which M6 also answers.
+Run the drift gate first: `git fetch --all --prune && git log
+redesign..origin/develop`. The fetch IS the gate. Never rebase this branch —
+it is published at origin/redesign.
+
+npm test is RED at baseline by design (3 tests in api.network-retry.test.ts,
+since M1). Never "fix" that file; the gate is that no OTHER file fails.
+Stylelint must run from client/, never the repo root — a root run crashes with
+ENOENT in a way that looks like output.
+
+Use superpowers:subagent-driven-development, one fresh subagent per task with
+review between tasks. Instruct every implementer to push back: in M5.5 every
+single one caught a real error in the plan or in a dispatch.
 ```
 
 **Carry the harness forward with `cp -R` from
@@ -107,7 +118,7 @@ gitignored, so it is not in any commit. It is **not** the only copy — see §5.
 | **M4** Modals/menus/settings | shipped | 11 commits `41b93e8..08aa58f`; closed out at `2dc4974` |
 | **M5** Command palette | shipped | 13 commits `f95e5a7..8aa1e75`; closeout `2026-08-25-redesign-m5-closeout.md` |
 | **M5.5** Trunk integration + attachments restyle | **shipped** | `d559bad` plan · **`88d3287`** merge (parents `d559bad` + `a328a11`) · `4b6f3d5` T3 port · `b251fb8` T4 seams · `bab71ef` T5 restyle · `18322a8` T6 docs · then T7's rewrite of this file, and a closeout commit if one was made |
-| **M6** Polish & closure | **designed, not planned — the last milestone** | inherited brief in §7 |
+| **M6** Polish & closure | **PLANNED, not executed — the last milestone** | plan `2026-08-30-redesign-m6-polish.md` (`a0f043c`, corrected `340a7be`); 21 decisions, 15 tasks. **Supersedes §7** |
 
 **What M5.5 was.** `origin/develop` had taken six commits since the branch point — `cb6af4d` (VYC-80, WS
 reconnect), `1aab040` (its merge), `28b8884` (VYC-81, picker close/focus), `36bed80` (its merge), `9239a83`
@@ -729,7 +740,14 @@ and do not read their answers as anyone's unilateral call.)*
 
 ## §7. M6 — the inherited brief
 
-M6 was **designed** during the 2026-08-30 M6 planning session but deliberately **not planned**, because every
+> **SUPERSEDED 2026-08-30 by `plans/2026-08-30-redesign-m6-polish.md`.** This section is the record of
+> what M6 *inherited*, kept for provenance. It is **not current fact**: the plan's Appendix A falsifies
+> eight figures below by measurement, including §7.2's "~117 declarations", §6c's `.setting-warning`
+> mechanism, §6c's `--danger` foreground count, §5's `probe-composer.js` characterisation and §6c's
+> Escape-listener line numbers. The four rulings in §7.1 **do** stand — they are the plan's decisions
+> 1–4. Read the plan for anything you intend to act on.
+
+M6 was **designed** during the 2026-08-30 M6 design session but deliberately **not planned**, because every
 one of its baselines moved at the trunk merge. What follows is what that session produced. Re-measure anything
 you act on; the shape is inherited, the numbers are dated.
 
