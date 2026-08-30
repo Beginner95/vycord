@@ -38,7 +38,17 @@ export type PaletteGroupKey = 'channels' | 'messages' | 'actions';
 
 export interface PaletteGroup {
   key: PaletteGroupKey;
-  /** Flat index of this group's first SELECTABLE row. */
+  /** Flat index of this group's first SELECTABLE row.
+   *
+   * CommandPalette.tsx derives a row's selection index as `group.from + i`,
+   * where `i` is the group-LOCAL index (it counts status rows too). That
+   * arithmetic is only correct because buildPalette never emits a group that
+   * mixes status and selectable rows — today the messages group is either
+   * exactly one status row or all selectable rows, never both. If a future
+   * group ever interleaves the two (e.g. a "N more in other channels" status
+   * line rendered alongside real result rows), `from + i` will overcount and
+   * point past the intended row — recompute the offset per-row instead of
+   * assuming `i` skips no status rows. */
   from: number;
   rows: PaletteRow[];
 }

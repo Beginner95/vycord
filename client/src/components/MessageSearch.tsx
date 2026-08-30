@@ -35,7 +35,11 @@ export function MessageSearch({ channel, initialQuery = '', onJumpToMessage, onC
   const [query, setQuery] = useState(initialQuery);
   const [results, setResults] = useState<MessageWithAuthor[]>([]);
   const [total, setTotal] = useState(0);
-  const [loading, setLoading] = useState(false);
+  // Seeded mount (palette's show-all handoff) commits with a query that will
+  // certainly fire the search effect below — initialising loading from that
+  // fact avoids a one-frame flash of the empty-results tile before the effect
+  // (which runs post-commit) sets loading itself.
+  const [loading, setLoading] = useState(initialQuery.trim().length >= MIN_QUERY_LEN);
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [searched, setSearched] = useState(false);

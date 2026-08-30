@@ -37,7 +37,12 @@ export function CommandPalette({
   const close = usePaletteStore((s) => s.close);
   const channels = useServerStore((s) => s.channels);
   const [query, setQuery] = useState('');
-  const [selected, setSelected] = useState(0);
+  // Выделение хранится по id строки, а не по плоскому индексу: сообщения
+  // сплайсятся МЕЖДУ группами channels и actions, когда debounced-поиск
+  // резолвится при неизменном query — сохранённый индекс в этот момент
+  // указывал бы уже на другую строку. id переживает сплайс; плоский индекс
+  // вычисляется из него заново при каждом рендере (см. selectedIndex ниже).
+  const [selectedId, setSelectedId] = useState<string | null>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
 
@@ -45,7 +50,7 @@ export function CommandPalette({
 
   // Каждое открытие — чистая палитра.
   useEffect(() => {
-    if (isOpen) { setQuery(''); setSelected(0); }
+    if (isOpen) { setQuery(''); setSelectedId(null); }
   }, [isOpen]);
 
   const currentServer = useServerStore((s) => s.currentServer);
@@ -151,14 +156,25 @@ export function CommandPalette({
     [query, channels, actions, messages, messagesTotal, currentChannel, messagesLoading, messagesError],
   );
 
-  // Список поменялся — выделение всегда возвращается на первую строку.
-  useEffect(() => { setSelected(0); }, [model.rows.length, query]);
+  // Запрос поменялся — выделение возвращается на первую строку. Именно
+  // query, а НЕ model.rows.length: async-результат сообщений сплайсится при
+  // неизменном query (debounce резолвится позже, уже после того как
+  // пользователь подвинул стрелки) — в этот момент выделение должно
+  // остаться на той же строке, а не прыгать на первую, иначе Enter
+  // активирует не ту строку, которую выбрал пользователь.
+  useEffect(() => { setSelectedId(null); }, [query]);
+
+  // selectedId переживает сплайс строк; если строка с этим id пропала
+  // совсем (по-настоящему новый результат), откат на первую строку.
+  const selectedIndex = selectedId !== null
+    ? Math.max(model.rows.findIndex((row) => row.id === selectedId), 0)
+    : 0;
 
   useEffect(() => {
     listRef.current
-      ?.querySelector(`#palette-row-${selected}`)
+      ?.querySelector(`#palette-row-${selectedIndex}`)
       ?.scrollIntoView({ block: 'nearest' });
-  }, [selected]);
+  }, [selectedIndex]);
 
   if (!isOpen) return null;
 
@@ -175,11 +191,17 @@ export function CommandPalette({
   };
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'ArrowDown') { e.preventDefault(); setSelected((i) => moveSelection(i, 1, model.rows.length)); }
-    else if (e.key === 'ArrowUp') { e.preventDefault(); setSelected((i) => moveSelection(i, -1, model.rows.length)); }
-    else if (e.key === 'Enter') {
+    if (e.key === 'ArrowDown') {
       e.preventDefault();
-      const row = model.rows[selected];
+      const next = moveSelection(selectedIndex, 1, model.rows.length);
+      setSelectedId(model.rows[next]?.id ?? null);
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      const next = moveSelection(selectedIndex, -1, model.rows.length);
+      setSelectedId(model.rows[next]?.id ?? null);
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      const row = model.rows[selectedIndex];
       if (row) activate(row);
     }
     // Escape обрабатывает useModalFocus (стек модалок), здесь не дублируем.
@@ -205,7 +227,7 @@ export function CommandPalette({
             role="combobox"
             aria-expanded={model.rows.length > 0}
             aria-controls="palette-list"
-            aria-activedescendant={model.rows.length ? `palette-row-${selected}` : undefined}
+            aria-activedescendant={model.rows.length ? `palette-row-${selectedIndex}` : undefined}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={onKeyDown}
@@ -229,7 +251,7 @@ export function CommandPalette({
                   );
                 }
                 const index = group.from + i;
-                const isSelected = index === selected;
+                const isSelected = index === selectedIndex;
                 return (
                   <div
                     key={row.id}
@@ -237,7 +259,7 @@ export function CommandPalette({
                     role="option"
                     aria-selected={isSelected}
                     className={`palette-row${isSelected ? ' is-selected' : ''}`}
-                    onMouseEnter={() => setSelected(index)}
+                    onMouseEnter={() => setSelectedId(row.id)}
                     onClick={() => activate(row)}
                   >
                     {row.kind === 'channel' && (
@@ -277,7 +299,7 @@ export function CommandPalette({
               })}
             </div>
           ))}
-          {model.rows.length === 0 && query.trim() && (
+          {model.groups.length === 0 && query.trim() && (
             <div className="palette-empty">{t('palette.empty', { query: query.trim() })}</div>
           )}
         </div>

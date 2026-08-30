@@ -92,12 +92,23 @@ export function useModalFocus(
  *  должен открывать палитру поверх модалки (решение 8), а Ctrl+Shift+F —
  *  переключать панель поиска под оверлеем (решение 11).
  *
- *  Двойная проверка не избыточна. Стек знает только про адоптеров хука — а это
+ *  Тройная проверка не избыточна. Стек знает только про адоптеров хука — а это
  *  ровно ConfirmModal, FindServerModal, Settings и CommandPalette; остальные
  *  восемь модалок приложения к нему не подключены (адоптация app-wide — за
  *  M6, ruling 13 M4).
- *  Зато `.modal-overlay` рисуют ВСЕ, включая саму палитру, — что заодно даёт
- *  «только открывает» без отдельного флага. */
+ *  `.modal-overlay` рисуют ВСЕ адоптеры примитива, включая саму палитру, — что
+ *  заодно даёт «только открывает» без отдельного флага.
+ *  `.screen-picker-backdrop` (ScreenSourcePicker/ScreenQualityPicker) — третий,
+ *  отдельный случай: это системная модальная поверхность (fixed inset + scrim +
+ *  blur, z-index 1100), но она сознательно НЕ надета на примитив `.modal-overlay`
+ *  (унаследовала бы его z-index 1000, flex-центрирование и анимацию поверх
+ *  source-order-конфликта той же специфичности) и не подключена к useModalFocus.
+ *  Без неё в селекторе гейт был бы false, пока пикер экрана открыт — что
+ *  реально достижимо на обеих платформах (CallStage.tsx: неэлектронная ветка
+ *  шаринга экрана и electron-ветка после выбора источника). */
 export function isBlockingOverlayOpen(): boolean {
-  return modalStack.length > 0 || document.querySelector('.modal-overlay') !== null;
+  return (
+    modalStack.length > 0 ||
+    document.querySelector('.modal-overlay, .screen-picker-backdrop') !== null
+  );
 }
