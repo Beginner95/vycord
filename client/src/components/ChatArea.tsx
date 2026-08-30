@@ -834,10 +834,12 @@ logger.error('Failed to jump to message:', err, { module: 'chat' });
           onStickersChanged={refreshStickers}
         />
       )}
-      {/* Portals to <body> itself (MediaLightbox.tsx:62), so the mount point
-          only decides ownership, not stacking. Task 4 owns the overlay
-          contract — it is not registered with isBlockingOverlayOpen() and
-          that is left as observed. */}
+      {/* Portals to <body> itself, so the mount point only decides ownership,
+          not stacking. M5.5 T4 closed the overlay contract this comment used
+          to record as open: the lightbox now wears `.modal-overlay` and adopts
+          useModalFocus, so isBlockingOverlayOpen() DOES see it — which is why
+          the Ctrl+Shift+F gate at the top of this file no longer toggles the
+          search panel underneath an open lightbox. */}
       {lightbox && (
         <MediaLightbox
           attachments={lightbox.attachments}

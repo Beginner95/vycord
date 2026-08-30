@@ -323,6 +323,13 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
           className={`composer-icon-btn${stickerOpen ? ' is-active' : ''}`}
           aria-label={t('chat.stickers')}
           title={t('chat.stickers')}
+          // useDismissOnOutside dismisses on BUBBLE-phase `mousedown`, so any
+          // button that opens a dismissible surface must stop propagation here
+          // or it closes-then-reopens: mousedown dismisses the picker, and the
+          // functional updater in onClick immediately turns it back on — the
+          // toggle can never close its own picker. Same opt-out as
+          // AttachmentButton's, which inherited it from develop.
+          onMouseDown={(e) => e.stopPropagation()}
           onClick={() => setStickerOpen((v) => !v)}
         >
           <Sticker size={17} strokeWidth={1.8} />
@@ -332,6 +339,9 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
           className={`composer-icon-btn${emojiOpen ? ' is-active' : ''}`}
           aria-label={t('chat.emoji')}
           title={t('chat.emoji')}
+          // See the sticker toggle above: bubble-phase `mousedown` opt-out, or
+          // the picker can never be closed by its own button.
+          onMouseDown={(e) => e.stopPropagation()}
           onClick={() => setEmojiOpen((v) => !v)}
         >
           <Smile size={17} strokeWidth={1.8} />

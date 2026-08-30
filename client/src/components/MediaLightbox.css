@@ -1,7 +1,11 @@
+/* M5.5 T4 (D8): `.lightbox` now also wears the `.modal-overlay` primitive, which
+   supplies z-index: 1000 (primitives.css). The local declaration was deleted
+   rather than kept in sync — verified by computed style on the running app, not
+   by reading, since the two single-class rules live in different files and
+   source order decides. */
 .lightbox {
   position: fixed;
   inset: 0;
-  z-index: 1000;
   display: flex;
   align-items: center;
   justify-content: center;
