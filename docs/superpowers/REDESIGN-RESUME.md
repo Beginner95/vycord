@@ -1,102 +1,76 @@
 # vycord Frontend Redesign — RESUME HERE
 
-**Written:** 2026-08-29 at the end of the M5 planning session; **rewritten 2026-08-30 at M5.5 close**
-(trunk integration).
+**Written:** 2026-08-29 at the end of the M5 planning session; rewritten 2026-08-30 at M5.5 close;
+**rewritten again 2026-08-31 at M6 close.**
 **Purpose:** the single document that lets a cold session pick this work up. It carries the current stage, the
 binding constraints, the measured debt register, and the exact prompt to run next. Every number in it was
 re-measured on **2026-08-30 against `redesign` at `18322a8`** (M5.5's last code/docs commit) unless the line
 says otherwise. Where a figure was measured earlier and not re-measured here, the line says when and by what.
 
-**State: M0–M5 shipped; M5.5 (trunk integration) shipped. M6 is designed but not planned — it is the last
-milestone.**
+**State: EVERY MILESTONE HAS SHIPPED. M0–M5, M5.5 and M6 are all closed. The branch is releasable as a
+single version, and what remains is not work — it is the integration decision (§0).**
 
-> **Corrections in this rewrite.** M5.5 re-measured this file and found several load-bearing claims false: the
-> branch's push state, the drift gate's target, the "only copy" harness claim, the icon size constraint, the
-> alias census, the JS-injected custom-property family, and §7's closing rebase instruction. Each is corrected
-> in place below. If you are diffing against the M5-close version, assume the old numbers are wrong rather
-> than that the tree moved.
+> **Corrections in the M5.5 rewrite.** M5.5 re-measured this file and found several load-bearing claims false:
+> the branch's push state, the drift gate's target, the "only copy" harness claim, the icon size constraint,
+> the alias census, the JS-injected custom-property family, and §7's closing rebase instruction.
+>
+> **Corrections in this M6 rewrite.** M6's plan Appendix A falsified eight more (C1–C8), and execution
+> falsified further figures still. **Every one is corrected in place below, at the line that carried it** —
+> `.setting-warning`'s mechanism (§6c), the `--danger` foreground count (§6c), the Escape-listener line
+> numbers (§6c), the "~117 declarations" figure (§7.2), and `probe-composer.js`'s characterisation (§5). If
+> you are diffing against an older version, **assume the old numbers are wrong rather than that the tree
+> moved** — that has been true at every rewrite so far.
+>
+> **The single most repeated defect in this project's record is a number that was correct when measured and
+> stale when shipped.** M6 hit it four times in one task. Cite by selector or by name wherever you can, and
+> when you must cite a line, re-measure it **after your last edit**, not before.
 
 ---
 
 ## §0. START HERE — the next action
 
-**M6 is now PLANNED and GRAND-REVIEWED.** The plan is
-`docs/superpowers/plans/2026-08-30-redesign-m6-polish.md`, at **`622fbca`** (written `a0f043c`,
-corrected by measurement `340a7be`, revised against the grand review `622fbca`). The next action is
-**executing it**.
+**THE REDESIGN IS DONE. There is no next milestone.** M6 shipped on 2026-08-31 at **`9bf7cd4`**;
+its closeout is `docs/superpowers/plans/2026-08-30-redesign-m6-closeout.md` and is the document to
+read before anything in this file.
 
-The plan supersedes §7's inherited brief wherever they disagree — it was measured later, and it
-records **eight corrections to this file** in its Appendix A. §7 is kept below as the record of what
-M6 inherited, **not** as current fact. Read the plan; read §7 only for provenance.
+**The only remaining action is a human decision: how to integrate.**
 
-**What the plan added to the brief:** **eight** more human rulings — decisions 5–8 from the planning
-session (the 900 migration is the `AppPage` pair only · `--stage-danger` on `:root` · the header
-search button keeps the deep panel · `.stage-thumbs` collapses) and **22–25 after the grand review**
-(the member-list band runs 900–1200, closing a spec hole at 900–999px · `<900px` ships the mobile
-panel model as a **recorded deviation** from board `1f`'s drawer · the CSS-fullscreen dead end is
-fixed, not declined · the `▶`/`◀` glyphs become lucide chevrons) — plus thirteen planner decisions
-(9–21, including the z-index token scale §6c left open), and a **15**-task shape rather than §7's 14.
+- **Merge `origin/develop` into `redesign`, then open a PR into `develop`.**
+- **Do NOT rebase.** `redesign` is published at `origin/redesign` and its history is shared.
+- The old instruction *"rebase on `main` at that point (spec §8)"* is **superseded by spec amendment
+  §9.1**. `main` is dormant, not the trunk.
+- **Run the drift gate first, with the fetch:**
+  `git fetch --all --prune && git log --oneline redesign..origin/develop`. The fetch **is** the
+  gate — see §1 for why a gate without it cannot fire.
+- Use `superpowers:finishing-a-development-branch`.
 
-> **The grand review found seven blocking issues, and the worst was the plan's own.** It had claimed
-> "zero alias references in the harness" and leaned on that to justify its audit instrument. The claim
-> came from a bare `rg` against `.superpowers/` — **which is gitignored, so ripgrep silently searched
-> nothing.** See §8.10; it is now a Global Constraint in the plan.
+**Do not start new work from this file.** Everything M6 declined lives in
+`docs/superpowers/backlog/post-redesign-backlog.md`, and its §1 was excluded from every milestone by
+ruling — that exclusion expires with the redesign, so those items are now ordinary backlog, not
+forbidden ground.
 
-Paste the block below into a fresh session.
+### What M6 closed
 
-```
-Execute the M6 milestone (Polish & closure) of the vycord frontend redesign at
-/Users/nm/Projects/experiments/vycord. M6 is the LAST milestone — after it the
-branch is releasable as a single version.
+The spec §8 audit, by deleting the thing it audits: **47 legacy aliases and all 66 references gone**,
+stylelint **188 → 0**, and zero is now an *invariant* rather than a target — any output at all is a
+regression you just introduced. Tests went 230 → **257**. Full trajectory, decisions, rulings and
+corrections are in the closeout.
 
-The plan is docs/superpowers/plans/2026-08-30-redesign-m6-polish.md. Read it in
-full before touching anything. It carries 21 numbered binding decisions each
-stating what it costs if wrong, a 15-task shape in dependency order, Global
-Constraints, a per-task envelope (E1–E9), and an Appendix A recording eight
-corrections it makes to the durable record.
+### The one thing to carry forward above all others
 
-Decisions 1–8 are HUMAN RULINGS with recorded provenance — do not re-litigate
-them. Decisions 9–21 are the planner's and may be overturned by an implementer
-WITH A MEASUREMENT.
+After M6 T14 — with **stylelint at 0, `tsc` at 0, 38 test files, ~140 probes and five certified gates
+all green** — a human clicked through the app and found **six real defects. Not one was reachable by
+any of those instruments.** One of them, the mobile server list rendering dark-on-dark in the light
+theme, was invisible to every check *for a structural reason*: `--rail` and `--canvas` are both
+near-black in the dark theme, so the surface looked correct there and any dark-only check passes it.
 
-Also binding:
-- docs/superpowers/REDESIGN-RESUME.md — current state, gates, harness truth
-  table, debt register. Its §7 is the brief M6 inherited, NOT current fact:
-  the plan's Appendix A falsifies eight of its figures. Where they disagree,
-  the plan was measured later — and re-measure anything you act on.
-- CLAUDE.md (repo root) and client/CLAUDE.md — the agent-facing design-system
-  contract. Read before touching CSS. Task 13 updates both.
-- docs/superpowers/specs/2026-08-25-frontend-redesign-design.md — §5's M6
-  bullet is the clause list; §9 (2026-08-30) supersedes §8's rebase-on-main
-  instruction.
-- docs/superpowers/plans/2026-08-30-redesign-m5.5-closeout.md and the M5
-  closeout it inherits from.
-- docs/superpowers/backlog/post-redesign-backlog.md — EXCLUDED scope. Nothing
-  in its §1 may be fixed by a redesign milestone, including §1f.
+The lesson is not that the suite is bad. It is that **a suite verifies what it was pointed at, and a
+person clicking finds what nobody thought to point it at.** Budget a human pass; it is cheaper than
+another probe and it found more.
 
-Start with Task 1 — it carries the harness forward with `cp -R` from
-.superpowers/sdd/2026-08-30-redesign-m5.5-trunk-integration/tools/ (33M, 477
-entries, gitignored, in no commit) and builds the three instruments every later
-task depends on. DO NOT delete the M5.5 workspace.
-
-Run the drift gate first: `git fetch --all --prune && git log
-redesign..origin/develop`. The fetch IS the gate. Never rebase this branch —
-it is published at origin/redesign.
-
-npm test is RED at baseline by design (3 tests in api.network-retry.test.ts,
-since M1). Never "fix" that file; the gate is that no OTHER file fails.
-Stylelint must run from client/, never the repo root — a root run crashes with
-ENOENT in a way that looks like output.
-
-Use superpowers:subagent-driven-development, one fresh subagent per task with
-review between tasks. Instruct every implementer to push back: in M5.5 every
-single one caught a real error in the plan or in a dispatch.
-```
-
-**Carry the harness forward with `cp -R` from
-`.superpowers/sdd/2026-08-30-redesign-m5.5-trunk-integration/tools/`** — that is the **newest superset**
-(33M, **475** entries, measured 2026-08-30), and it is what every probe citation in this file refers to. It is
-gitignored, so it is not in any commit. It is **not** the only copy — see §5.
+**Harness note.** The M6 workspace at `.superpowers/sdd/2026-08-30-redesign-m6-polish/tools/` is the
+newest superset and is gitignored, so it is in no commit. It is **not** the only copy — see §5. If
+you start post-redesign work, carry it forward with `cp -R` as every milestone has.
 
 ---
 
@@ -105,7 +79,7 @@ gitignored, so it is not in any commit. It is **not** the only copy — see §5.
 | | |
 |---|---|
 | Branch | `redesign`, **published**. `origin/redesign` exists at **`2dc4974`** (M4's closeout) and is an **ancestor** of local `redesign`. **Never rebase this branch** — it merges from the trunk (spec amendment §9.1) |
-| HEAD | **M5.5's last commit**, whatever it is — `d559bad..18322a8` is the code+docs range, this file's own rewrite sits on top of it, and a closeout commit may sit on top of *that*. **Run `git log --oneline -1`; do not trust a SHA written here.** If `git log --oneline -1` names a `docs(redesign): M5.5 closeout` commit, `docs/superpowers/plans/2026-08-30-redesign-m5.5-closeout.md` exists; if it does not, that file does not exist and §2 item 3 says what to do instead |
+| HEAD | **M6's last commit or later** — `9bf7cd4` was M6's final code commit, and this file's own rewrite plus a closeout commit sit on top of it. **Run `git log --oneline -1`; do not trust a SHA written here.** That instruction has been load-bearing at every rewrite |
 | **Trunk** | **`develop`**, not `main`. `origin/develop` was at `a328a11` when M5.5 merged it and is now fully contained in `redesign` |
 | **Drift gate** | **`git fetch --all --prune && git log redesign..origin/develop`** — the fetch is part of the gate, not a precondition someone may skip. Currently **empty** (re-verified 2026-08-30 after a real fetch) |
 | `main` | **dormant.** `origin/main` is `d17bddd` and has not moved since the branch point; local `main` is `fbd6861`, three docs-only commits ahead of it (the redesign spec), and is an **ancestor of `redesign`**. So `git log redesign..main` is empty **by construction** and always was |
@@ -127,7 +101,7 @@ gitignored, so it is not in any commit. It is **not** the only copy — see §5.
 | **M4** Modals/menus/settings | shipped | 11 commits `41b93e8..08aa58f`; closed out at `2dc4974` |
 | **M5** Command palette | shipped | 13 commits `f95e5a7..8aa1e75`; closeout `2026-08-25-redesign-m5-closeout.md` |
 | **M5.5** Trunk integration + attachments restyle | **shipped** | `d559bad` plan · **`88d3287`** merge (parents `d559bad` + `a328a11`) · `4b6f3d5` T3 port · `b251fb8` T4 seams · `bab71ef` T5 restyle · `18322a8` T6 docs · then T7's rewrite of this file, and a closeout commit if one was made |
-| **M6** Polish & closure | **PLANNED, not executed — the last milestone** | plan `2026-08-30-redesign-m6-polish.md` (`a0f043c`, corrected `340a7be`); 21 decisions, 15 tasks. **Supersedes §7** |
+| **M6** Polish & closure | **shipped — the last milestone** | 16 commits `5de16ee..9bf7cd4`, 65 files, +3395/−699; closeout `2026-08-30-redesign-m6-closeout.md`. **Supersedes §7** |
 
 **What M5.5 was.** `origin/develop` had taken six commits since the branch point — `cb6af4d` (VYC-80, WS
 reconnect), `1aab040` (its merge), `28b8884` (VYC-81, picker close/focus), `36bed80` (its merge), `9239a83`
@@ -426,24 +400,34 @@ instrument; losing one costs nothing. **Do not delete a workspace at close** (M5
 | **`probe-lightbox-escape.js`** | **0** | **Pure reporter — asserts nothing.** Its own line 1 says *"M5.5 T3 diagnostic (round 3)"*: it registers a capture and a bubble listener, dispatches Escape and **returns a counter object**. It did its job — it is what localised the Escape swallow — but it is a diagnostic, not a gate. **The gate for that fix is `probe-attach-escape.js` (17 `fail()`).** *(New in M5.5.)* |
 | `probe-t5fix-handoff-focus.js` | — | `:35` is `… \|\| true`, a field that cannot fail |
 | `probe-t11-flow.js` | — | `toastPresent` queries `.chat-error-toast`, deleted in favour of the shared `.error-toast` — permanently false |
-| **`probe-composer.js`** | 88 `check()` | **SILENTLY DEAD FROM LINE 193 DOWN — see below.** *(New in M5.5.)* |
+| **`probe-composer.js`** | ~90 `check()` | **REPAIRED by M6 T1 — see the corrected note below.** *(New in M5.5.)* |
 | `probe-modal-sweep.js` | **136** | real gate, 6 phases; **cleans up the invite it creates** |
 | `probe-chat.js` | **35** | real gate — **but see the residue warning below**, and its continuation-row assertions no-op on an empty list, so cite `continuation.count` as proof the block ran |
 | `probe-palette-*.js` (5 files) | 17–24 each | M5's, all real gates |
 | `probe-attachments.js` **39** · `probe-attachments-send.js` **26** · `probe-attach-escape.js` **17** · `probe-overlay-contract.js` **9** / `…2.js` **11** / `…3.js` **15** / `…4.js` **11** | as listed | M5.5's, all real gates — every assertion routed through a throwing `fail()`. **Counts re-derived 2026-08-30; `probe-lightbox-escape.js` is NOT in this set** (see above) |
 
-> **`probe-composer.js:193` is a silently dead gate, and it is the biggest one on the branch.** The line is
-> `document.querySelector('.link-dialog-submit').click();`. **That class does not exist.** It was introduced
-> pre-redesign by `3621256` and **deleted by M4's `ea7b52c` (2026-08-28)**, which moved the link dialog onto
-> the `btn` roles — `LinkDialog.tsx` now renders `.btn.btn-primary` inside `.modal-actions`. The line is a raw
-> `querySelector`, not the file's null-tolerant `q()` helper, so it throws `TypeError` on null; the throw is
-> swallowed by `smoke.mjs:403` into a `PROBE ERROR:` string, and **the 48 `check()` call sites below line 193
-> — of 88 total — have never run since.** In a 508-line, 24.6K standing gate that has been cited as
-> cross-surface regression coverage. *(Every selector the file uses traces to M2-era commits and none
-> post-dates `ea7b52c`, so it almost certainly predates the deletion — but `tools/` is gitignored, so the
-> file's authorship date is **not determinable from git**. Either way it is the same species as the `.lightbox`
-> rename in §6e: a class rename disarming an ungated harness.)* **Repair this before citing the file, and
-> prioritise it — it has been providing false assurance for two milestones.**
+> **`probe-composer.js` — CORRECTED (M6 plan Appendix A C6), then REPAIRED (M6 T1).** The defect was real
+> and the diagnosis was right: the file called `document.querySelector('.link-dialog-submit').click()`, a
+> class introduced pre-redesign by `3621256` and **deleted by M4's `ea7b52c` (2026-08-28)**, which moved the
+> link dialog onto the `btn` roles. It was a raw `querySelector`, not the file's null-tolerant `q()` helper,
+> so it threw `TypeError` on null.
+>
+> **Two things this file previously said about it were wrong, and both mattered:**
+>
+> 1. **"Silently dead" — it was not silent.** The file uses **deferred flush**, not a throwing `fail()`. The
+>    throw was swallowed by `smoke.mjs` into a **`PROBE ERROR:` string**, which is loud. What made it
+>    dangerous was not silence but that a reader had to *notice* the error line among the output.
+> 2. **"48 of 88 assertions have never executed" understates it in one direction and overstates it in
+>    another.** Counted by occurrence at `dc0a873`: **41 above `:193`, 48 at or below, 89 total** (`:17` is
+>    the definition, `check = (`, and contains no `check(`). The 41 above **did execute** — but with deferred
+>    flush they **died with `out`**, so the true figure is **0 of 89 producing a readable verdict**, not 48
+>    of 88.
+>
+> **M6 T1 repaired it**: `:219` now reads `q('.link-dialog .modal-actions .btn.btn-primary').click()`, through
+> the null-tolerant helper. The file currently carries ~90 lines with `check(` — 41 above `:193`, 49 at or
+> below. It is the same species as the `.lightbox` rename in §6e — a class rename disarming an ungated
+> harness — and the general rule stands: **a probe is evidence only once it has been shown to fail against the
+> broken version of the code it is meant to catch.**
 
 > **`probe-chat.js` WRITES TWO MESSAGES TO THE PRODUCTION SMOKE SERVER PER RUN AND NEVER CLEANS UP** — it
 > accounts for 4 of M5.5's 6 probe-written messages and the great bulk of `#general`'s noise. Point it at a
@@ -471,7 +455,18 @@ files 188→0 ✔ · `MediaLightbox` brought inside the overlay contract (`.moda
 `useModalFocus`) ✔ · the four-path picker-toggle opt-out ✔ · **the trunk's app-wide Escape swallower fixed**
 (§6e) ✔ · the `.lightbox` → `.lightbox-root` single-segment rename ✔.
 
-### 6b. Owned by M6 — the alias sweep
+### 6b. Owned by M6 — the alias sweep — **DISCHARGED 2026-08-31 at `c936baf`**
+
+> **This whole subsection is closed.** All **47** alias names are deleted and all **66** references
+> migrated across 6 files (the figure below says 70; **it is 66** — measured, not predicted). Stylelint
+> reached **0** and *is the proof*: `csstools/value-no-unknown-custom-properties` sees only `tokens.css`
+> and `base.css`, so once the alias layer is gone, any surviving `var()` naming a deleted alias is a
+> parse-based error. **Passing at zero is the audit.**
+>
+> Kept below for provenance and for the mechanism, not as open work. Two cautions survive the discharge:
+> **a `var(--x, fallback)` silences that rule**, so never add a fallback you were not told to add; and
+> **the harness is not covered by it** — the audit gate is sufficient over `src/`, not over
+> `.superpowers/`, which is why T13 needed a separate harness sweep.
 
 **Measured alias inventory (08-30), `var()` references per file, comments excluded.** The alias block declares
 **47 names** at `tokens.css:178–230`, inside the `:root, [data-theme="dark"]` rule that spans **`:177–231`**;
@@ -506,16 +501,36 @@ earlier M5.5 draft said `:177–229`; both under-count, the latter by exactly on
 **The alias deletion doubles as the audit** (spec §8, as amended by §9.4). §7 records M6's instrument decision:
 the gate is **stylelint**, not `rg`.
 
-### 6c. Owned by M6 — everything else
+### 6c. Owned by M6 — everything else — **DISCHARGED 2026-08-31, with the exceptions named inline**
+
+> **M6 executed this subsection.** Each item below now carries its outcome where the outcome differs from
+> what was planned — read the inline **CORRECTED** and **RESOLVED** notes, because in three cases the fix
+> that shipped is *not* the fix this section proposed, and in one case (`--danger`) the right answer was
+> to **decline** the planned change and record the declining as a decision.
+>
+> What did **not** discharge is listed in §7 of the closeout, `2026-08-30-redesign-m6-closeout.md`:
+> everything that could only be reasoned rather than measured in this environment. That list is now
+> **narrower** than the one this file used to carry — two of its entries were overstated.
 
 **Dark-theme parity**
 - **`--danger` has no dark value** (measured 08-29: `tokens.css` defines `--danger` only in `:root`, while its
-  siblings `--danger-soft`/`--danger-text` and all three `--online-*` do have dark overrides). M4 introduced
-  the tree's only two uses of it as a *foreground* — `.context-menu-item.is-danger` and
-  `.settings-nav-logout` — so in dark those render `#E7444A` at rest and jump to `#FCA5A5` on hover, a shift
-  that does not occur in light.
-- **`.setting-warning`'s amber-on-near-white is ~2.01:1** (AA needs 4.5:1); inherited (~2.09:1 at base) but M4
-  lost its dark tint — `--yellow-50` has a dark override, `--canvas-2` does not, `--warning` has no dark value.
+  siblings `--danger-soft`/`--danger-text` and all three `--online-*` do have dark overrides).
+  **CORRECTED (Appendix A C3): "the tree's only two uses of it as a foreground" was false — there are 8
+  `color: var(--danger)` sites and 22 CSS consumers in total.** Three sit on stage ground and collided with
+  the stage-accent ruling; a fourth, `.stage-tip.is-poor`, only *looks* like one, because `.stage-tip` sets
+  `background: var(--canvas)` and is theme-adaptive.
+  **RESOLVED by M6 T3, and the resolution was to decline the planned fix.** The plan's dark
+  `--danger: #FCA5A5` was **not applied**: measured, it puts white on a pastel fill at **1.90:1** across 11
+  fill sites. `--danger` breaks down as **11 fill / 3 border / 3 foreground**, and an override tuned for the
+  foreground minority wrecks the fill majority. The absence is recorded as a decision, not an oversight.
+- **`.setting-warning`'s amber-on-near-white is ~2.01:1** (AA needs 4.5:1); inherited (~2.09:1 at base).
+  **CORRECTED (Appendix A C2): the recorded ratio was right and its MECHANISM was wrong.** The rule
+  **never references `--yellow-50`**, and **`--canvas-2` DOES have a dark override**. Measured: light
+  **2.01:1**, dark **8.16:1** — so the defect is **light-only** and the remedy inverts from what this file
+  used to imply. **Fixed in M6 T3** by moving only the foreground to `--warning-text` (4.69:1 on light) and
+  leaving the amber border alone, a 1px border not being text. `--warning-text` then needed a dark override
+  of its own — back to the amber, 8.16:1 — which the plan had said would not be required, and which stopped
+  being true the moment a `color` started reading it in both themes.
   This surface carries the NC-unsupported and mic-permission messages.
 - **The call stage's accent — RULED, no longer open.** It is **theme-invariant**, pinned to the dark value
   `#6366F1` via a new `--stage-accent` on `:root` only; the **10** `--accent`/`--accent-hover` sites on the
@@ -615,9 +630,14 @@ The older "five loops" list double-counted it. Also: the ≤250ms ease-out budge
   *new* false claim while fixing a stale one.
 - **`isBlockingOverlayOpen()`'s DOM half is load-bearing** until M6 finishes app-wide `useModalFocus`
   adoption — it holds only while *every* modal renders `.modal-overlay` (true today across all 13 renderers).
-  The five non-stack-aware document Escape listeners (`ContextMenu.tsx:35`, `VolumeControlPopover.tsx:57`,
-  `ScreenSharePicker.tsx:24` **and** `:88`, `useFloatingSelectionToolbar.ts:67`) are M6's if it takes that
-  adoption. **`useDismissOnOutside` is now stack-aware** (M5.5 T4) and is not on that list.
+  The five non-stack-aware document Escape listeners are M6's if it takes that adoption.
+  **CORRECTED (Appendix A C8): all five line numbers this file carried were stale.** They were recorded as
+  `ContextMenu.tsx:35`, `VolumeControlPopover.tsx:57`, `ScreenSharePicker.tsx:24`/`:88`,
+  `useFloatingSelectionToolbar.ts:67`; **measured, they are `:38`, `:61`, `:26`/`:90`, `:77`.** Anchor by
+  symbol, not by line — M6 T11 found that two "stale" Escape citations in a dispatch were in fact **two
+  different anchors** (a key check and an `addEventListener`) and both correct, so a line-number mismatch is
+  not by itself proof of staleness. **`useDismissOnOutside` is now stack-aware** (M5.5 T4) and is not on that
+  list.
 - **`isBlockingOverlayOpen()`'s invariant is a convention, not a contract**, and it was already broken once:
   `.screen-picker-backdrop` is a fixed-inset blocking scrim carrying neither `.modal-overlay` nor
   `useModalFocus`. M5's fix wave widened the selector, but **any future backdrop that rolls its own class
@@ -670,7 +690,13 @@ The older "five loops" list double-counted it. Also: the ≤250ms ease-out budge
 - **Strip `/* … */` before counting anything in CSS.** The alias census was wrong three times because a grep
   counted a comment (§6b).
 
-### 6d. Post-redesign backlog — EXCLUDED from every milestone
+### 6d. Post-redesign backlog — **the exclusion has now expired**
+
+> **This exclusion was scoped to the redesign milestones, and the redesign is finished.** It was never a
+> judgement that these items don't matter — it was a scope fence: they need a `services/`- or
+> store-architecture grant the spec withheld. With M6 shipped there is no milestone left for them to be
+> excluded from, so **they are ordinary backlog now**, to be prioritised on their merits. The sentence
+> below is kept because it still describes why they were fenced off, not because the fence still stands.
 
 These need a `services/`- or store-architecture scope grant that the spec forbids. **Do not fix them inside a
 redesign milestone**; if you touch their neighbourhood, record the contact and move on. Full detail lives in
@@ -740,7 +766,7 @@ and do not read their answers as anyone's unilateral call.)*
 | 2b | **Board `2c`'s footer copy is hidden below 640px** — all three hints wrapped at 390px, and «Открывается на ⌘K из любого места» is *false* on a touch device, not merely cramped (M5). | M6 |
 | 2c | **The handoff contradicts itself on the palette footer**: `README.md:145` says `canvas-2`, `Redesign.dc.html:118` gives `#FBFCFE` = `--canvas-3`. Root cause: `README.md:46` maps `canvas-2` onto two hexes. **The shipped code follows the hex.** Someone should fix the handoff. | board |
 | 4 | **The focused screen-share view is 126.59px tall in the default split.** Read the three corrections in the backlog (§2a) before touching it — the obvious fix is wrong, and the largest lever is the thumbnail strip, not the split. | M6 |
-| 5 | **The call's leave button is a pill, not r14** — the most visible board departure in M3, never formally ruled. | board |
+| 5 | ~~**The call's leave button is a pill, not r14**~~ — **SETTLED 2026-08-31 at `9bf7cd4`.** Manual QA found the real defect was not the radius but that this was the only control in the bar carrying its label *inside*, as a pill, while mic/camera/screen use `.stage-ctl` with the caption beneath. It now takes the same shape — 46×46 matching its siblings exactly, label 4px below — and **keeps `--radius-pill`**, so it renders as a circle. That is deliberate: the radius is what keeps hang-up distinguishable now that the text no longer does that job. | **closed** |
 | 6 | **Invite revoke still deletes without confirmation**, against board `1d`'s "never delete without this step". Byte-identical to base — inherited, not introduced. | board, then M6 |
 | 7 | **Three non-M3 components' modal entrance changed** (scale `.92` → `.95`) when a duplicate keyframe was deleted. Sign-off, not work. | sign-off |
 | 8 | **Toast entrance sped 0.3s → 0.22s** for two non-M2 components when the recipe was unified. Sign-off. | sign-off |
@@ -813,6 +839,13 @@ do not attribute them to a planner or an implementer.
   assertions. It **replaces the `+N / −0` numstat invariant** (§3), which M6 retires when it deletes the alias
   block, and it guards the `stylelint --fix` notation rewrite of ~117 declarations in `tokens.css`. Build it
   first; M5's `resolveVar` scratch-element pattern (§5) is the working form.
+  **CORRECTED (Appendix A C1): "~117 declarations" is wrong.** `--fix` changes **50 lines** in `tokens.css`;
+  the three colour rules fire on **33 distinct declarations** across **48 distinct warning lines**. Repo-wide
+  it took lint **188 → 54**, so **71% of the whole debt was mechanical**. The probe was still the right
+  instrument — but note what it could *not* see, which M6 T2 found the hard way: `--fix` also auto-fixed
+  `value-keyword-case`, **silently lowercasing `BlinkMacSystemFont`**, which then renders at the width of a
+  nonexistent font (483.28px vs 469.31px). **A rule that `--fix` repairs is invisible to a residue check** —
+  the check only sees what remains.
 - **The audit gate is stylelint, not `rg`.** `csstools/value-no-unknown-custom-properties` fires on a plain
   `color: var(--unknown)` — verified with a positive control — and `importFrom` is scoped to `tokens.css` +
   `base.css`, so **deleting the 47 alias names makes every surviving CSS reference a parse-based error that

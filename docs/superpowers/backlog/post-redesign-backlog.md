@@ -134,7 +134,13 @@ connection.
 Each of these has an obvious executor inside the redesign (mostly M6), but none of them is an engineering
 default — they are product/board calls. Answer them and the work is small.
 
-### 2a. The focused screen-share view is 126.59px tall in the default split
+### 2a. ~~The focused screen-share view is 126.59px tall in the default split~~ — **CLOSED by M6 decision 8**
+
+> **Decided (human ruling, 2026-08-30 M6 planning session): `.stage-thumbs` collapses.** That takes the
+> largest lever named below — the strip is 41% of the stage's chrome — without touching the split, and so
+> without breaking the draggability that made the obvious fix wrong. The three corrections below are kept
+> because they explain *why* the fix is the strip and not the split; a future reader tempted to "just raise
+> the height" needs them.
 
 M3's marquee T4 deliverable, effectively unreadable at the 55% default; the solo tile overflows the same way.
 Both trace to `.channel-body .call-stage { height: var(--call-stage-height, 55%) }` (`AppPage.css:26-27`).
@@ -155,7 +161,13 @@ it — which is why it was parked rather than patched. **Three corrections anyon
 
 **Executor once decided:** M6.
 
-### 2b. Is the stage's accent theme-invariant or not?
+### 2b. ~~Is the stage's accent theme-invariant or not?~~ — **CLOSED by M6 decision 2**
+
+> **Decided: theme-invariant**, pinned to the dark value `#6366F1` via `--stage-accent` on `:root` only.
+> **And the count in the paragraph below is wrong: it is 10 sites, not 12.** All ten are in `CallStage.css`.
+> The 12 was never true — it was carried verbatim across three RESUME revisions without re-measurement, and
+> `--stage-` happening to appear exactly 12 times in `tokens.css` is a plausible origin for the confusion
+> and is a different quantity entirely.
 
 Plan decision 25(b) makes the call stage theme-invariant (`--stage-*` on `:root` only, because board `1e`'s
 stage is dark in both themes). Every `--stage-*` value does match across themes — but **12 sites** use
@@ -167,11 +179,21 @@ deliberately the one theme-responsive element on a theme-invariant surface.
 
 **Executor once decided:** M6's dark-parity pass.
 
-### 2c. The call's leave button is a pill, not r14
+### 2c. ~~The call's leave button is a pill, not r14~~ — **SETTLED 2026-08-31 at `9bf7cd4`**
 
 M3 shipped `--radius-pill` (r999) where a literal reading of board `1e`'s grid gives a rounded rectangle.
-It is the single most visible board departure in that milestone and **was never formally ruled** — it came
-through as plan text and nobody challenged it.
+It was never formally ruled — it came through as plan text and nobody challenged it.
+
+> **A human clicking through the app at M6 close found the real defect, and it was not the radius.** The
+> button was the only control in the bar carrying its label *inside* it, as a text pill, while mic / camera /
+> screen-share all use `.stage-ctl` — icon-only button with `.stage-ctl-label` beneath. Fixed: the label moved
+> out, and the button is now **46×46, geometrically identical to its siblings**, with the caption 4px below
+> (measured; sibling also 4px).
+>
+> **The pill radius was kept, deliberately.** With the text gone, the radius is what still distinguishes
+> hang-up from the three rounded-square toggles — so the board departure this item recorded is now
+> *load-bearing* rather than incidental. If anyone revisits it, that is the trade to weigh: r14 would make
+> hang-up look like a toggle.
 
 ### 2d. Three non-M3 components' modal entrance changed
 
@@ -183,6 +205,34 @@ now unique, and the other four deleted keyframes have no surviving consumer.
 
 Structurally identical to M2's `.error-toast` case, which sped two non-M2 components from 0.3s to 0.22s and
 was recorded the same way. **Sign-off, not work** — unless you want the old value back.
+
+### 2e. `--danger` still has no dark override, and that is a decision
+
+M6's plan called for `--danger: #FCA5A5` in the dark theme. **T3 measured it and declined to apply it.**
+`--danger` is used as **11 fill / 3 border / 3 foreground**; a pastel tuned for the three foreground sites
+puts white text on a pastel fill at **1.90:1** across the eleven fill sites. An override that fixes the
+minority wrecks the majority.
+
+So the dark-theme behaviour this file and the RESUME both flagged — `--danger` foregrounds rendering `#E7444A`
+at rest and jumping to `#FCA5A5` on hover, a shift that does not occur in light — **is still present, on
+purpose.** Closing it properly needs the fill and foreground roles split into two tokens, which is a token-API
+change nobody asked M6 to make. **Recorded so the absence reads as a decision and not an oversight** — that
+distinction is the whole reason this entry exists.
+
+### 2f. The 769–899px band renders desktop component styling
+
+M6 decision 5 moved **only** the `AppPage.css` shell pair from the 768/769 boundary to 900. The **17 component
+blocks** still sitting at 768/769 (`CallStage.css` ×6, `ChannelSidebar.css`, `ChatArea.css`, `Composer.css`,
+`MediaLightbox.css`, `MessageAttachments.css`, `MessageRow.css`, `MessageSearch.css`, `ServerList.css`,
+`UserList.css`, `VideoPlayer.css`, `VoiceBanner.css`) deliberately did not move.
+
+**The cost is disclosed and accepted:** between 769 and 899px the shell is in its mobile single-panel model
+while the components inside it paint desktop styling. Moving all nineteen would have been an unrequested
+behaviour change across lint-clean blocks the previous milestone had just certified, several with no smoke
+fixture to catch a regression.
+
+**M6 did close the navigation half of this** (T8): the band was not merely ugly, it was a **trap** — the panel
+opened with no header and no back button. The *styling* half is what remains, and it is what this entry is.
 
 ---
 
@@ -200,9 +250,17 @@ file already uses an `X`/`expectedX` convention — add `const fail = (m) => { t
 pattern `tools/probe-screen-picker.js` uses correctly, 15 assertions, none recorded) and route those pairs
 through it.
 
-Note the harness lives in `.superpowers/sdd/2026-08-25-redesign-m3-calls/tools/`, is **gitignored**, and is
-the only copy. Each milestone has carried it forward with `cp -R` from the previous workspace. If it is ever
-lost, every visual claim in M4–M6 loses its instrument.
+**CORRECTED — "the only copy" is false, and it was false when written.** Each milestone carries the harness
+forward with `cp -R` rather than moving it, so **every SDD workspace still holds one**; the newest superset is
+`.superpowers/sdd/2026-08-30-redesign-m6-polish/tools/`. They are all gitignored and in no commit, so the
+*collection* is still one `git clean -fdx` from gone — but losing one workspace loses nothing. The practical
+risk is different from the one this paragraph described: not deletion, but **drift**, since each copy is
+independently repaired and the older ones silently rot.
+
+**Also note this file's own §3a claim aged badly in a second way:** `probe-composer.js`, described elsewhere
+as "silently dead", was **repaired by M6 T1** — and its failure was never silent (it surfaced as a loud
+`PROBE ERROR:`), while the true damage was worse than recorded: with deferred flush, **0 of 89 assertions
+produced a readable verdict**, not 48 of 88.
 
 ### 3b. The `npm test` RED baseline has been red since M1
 
@@ -223,19 +281,32 @@ urgency.
 
 Carried so nobody assumes these were verified:
 
-- **The speaking ring has never been driven by a real voice.** `--fake-media`'s synthetic mic peaks at
-  ~0.0065–0.0115 against the existing `SPEAKING_THRESHOLD` of 0.05, so `is-speaking` never fires from the
-  tone and React never emits `.stage-eq`. The level→radius mapping, the `var(--speak-level, 0)` fallback and
-  the forced-class ring were all measured; the JSX-conditional equalizer inside a live plate was not.
+- **The speaking ring has never been driven by a real voice.** That part stands. **But the reason recorded
+  here for three milestones is measured FALSE and must not be repeated:** `--fake-media`'s tone does *not*
+  peak at ~0.0065–0.0115. It is a **full-scale periodic beep every ~450ms**, and that range is its decay
+  tail. The original comparison also put a **time-domain amplitude against a frequency-domain reader**, so
+  the two numbers were never commensurable in the first place. Whatever keeps `is-speaking` from firing, it
+  is not the tone being quiet.
+  The level→radius mapping, the `var(--speak-level, 0)` fallback and the forced-class ring were all measured;
+  the JSX-conditional equalizer inside a live plate was not.
   **Cheapest closure:** one dev-only run that drives `micLevel` above threshold (or temporarily lowers the
-  threshold) and reads the mounted `.stage-plate`. Forcing the CSS class will **not** do it.
+  threshold) and reads the mounted `.stage-plate`. Forcing the CSS class will **not** do it — and neither
+  will reasoning from the falsified amplitude above.
 - **Remote speaking rings are structurally unreachable** with the current harness — injected synthetic
   participants carry `stream: null`.
 - **The focused screen-share view was exercised as layout only** — a single-account smoke server has no
   second peer, so no real screen stream has ever rendered in it.
-- **Every Electron branch is reasoned-not-measured** — Electron cannot launch (npm 11's `allowScripts`
-  skipped its postinstall, so `node_modules/electron/dist` is 292K instead of ~250MB; fixable with
-  `npm install-scripts ls` in `client/`). This includes the whole of M3 ruling T4-e's platform-dependent
-  fullscreen glyph semantics, which someone with a working build should check in one pass.
+- **Electron: PACKAGED behaviour is unmeasured — the renderer branches are not.** Narrowed at M6 T14, where
+  the blanket "every Electron branch" claim turned out to be overstated. Electron cannot launch (npm 11's
+  `allowScripts` skipped its postinstall, so `node_modules/electron/dist` is **236K** — not the 292K recorded
+  here for three milestones — instead of ~250MB; fixable with `npm install-scripts ls` in `client/`). **But
+  `smoke.mjs --fake-electron` plus the standing `titleBar` report block does drive the `electronAPI`-gated
+  renderer branches, and M6 measured them.** What remains unmeasurable is packaged behaviour, including M3
+  ruling T4-e's platform-dependent fullscreen glyph semantics, which someone with a working build should
+  check in one pass.
+  **Practical consequence for anyone running the app:** `npm run dev` **cannot start the dev server in this
+  environment** — it runs vite and Electron under `concurrently -k`, Electron throws
+  `Electron failed to install correctly`, and `-k` kills vite with it. Use **`npm run dev:vite`**. Every
+  milestone's "restart the dev server" instruction was written without knowing this.
 - **A second test account** would close the remote-participant, incoming-call and not-own-message branches
   that three milestones have now had to reason about instead of measure.
