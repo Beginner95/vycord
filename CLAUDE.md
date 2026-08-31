@@ -3,8 +3,17 @@
 Repo-wide facts only. Client-specific rules live in `client/CLAUDE.md`; read that
 one too before touching anything under `client/`.
 
-Every claim below was re-verified against the tree on **2026-08-31** at M6 T13's
-commit. Where a number can drift, it is dated — re-measure, do not assume.
+Every claim below was re-verified against the tree on **2026-08-31**, at M6's
+close (`e608a0d`). Where a number can drift, it is dated — re-measure, do not
+assume.
+
+> **Project state: the frontend redesign is FINISHED.** M0–M6 have all shipped on
+> the `redesign` branch; the closeout is
+> `docs/superpowers/plans/2026-08-30-redesign-m6-closeout.md`. **The branch has
+> not been integrated** — that is a human decision, and the instruction is in
+> §0 of `docs/superpowers/REDESIGN-RESUME.md`: merge `origin/develop`, open a PR
+> into it, **never rebase**. Until that happens, `redesign` is where the current
+> UI lives and `develop` is not.
 
 ## Layout
 
@@ -24,6 +33,17 @@ resolves **relative to the cwd**, so a run from the repo root dies with
 followed by a stack trace. That failure prints on stdout/stderr and looks like
 lint output; it is not. Always `cd client` first, and pipe `2>&1`.
 
+**Start the dev server with `npm run dev:vite`, not `npm run dev`.** The `dev`
+script runs vite and Electron under `concurrently -k`; Electron throws
+`Electron failed to install correctly` here — npm 11's `allowScripts` skipped its
+postinstall, so `node_modules/electron/dist` is **236K** instead of ~250MB — and
+`-k` then kills vite along with it, so the server never comes up. Fixable for
+real with `npm install-scripts ls` in `client/`, if you need Electron itself.
+
+**A stale dev server invalidates every visual claim you make**, and one was found
+alive four separate times during M6. Restart it, and check that it postdates the
+commit you think you are looking at.
+
 ## Branches
 
 - **`develop` is the trunk. `main` is dormant.** `origin/main` is
@@ -39,9 +59,9 @@ lint output; it is not. Always `cd client` first, and pipe `2>&1`.
   ```
   The `fetch` is load-bearing — without it the gate reads a stale remote-tracking
   ref and reports "no drift" whatever the trunk did. (M5.5 T1/T2 found this gate
-  had been structurally incapable of firing for five milestones.) As of
-  2026-08-30 the gate is empty: `redesign` contains all of `origin/develop`
-  (`a328a11`).
+  had been structurally incapable of firing for five milestones.) **Re-run with a
+  real fetch on 2026-08-31 at M6 close: still empty** — `redesign` contains all
+  of `origin/develop` (`a328a11`).
 - **`redesign` is long-lived and published.** `origin/redesign` exists at
   `2dc4974` and is an ancestor of local `redesign`. It releases as a single
   version. **Never rebase it** — merge from `origin/develop` instead. Any

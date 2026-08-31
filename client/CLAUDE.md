@@ -21,13 +21,64 @@ git show a328a11:client/src/components/AttachmentTray.css
 Not every trunk-authored file is a VYC-82 divergence; where a rule concerns code
 that arrived from a different trunk ticket, the rule says so.
 
-All claims re-verified against the tree on **2026-08-31** at M6 T13's commit —
-the numbered citations in §§1–6 were re-derived from the shipped tree in that
-commit, not carried forward. **Re-measure before trusting any of them again**:
-this file has shipped stale line numbers in every milestone so far, and T13
-alone found drift in the JS-injected table (all five rows), `--avatar-bg` /
-`--avatar-ink`, `--presence-ring` (both ends), the icon census, `primitives.css`'s
-length, the retune citation and all four shared-keyframe lines.
+All claims re-verified against the tree at **M6's close, `9bf7cd4`** (the §§1–6
+citations were re-derived at M6 T13 and re-checked here). **Re-measure before
+trusting any of them again**: this file has shipped stale line numbers in every
+milestone so far. T13 alone found drift in the JS-injected table (all five rows),
+`--avatar-bg` / `--avatar-ink`, `--presence-ring` (both ends), the icon census,
+`primitives.css`'s length, the retune citation and all four shared-keyframe
+lines — and then **the closing commit produced a sixth**, moving
+`--call-stage-height` off its freshly-corrected line. The pattern is not
+carelessness; it is that prose edits move code lines and the re-measure happens
+before the last edit rather than after it. **Prefer the regenerating commands
+this file gives you over the numbers beside them.**
+
+---
+
+## 0. Building something new — start here
+
+The rest of this file is written from the inside of the redesign, rule by rule.
+If you are adding a **new** component or feature rather than editing an existing
+one, this is the order to work in. Everything here links to the section that
+governs it; nothing here is a summary you may act on without reading that
+section.
+
+1. **Pick tokens by role, not by eye** — §1's *Which token to reach for*. There
+   are no raw colours outside `tokens.css`, no 12px radius step, and no
+   `z-index` literals.
+2. **Name classes `component-thing`, state as `is-*` / `has-*`** — §2. Single
+   words are reserved to a five-name allowlist; BEM's `--` passes nothing here.
+3. **Reuse the primitives before writing a control** — §4. `btn`, `input`,
+   `modal`, `kbd`, `mention` already exist with their states.
+4. **If it floats above the page, read §5 before writing it.** Overlays are the
+   densest area of this codebase: a shared scrim contract, a focus-trap hook, a
+   dismiss hook that is stack-aware, and an Escape stack that several components
+   still bypass. Rolling your own backdrop has silently broken the blocking-overlay
+   check before.
+5. **Motion goes through `--transition` / `--ease-out`, and honours
+   `prefers-reduced-motion` by dropping loops while keeping fades** — §6. Not by
+   suppressing motion wholesale; that policy was replaced for a measured reason.
+6. **Every user-visible string is translated, ru + en** — §7. `npm run check:i18n`
+   is a gate, not a linter.
+7. **Ship it green** — §8 and `../CLAUDE.md`. `npx stylelint "src/**/*.css"` from
+   `client/` must produce **zero bytes**; `npx tsc --noEmit` likewise. `npm test`
+   is red at baseline by design and the gate is that *no new file* fails.
+
+**Two environment facts that will otherwise cost you an hour.** The dev server
+starts with **`npm run dev:vite`** — plain `npm run dev` also launches Electron,
+which cannot start here (its `dist` is 236K, not ~250MB), and `concurrently -k`
+kills vite along with it. And **every npm/npx/node command runs from `client/`**;
+there is no root `package.json`, and stylelint from the repo root dies with an
+ENOENT stack that looks like lint output.
+
+**One thing this contract cannot do for you.** At M6 close, with stylelint at 0,
+`tsc` at 0, 38 test files, ~140 probes and five certified gates all green, a
+person clicking through the app found **six real defects, none of which any of
+those instruments could reach** — including a panel that rendered dark-on-dark in
+the light theme and looked perfect in dark, for the structural reason that
+`--rail` and `--canvas` are both near-black there. **Click through what you
+build, in both themes and at a narrow width.** The gates verify what they were
+pointed at; they do not notice what nobody aimed them at.
 
 ---
 
@@ -152,6 +203,84 @@ cannot read a custom property) and `Avatar.tsx:34` (the `#FFFFFF` fallback in
 `data:` URI at `primitives.css:492` carries `stroke='white'` inside an inline
 SVG, where no custom property can reach.
 
+### Which token to reach for — the map
+
+Everything above tells you what **not** to write. This tells you what to write
+instead, and it is the section to read first if you are **building something new
+rather than editing something old**. Values live in `tokens.css`; this is the
+role each name plays, so you pick by intent instead of by eyeballing a hex.
+
+**Surfaces, back to front.** `--canvas` is the page. `--canvas-2` is a raised or
+hovered block on it, `--canvas-3` a recessed one (settings nav, palette footer).
+`--panel` is a distinct panel fill with `--panel-line` / `--panel-footer` for its
+edges. `--composer` is the message composer's own ground. `--rail` is the 76px
+server rail — **`--rail-*` is a near-black in BOTH themes**, so its ink family
+(`--rail-ink`, `--rail-muted`, `--rail-item`, `--rail-item-hover`,
+`--rail-line`, `--rail-create-bg`, `--rail-create-ink`) is built for a dark
+ground and **will not read on `--canvas`**. If you ever put rail markup on a page
+background — the mobile full-screen server list does exactly this — you must
+override the fill *and* the ink together. Shipping only half of that was a real
+bug, invisible in the dark theme because `--rail` and `--canvas` are both
+near-black there.
+
+**Text.** `--ink` is body text, `--muted` secondary, `--muted-2` tertiary,
+`--faint` placeholder-weight. `--white` is literal white and is for ink **on a
+coloured fill**, not for surfaces.
+
+**Lines.** `--line` is the default hairline; `--line-strong` where a border must
+read as a control edge (composer, inputs).
+
+**Accent and state.** `--accent` / `--accent-hover` for interactive fills,
+`--accent-text` for accent-coloured *text*, `--accent-soft` for a tinted
+background, `--accent-border` for a tinted edge. `--accent-300/400/500` are ramp
+stops for gradients only. The same shape repeats for status:
+`--online` / `--online-soft` / `--online-text`, `--danger` / `--danger-soft` /
+`--danger-text`, `--warning` / `--warning-text`.
+
+> **`--danger` is 11 fill / 3 border / 3 foreground sites, and has NO dark
+> override on purpose.** A dark pastel was measured and ruled out: it puts white
+> on a pastel fill at 1.90:1 across the eleven fill sites. If you need a
+> dark-readable danger *foreground*, use `--danger-text`. Do not add a dark
+> `--danger` — see the comment beside the token.
+
+**Two theme-invariant families that must never get dark overrides:**
+`--stage-*` (the call stage, dark ground in both themes) and `--media-*` (photo
+and lightbox chrome). `--stage-accent` / `--stage-accent-hover` /
+`--stage-danger` exist precisely so stage surfaces do not reach for the
+theme-switching `--accent` family. **On the stage, use `--stage-*`.**
+
+**Radii — a fixed scale with no gaps to fill.**
+`--radius-chip` 6 · `--radius-row` 9 · `--radius-btn` 10 · `--radius-card` 11 ·
+`--radius-tile` 13 · `--radius-composer` 14 · `--radius-modal` 16 ·
+`--radius-bar` 18 · `--radius-pill` 999. **There is no 12px step** — the deleted
+alias `--radius-lg` was 12, and its three sites moved to `--radius-tile` (13)
+rather than a 12 being minted, because adding one would preserve a legacy value
+inside the system built to remove them. **Do not add a step to this scale**; pick
+the nearest and say so in a comment if it matters.
+
+**Z-index — always a token, never a literal.**
+`--z-overlay` 1000 · `--z-menu` 1050 · `--z-popover` 1100 · `--z-palette` 1150 ·
+`--z-tooltip` 1200 · `--z-toast` 2000 · `--z-crash` 9999. **`--z-menu` sits
+ABOVE `--z-overlay` deliberately** — a context menu opened from inside a modal
+must clear that modal's scrim. Read the comment block above the scale before
+inserting anything between two stops.
+
+**Motion.** `--transition` (0.16s) for state changes and `--ease-out` for
+anything hand-rolled. §6 governs everything else — including the rule that
+`prefers-reduced-motion` drops loops and keeps fades, rather than suppressing
+motion wholesale.
+
+**Depth.** `--shadow-row` · `--shadow-card` · `--shadow-popover` · `--shadow-menu`
+· `--shadow-modal` · `--shadow-palette`, named for the surface that wears them.
+`--focus-ring` is the focus shadow and **is theme-split** (alpha differs).
+`--scrim` is the modal backdrop.
+
+**Type.** `--font-sans` and `--font-mono` only. Note `BlinkMacSystemFont` inside
+`--font-sans` is **case-sensitive**: `stylelint --fix` once lowercased it, which
+silently renders at the width of a nonexistent font (483.28px vs 469.31px). Both
+identifiers carry a `stylelint-disable-next-line` for that reason — do not remove
+it.
+
 ### Custom properties that cross the JS/CSS boundary
 
 Stylelint's `csstools/value-no-unknown-custom-properties` only knows the
@@ -161,15 +290,28 @@ properties declared in `tokens.css` and `base.css` (`.stylelintrc.json`'s
 **(a) JS-injected, CSS-consumed — five properties. A `var()` reference to one
 MUST carry a fallback.**
 
-Line numbers re-derived at M6 T13; every one of the five had drifted.
+Line numbers re-derived at M6 T13 (every one of the five had drifted) and again
+at M6 close. **Do not read the numbers first — the command below regenerates the
+whole table and cannot go stale:**
 
-| Property | Injected at |
+```bash
+cd client && grep -rn -- "--speak-level\|--slider-fill\|--meter-level\|--call-stage-height\|--avatar-color" src --include='*.tsx'
+```
+
+| Property | Injected at (as of `9bf7cd4`) |
 |---|---|
 | `--speak-level` | `CallStage.tsx:313,368,1000,1055`, `CallUI.tsx:200,221` |
 | `--slider-fill` | `AvatarCropModal.tsx:219`, `settings/AudioSettings.tsx:166` |
 | `--meter-level` | `settings/AudioSettings.tsx:250` |
-| `--call-stage-height` | `pages/AppPage.tsx:686` |
+| `--call-stage-height` | `pages/AppPage.tsx:693` — **was `:686`; a comment edit in `9bf7cd4` moved it** |
 | `--avatar-color` | `Avatar.tsx:32` |
+
+> **That last row is the fifth instance of this file's signature defect and it is
+> worth more than the correction.** Four times in M6 a citation here was correct
+> when measured and stale when shipped, because prose edits move line numbers and
+> nobody re-measures after the last edit. The fifth was introduced by the very
+> commit that fixed six unrelated bugs. **The durable fix is the grep above, not
+> a more careful number** — regenerate, don't trust.
 
 Measured, not assumed: `primitives.css:235,268` write `var(--slider-fill, 0%)` /
 `var(--meter-level, 0%)` and lint clean.
