@@ -1907,7 +1907,7 @@ Known-unmeasurable in this environment, carried so nobody assumes otherwise:
 **Files:** Create `docs/superpowers/plans/2026-08-30-redesign-m6-closeout.md`; modify
 `docs/superpowers/REDESIGN-RESUME.md`, `docs/superpowers/backlog/post-redesign-backlog.md`
 
-- [ ] **Step 1: Write the closeout**
+- [x] **Step 1: Write the closeout** — *`2026-08-30-redesign-m6-closeout.md`.*
 
 Commit spine · every ruling with **who ruled it** and its cost · fail-first evidence per task · the
 188 → 0 trajectory **measured at both ends at every step** · residue · corrections to our own record ·
@@ -1919,7 +1919,7 @@ to the human as explicit costed questions in the 2026-08-30 M6 planning session,
 after the grand review; **decisions 9–21 are
 the planner's** and must not be attributed to the human.
 
-- [ ] **Step 2: Rewrite the RESUME for a post-M6 world**
+- [x] **Step 2: Rewrite the RESUME for a post-M6 world** — *all five falsified claims corrected AT the line that carried them, not in a footnote. §0 now carries the integration decision instead of an execution prompt.*
 
 State that all milestones have shipped, the branch is releasable, and what remains is the integration
 decision. Carry forward the debt register minus everything M6 discharged. **Correct §6c's
@@ -1927,20 +1927,20 @@ decision. Carry forward the debt register minus everything M6 discharged. **Corr
 `probe-composer.js` characterisation, and §6c's Escape-listener line numbers** — all falsified here
 (Appendix A).
 
-- [ ] **Step 3: Update the backlog**
+- [x] **Step 3: Update the backlog** — *§2a and §2b closed by decisions 8 and 2 (and its "12" is 10); §2c settled by manual QA; §3a's "only copy" and §3d's electron/`--fake-media` figures corrected; §2e and §2f added for what M6 declined; §6d's exclusion marked expired.*
 
 Backlog §2b still says **12** stage accent sites — **it is 10**, and decision 2 closes the question
 entirely. §2a closes via decision 8. Move anything M6 declined into §1 with its reason. **Backlog
 §3a's claim that the harness is "the only copy" is false** — all six SDD workspaces hold one.
 
-- [ ] **Step 4: Transcribe before the session ends**
+- [x] **Step 4: Transcribe before the session ends** — *the gitignored ledger's content lives in the closeout and the QA index; nothing load-bearing remains only in `.superpowers/`.*
 
 The SDD workspace is gitignored and dies with the session; **anything not written into
 `docs/superpowers/` is lost.**
 
-- [ ] **Step 5: Final gate sweep and commit**
+- [x] **Step 5: Final gate sweep and commit** — *stylelint 0 bytes · `tsc` 0 bytes · `npm test` 3 failed/254 passed with `api.network-retry.test.ts` the only FAIL file · `check:i18n` clean. Commits `9bf7cd4` (code) and `ef9cd1e` (docs).*
 
-- [ ] **Step 6: Hand off the integration decision**
+- [~] **Step 6: Hand off the integration decision** — *handed off, NOT executed. Merging a trunk and opening a PR are outward-facing acts on shared history and are the human's call, not the agent's. The instruction is recorded in the closeout §10 and RESUME §0: merge `origin/develop`, PR into it, **never rebase**.*
 
 Use `superpowers:finishing-a-development-branch`. **Integrate by merging `origin/develop` and then
 opening a PR into it — do NOT rebase.** `redesign` is published at `origin/redesign` and its history
