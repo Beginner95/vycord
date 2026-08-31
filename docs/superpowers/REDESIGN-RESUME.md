@@ -68,9 +68,14 @@ The lesson is not that the suite is bad. It is that **a suite verifies what it w
 person clicking finds what nobody thought to point it at.** Budget a human pass; it is cheaper than
 another probe and it found more.
 
-**Harness note.** The M6 workspace at `.superpowers/sdd/2026-08-30-redesign-m6-polish/tools/` is the
-newest superset and is gitignored, so it is in no commit. It is **not** the only copy — see §5. If
-you start post-redesign work, carry it forward with `cp -R` as every milestone has.
+**Harness note — SUPERSEDED after M6 close.** The harness **engine** (`smoke.mjs`, sanitised to
+env-var credentials, plus `inject-voice-ws.js`, a probe template and a README) now lives **in the
+repo at `client/tools/verify/`** — that is the copy to use and maintain. The ~200-probe corpus was
+deliberately **not** committed (probes rot against selectors within a milestone and a committed
+probe reads as a trusted gate); the M6 workspace at
+`.superpowers/sdd/2026-08-30-redesign-m6-polish/tools/` remains on disk, gitignored, as unaudited
+raw material — see §5. Do not carry it forward with `cp -R` any more; write per-task probes from
+the template instead.
 
 ---
 
@@ -324,6 +329,11 @@ compare forward against that.
 ---
 
 ## §5. Verification harness — the truth table
+
+> **Post-M6 update:** the engine is now committed at `client/tools/verify/` (see the superseded
+> Harness note above and `client/tools/verify/README.md`). Everything below describes the gitignored
+> workspace copies, which are now archaeology: reach into them for raw material, never cite one as a
+> gate without re-verifying it fails when it should.
 
 The harness lives at `.superpowers/sdd/<milestone>/tools/` and is **gitignored**. **It is NOT the only copy** —
 every SDD workspace since M1 still carries one, and they were never deleted:
