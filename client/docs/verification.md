@@ -9,10 +9,11 @@ How to prove a `client/` change is good. Design rules are in
   `package.json`, and stylelint's `importFrom` resolves relative to the cwd —
   a run from the repo root dies with an ENOENT stack that *looks like* lint
   output but isn't.
-- **Start the dev server with `npm run dev:vite`, never `npm run dev`.** The
-  `dev` script also launches Electron, which cannot start here (its
-  postinstall was skipped; `dist` is a few hundred KB, not ~250MB), and
-  `concurrently -k` kills vite along with it.
+- **Start the dev server with `npm run dev:vite` for browser work.** The
+  `dev` script runs vite AND Electron under `concurrently -k`, so if Electron
+  fails to start in your environment (npm's script policy can skip its
+  postinstall, leaving the binary missing), it takes vite down with it —
+  `dev:vite` has no such coupling.
 - **A stale dev server silently invalidates every visual claim.** Before
   trusting anything on :3000, confirm the server postdates the commit you
   think you are looking at.

@@ -9,7 +9,7 @@ import { useEscapeDismiss, useModalFocus, isBlockingOverlayOpen } from '@/hooks/
  *
  * The +129-line stack rewrite and the five re-routed surfaces were verified only
  * by a CDP probe under `.superpowers/`, which is gitignored and gated by nothing
- * (client CLAUDE.md §8). `layerStack` is pure module state plus one `document`
+ * (see client/docs/verification.md). `layerStack` is pure module state plus one `document`
  * keydown listener, so the ordering rules are cheap to pin down here — and they
  * are the part most likely to rot silently, because getting them wrong produces
  * no error, no type failure and no visual difference.

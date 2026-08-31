@@ -481,11 +481,11 @@ try {
         // every run's header while the alias layer existed. M6 T13 deleted all
         // 47 legacy names, so this is inverted into a standing sentinel: any
         // name listed here that still RESOLVES has been re-introduced. It rides
-        // on every smoke run, which is the only thing in this gitignored tree
-        // that happens often enough to catch a regression early.
+        // on every smoke run, which happens often enough to catch a regression
+        // early.
         // getPropertyValue is correct for an ABSENCE claim (it returns the
         // declared string, so '' proves nothing declares it) — not for a
-        // presence claim, where client/CLAUDE.md section 8's ban applies.
+        // presence claim, where client/docs/verification.md's ban applies.
         legacyAliasesResurrected: ['--bg-primary', '--text-primary', '--brand-color',
           '--border-subtle', '--radius-md', '--radius-lg', '--shadow-lg', '--brand-subtle']
           .filter(n => getComputedStyle(document.documentElement).getPropertyValue(n).trim() !== ''),

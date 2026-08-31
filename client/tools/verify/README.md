@@ -26,9 +26,10 @@ export VYCORD_SMOKE_API=...        # optional; defaults to the prod API host
 Put them in `client/tools/verify/.env` (gitignored) and `source` it, or export
 them in your shell. `--anon` runs need none of this.
 
-Start the dev server with **`npm run dev:vite`** from `client/` — `npm run dev`
-dies here (Electron's postinstall was skipped; `concurrently -k` then kills
-vite too). **A stale dev server silently invalidates every screenshot and probe
+Start the dev server with **`npm run dev:vite`** from `client/` — the `dev`
+script also launches Electron under `concurrently -k`, and an Electron that
+fails to start takes vite down with it.
+**A stale dev server silently invalidates every screenshot and probe
 result**: confirm the server postdates the commit you think you are looking at.
 
 ## Usage
@@ -52,14 +53,18 @@ node smoke.mjs --out shot.png [flags]
 | `--force-hover <sel>` / `--force-state <sel:state>` | CDP-forced pseudo-states |
 | `--fake-media` | fake mic/cam (a full-scale beep every ~450 ms — NOT quiet) |
 | `--fake-electron` | stub `window.electronAPI` (renderer branches only) |
-| `--push-ws <file>` | inject WS events (e.g. `inject-voice-ws.js` for voice/call states) |
-| `--eval-file <file>` / `--preload <file>` | arbitrary page / preload script |
+| `--preload <file>` | script injected before any page script — `inject-voice-ws.js` goes HERE (it defines `window.__pushWS` for voice/call states) |
+| `--push-ws <type:payload>` | push one WS event through `window.__pushWS` — requires `--preload inject-voice-ws.js`, or it reports `NO __pushWS` |
+| `--eval-file <file>` | arbitrary script evaluated in the page |
 | `--probe <file>` `--probe2 <file>` `--probe3 <file>` | inject probes, in order |
 
 ## Writing probes — the rules that were paid for
 
 - **Start from `probe-template.js`.** Async IIFE, returns a summary object,
-  every assertion goes through a **throwing** `fail()`.
+  every assertion goes through a **throwing** `fail()`. The file is
+  interpolated into `(await (<file>))` as one expression, so **no trailing
+  semicolon** — end with `})()`, not `})();`, or the run dies at parse time
+  before the screenshot (the same applies to `--eval-file`).
 - **A probe is evidence only once you have watched it fail against a broken
   page.** Break the thing on purpose, see it throw, then trust it. A probe
   that only collects and returns results is a reporter — reporters were cited

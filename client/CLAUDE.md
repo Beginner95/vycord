@@ -3,8 +3,7 @@
 Read `../CLAUDE.md` first for repo-wide facts (layout, branches, gates).
 
 React 19 + Vite 8 + Zustand 5 + TypeScript, plain per-component CSS,
-`lucide-react` icons, Vitest. Packaged with Electron (which does not run in
-this environment — see below).
+`lucide-react` icons, Vitest. Packaged with Electron.
 
 ## Router
 
@@ -20,10 +19,10 @@ this environment — see below).
 1. **Every npm/npx/node command runs from `client/`** — there is no root
    `package.json`, and stylelint from the repo root dies with an ENOENT stack
    that looks like lint output.
-2. **Dev server: `npm run dev:vite`**, never `npm run dev` (Electron can't
-   start here and `concurrently -k` takes vite down with it). A stale dev
-   server silently invalidates every visual claim — check it postdates your
-   commit.
+2. **Dev server: `npm run dev:vite`** for browser work — `npm run dev` also
+   launches Electron under `concurrently -k`, so an Electron that fails to
+   start in your environment takes vite down with it. A stale dev server
+   silently invalidates every visual claim — check it postdates your commit.
 3. **Gates: `npx tsc --noEmit` and `npx stylelint "src/**/*.css"` must produce
    zero bytes; `npm test` fails exactly 3 tests, all in
    `api.network-retry.test.ts`, by design — never "fix" that file.** Details

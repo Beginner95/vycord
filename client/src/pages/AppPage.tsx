@@ -652,9 +652,9 @@ logger.error('Failed to create server:', err, { module: 'app' });
               gutter; shrink one and you must shrink the other.
 
               Written as bare numerals and not the prop form on purpose:
-              client/CLAUDE.md §3 asserts icon counts gathered by a grep for the
-              size-prop literal, which cannot tell a comment from a tag, and this
-              comment inflated that count by one until it was reworded. */}
+              icon-census greps for the size-prop literal cannot tell a comment
+              from a tag, and this comment inflated such a count by one until it
+              was reworded. */}
           {leftSidebarHidden
             ? <ChevronRight size={16} strokeWidth={1.8} />
             : <ChevronLeft size={16} strokeWidth={1.8} />}
