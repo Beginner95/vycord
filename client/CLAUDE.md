@@ -30,8 +30,9 @@ All claims re-verified against the tree on **2026-08-30** at `bab71ef`.
 `src/styles/tokens.css` is the only file that may contain a raw colour value.
 It has three blocks:
 
-Line numbers below were **re-derived from the tree at M6 T3's final commit** (the
-file is **413** lines). They have moved in every M6 task so far, and moved twice
+Line numbers below were **re-derived from the tree at M6 T11's commit** (the
+file is **439** lines — T11 added the seven-token `--z-*` Layering block to
+`:root`, which moved every figure below by 26). They have moved in every M6 task so far, and moved twice
 *within* T3 — T2 added two `value-keyword-case` suppressions, T3 added four
 tokens with their rationale comments, then a large `--danger` rationale block,
 then that block grew again in review — so **run the grep, do not trust the
@@ -42,8 +43,8 @@ against the very command below, which is how this warning got written:
 grep -n '^:root {\|^\[data-theme="dark"\] {\|^:root, \[data-theme="dark"\] {' client/src/styles/tokens.css
 ```
 
-1. `:root` (lines 5–269) — the **canonical** light-theme tokens.
-2. `[data-theme="dark"]` (298–343) — dark overrides. Two families deliberately do
+1. `:root` (lines 5–295) — the **canonical** light-theme tokens.
+2. `[data-theme="dark"]` (324–369) — dark overrides. Two families deliberately do
    **not** appear here and must not be added: `--stage-*` and `--media-*` sit on
    ground that is dark in both themes (a call stage, a photo, the lightbox
    scrim). Their comments say so; read them before "fixing" the omission.
@@ -59,9 +60,10 @@ grep -n '^:root {\|^\[data-theme="dark"\] {\|^:root, \[data-theme="dark"\] {' cl
    failure on `.setting-warning` (2.01:1 → 4.69:1), and the dark override exists
    only to stop that light value regressing dark from 8.16:1 to 3.49:1. Do not
    "simplify" it to a single value — measured, both directions.
-3. **`LEGACY ALIASES — DELETE IN M6`** (350–413, in two rules: 350–398 plus a
-   trailing `[data-theme="dark"]` at 409–413; `alias-sentinel.mjs` reports this
-   span independently and is the better source) — every pre-redesign name
+3. **`LEGACY ALIASES — DELETE IN M6`** (376–439, in two rules: 376–424 plus a
+   trailing `[data-theme="dark"]` at 435–439; `alias-sentinel.mjs` reports this
+   span independently and is the better source — run it, these figures are the
+   ones that drift) — every pre-redesign name
    (`--bg-*`, `--text-*`, `--border-*`, `--brand-*`, `--green-*`/`--red-*`/
    `--yellow-*`/`--blue-*`, `--shadow-sm|md|lg|xl`, `--radius-sm|md|lg|xl|full`)
    mapped onto the new system so unmigrated CSS keeps rendering. It is scheduled
@@ -278,36 +280,79 @@ to diagnose; specificity is what you should ship.
 
 **Every blocking scrim carries `.modal-overlay` and adopts `useModalFocus`.**
 
-`.modal-overlay` (`primitives.css:334`) is `position: fixed; inset: 0;
-z-index: 1000` + `var(--scrim)` + `blur(6px)` + centering + `fade-in`.
-`useModalFocus(active, containerRef, onClose)` (`hooks/useModalFocus.ts:15`)
-buys: a modal **stack** (Escape closes only the top-most — nested modals are
-real: Settings → logout ConfirmModal), a Tab trap, `[data-autofocus]` on open,
-and focus restore on close.
+`.modal-overlay` (`primitives.css:344`) is `position: fixed; inset: 0;
+z-index: var(--z-overlay)` + `var(--scrim)` + `blur(6px)` + centering +
+`fade-in`.
+`useModalFocus(active, containerRef, onClose)` (`hooks/useModalFocus.ts:73`)
+buys: a place in the surface **stack** (Escape closes only the top-most — nested
+modals are real: Settings → logout ConfirmModal), a Tab trap, `[data-autofocus]`
+on open, and focus restore on close.
 
-`isBlockingOverlayOpen()` (`useModalFocus.ts:109`) is what global hotkeys
+**Non-modal surfaces take `useEscapeDismiss(active, onEscape, blocking?)`
+(`useModalFocus.ts:176`) instead — never a private `document` listener.** It buys
+stack membership and nothing else: no Tab trap, no autofocus, no focus restore
+(a popover stealing the caret out of the composer is the bug, not the fix).
+M6 T11 moved five surfaces onto it — `ContextMenu`, `VolumeControlPopover`,
+`ScreenSourcePicker`, `ScreenQualityPicker`, `useFloatingSelectionToolbar` —
+each of which used to close on ANY Escape, including one aimed at a modal above
+it. `blocking` defaults to **false** and only `.screen-picker-backdrop` raises
+it; a blocking default would silently make a context menu swallow ⌘K.
+
+**The stack arbitrates Tab as well as Escape.** `useModalFocus`'s handler asks
+`isTopLayer` *before* it looks at the key, so a light layer pushed over an open
+modal suspends that modal's Tab trap for as long as it lives. Unreachable today
+(no `useEscapeDismiss` caller renders inside a modal) — do not make it reachable
+without reading the note beside `layerStack`.
+
+`isBlockingOverlayOpen()` (`useModalFocus.ts:242`) is what global hotkeys
 consult, and **it reads the DOM**:
 
 ```ts
-modalStack.length > 0 ||
-document.querySelector('.modal-overlay, .screen-picker-backdrop') !== null
+layerStack.some((l) => l.blocking) ||
+document.querySelector(
+  '.modal-overlay, .screen-picker-backdrop, .p2p-overlay.is-incoming',
+) !== null
 ```
 
-The DOM half is load-bearing until M6 finishes app-wide `useModalFocus`
+The DOM half is load-bearing until app-wide `useModalFocus`
 adoption: **13** `.tsx` files put the `modal-overlay` class on an element (grep
 without the leading dot — it never appears in a `className`), but only **5** call
 `useModalFocus` (`Settings`, `CommandPalette`,
 `ConfirmModal`, `MediaLightbox`, `FindServerModal`). Consumers of the gate:
-`usePaletteHotkey.ts:17` (⌘K), `ChatArea.tsx:288` (Ctrl+Shift+F),
-`useDismissOnOutside.ts:60`.
+`usePaletteHotkey.ts:70` (⌘K), `ChatArea.tsx:288` (Ctrl+Shift+F),
+`useDismissOnOutside.ts:67`.
 
-**This invariant has already been broken twice.** `.screen-picker-backdrop`
-(`ScreenSourcePicker` / `ScreenQualityPicker`) is a fixed scrim at z-index 1100
+**This invariant had already been broken three times.** `.screen-picker-backdrop`
+(`ScreenSourcePicker` / `ScreenQualityPicker`) is a fixed scrim at `--z-popover`
 that deliberately opted out of the primitive — it is hard-coded into the selector
 above as a result. Then VYC-82's `MediaLightbox` did it again: `.lightbox` with
 `position: fixed; inset: 0; z-index: 1000` and no `.modal-overlay`, so ⌘K opened
-the palette *behind* an open lightbox. M5.5 T4 fixed it. **If you add a third,
-add it to the selector or fix it properly — do not leave it invisible.**
+the palette *behind* an open lightbox (M5.5 T4 fixed it). And
+`.p2p-overlay.is-incoming` (`CallUI.css:8,17`, rendered at `CallUI.tsx:165`) had
+been doing it all along — ⌘K opened the palette on top of an incoming 1:1 call.
+M6 T11's review caught that one, and it is in the selector above now. **Note the
+gate names the `.is-incoming` STATE, not the base rule**: `.p2p-overlay.is-active`
+is the in-call view, has no scrim, and blocking ⌘K there would be a behaviour
+change nobody asked for.
+
+**M6 T11 made the convention checkable.**
+`src/styles/__tests__/overlay-scrim-contract.test.ts` scans every `.css` file for
+a `position: fixed` rule that covers the viewport in both axes, and fails unless
+its selector carries `.modal-overlay` or sits in a three-entry allowlist whose
+length is itself asserted, with each blocking entry required to appear in the gate
+selector above.
+
+**Its predicate is the load-bearing part, and the first version was too narrow.**
+It required `inset: 0` or four zero offsets, and `.p2p-overlay` — `inset: 40px 0 0`,
+40px down to clear the TitleBar — walked straight through it. It now accepts any
+anchored box with **at most one non-zero edge**, resolving `inset` and its
+longhands in source order. A predicate that recognises one geometry is a census
+of that geometry, not of blocking scrims.
+
+**It closes only the ⌘K half.** M5.5's CF-4b measured that dropping the
+`useModalFocus` CALL while keeping the CLASS leaves the gate still returning
+true, so neither the gate nor this test can see a modal with no Escape. That
+half is still the adoption backlog.
 
 **Escape goes through the modal stack, not a private listener.** VYC-82's
 `MediaLightbox` registered its own bubble-phase

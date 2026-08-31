@@ -218,6 +218,32 @@
   --radius-bar:      18px;
   --radius-pill:     999px;
 
+  /* ── Layering ── Re-derived from the tree at M6 T11: 12 declarations at or
+     above 1000, across 7 distinct values. Theme-invariant, like the radii —
+     a stacking order is not a colour, so there is no [data-theme="dark"] half.
+     Values are byte-identical to what the 12 declarations already carried;
+     this scale renames them, it does not re-order them.
+
+     --z-menu sits ABOVE --z-overlay on purpose: a context menu opened from
+     inside a modal (Settings, the server menu) must draw over it. Do not
+     "fix" that inversion by sorting the list.
+
+     MediaLightbox deliberately declares NO z-index of its own — it inherits
+     --z-overlay from .modal-overlay (M5.5 T4 D8). Keep it that way; giving it
+     an explicit value would re-open the bug that contract closed.
+
+     --z-crash carries TWO surfaces, not just the crash card: .error-boundary-overlay
+     AND .update-banner both sat on 9999 before this scale existed. The name reads
+     oddly on an update prompt and is kept anyway — this scale renames values, it
+     does not re-order them, and splitting 9999 in two would be a visual delta. */
+  --z-overlay: 1000;
+  --z-menu:    1050;
+  --z-popover: 1100;
+  --z-palette: 1150;
+  --z-tooltip: 1200;
+  --z-toast:   2000;
+  --z-crash:   9999;
+
   /* ── Focus ── */
   --focus-ring: 0 0 0 3px rgb(79 70 229 / 13%);
 

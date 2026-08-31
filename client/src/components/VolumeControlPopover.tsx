@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useT } from '@/i18n';
+import { useEscapeDismiss } from '@/hooks/useModalFocus';
 import './VolumeControlPopover.css';
 
 interface VolumeControlPopoverProps {
@@ -47,24 +48,22 @@ export function VolumeControlPopover({ value, position, onChange, onClose }: Vol
     if (top !== pos.top || left !== pos.left) setPos({ top, left });
   }, [pos]);
 
+  // Escape — через стек поверхностей (M6 T11, шаг 4). Поповер не блокирующий.
+  useEscapeDismiss(true, onClose);
+
   useEffect(() => {
     const handleMouseDown = (e: MouseEvent) => {
       if (popoverRef.current && !popoverRef.current.contains(e.target as Node)) {
         onClose();
       }
     };
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
-    };
 
     document.addEventListener('mousedown', handleMouseDown);
-    document.addEventListener('keydown', handleKeyDown);
     document.addEventListener('scroll', onClose, true);
     window.addEventListener('resize', onClose);
 
     return () => {
       document.removeEventListener('mousedown', handleMouseDown);
-      document.removeEventListener('keydown', handleKeyDown);
       document.removeEventListener('scroll', onClose, true);
       window.removeEventListener('resize', onClose);
     };

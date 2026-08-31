@@ -29,13 +29,20 @@ import { isBlockingOverlayOpen } from '@/hooks/useModalFocus';
  *   closed the picker and left the palette up). Hence the bail-out below.
  *
  * Shape chosen for D9: **defer via `isBlockingOverlayOpen()`**, not
- * "register through `useModalFocus`'s stack". The latter is not available —
- * `useModalFocus.ts` exports only `useModalFocus` and `isBlockingOverlayOpen`;
- * its `modalStack` is module-private and there is no API for a non-modal
- * participant. Registering would also mean adopting the whole modal contract
- * (Tab trap, autofocus on open, focus restore on close), and autofocus is
- * precisely what a picker must not do — the toolbar's `preventDefault` exists
- * to keep the caret in the textarea.
+ * "register through `useModalFocus`'s stack". Registering would have meant
+ * adopting the whole modal contract (Tab trap, autofocus on open, focus restore
+ * on close), and autofocus is precisely what a picker must not do — the
+ * toolbar's `preventDefault` exists to keep the caret in the textarea.
+ *
+ * M6 T11 added `useEscapeDismiss` — a stack participant WITHOUT the modal
+ * contract, which is exactly what the paragraph above said did not exist. This
+ * hook still does not use it, and the reason is the capture phase. The five
+ * surfaces T11 moved onto the stack all listen on the BUBBLE phase, which is
+ * where the stack arbitrates; this hook must preempt at document CAPTURE and
+ * `stopPropagation()`, or one Escape both dismisses the picker and throws away
+ * the message edit underneath it (see the second bullet above). A bubble-phase
+ * stack listener cannot do that — it runs after React's root-container
+ * listener has already delivered the key to the editor. So the deferral stays.
  *
  * The deferral is sound only because every call site renders OUTSIDE any
  * `.modal-overlay`: EmojiPicker (Composer + MessageRow's editor), StickerPicker

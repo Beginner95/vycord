@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Hash, Moon, Plus, Search, Settings as SettingsIcon, Sun, Volume2 } from 'lucide-react';
 import type { ReactNode } from 'react';
 import type { Channel, MessageSearchResponse } from '@/types';
@@ -7,7 +8,7 @@ import { useServerStore } from '@/stores/serverStore';
 import { usePaletteStore } from '@/stores/paletteStore';
 import { useCallStore } from '@/stores/callStore';
 import { useThemeStore } from '@/stores/themeStore';
-import { useModalFocus } from '@/hooks/useModalFocus';
+import { focusInitialIn, useModalFocus } from '@/hooks/useModalFocus';
 import { can, PERMISSIONS } from '@/utils/permissions';
 import { apiService, apiErrorText } from '@/services/api';
 import { Avatar } from '@/components/Avatar';
@@ -47,6 +48,45 @@ export function CommandPalette({
   const listRef = useRef<HTMLDivElement>(null);
 
   useModalFocus(isOpen, dialogRef, close);
+
+  // ── Портал в текущий fullscreen-элемент (M6 T11, шаг 2) ──────────────────
+  // Палитра монтировалась соседом .app-layout. Пока кнопка «на весь экран»
+  // (решение 24) держит .call-stage в fullscreen, top layer рисует ТОЛЬКО сам
+  // fullscreen-элемент и его потомков — палитра оставалась смонтированной,
+  // ловила фокус и поднимала isBlockingOverlayOpen() (то есть глушила ⌘K и
+  // Ctrl+Shift+F), но не отрисовывалась ни на один пиксель. Замерено:
+  // elementFromPoint в центре диалога возвращал <html>.
+  //
+  // Тот же приём уже применён к тултипу качества связи (CallStage.tsx) и к
+  // поповеру громкости (VolumeControlPopover.tsx); здесь он обобщён.
+  //
+  // Chromium держит СТЕК fullscreen-элементов (см. enterFullscreen в
+  // CallStage.tsx), поэтому хост нельзя вычислить один раз: pop со
+  // .stage-focus-main обратно на .call-stage меняет цель, не выходя из
+  // полноэкранного режима. Пересчитываем на каждый fullscreenchange —
+  // document.fullscreenElement всегда указывает на вершину стека.
+  const [host, setHost] = useState<HTMLElement>(
+    () => (document.fullscreenElement as HTMLElement | null) ?? document.body,
+  );
+  useEffect(() => {
+    const onFsChange = () =>
+      setHost((document.fullscreenElement as HTMLElement | null) ?? document.body);
+    document.addEventListener('fullscreenchange', onFsChange);
+    return () => document.removeEventListener('fullscreenchange', onFsChange);
+  }, []);
+
+  // Смена хоста портала = React размонтирует и заново монтирует поддерево, а
+  // значит DOM-фокус теряется, а эффект useModalFocus (deps [active, dialogRef])
+  // не перезапускается и вернуть его не может. Возвращаем сами. Вьюпорт при
+  // входе/выходе из fullscreen меняет размер КАДРОМ ПОЗЖЕ самого события, но
+  // здесь это неважно: фокус — не геометрия, ждать нечего.
+  useEffect(() => {
+    if (!isOpen) return;
+    // Тем же правилом, что и начальный фокус в useModalFocus: [data-autofocus],
+    // иначе первый фокусируемый. Своя копия без запасного варианта молча стала бы
+    // no-op в день, когда атрибут уедет.
+    focusInitialIn(dialogRef.current);
+  }, [host, isOpen]);
 
   // Каждое открытие — чистая палитра.
   useEffect(() => {
@@ -107,11 +147,66 @@ export function CommandPalette({
     'search-in-channel': <Search size={17} strokeWidth={1.8} className="palette-row-icon" />,
   };
 
+  // ── Решение 24(a): выйти из CSS-фуллскрина, уходя в чат (M6 T11, шаг 2b) ──
+  // AppPage.css прячет `.channel-body > .chat-area` (display: none), пока сцена
+  // звонка помечена `is-fullscreen`. Команда палитры «искать в канале», прыжок к
+  // сообщению и выбор канала уводят пользователя в чат — то есть в колонку,
+  // которой на экране нет. Замерено до починки: .chat-area оставалась
+  // display:none с боксом 0×0 после активации строки.
+  //
+  // В браузере `is-fullscreen` — производная от document.fullscreenElement
+  // (CallStage.tsx подписан на fullscreenchange), поэтому exitFullscreen()
+  // снимает и класс, и правило :has().
+  //
+  // ИЗВЕСТНОЕ ОГРАНИЧЕНИЕ: в Electron фуллскрин ведёт главный процесс
+  // (electronAPI.toggleFullscreen), document.fullscreenElement там null, а
+  // fullscreenTarget — локальный state внутри CallStage. Отсюда его не снять,
+  // а вызвать toggleFullscreen() вслепую нельзя: не будучи в фуллскрине, он в
+  // него ВОЙДЁТ. Поднимать состояние в стор ради этого не стали — CallStage
+  // размонтируется при уходе из канала звонка, и стор пережил бы это
+  // размонтирование, внеся новый дефект ради платформы, которую здесь
+  // невозможно запустить (см. CallStage.tsx, комментарий про «REASONED, NOT
+  // MEASURED»).
+  const leaveStageFullscreen = useCallback(() => {
+    if (document.fullscreenElement) void document.exitFullscreen().catch(() => {});
+  }, []);
+  const goToChat = useCallback(() => {
+    leaveStageFullscreen();
+    onShowChat();
+  }, [leaveStageFullscreen, onShowChat]);
+
+  // ── Решение 24, вторая половина: то же самое для действий, ОТКРЫВАЮЩИХ МОДАЛКУ.
+  //
+  // Найдено на ревью T11 и это РЕГРЕССИЯ, которую сделал достижимой шаг 2. Ни
+  // одна модалка приложения не портируется: AppPage.tsx рендерит Settings,
+  // CreateChannelModal, FindServerModal и «создать сервер» соседями .app-layout.
+  // Пока .call-stage держит top layer, такая модалка рисуется ЗА фоном — но при
+  // этом монтируется, забирает фокус (три из четырёх подключены к useModalFocus)
+  // и поднимает isBlockingOverlayOpen(). Ровно те три симптома, которые бриф
+  // описывает для тупика (b).
+  //
+  // До шага 2 это было недостижимо: палитра в фуллскрине фокус не забирала и ⌘K
+  // был мёртв, так что до строки действия было не добраться. Починив палитру, мы
+  // поставили пользователя в ОДИН Enter от невидимой модалки, ловящей фокус.
+  //
+  // Замерено (probe-t11-action-modal2/3.js): elementFromPoint в центре
+  // открывшихся «Настроек» и «Создать сервер» возвращал .stage-tile.
+  //
+  // Комментарий про «смена темы или открытие настроек — не навигация в чат»
+  // отвечал на шаг 2b (CSS-вариант, где вред — спрятанный .chat-area). К шагу 2
+  // (вариант top layer, где вред — ЛЮБОЙ сосед .app-layout) он отношения не имел.
+  // Выйти из фуллскрина, чтобы показать модалку, которую пользователь только что
+  // попросил, — это то, что подразумевает сам запрос.
+  const openModal = useCallback(
+    (open: () => void) => () => { leaveStageFullscreen(); open(); },
+    [leaveStageFullscreen],
+  );
+
   const canManageChannels = can(permissions, PERMISSIONS.MANAGE_CHANNELS);
   const actions: PaletteActionDef[] = useMemo(() => {
     const defs: PaletteActionDef[] = [];
     if (currentServer && canManageChannels) {
-      defs.push({ id: 'create-channel', label: t('palette.createChannel'), run: onCreateChannel });
+      defs.push({ id: 'create-channel', label: t('palette.createChannel'), run: openModal(onCreateChannel) });
     }
     if (currentChannel && callChannelId !== currentChannel.id) {
       defs.push({
@@ -120,27 +215,27 @@ export function CommandPalette({
         run: () => onJoinVoice(currentChannel),
       });
     }
-    defs.push({ id: 'open-settings', label: t('palette.openSettings'), run: onOpenSettings });
+    defs.push({ id: 'open-settings', label: t('palette.openSettings'), run: openModal(onOpenSettings) });
     defs.push({
       id: 'theme',
       label: theme === 'dark' ? t('palette.themeLight') : t('palette.themeDark'),
       run: () => setTheme(theme === 'dark' ? 'light' : 'dark'),
     });
-    defs.push({ id: 'create-server', label: t('palette.createServer'), run: onCreateServer });
-    defs.push({ id: 'find-server', label: t('palette.findServer'), run: onFindServer });
+    defs.push({ id: 'create-server', label: t('palette.createServer'), run: openModal(onCreateServer) });
+    defs.push({ id: 'find-server', label: t('palette.findServer'), run: openModal(onFindServer) });
     if (currentChannel) {
       defs.push({
         id: 'search-in-channel',
         label: t('palette.searchInChannel', { channel: currentChannel.name }),
         run: () => {
-          onShowChat();
+          goToChat();
           usePaletteStore.getState().searchInChannel(currentChannel.id, '');
         },
       });
     }
     return defs;
   }, [t, currentServer, canManageChannels, currentChannel, callChannelId, theme,
-      onCreateChannel, onJoinVoice, onOpenSettings, setTheme, onCreateServer, onFindServer, onShowChat]);
+      onCreateChannel, onJoinVoice, onOpenSettings, setTheme, onCreateServer, onFindServer, goToChat, openModal]);
 
   const model = useMemo(
     () => buildPalette({
@@ -179,13 +274,21 @@ export function CommandPalette({
   if (!isOpen) return null;
 
   const activate = (row: PaletteRow) => {
-    if (row.kind === 'channel') { close(); onSelectChannel(row.channel); }
+    // Выбор канала тоже уводит в чат — в том числе в канал звонка, где сцена и
+    // осталась бы развёрнутой поверх спрятанной .chat-area.
+    //
+    // Действия сами решают, гасить ли фуллскрин, и решают по-разному: четыре
+    // модальных ходят через openModal, «искать в канале» — через goToChat, а
+    // «сменить тему» и «войти в голосовой» не трогают его вовсе — им нечего
+    // показывать поверх сцены. Поэтому здесь ветка action фуллскрин не трогает:
+    // это НЕ «действия его не трогают», а «это решается в самом определении».
+    if (row.kind === 'channel') { leaveStageFullscreen(); close(); onSelectChannel(row.channel); }
     else if (row.kind === 'action') { close(); row.action.run(); }
     else if (row.kind === 'message' && currentChannel) {
-      close(); onShowChat();
+      close(); goToChat();
       usePaletteStore.getState().jumpToMessage(currentChannel.id, row.message.id);
     } else if (row.kind === 'show-all' && currentChannel) {
-      close(); onShowChat();
+      close(); goToChat();
       usePaletteStore.getState().searchInChannel(currentChannel.id, trimmed);
     }
   };
@@ -219,7 +322,7 @@ export function CommandPalette({
   // row is not selectable and carries no id to point at.
   const renderedRowCount = model.groups.reduce((n, g) => n + g.rows.length, 0);
 
-  return (
+  return createPortal(
     <div className="modal-overlay palette-overlay" onClick={close}>
       <div
         ref={dialogRef}
@@ -331,6 +434,7 @@ export function CommandPalette({
           </span>
         </div>
       </div>
-    </div>
+    </div>,
+    host,
   );
 }

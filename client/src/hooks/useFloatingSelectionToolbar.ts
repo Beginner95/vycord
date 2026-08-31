@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState, type RefObject } from 'react';
+import { useCallback, useEffect, useRef, useState, type RefObject } from 'react';
+import { useEscapeDismiss } from '@/hooks/useModalFocus';
 
 export interface SelectionInfo {
   text: string;
@@ -45,6 +46,14 @@ export function useFloatingSelectionToolbar({
   getSelectionInfoRef.current = getSelectionInfo;
   onConfirmRef.current = onConfirm;
 
+  // Escape — через стек поверхностей (M6 T11, шаг 4), и только пока тулбар
+  // ВИДЕН. Раньше подписка жила внутри общего эффекта ниже и срабатывала на
+  // любой Escape, в том числе адресованный модалке над чатом. Колбэк стабилен
+  // (useCallback без зависимостей), так что токен кладётся в стек ровно один
+  // раз на показ и не всплывает наверх при перерисовке родителя.
+  const hideToolbar = useCallback(() => setState(null), []);
+  useEscapeDismiss(state !== null, hideToolbar);
+
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
@@ -63,9 +72,6 @@ export function useFloatingSelectionToolbar({
     const handleKeyUp = () => show(getSelectionInfoRef.current());
 
     const hide = () => setState(null);
-    const handleEscape = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') hide();
-    };
 
     const keyupTargetEl: Document | Element = keyupTarget === 'document' ? document : container;
 
@@ -74,7 +80,6 @@ export function useFloatingSelectionToolbar({
     container.addEventListener('scroll', hide);
     keyupTargetEl.addEventListener('keyup', handleKeyUp);
     document.addEventListener('mousedown', hide);
-    document.addEventListener('keydown', handleEscape);
     window.addEventListener('resize', hide);
 
     return () => {
@@ -83,7 +88,6 @@ export function useFloatingSelectionToolbar({
       container.removeEventListener('scroll', hide);
       keyupTargetEl.removeEventListener('keyup', handleKeyUp);
       document.removeEventListener('mousedown', hide);
-      document.removeEventListener('keydown', handleEscape);
       window.removeEventListener('resize', hide);
     };
   }, [containerRef, resubscribeKey, keyupTarget]);

@@ -1,5 +1,6 @@
 import { useEffect, useRef, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
+import { useEscapeDismiss } from '@/hooks/useModalFocus';
 
 export interface ContextMenuItem {
   label: string;
@@ -25,22 +26,23 @@ interface ContextMenuProps {
 export function ContextMenu({ x, y, items, label, onClose }: ContextMenuProps) {
   const ref = useRef<HTMLDivElement>(null);
 
+  // Escape — через стек поверхностей (M6 T11, шаг 4), а не через собственный
+  // document-слушатель: модалка, открытая ПОВЕРХ меню, теперь забирает Escape
+  // себе, а меню закрывается следующим. Меню не блокирующее — ⌘K над ним
+  // работал и должен продолжать работать.
+  useEscapeDismiss(true, onClose);
+
   useEffect(() => {
     const handleMouseDown = (e: MouseEvent) => {
       if (ref.current && !ref.current.contains(e.target as Node)) {
         onClose();
       }
     };
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
-    };
     document.addEventListener('mousedown', handleMouseDown);
-    document.addEventListener('keydown', handleKeyDown);
     document.addEventListener('scroll', onClose, true);
     window.addEventListener('resize', onClose);
     return () => {
       document.removeEventListener('mousedown', handleMouseDown);
-      document.removeEventListener('keydown', handleKeyDown);
       document.removeEventListener('scroll', onClose, true);
       window.removeEventListener('resize', onClose);
     };

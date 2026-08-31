@@ -1,9 +1,10 @@
 /* ═══ Command palette (board 2c) — 600px dialog, r16, palette shadow ═══
    Оверлей переиспользует .modal-overlay (скрим, blur, fade-in) и правит ровно
    три свойства: align-items и z-index ПЕРЕКРЫВАЮТ базовые, а padding
-   ДОБАВЛЯЕТ — .modal-overlay padding не объявляет вовсе. z-index 1150, а не
-   1000: .context-menu лежит на 1050 и иначе рисовался бы поверх палитры, а
-   1100 занято — .screen-picker-backdrop и .volume-popover (решение 10; план M5
+   ДОБАВЛЯЕТ — .modal-overlay padding не объявляет вовсе. z-index --z-palette
+   (1150), а не --z-overlay (1000): .context-menu лежит на --z-menu (1050) и
+   иначе рисовался бы поверх палитры, а --z-popover (1100) занято —
+   .screen-picker-backdrop и .volume-popover (решение 10; план M5
    и RESUME называют первый селектор screen-share-picker — такого класса в
    репозитории нет, номер при этом верный; имя пишем БЕЗ точки намеренно,
    чтобы двунаправленный скан классов не считал его селектором). Компонентный
@@ -12,7 +13,7 @@
 .palette-overlay {
   align-items: flex-start;
   padding: 12vh 16px 16px;
-  z-index: 1150;
+  z-index: var(--z-palette);
 }
 
 .palette-dialog {

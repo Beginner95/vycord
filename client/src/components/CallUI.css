@@ -8,7 +8,7 @@
 .p2p-overlay {
   position: fixed;
   inset: 40px 0 0; /* top clears the TitleBar; longhand top/right/bottom/left trips the shorthand lint rule */
-  z-index: 1000;
+  z-index: var(--z-overlay);
   display: flex;
   align-items: center;
   justify-content: center;

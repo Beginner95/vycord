@@ -475,7 +475,7 @@
 .stage-tip {
   position: fixed;
   transform: translate(-50%, -100%);
-  z-index: 1200;
+  z-index: var(--z-tooltip);
   min-width: 168px;
   padding: 10px 12px;
   background: var(--canvas);
