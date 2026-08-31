@@ -43,7 +43,6 @@
   --accent-300: #A5B4FC;
   --accent-400: #818CF8;
   --accent-500: #6366F1;
-  --own-msg-bg:    #F4F5FE;
   --own-chip-bg:   #E9ECF5;
 
   /* ── Text ── */
@@ -337,7 +336,6 @@
    rgb(255 255 255 / 7–12%), text #FFF / #E4E7F0 / #9AA2B4 / #6E778C, accent
    #6366F1 with accent-text #A5B4FC. Everything below outside that list is an
    interpolation the board does not constrain. Per token:
-     --own-msg-bg  board gives no dark own-message tint; derived from its accent.
      --muted-2     board's dark text scale has FOUR levels and --muted-2 is a
                    fifth; #8A93A8 sits between --muted #9AA2B4 and --faint
                    #6E778C, which is the only thing the scale constrains.
@@ -361,7 +359,6 @@
   --accent-text:   #A5B4FC;
   --accent-soft:   rgb(99 102 241 / 14%);
   --accent-border: rgb(99 102 241 / 35%);
-  --own-msg-bg:    rgb(99 102 241 / 12%);
   --own-chip-bg:   rgb(255 255 255 / 8%);
   --ink:     #E4E7F0;
   --muted:   #9AA2B4;
