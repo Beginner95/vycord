@@ -67,9 +67,11 @@
   color: var(--danger-text);
 }
 
-/* --track-bg, not the --bg-hover alias the brief's table maps: this is the
+/* --track-bg, not the --bg-hover alias the M5 brief's table mapped: this is the
    progress TRACK, and board 1d gives tracks their own token
-   ("slider / level-meter track"). See task-5-report.md. */
+   ("slider / level-meter track"). See task-5-report.md. (--bg-hover no longer
+   exists — M6 T13 deleted all 47 legacy aliases — so the choice this comment
+   defends is now the only one available.) */
 .attach-chip-progress {
   height: 3px;
   overflow: hidden;

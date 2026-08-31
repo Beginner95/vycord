@@ -177,9 +177,9 @@
     padding: 20px 20px 12px;
     font-size: 18px;
     font-weight: 700;
-    color: var(--text-primary);
-    border-bottom: 1px solid var(--border-subtle);
-    background: var(--bg-primary);
+    color: var(--ink);
+    border-bottom: 1px solid var(--line);
+    background: var(--canvas);
     position: sticky;
     top: 0;
     z-index: 10;
@@ -209,7 +209,7 @@
     padding: 0 20px;
     gap: 14px;
     box-shadow: none;
-    border-bottom: 1px solid var(--border-subtle);
+    border-bottom: 1px solid var(--line);
   }
 
   .server-icon::before {
@@ -220,22 +220,31 @@
     border-radius: 0;
     transform: none;
     box-shadow: none;
-    background: var(--bg-hover);
-    color: var(--text-primary);
+    background: var(--canvas-2);
+    color: var(--ink);
   }
 
   .server-icon.is-active {
     border-radius: 0;
     box-shadow: none;
-    border-left: 3px solid var(--brand-color);
+    border-left: 3px solid var(--accent);
   }
 
+  /* `border-radius` is +1px, DISCLOSED (M6 T13, decision 13). It was
+     var(--radius-lg) = 12px, a legacy alias; the canonical scale is
+     6/9/10/11/13/14/16/18/999 and has no 12px step, so both square-tile
+     surfaces in this media block take --radius-tile = 13px. MEASURED at the
+     element at 760px wide, where this block applies: 12px -> 13px, both themes.
+     (At >= 769px neither rule matches — the desktop reads are 0px for the
+     symbol and 14px for the img, inherited from `.server-icon`.) The other site
+     is `.server-icon img` at the foot of this block; the third is
+     `.auth-card::before`. */
   .server-icon-symbol {
     width: 40px;
     height: 40px;
     min-width: 40px;
-    border-radius: var(--radius-lg);
-    background: var(--bg-secondary);
+    border-radius: var(--radius-tile);
+    background: var(--panel);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -244,15 +253,15 @@
   }
 
   .server-icon.is-active .server-icon-symbol {
-    background: var(--brand-color);
-    color: var(--text-inverse);
+    background: var(--accent);
+    color: var(--white);
   }
 
   .server-icon-name {
     display: block;
     font-size: 15px;
     font-weight: 500;
-    color: var(--text-primary);
+    color: var(--ink);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -264,26 +273,29 @@
      whenever no server is selected. Dropping the block class here inverts the
      home tile's symbol in this band. */
   .server-icon.server-icon-home .server-icon-symbol {
-    background: var(--bg-primary);
-    color: var(--brand-color);
+    background: var(--canvas);
+    color: var(--accent);
   }
 
   .server-icon.server-icon-add .server-icon-symbol {
-    background: var(--green-50);
-    color: var(--green-color);
+    background: var(--online-soft);
+    color: var(--online);
     font-size: 22px;
   }
 
   .server-icon.server-icon-search .server-icon-symbol {
-    background: var(--brand-50);
-    color: var(--brand-color);
+    background: var(--accent-soft);
+    color: var(--accent);
     font-size: 16px;
   }
 
+  /* Second of decision 13's three +1px sites — see `.server-icon-symbol` above.
+     It must keep matching that rule's radius: the two paint the same 40px tile,
+     one for the initials fallback and one for an uploaded icon. */
   .server-icon img {
     width: 40px;
     height: 40px;
     min-width: 40px;
-    border-radius: var(--radius-lg);
+    border-radius: var(--radius-tile);
   }
 }

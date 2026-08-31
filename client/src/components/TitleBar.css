@@ -29,7 +29,13 @@
   color: var(--ink);
 }
 
+/* `color` was a raw `#FFF` — the last non-Auth raw colour in any `*.css`
+   (spec section 9.4, cleared by M6 T13). --white is #FFF on :root and takes no
+   dark override, so this is byte-identical in both themes: measured at this
+   element under protocol-level :hover, rgb(255, 255, 255) on rgb(231, 68, 74)
+   before and after. It stays --white rather than --stage-ink or a literal
+   because the ground is --danger, which is theme-invariant by decision. */
 .title-bar button.title-bar-close:hover {
   background: var(--danger);
-  color: #FFF;
+  color: var(--white);
 }

@@ -6,17 +6,30 @@
    `.btn` roles.
 
    The five raw hexes are gone with them, and they were three different kinds.
-   TWO were dead-alias fallbacks that could never fire (`--bg-elevated`,
-   `--bg-secondary` are both defined in tokens.css). TWO — the invalid-URL input
+   TWO were dead-alias fallbacks that could never fire (`--bg-elevated` and
+   `--bg-secondary` were both DEFINED at the time, in tokens.css's legacy-alias
+   block, so the fallback hex was unreachable. M6 T13 deleted that block; those
+   two names now resolve to nothing anywhere in the tree. Had the declarations
+   survived to T13 they would have flipped from "fallback unreachable" to
+   "fallback is the only value" — silently, since a `var(--x, hex)` is exactly
+   what silences the audit rule. They were deleted long before that). TWO — the invalid-URL input
    border and the error text — hung off `var(--danger-color, <hex>)`, and
    `--danger-color` is defined NOWHERE in the tree (verified at M4 T8:
    `rg -- '--danger-color' src/` matched only this file), so that fallback hex —
    not a token — was the colour actually rendering; `var(--danger)` /
    `.modal-error` replace them. The FIFTH was a bare three-digit white on
    `.link-dialog-submit`'s `color`, hanging off no variable at all;
-   `.btn-primary`'s `var(--white)` replaces it. (NO literal hex is written
-   anywhere in this comment — CONSTRAINTS §3's grep does not exempt comments,
-   and writing one here has already broken that gate twice in this task.)
+   `.btn-primary`'s `var(--white)` replaces it.
+
+   (This comment writes no literal hex, and that WAS a hard constraint: the M4-era
+   raw-colour grep did not exempt comments, and writing one here broke that gate
+   twice during M4 T8. **It is no longer a constraint** — M6 T13's gate,
+   `tools/t13-raw-colour-gate.mjs`, strips comments before counting anything,
+   which is why `tokens.css`, `Auth.css`, `TitleBar.css`, `ChannelSidebar.css`
+   and `ProfileSettings.css` all now quote hexes in prose to document the values
+   they REMOVED. This comment stays hex-free because it reads fine that way, not
+   because a gate still forbids it. If you hand-grep instead of running the tool,
+   strip comments first or you will count this paragraph.)
 
    `width` here ties with `.modal { width: 90%; max-width: 440px }` on
    specificity and is won by injection order only — component CSS is injected

@@ -3,12 +3,22 @@
    `.secondary` modifier, the file's only two stylelint violations) is gone —
    the avatar actions now use the shared `.btn btn-secondary` / `.btn btn-ghost`
    roles from primitives.css, so only layout and the avatar sizing live here.
-   Legacy alias names are de-aliased to the new system where an exact equivalent
-   exists (tokens.css:198 `--text-inverse` holds the same white as `--white`; :201
-   `--border-subtle: var(--line)`; :212 `--radius-full: 999px` = `--radius-pill`).
-   `--brand-300`/`--brand-500` are kept: they have no new-system pair, and
-   `EditServerModal.css:19` carries the identical gradient (rewritten in T8) —
-   changing one of the two now would desync them mid-milestone. ── */
+   M4 T7 de-aliased the names that had an exact new-system equivalent
+   (`--text-inverse` -> `--white`, `--border-subtle` -> `--line`,
+   `--radius-full` -> `--radius-pill`) and KEPT `--brand-300`/`--brand-500`,
+   which had no pair. M6 T13 finished the job: there are no legacy aliases left
+   anywhere in the tree, and the avatar gradient now reads `--accent-300` /
+   `--accent-500` — two new :root-only tokens carrying the same two literals
+   #A5B4FC and #6366F1, so the gradient is unchanged (measured, both themes:
+   `linear-gradient(135deg, rgb(165,180,252), rgb(99,102,241))`).
+
+   CORRECTION, re-verified against the tree at T13: this comment used to say
+   "`EditServerModal.css:19` carries the identical gradient — changing one of
+   the two now would desync them". That coupling no longer exists and had not
+   for some time. `EditServerModal.css` has NO gradient at all; M4 T8's rewrite
+   left `.edit-server-icon-preview` on a flat `background: var(--accent)`. The
+   only two `linear-gradient`s outside this file that use the accent ramp are in
+   `Auth.css`, and both are T13's. Nothing desyncs. ── */
 .profile-settings {
   display: flex;
   flex-direction: column;
@@ -33,7 +43,7 @@
   min-width: 96px;
   height: 96px;
   border-radius: var(--radius-pill);
-  background: linear-gradient(135deg, var(--brand-300), var(--brand-500));
+  background: linear-gradient(135deg, var(--accent-300), var(--accent-500));
   font-size: 34px;
   font-weight: 700;
   color: var(--white);

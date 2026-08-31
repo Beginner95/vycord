@@ -149,13 +149,13 @@
   transition: opacity var(--transition), background var(--transition), color var(--transition);
 }
 
-.user-item:hover .call-user-btn {
-  opacity: 1;
-}
-
 .call-user-btn:hover {
   background: var(--online-soft);
   color: var(--online-text);
+}
+
+.user-item:hover .call-user-btn {
+  opacity: 1;
 }
 
 /* ── Invite card (pinned bottom) ── */
@@ -217,9 +217,9 @@
   padding: 16px 16px 12px;
   font-size: 16px;
   font-weight: 700;
-  color: var(--text-primary);
-  background: var(--bg-primary);
-  border-bottom: 1px solid var(--border-subtle);
+  color: var(--ink);
+  background: var(--canvas);
+  border-bottom: 1px solid var(--line);
 }
 
 @media (width <= 768px) {

@@ -9,6 +9,40 @@
   --accent-text:   #4F46E5;
   --accent-soft:   #EEF2FF;
   --accent-border: #DDE2FF;
+
+  /* Three fixed steps of the indigo ramp, declared on :root ONLY and therefore
+     THEME-INVARIANT — deliberately, not by omission (M6 T13, decision 15).
+     They exist because two decorative gradients need a LIGHTER-to-DARKER pair
+     that reads the same on either theme, which no theme-split token can give:
+       .auth-card::before      (Auth.css)            --accent-400 -> --accent
+       .profile-avatar-large   (ProfileSettings.css) --accent-300 -> --accent-500
+     and because TWO shadow tints on Auth were raw rgb() literals of #6366F1
+     that the spec 9.4 gate had to clear without changing a pixel
+     (`.auth-btn:hover` and `.auth-card::before`, both now color-mix on
+     --accent-500). Auth's THIRD raw literal, `.auth-error`'s border, is NOT one
+     of these and DID change a pixel: it was #EF4444, which no canonical token
+     reproduces, and it moved to --danger #E7444A. Disclosed in
+     docs/superpowers/plans/m6-colour-deltas.json and approved on the record.
+
+     They REPLACE the legacy --brand-300/-400/-500, which were also :root-only
+     and carried the same three literals; declaring these :root-only preserves
+     both themes' rendering exactly. MEASURED before and after, both themes:
+     .profile-avatar-large's gradient stays
+     `linear-gradient(135deg, rgb(165,180,252), rgb(99,102,241))`.
+
+     DO NOT "fix" these by pointing them at --accent. #6366F1 IS the dark
+     theme's --accent (light is #4F46E5) and #818CF8 IS the dark --accent-hover,
+     which is exactly why --stage-accent and --stage-accent-hover carry the same
+     two literals: a surface that must not flip with the theme pins the dark
+     value. Repointing --accent-500 at --accent would change light theme.
+     The ONE gradient stop that legitimately IS theme-split stayed on the
+     theme-split token: `.auth-card::before`'s SECOND stop was --brand-600,
+     whose definition was `var(--accent)`, and it reads var(--accent) now —
+     measured rgb(79,70,229) light / rgb(99,102,241) dark, unchanged. (Cited by
+     selector, not line number: this comment's own insertion moved that line.) */
+  --accent-300: #A5B4FC;
+  --accent-400: #818CF8;
+  --accent-500: #6366F1;
   --own-msg-bg:    #F4F5FE;
   --own-chip-bg:   #E9ECF5;
 
@@ -368,72 +402,28 @@
   --focus-ring: 0 0 0 3px rgb(99 102 241 / 25%);
 }
 
-/* ═══════════════════════════════════════════════════════
-   LEGACY ALIASES — DELETE IN M6.
-   Every pre-redesign token name maps onto the new system so
-   not-yet-migrated CSS keeps rendering coherently.
-   ═══════════════════════════════════════════════════════ */
-:root, [data-theme="dark"] {
-  --bg-base:      var(--canvas-2);
-  --bg-primary:   var(--canvas);
-  --bg-secondary: var(--panel);
-  --bg-tertiary:  var(--line);
-  --bg-elevated:  var(--canvas);
-  --bg-hover:     var(--canvas-2);
-  --bg-active:    var(--accent-soft);
-  --brand-color:  var(--accent);
-  --brand-hover:  var(--accent-hover);
-  --brand-subtle: rgb(79 70 229 / 10%);
-  --brand-50:     var(--accent-soft);
-  --brand-100:    #E0E7FF;
-  --brand-200:    var(--accent-border);
-  --brand-300:    #A5B4FC;
-  --brand-400:    #818CF8;
-  --brand-500:    #6366F1;
-  --brand-600:    var(--accent);
-  --brand-700:    #4338CA;
-  --green-50:    var(--online-soft);
-  --green-500:   var(--online);
-  --green-600:   var(--online-text);
-  --green-color: var(--online);
-  --red-50:      var(--danger-soft);
-  --red-500:     var(--danger);
-  --red-600:     var(--danger-text);
-  --red-color:   var(--danger);
-  --yellow-50:   #FFFBEB;
-  --yellow-500:  #F59E0B;
-  --yellow-color:#F59E0B;
-  --blue-500:    #3B82F6;
-  --blue-color:  #3B82F6;
-  --text-primary:   var(--ink);
-  --text-secondary: var(--muted);
-  --text-muted:     var(--muted-2);
-  --text-link:      var(--accent);
-  --text-inverse:   #FFF;
-  --border-color:  var(--line-strong);
-  --border-subtle: var(--line);
-  --shadow-sm: var(--shadow-row);
-  --shadow-md: var(--shadow-card);
-  --shadow-lg: var(--shadow-menu);
-  --shadow-xl: var(--shadow-modal);
-  --radius-sm:   6px;
-  --radius-md:   9px;
-  --radius-lg:   12px;
-  --radius-xl:   16px;
-  --radius-full: 999px;
-}
+/* The legacy-alias block used to follow this line, and it is GONE.
+   47 pre-redesign names in 50 declarations (`:root, [data-theme="dark"]` plus a
+   trailing `[data-theme="dark"]` carrying three dark overrides), deleted whole
+   by M6 T13. 28 of the 47 had live consumers and were migrated to canonical
+   tokens in the same commit; 19 were already dead.
 
-/* Still part of the LEGACY ALIASES block above — dark-theme overrides for
-   legacy names only. Delete together with that block in M6. */
-/* stylelint-disable-next-line no-duplicate-selectors -- deliberate, NOT to be
-   "fixed" by merging: this rule belongs to the LEGACY ALIASES block and M6 T13
-   deletes it whole. Merging it into the canonical dark block would move these
-   three alias overrides OUT of the alias block — the sentinel would read 47/47
-   instead of 47/50 — and OUT of T13's deletion range, so --brand-subtle's dark
-   override would survive and change Auth's dark focus ring ten tasks before the
-   decision that migrates it. The warning dies with the block. */
-[data-theme="dark"] {
-  --brand-100:    rgb(99 102 241 / 20%);
-  --brand-subtle: rgb(99 102 241 / 15%);
-  --yellow-50:    rgb(245 158 11 / 10%);
-}
+   THIS FILE NOW HAS TWO BLOCKS, NOT THREE, AND THAT IS THE END STATE. Do not
+   re-introduce a compatibility layer. `csstools/value-no-unknown-custom-properties`
+   is what enforces it: `.stylelintrc.json`'s `importFrom` is exactly this file
+   plus `base.css`, so any `var(--x)` naming a property declared in neither is a
+   parse-based lint error. That is the whole spec section 8 audit, and it works
+   only while nothing writes a FALLBACK — `var(--x, y)` silences the rule.
+   MEASURED, T13, break/restore: deleting `--bg-hover` alone took stylelint from
+   8 errors to 10, naming both its consumers; adding `var(--bg-hover, red)` at
+   one of them took it back to 9. Do not add a fallback you were not explicitly
+   told to add.
+
+   THIS COMMENT DELIBERATELY DOES NOT REPRODUCE THE OLD BANNER TEXT.
+   `alias-sentinel.mjs` anchors its span on that exact phrase, so a prose
+   mention of it here resurrects the banner with no rules behind it — status
+   WINDOW-EMPTY, a HALF-DELETION, which reports the same `0 unique / 0
+   declarations` as the correct BLOCK-ABSENT. This is not hypothetical: T13's
+   first draft of this comment quoted the banner and the sentinel reported
+   WINDOW-EMPTY on it. `--expect 0/0` alone PASSED that state; only
+   `--expect-status BLOCK-ABSENT` failed it. Always pass both. */

@@ -3,7 +3,7 @@
   height: 100vh;
   display: flex;
   flex-direction: column;
-  background: var(--bg-base);
+  background: var(--canvas-2);
 }
 
 .app-page .app-layout {
@@ -34,7 +34,7 @@
   height: 6px;
   flex-shrink: 0;
   cursor: row-resize;
-  background: var(--bg-elevated);
+  background: var(--canvas);
 
   /* Без touch-action браузер уводит вертикальный свайп по разделителю в скролл
      и глушит драг ещё до первого pointermove. */
@@ -43,7 +43,7 @@
 }
 
 .call-split-handle:hover {
-  background: var(--brand-color);
+  background: var(--accent);
 }
 
 .channel-body .chat-area {
@@ -80,15 +80,15 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--bg-elevated);
+  background: var(--canvas);
   border: none;
-  border-right: 1px solid var(--border-subtle);
-  color: var(--text-muted);
+  border-right: 1px solid var(--line);
+  color: var(--muted-2);
   cursor: pointer;
 }
 
 .sidebar-gutter:hover {
-  color: var(--text-primary);
+  color: var(--ink);
 }
 
 /* Desktop-only: collapse the left sidebar block. Scoped to min-width so the

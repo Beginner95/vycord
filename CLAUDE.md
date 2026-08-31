@@ -3,8 +3,8 @@
 Repo-wide facts only. Client-specific rules live in `client/CLAUDE.md`; read that
 one too before touching anything under `client/`.
 
-Every claim below was re-verified against the tree on **2026-08-30** at
-`bab71ef`. Where a number can drift, it is dated — re-measure, do not assume.
+Every claim below was re-verified against the tree on **2026-08-31** at M6 T13's
+commit. Where a number can drift, it is dated — re-measure, do not assume.
 
 ## Layout
 
@@ -69,15 +69,26 @@ Measure them yourself before treating any result as a regression.
 
 ### Client
 
-Run from `client/`. Expected results as of 2026-08-30, re-measured at M6 T3:
+Run from `client/`. Expected results as of 2026-08-31, re-measured at M6 T13:
 
 ```bash
-npx tsc --noEmit                 # exit 0, no output
-npm run check:i18n               # "непереведённых строк не найдено."
-npm run lint:css 2>&1 | tail -3  # ✖ 51 problems
-npm test 2>&1 | tail -6          # Test Files 1 failed | 35 passed (36)
-                                 # Tests      3 failed | 227 passed (230)
+npx tsc --noEmit                    # exit 0, no output
+npm run check:i18n                  # "непереведённых строк не найдено."
+npx stylelint "src/**/*.css"        # exit 0, no output
+npm test 2>&1 | tail -6             # Test Files 1 failed | 37 passed (38)
+                                    # Tests      3 failed | 254 passed (257)
 ```
+
+**Both "no output" lines mean literally zero bytes** — measured with
+`npx tsc --noEmit > f 2>&1; wc -c f` → `0`. If your terminal prints something
+like `TypeScript: No errors found`, that is **your output filter, not `tsc`**;
+do not write it into this file as expected output. (It was, once, by M6 T13, and
+was corrected in the same commit.)
+
+The stylelint line is `npx stylelint` rather than `npm run lint:css` on purpose:
+the npm script prints a two-line banner of its own, so `npm run lint:css | tail -3`
+shows the banner and a blank line even when stylelint is silent — output that
+looks like a result and is not.
 
 **`npm test` is RED at baseline and has been since M1.** Exactly 3 tests in
 `src/services/__tests__/api.network-retry.test.ts` were merged without their
@@ -91,25 +102,45 @@ implementation:
 asserts does not exist, and writing it is a behaviour change nobody asked for.
 The gate is that **no other file appears in a `FAIL` line**.
 
-The `51` is a **dated baseline, not an invariant** — it has moved twice in M6
-alone: `188` → `54` (T2's `stylelint --fix` notation normalisation) → `51` (T3
-cleared the 2 `csstools/value-no-unknown-custom-properties` in `UserList.css` and
-suppressed the 1 `no-duplicate-selectors` in `tokens.css`). Re-measure rather than
-reasoning arithmetically from it.
+**The stylelint number is now ZERO, and unlike every figure before it, zero IS
+an invariant.** It moved four times in M6: `188` → `54` (T2's
+`stylelint --fix` notation normalisation) → `51` (T3 cleared the 2
+`csstools/value-no-unknown-custom-properties` in `UserList.css` and suppressed
+the 1 `no-duplicate-selectors` in `tokens.css`) → `8` (T9 and T10 cleared 43
+`selector-class-pattern`) → **`0`** (T13 deleted the 47 legacy aliases with all
+66 references, cleared the last 4 raw colour values, and reordered the 8
+`no-descending-specificity` rules by ascending specificity).
 
-The earlier note that "118 of the 188 live in `src/styles/tokens.css`" is **no
-longer true and no longer the right warning**: `tokens.css` now lints clean, and
-T2's rewrite is what removed those. As measured at M6 T3, all 51 are in five
-files and split across exactly two rules:
+Because it is zero, **any error is one you just added** — there is no debt to
+subtract from and no arithmetic to do. Two of the rules at zero are load-bearing
+audits rather than style preferences, and both are documented in
+`client/CLAUDE.md` §1:
 
-| Rule | Count | Where |
-|---|---|---|
-| `selector-class-pattern` | 43 | `ChannelSidebar.css` 16 · `ServerList.css` 14 · `UserList.css` 12 · `TitleBar.css` 1 |
-| `no-descending-specificity` | 8 | `ChannelSidebar.css` 6 · `UserList.css` 1 · `Auth.css` 1 |
+- `csstools/value-no-unknown-custom-properties` is what keeps the legacy-alias
+  layer deleted. It only sees `tokens.css` and `base.css`, and **a
+  `var(--x, fallback)` silences it** — so do not add a fallback you were not
+  explicitly told to add.
+- `no-descending-specificity` was cleared by **reordering, not suppressing**. One
+  of those reorders changes which rule wins a real equal-specificity tie — and
+  that is the point: it makes `ChannelSidebar.css`'s dark focus state resolve
+  correctly on its own, where before it depended on a lower rule to correct it.
+  The ordering note in that file names the three rules and the measurement. Do
+  not reorder them back.
 
-Check the **breakdown**, not just the total: a total reached by a different mix
-hides a new warning offsetting a cleared one. M6 T13 moves this figure again when
-it deletes the legacy-alias block.
+The per-rule breakdown that used to live here is gone with the errors it counted.
+For the record, the last non-zero census — measured at M6 T3, then cleared by T9,
+T10 and T13 — was:
+
+| Rule | Count at M6 T3 | Where | Cleared by |
+|---|---|---|---|
+| `selector-class-pattern` | 43 | `ChannelSidebar.css` 16 · `ServerList.css` 14 · `UserList.css` 12 · `TitleBar.css` 1 | T9 (13), T10 (30) |
+| `no-descending-specificity` | 8 | `ChannelSidebar.css` 6 · `UserList.css` 1 · `Auth.css` 1 | T13 (8) |
+
+**With the total at zero there is no breakdown to check, which makes the gate
+simpler and stricter, not laxer.** Previously a total reached by a different mix
+could hide a new warning offsetting a cleared one; now any output at all is a
+regression. Run it with `-f json` and pipe `2>&1` — that formatter writes to
+**stderr** — if you want a count rather than a diff of the human output.
 
 ## Never `git add -A`
 

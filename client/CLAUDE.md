@@ -21,30 +21,49 @@ git show a328a11:client/src/components/AttachmentTray.css
 Not every trunk-authored file is a VYC-82 divergence; where a rule concerns code
 that arrived from a different trunk ticket, the rule says so.
 
-All claims re-verified against the tree on **2026-08-30** at `bab71ef`.
+All claims re-verified against the tree on **2026-08-31** at M6 T13's commit —
+the numbered citations in §§1–6 were re-derived from the shipped tree in that
+commit, not carried forward. **Re-measure before trusting any of them again**:
+this file has shipped stale line numbers in every milestone so far, and T13
+alone found drift in the JS-injected table (all five rows), `--avatar-bg` /
+`--avatar-ink`, `--presence-ring` (both ends), the icon census, `primitives.css`'s
+length, the retune citation and all four shared-keyframe lines.
 
 ---
 
 ## 1. Tokens
 
 `src/styles/tokens.css` is the only file that may contain a raw colour value.
-It has three blocks:
+It has **two** blocks. It had three until M6 T13; see the note after them.
 
-Line numbers below were **re-derived from the tree at M6 T11's commit** (the
-file is **439** lines — T11 added the seven-token `--z-*` Layering block to
-`:root`, which moved every figure below by 26). They have moved in every M6 task so far, and moved twice
+Line numbers below were **re-derived from the tree at M6 T13's commit** (the
+file is **429** lines). They have moved in every M6 task so far, and moved twice
 *within* T3 — T2 added two `value-keyword-case` suppressions, T3 added four
 tokens with their rationale comments, then a large `--danger` rationale block,
 then that block grew again in review — so **run the grep, do not trust the
 numbers**. An earlier revision of this section shipped figures stale by 26
-against the very command below, which is how this warning got written:
+against the very command below, and M6 T13's first attempt shipped figures stale
+by **1** against it — measured before the last rewording of a comment inside the
+file, which is a mistake this paragraph exists to prevent and did not.
+**Re-run these after your final edit to `tokens.css`, not before it** — and note
+they return **all four** figures below, not just the two openers. An earlier
+revision documented a grep that matched only the `{` lines, so half of what the
+section asserts had no command behind it:
 
 ```bash
-grep -n '^:root {\|^\[data-theme="dark"\] {\|^:root, \[data-theme="dark"\] {' client/src/styles/tokens.css
+wc -l client/src/styles/tokens.css
+grep -n '^:root {\|^\[data-theme="dark"\] {\|^}' client/src/styles/tokens.css
 ```
 
-1. `:root` (lines 5–295) — the **canonical** light-theme tokens.
-2. `[data-theme="dark"]` (324–369) — dark overrides. Two families deliberately do
+The second prints four lines, in order: each block's **opening brace line**, then
+its **closing brace line**. **The ranges below are those brace lines
+themselves** — not the first and last declarations inside — so `:root` "5–329"
+means `:root {` is on 5 and its `}` is on 329. `^}` matches only top-level
+closers, so it also doubles as the block count: **two** hits is the end state,
+and a third means the alias layer has been re-introduced.
+
+1. `:root` (lines 5–329) — the **canonical** light-theme tokens.
+2. `[data-theme="dark"]` (358–403) — dark overrides. Two families deliberately do
    **not** appear here and must not be added: `--stage-*` and `--media-*` sit on
    ground that is dark in both themes (a call stage, a photo, the lightbox
    scrim). Their comments say so; read them before "fixing" the omission.
@@ -60,25 +79,78 @@ grep -n '^:root {\|^\[data-theme="dark"\] {\|^:root, \[data-theme="dark"\] {' cl
    failure on `.setting-warning` (2.01:1 → 4.69:1), and the dark override exists
    only to stop that light value regressing dark from 8.16:1 to 3.49:1. Do not
    "simplify" it to a single value — measured, both directions.
-3. **`LEGACY ALIASES — DELETE IN M6`** (376–439, in two rules: 376–424 plus a
-   trailing `[data-theme="dark"]` at 435–439; `alias-sentinel.mjs` reports this
-   span independently and is the better source — run it, these figures are the
-   ones that drift) — every pre-redesign name
-   (`--bg-*`, `--text-*`, `--border-*`, `--brand-*`, `--green-*`/`--red-*`/
-   `--yellow-*`/`--blue-*`, `--shadow-sm|md|lg|xl`, `--radius-sm|md|lg|xl|full`)
-   mapped onto the new system so unmigrated CSS keeps rendering. It is scheduled
-   for deletion in M6 together with its trailing `[data-theme="dark"]` block.
+
+**There is no third block any more.** The `LEGACY ALIASES` layer — 47
+pre-redesign names in 50 declarations, in a `:root, [data-theme="dark"]` rule
+plus a trailing `[data-theme="dark"]` carrying three dark overrides — was
+deleted whole by **M6 T13**, together with all 66 `var()` references to it. That
+deletion **was** the spec §8 audit. **Do not re-introduce a compatibility layer.**
+
+**The always-available check is `npx stylelint "src/**/*.css"` returning
+nothing** (see §2 — the repo total is zero). That is the tracked gate: every
+alias reference is a `csstools/value-no-unknown-custom-properties` error, because
+`importFrom` names only this file and `base.css`.
+
+The *detailed* instrument is `tools/alias-sentinel.mjs`, which reports
+`0 unique / 0 declarations` with status `BLOCK-ABSENT`. **It lives in the
+gitignored harness** (`.superpowers/sdd/<milestone>/tools/`, §8 — newest
+milestone copy only), so it is a local check, not something a clean checkout can
+run:
+
+```bash
+node .superpowers/sdd/<milestone>/tools/alias-sentinel.mjs \
+     --expect 0/0 --expect-status BLOCK-ABSENT
+```
+
+**`--expect 0/0` alone is not a gate.** It passes on `BLOCK-ABSENT` (banner and
+rules both gone — correct) *and* on `WINDOW-EMPTY` (rules gone, banner left
+behind — a half-deletion). T13 hit `WINDOW-EMPTY` for real: its replacement
+comment quoted the old banner text, the sentinel anchored on it, and the
+count-only gate passed. Always pass `--expect-status`, and never write the
+phrase `LEGACY ALIASES — DELETE IN M6` back into **`tokens.css`** — that string
+is what the sentinel anchors on, so a prose mention of it there resurrects the
+banner with no rules behind it.
 
 **Write canonical names only.** VYC-82 reached for `--bg-hover`, `--text-primary`
 and `--border-color` (`AttachmentTray.css:14,28,38,46,66`,
-`MessageAttachments.css:24,58,61,65` on the trunk) — all three are
-aliases. When M6 deletes the block, alias users lose their values silently.
+`MessageAttachments.css:24,58,61,65` on the trunk) — all three were aliases and
+**none of them exists now**. A `var()` naming one is a stylelint error, not a
+silent fallback: see the audit rule below.
 
-**No raw colour values outside `tokens.css`.** VYC-82 used `#5865f2`, `#d83c3e`
-and `#fff` (`AttachmentTray.css:19,52`, `AudioPlayer.css:18,33`,
-`MediaLightbox.css:20,22` and others on the trunk). Four raw-value sites remain
-in the migrated tree — `Auth.css:90,127,140` and `TitleBar.css:34` — and they are
-**M6's job**, not a licence to add more.
+**No raw colour values outside `tokens.css`, and there are now ZERO.** VYC-82
+used `#5865f2`, `#d83c3e` and `#fff` (`AttachmentTray.css:19,52`,
+`AudioPlayer.css:18,33`, `MediaLightbox.css:20,22` and others on the trunk). The
+last four in the migrated tree — `Auth.css:90,127,140` and `TitleBar.css:34` —
+were cleared by M6 T13, which is spec §9.4's half of the audit.
+
+Unlike the alias rule, **stylelint does not check this one** — there is no rule
+configured for it, so the check is a script in the gitignored harness (§8), local
+only:
+
+```bash
+node .superpowers/sdd/<milestone>/tools/t13-raw-colour-gate.mjs
+```
+
+It covers **hex, the `rgb()/hsl()/lab()/oklch()` family, AND bare named colours**
+(`color: white` is the species this codebase actually shipped), and it **strips
+comments before counting** — §8.1's trap, which produced a wrong census three
+separate times here, and which now matters more than ever because the tree
+carries comments quoting the very literals that were removed. If the harness is
+not to hand, the hand-equivalent is a comment-stripped grep for those three
+families over `src/**/*.css` excluding `tokens.css`.
+
+A tint derived from a token is **not** a raw value:
+`color-mix(in srgb, var(--accent-500) 35%, transparent)` is how `Auth.css`
+replaced two of the four, and `UserList.css:127,128` used the construct first.
+Chrome serialises the result as `color(srgb …)` rather than `rgba(…)`; that is a
+notation change, not a colour change (measured on painted pixels, two reads,
+each with its own sensitivity floor). §9.4's **permanently exempt** non-CSS
+allowlist is `utils/avatarColor.ts:5–12` (the 8-colour avatar palette §4.3
+mandates), `AvatarCropModal.tsx:109,116` (`ctx.fillStyle`/`strokeStyle`, which
+cannot read a custom property) and `Avatar.tsx:34` (the `#FFFFFF` fallback in
+`var(--avatar-ink, #FFFFFF)`). One more site is exempt by nature: the checkmark
+`data:` URI at `primitives.css:492` carries `stroke='white'` inside an inline
+SVG, where no custom property can reach.
 
 ### Custom properties that cross the JS/CSS boundary
 
@@ -89,42 +161,61 @@ properties declared in `tokens.css` and `base.css` (`.stylelintrc.json`'s
 **(a) JS-injected, CSS-consumed — five properties. A `var()` reference to one
 MUST carry a fallback.**
 
+Line numbers re-derived at M6 T13; every one of the five had drifted.
+
 | Property | Injected at |
 |---|---|
-| `--speak-level` | `CallStage.tsx:288,343,942,997`, `CallUI.tsx:200,221` |
-| `--slider-fill` | `AvatarCropModal.tsx:218`, `settings/AudioSettings.tsx:162` |
-| `--meter-level` | `settings/AudioSettings.tsx:235` |
-| `--call-stage-height` | `pages/AppPage.tsx:643` |
+| `--speak-level` | `CallStage.tsx:313,368,1000,1055`, `CallUI.tsx:200,221` |
+| `--slider-fill` | `AvatarCropModal.tsx:219`, `settings/AudioSettings.tsx:166` |
+| `--meter-level` | `settings/AudioSettings.tsx:250` |
+| `--call-stage-height` | `pages/AppPage.tsx:686` |
 | `--avatar-color` | `Avatar.tsx:32` |
 
 Measured, not assumed: `primitives.css:235,268` write `var(--slider-fill, 0%)` /
 `var(--meter-level, 0%)` and lint clean.
 
 **This was a live violation of the contract's own rule until M6 T3, and is now
-closed.** `UserList.css:111,112` used to write bare `var(--avatar-color)` inside
-`color-mix()` and produce two `Unexpected custom property "--avatar-color"`
-errors — the last 2 of that rule in the repo. T3 gave both a fallback
+closed.** `UserList.css:127,128` (`:111,112` before T3's own comment pushed them
+down) used to write bare `var(--avatar-color)` inside `color-mix()` and produce
+two `Unexpected custom property "--avatar-color"` errors — the last 2 of that
+rule in the repo. **Note what this proves and keep it in mind before adding a
+`color-mix`: the audit rule DOES see inside `color-mix()`**, so a tint derived
+from a token is still checked. T3 gave both a fallback
 (`var(--avatar-color, var(--accent))`) and moved the root `CLAUDE.md` gate figure
 from 54 to **51** in the same commit, as this section used to instruct.
 
-**There are now zero `csstools/value-no-unknown-custom-properties` errors, and
-that zero is M6 T13's audit gate.** So the rule now cuts the other way: **do not
-add a `var(--x, fallback)` anywhere you are not explicitly told to.** A gratuitous
-fallback silences the very rule T13 uses to find unmigrated properties, and it
-does so without changing the lint total, so nothing catches it.
+**There are zero `csstools/value-no-unknown-custom-properties` errors, and that
+zero was M6 T13's audit gate.** So the rule cuts the other way: **do not add a
+`var(--x, fallback)` anywhere you are not explicitly told to.** A gratuitous
+fallback silences the rule without changing the lint total, so nothing catches
+it.
+
+**Both halves of that are measured, by break/restore, in T13's commit.** Deleting
+the single declaration `--bg-hover` from `tokens.css` took stylelint from 8
+errors to **10**, naming both of its consumers by line. Then adding a fallback at
+one of them — `var(--bg-hover, red)` — took it to **9**: the site with the
+fallback went silent while the site without it stayed flagged. Restored
+immediately, `git diff --exit-code` clean; the broken state was never committed.
+That is why the alias deletion could *be* the audit, and why one careless
+fallback would have hidden a site from it.
 
 **The rule is wider than "JS-injected": it is "not declared in `tokens.css` or
 `base.css`."** The plugin knows only those two files, so a property declared in a
 *component* stylesheet is equally invisible to it. Measured by break/restore:
-removing the fallback at `primitives.css:330` — `var(--presence-ring)` instead of
-`var(--presence-ring, var(--canvas))` — makes that line flag
-`Unexpected custom property "--presence-ring"`, even though `--presence-ring` is
-declared in `ChannelSidebar.css:271`. Restored immediately; the broken state was
-never committed. (`--presence-ring` is **not** JS-injected — it is CSS-defined
+removing the fallback at the **consumer**, `primitives.css:340` —
+`var(--presence-ring)` instead of `var(--presence-ring, var(--canvas))` — makes
+that line flag `Unexpected custom property "--presence-ring"`, even though the
+property is declared at the **declaration site**,
+`ChannelSidebar.css:367`. Restored immediately; the broken state was never
+committed. (Two different files, two different numbers — and until M6 T13's fix
+round they were coincidentally **both** `340`, which is why an earlier revision
+of this paragraph read as though one number had been copied twice. It had not;
+the declaration then moved to `:367` when that round added comment lines above
+it.) (`--presence-ring` is **not** JS-injected — it is CSS-defined
 and CSS-consumed. Documents that list it among the injected family are wrong.)
 
 **(b) CSS-declared, JS-consumed — `--avatar-bg` and `--avatar-ink`.** Declared in
-`UserList.css:106,107,111,112`, read only from `Avatar.tsx:33,34`. Stylelint
+`UserList.css:115,116,127,128`, read only from `Avatar.tsx:33,34`. Stylelint
 never sees the `var()` at all. **Renaming either declaration breaks the member
 list's avatars with no lint error, no type error and no failing test.** Grep
 `src/**/*.tsx` before touching a custom property that no `.css` file reads.
@@ -167,8 +258,11 @@ list's avatars with no lint error, no type error and no failing test.** Grep
   throughout. Token migration and class-name migration are separate axes.
   **M6 T9** cleared `UserList.css` and `TitleBar.css` (13); **M6 T10** cleared
   `ChannelSidebar.css` and `ServerList.css` (30). The whole repo total went
-  51 → 38 → **8**, and those 8 are all `no-descending-specificity`. **There is
-  no remaining debt on this rule, so any new error is one you just added.**
+  51 → 38 → 8 → **0**: M6 T13 cleared the last 8, all
+  `no-descending-specificity`, by ordering rules by ascending specificity rather
+  than by suppressing them. **Stylelint is now GREEN over `src/**/*.css`, and
+  that zero is the invariant for every rule, not just this one — any error is
+  one you just added.**
 - **Collapsing a compound to a single class changes specificity — measure the
   cascade, do not assume it.** M6 T10's plan table said
   `.server-icon.add` → `.server-icon-add`, i.e. (0,2,0) → (0,1,0). Measured with
@@ -178,7 +272,9 @@ list's avatars with no lint error, no type error and no failing test.** Grep
   tile's symbol flips from `--bg-primary`/`--brand-color` to the inverse, because
   `.server-icon.is-active .server-icon-symbol` (0,3,0) then outranks
   `.server-icon-home .server-icon-symbol` (0,2,0). It also *adds* three
-  `no-descending-specificity` errors (8 → 11). So the rail variants are written
+  `no-descending-specificity` errors (measured at the time as 8 → 11; the
+  baseline is **0** since M6 T13, so the same collapse would now read 0 → 3).
+  So the rail variants are written
   as **`.server-icon.server-icon-home`** (and `-add`, `-search`) — the offending
   single-segment name is gone, specificity and source order are byte-identical,
   and `probe-t10-cascade.js` + `t10-scratch.js` are the measurement. T9's
@@ -227,17 +323,18 @@ has drawn blood:
 
 ## 3. Icons
 
-- **`lucide-react` only** (imported by 35 files). There is **zero** `<svg>` in
+- **`lucide-react` only** (imported by 36 files). There is **zero** `<svg>` in
   `src/`. VYC-82 hand-inlined a paperclip path
   (`AttachmentButton.tsx:51` on the trunk).
 - **`strokeWidth={1.8}` on every icon, and an explicit `size` on every icon.**
-  163 `strokeWidth=` occurrences, all `1.8`; 163 `size={N}` occurrences. A
-  brace-aware scan of every lucide tag in `src/` (162 delimited, including
-  multi-line tags and tags with arrow-function props) found **zero** missing
-  either prop and **zero** with a stroke width other than `1.8`. The 163/162 gap
-  is `Settings.tsx:67` — `<tab.icon size={16} strokeWidth={1.8} />`, a dynamic
-  component reference no by-name scan can see; it carries both props correctly,
-  so coverage is total. No exception exists; do not create the first one.
+  Re-measured at M6 T13: **165** `strokeWidth=` occurrences, all `1.8`; **165**
+  `size={N}` occurrences. A brace-aware scan of every lucide tag in `src/`
+  (**164** delimited, including multi-line tags and tags with arrow-function
+  props) found **zero** missing either prop and **zero** with a stroke width
+  other than `1.8`. The 165/164 gap is still `Settings.tsx:67` —
+  `<tab.icon size={16} strokeWidth={1.8} />`, a dynamic component reference no
+  by-name scan can see; it carries both props correctly, so coverage is total.
+  No exception exists; do not create the first one.
 - Sizes are surface-density-dependent, not a
   fixed range: 10–15 for badges, chevrons and inline chips; 16–21 for standard
   controls (the common case); 22–28 for empty-state and hero glyphs. Match the
@@ -249,7 +346,8 @@ has drawn blood:
 
 ## 4. Primitives
 
-`src/styles/primitives.css` (744 lines) owns the shared vocabulary:
+`src/styles/primitives.css` (**701** lines, re-counted at M6 T13) owns the
+shared vocabulary:
 
 `.btn` + `.btn-primary|-secondary|-ghost|-danger|-danger-soft` · `.input` ·
 `.kbd` · `.toggle-switch` / `.toggle-track` · `.select-wrap` / `.select-control` /
@@ -406,19 +504,20 @@ Escape.
 
 - **Enter/exit motion is ≤250ms with `var(--ease-out)`.** `--transition` is
   `0.16s var(--ease-out)`; observed durations are 0.08–0.22s.
-  `primitives.css:715` records the one deliberate retune (0.3s → 0.22s) with its
+  `primitives.css:672` records the one deliberate retune (0.3s → 0.22s) with its
   reason. Infinite loops and one-shot attention flashes are exempt and are the
   only things above the budget: `chat-shimmer` 1.2s, `msg-jump-flash` 2.2s,
   `p2p-pulse` 2.5s, `stage-eq-bar` / `message-search-spin` 0.7s.
 - **`linear` is correct for continuous-value fills, and only those.** A meter or
   progress bar tracking a live number must not ease, or the bar lags the value:
   `primitives.css:272` (`.level-meter-fill`, `width 0.08s linear`) and
-  `AttachmentTray.css:83` (`width 120ms linear`). Everything else uses
+  `AttachmentTray.css:85` (`width 120ms linear`). Everything else uses
   `var(--ease-out)`.
-- **Four shared keyframes live in `primitives.css`** — `fade-in` (:362),
-  `scale-in` (:367), `modal-in` (:390), `slide-down` (:734). **Prefer reuse.**
-  The comment at `:346` lists every live consumer, re-derived rather than carried
-  forward; keep it accurate if you add or remove one.
+- **Four shared keyframes live in `primitives.css`** — `fade-in` (:378),
+  `scale-in` (:383), `modal-in` (:406), `slide-down` (:691). **Prefer reuse.**
+  The comment at `:356` lists every live consumer, re-derived rather than carried
+  forward; keep it accurate if you add or remove one. (All six line numbers in
+  these two bullets were re-derived at M6 T13; five of the six had drifted.)
 - Keyframe names are kebab-case (`keyframes-name-pattern`, M4 T2) and
   component-scoped ones carry the component prefix (`stage-eq-bar`,
   `message-search-spin`, `error-boundary-fade-in`).

@@ -52,7 +52,7 @@
 
 .no-server-message {
   padding: 32px 20px;
-  color: var(--text-muted);
+  color: var(--muted-2);
   font-size: 14px;
   text-align: center;
   line-height: 1.6;
@@ -135,7 +135,13 @@
   min-width: 24px;
   padding: 0 5px;
   border: none;
-  border-radius: 999px; /* не var(--radius-full): 50% на широкой пилюле даёт эллипс */
+
+  /* --radius-pill (999px), не 50%: на широкой пилюле 50% даёт эллипс.
+     Раньше здесь стоял литерал 999px с комментарием «не var(--radius-full)» —
+     но --radius-full и сам был 999px, так что отвергать стоило именно 50%, а не
+     токен. M6 T13 удалил все 47 легаси-алиасов; канонический эквивалент —
+     --radius-pill, те же 999px, значение не меняется. */
+  border-radius: var(--radius-pill);
   background: transparent;
   color: var(--muted-2);
   cursor: pointer;
@@ -160,25 +166,52 @@
   transition: max-width var(--transition), opacity var(--transition);
 }
 
-.channel-row:hover .channel-join-voice,
-.channel-join-voice:focus-visible {
-  opacity: 1;
-  gap: 6px;
-  padding: 0 10px 0 8px;
-  background: var(--accent);
-  color: var(--white);
-}
+/* ── THE SEVEN RULES BELOW ARE ORDERED BY ASCENDING SPECIFICITY ON PURPOSE.
+   M6 T13 reordered them to clear this file's SIX `no-descending-specificity`
+   errors (the repo's last eight went to zero in that commit). Seven rules, six
+   errors — the counts differ and neither is a typo. Keep the order.
 
-.channel-row:hover .channel-join-voice .channel-join-voice-label,
-.channel-join-voice:focus-visible .channel-join-voice-label {
-  max-width: 110px;
-  opacity: 1;
-}
+   (0,2,0)  .channel-join-voice:active                       transform
+   (0,2,0)  .channel-join-voice:focus-visible                outline, box-shadow
+   (0,2,0)  [data-theme="dark"] .channel-join-voice          color, opacity
+   (0,2,0)/(0,3,0)  :focus-visible, .channel-row:hover …     the expanded pill
+   (0,3,0)  [data-theme="dark"] … :focus-visible             color, opacity
+   (0,3,0)/(0,4,0)  … .channel-join-voice-label              the label reveal
+   (0,4,0)  .channel-row:hover .channel-join-voice:hover     background
 
-.channel-row:hover .channel-join-voice:hover {
-  background: var(--accent-hover);
-}
+   MEASURED, not reasoned: every one of the six moves was applied singly, with a
+   full stylelint run after each (8→7→6→5→4→3→2→1→0 across all eight repo-wide
+   errors), and the rendered cascade was then re-read at protocol-level state —
+   rest / row:hover / row:hover+btn:hover / :focus-visible /
+   row:hover+:focus-visible / :active, in BOTH themes, at 1440 and 760 — and came
+   back byte-identical on all 168 probe keys in all four runs.
 
+   *** ONE OF THE MOVES FLIPS A REAL TIE — AND THE FLIP IS THE POINT.
+   READ THIS BEFORE REORDERING ANYTHING BACK. ***
+   Name the three rules D, P, DF, in shipped order:
+       D   [data-theme="dark"] .channel-join-voice              (0,2,0)  color, opacity
+       P   .channel-join-voice:focus-visible, .channel-row:hover …       color, opacity
+       DF  [data-theme="dark"] … :focus-visible                 (0,3,0)  color, opacity
+   D and P's FIRST member have the SAME specificity and both declare `color` and
+   `opacity`, so for a dark-theme, focus-visible, not-row-hovered button the one
+   that comes LAST wins. Moving D above P therefore hands that tie to P.
+   MEASURED, by deleting DF and reading that state under each order:
+       shipped order (D before P):   color rgb(255,255,255)  opacity 1
+       original order (P before D):  color rgb(154,162,180)  opacity 0.5
+   So **D-above-P is what makes the dark focus state read white/1 UNAIDED.**
+
+   CONSEQUENCE, and it is the opposite of what it looks like: **DF is now
+   REDUNDANT and safe to delete.** Every element DF matches also matches P's
+   first member; P precedes DF; and the two declare identical values for the only
+   two properties DF has. Measured three ways — shipped WITH DF, shipped WITHOUT
+   DF, and the original order without DF — the first two are byte-identical
+   (white/1) and only the third differs. The reorder REMOVED an order-dependency;
+   it did not create one.
+
+   DF becomes load-bearing again ONLY if P's `:focus-visible` member is narrowed
+   or removed, or if P stops declaring `color: var(--white)` / `opacity: 1`.
+   THAT is the invariant to protect: do not touch P's first selector or those two
+   declarations without re-measuring the dark focus state. */
 .channel-join-voice:active {
   transform: scale(0.96);
 }
@@ -194,9 +227,33 @@
   opacity: 0.5;
 }
 
+.channel-join-voice:focus-visible,
+.channel-row:hover .channel-join-voice {
+  opacity: 1;
+  gap: 6px;
+  padding: 0 10px 0 8px;
+  background: var(--accent);
+  color: var(--white);
+}
+
+/* This is `DF` in the ordering note above, and since M6 T13's reorder it is
+   REDUNDANT: the rule directly above already gives every element this one
+   matches the same `color` and `opacity`. Kept because deleting a rule is a
+   change nobody asked for, not because anything depends on it. It regains its
+   job the moment the rule above stops covering dark `:focus-visible`. */
 [data-theme="dark"] .channel-join-voice:focus-visible {
   color: var(--white);
   opacity: 1;
+}
+
+.channel-join-voice:focus-visible .channel-join-voice-label,
+.channel-row:hover .channel-join-voice .channel-join-voice-label {
+  max-width: 110px;
+  opacity: 1;
+}
+
+.channel-row:hover .channel-join-voice:hover {
+  background: var(--accent-hover);
 }
 
 /* Тач-устройства: hover'а нет, поэтому пилюля сразу раскрыта.
@@ -210,18 +267,25 @@
    1280×900 under touch emulation:
 
      light  opacity 0.65 · color rgb(138,144,162) (--muted-2)
-     dark   opacity 0.50 · color rgb(154,162,180) (--muted)      ← the rule at
-                                                                   :191–195
+     dark   opacity 0.50 · color rgb(154,162,180) (--muted)      ← `D`, the dark
+                                                                   REST rule
      both   height 24px · min-width 24px  → clears WCAG 2.5.8's 24×24 minimum
 
-   The dark figure is the weaker of the two, and the comment beside :191 says
+   `D` is `[data-theme="dark"] .channel-join-voice { color: var(--muted);
+   opacity: 0.5 }` — :225–228 as shipped, with its Russian comment at :224. It is
+   named by SELECTOR here as well as by line, because these three citations have
+   now gone stale twice: they read `:191–195` until M6 T13's fix round, by which
+   point :191 had drifted into the ordering note's own prose and pointed at
+   nothing. If the numbers below disagree with the file, trust the selector.
+
+   The dark figure is the weaker of the two, and `D`'s comment at :224 says
    that value «почти сливается с фоном». So on a dark, wide, touch screen this
    pill now rests permanently dim with no hover to brighten it. That is
    accepted, not overlooked: it is reachable, it clears 2.5.8, and it is the
    appearance dark DESKTOP has always shipped — bounding only stops a wide
    screen borrowing the phone's accent-expanded treatment. If the dark rest
-   state is ever judged too quiet, fix it at :191–195 for every wide screen,
-   not by unbounding this block. */
+   state is ever judged too quiet, fix it in `D` (:225–228) for every wide
+   screen, not by unbounding this block. */
 @media (hover: none) and (width < 900px) {
   .channel-join-voice {
     height: 28px;
@@ -360,17 +424,17 @@
   justify-content: center;
   flex-shrink: 0;
   padding: 6px;
-  color: var(--text-secondary);
+  color: var(--muted);
   background: none;
   border: none;
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-chip);
   cursor: pointer;
   transition: all var(--transition);
 }
 
 .mobile-back-btn:hover {
-  color: var(--text-primary);
-  background: var(--bg-hover);
+  color: var(--ink);
+  background: var(--canvas-2);
 }
 
 @media (width <= 768px) {
