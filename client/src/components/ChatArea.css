@@ -416,8 +416,17 @@
     border: none;
   }
 
+  /* `justify-content` is required here and nowhere else in this group. The
+     base rule is `display: inline-flex` with `align-items: center` and NO
+     `justify-content` — harmless at desktop, where the button is auto-width
+     around icon+label. Once this block fixes the width at 40px and hides the
+     label, the lone icon fell to the flex line's start edge: visibly off-centre
+     against `.chat-search-btn`/`.chat-call-btn`/`.chat-members-btn`, which all
+     declare `justify-content: center` in their shared rule above. Reported from
+     manual QA. */
   .chat-voice-btn {
     gap: 0;
+    justify-content: center;
     width: 40px;
     height: 40px;
     padding: 0;
@@ -442,11 +451,18 @@
    siblings (EmojiPicker.css / StickerPicker.css) — --canvas fill, --line
    hairline, 12px radius, --shadow-popover — instead of the legacy aliases it
    arrived with. It anchors to `.composer-field`, the nearest positioned
-   ancestor. */
+   ancestor.
+
+   `right: 0`, not `left: 0`. The attach button is the second control from the
+   RIGHT end of the field (Composer.tsx:381, between the emoji toggle and send),
+   so anchoring the popover to the field's left edge opened it at the opposite
+   end of the composer from the control that owns it — reported from manual QA.
+   Right-anchoring puts its edge under the button group. Do not "restore" the
+   left anchor without moving the button. */
 .attach-picker {
   position: absolute;
   bottom: calc(100% + 8px);
-  left: 0;
+  right: 0;
   z-index: 30;
   display: flex;
   flex-direction: column;

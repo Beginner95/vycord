@@ -72,10 +72,18 @@
   display: none;
 }
 
-/* ── Left sidebar collapse toggle (desktop only) ── */
+/* ── Left sidebar collapse toggle (desktop only) ──
+   16px → 22px, requested from manual QA at M6 T15 ("too small and hard to
+   read"). The width is the binding constraint on the chevron inside it, not a
+   free style choice: at 16px the glyph could be at most 14 (see AppPage.tsx),
+   which is the bottom of the chevron band and reads as a hairline at arm's
+   length. 22px carries a 16 glyph with 3px of breathing room each side and
+   keeps the gutter narrower than any real control, which is what stops it
+   reading as a column of its own. If you shrink this back, shrink the glyph
+   with it — they were sized together. */
 .sidebar-gutter {
-  width: 16px;
-  min-width: 16px;
+  width: 22px;
+  min-width: 22px;
   flex-shrink: 0;
   display: flex;
   align-items: center;

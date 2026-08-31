@@ -1143,10 +1143,19 @@ export function CallStage({ onMobileBackToChat }: CallStageProps) {
           <span className="stage-ctl-label">{t('call.ctlScreen')}</span>
         </div>
         <div className="stage-ctl-divider" />
-        <button className="stage-leave-btn" onClick={handleLeaveGroupCall} title={t('call.leaveCall')}>
-          <PhoneOff size={16} strokeWidth={1.8} />
-          {t('call.leaveLabel')}
-        </button>
+        {/* M6 T15, from manual QA: this was the only control in the bar whose
+            label sat INSIDE the button, as a pill, while mic / camera / screen
+            all wear `.stage-ctl` — icon-only button with `.stage-ctl-label`
+            beneath. It now takes the same shape. The button keeps its own class
+            and its danger fill; only the label moved out. `.stage-leave-btn` is
+            still the selector probe-stage-mobile.js measures for the 40px tap
+            floor, so do not fold it into `.stage-ctl-btn`. */}
+        <div className="stage-ctl">
+          <button className="stage-leave-btn" onClick={handleLeaveGroupCall} title={t('call.leaveCall')}>
+            <PhoneOff size={16} strokeWidth={1.8} />
+          </button>
+          <span className="stage-ctl-label">{t('call.leaveLabel')}</span>
+        </div>
       </div>
     </div>
   );

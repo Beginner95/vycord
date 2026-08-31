@@ -1,6 +1,14 @@
-/* ── Settings modal — board 1d: 648px, 186px icon nav, pinned danger logout ── */
+/* ── Settings modal — board 1d: 186px icon nav, pinned danger logout ──
+   WIDTH IS A DISCLOSED DEVIATION FROM BOARD 1d. The board draws 648px; this
+   ships 760px, requested from manual QA at M6 T15 ("too narrow"). The pane is
+   what gains: the 186px nav is fixed, so of the +112px, MEASURED 110 land in
+   `.settings-pane` (462 → 572 at 1440px) and 2 go to the border box. Its rows
+   are a label/description block beside a control, and that is the surface that
+   felt cramped. `max-width: 92vw` is unchanged, so
+   nothing changes below ~826px viewport — including every mobile width, where
+   the modal was already vw-bound and the board's number never applied. */
 .settings-modal {
-  width: 648px;
+  width: 760px;
   max-width: 92vw;
   max-height: 82vh;
   display: flex;

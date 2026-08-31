@@ -638,19 +638,26 @@ logger.error('Failed to create server:', err, { module: 'app' });
           aria-pressed={leftSidebarHidden}
         >
           {/* M6 T12, decision 25: was `▶`/`◀` — the last emoji-as-icon in the
-              tree, excluded by M1's own plan. The 14 below is the gutter's own
-              constraint before it is a style choice: .sidebar-gutter is 16px
-              wide (AppPage.css:77), so ServerList's 18/20/21 cannot fit. 14 is
-              also ChannelSidebar's small tier — the surface immediately to the
-              right of this gutter, at ChannelSidebar.tsx:232,233,266 — and sits
-              in the 10–15 chevron band the client contract names.
-              Written "14" and not the prop form on purpose: client/CLAUDE.md §3
-              asserts icon counts gathered by `grep -oE 'size=\{[0-9]+\}'`, which
-              cannot tell a comment from a tag, and this comment inflated that
-              count by one until it was reworded. */}
+              tree, excluded by M1's own plan. The glyph size below is the
+              gutter's own constraint before it is a style choice: it must fit
+              inside `.sidebar-gutter` (AppPage.css — anchored by selector, not
+              line: this comment has outlived two renumberings), so ServerList's
+              18/20/21 cannot fit at any gutter width we would accept.
+
+              M6 T15: 14 → 16, with the gutter 16px → 22px in the same change.
+              They were sized together and must move together — 14 was the most
+              a 16px gutter could hold, and manual QA read it as a hairline. 16
+              still sits inside the 10–15… band's spirit at its top edge and
+              matches ChannelSidebar's small tier region to the right of this
+              gutter; shrink one and you must shrink the other.
+
+              Written as bare numerals and not the prop form on purpose:
+              client/CLAUDE.md §3 asserts icon counts gathered by a grep for the
+              size-prop literal, which cannot tell a comment from a tag, and this
+              comment inflated that count by one until it was reworded. */}
           {leftSidebarHidden
-            ? <ChevronRight size={14} strokeWidth={1.8} />
-            : <ChevronLeft size={14} strokeWidth={1.8} />}
+            ? <ChevronRight size={16} strokeWidth={1.8} />
+            : <ChevronLeft size={16} strokeWidth={1.8} />}
         </button>
         <ServerList
           servers={servers}

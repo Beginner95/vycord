@@ -159,7 +159,25 @@
   display: none;
 }
 
-/* ── Mobile Server List ── */
+/* ── Mobile Server List ──
+   `background` and `color` are overridden here ON PURPOSE, and the omission was
+   a real defect found in manual QA at M6 T15.
+
+   At desktop this is a 76px RAIL: `--rail` is a near-black in BOTH themes
+   (#171B29 light, #0A0C12 dark) and `--rail-muted`/`--rail-ink` are the pale
+   inks that go on it. Under decision 23 the same element becomes a FULL-SCREEN
+   LIST — and it kept the rail's dark fill while the rows it now contains switched
+   to page inks: `.server-list-mobile-header` paints `--ink` on its own `--canvas`,
+   and `.server-icon-name` below paints `--ink` with no background of its own. In
+   the light theme that is #1x-dark text on a #171B29 fill — the server names were
+   unreadable. Dark theme looked correct only because `--rail` and `--canvas` are
+   both near-black there, which is exactly why a dark-only check would have passed
+   it.
+
+   `color` moves with the background for the same reason: `.server-icon-symbol`
+   declares a `--panel` fill but no ink, so the initials inherited `--rail-muted`
+   (#C9CFDE) — pale grey on a pale panel. The is-active / home / add / search
+   symbol rules below all set their own colour and are unaffected. */
 @media (width <= 768px) {
   .server-list {
     width: 100vw;
@@ -169,6 +187,7 @@
     padding: 0;
     gap: 0;
     overflow-y: auto;
+    background: var(--canvas);
   }
 
   .server-list-mobile-header {
@@ -194,11 +213,14 @@
     align-items: stretch;
   }
 
+  /* `--rail-line` is white-at-14%, built to sit on the dark rail; on the light
+     `--canvas` fill above it is invisible. `--line` is the page hairline. */
   .server-divider {
     width: 100%;
     height: 1px;
     border-radius: 0;
     margin: 4px 0;
+    background: var(--line);
   }
 
   .server-icon {
@@ -210,6 +232,7 @@
     gap: 14px;
     box-shadow: none;
     border-bottom: 1px solid var(--line);
+    color: var(--ink);
   }
 
   .server-icon::before {
