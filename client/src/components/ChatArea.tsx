@@ -640,8 +640,14 @@ logger.error('Failed to jump to message:', err, { module: 'chat' });
             empty card renders inside an open channel.
             BOTH copies below are h1, and that is deliberate: this name is
             rendered twice on purpose (desktop one-liner + mobile two-line
-            wrapper) and ChatArea.css:377/:381 `display: none`s exactly one of
-            them at every viewport. display:none removes an element from the
+            wrapper) and two `display: none` rules in ChatArea.css hide exactly
+            one of them at every viewport — `.chat-header-title` in the base
+            block, and `.chat-header > .chat-header-name` inside
+            `@media (width <= 768px)`. **Cited by selector on purpose:** the
+            line numbers this comment used to give (:377/:381) were already
+            wrong before M6 closed — :377 is a brace and :381 is inside an
+            unrelated comment. Grep the two selectors; do not trust a number
+            here. display:none removes an element from the
             accessibility tree, so precisely one h1 is ever exposed — whereas
             promoting only one copy would leave the OTHER viewport with no h1
             at all. */}

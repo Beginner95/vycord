@@ -290,6 +290,22 @@
     text-overflow: ellipsis;
   }
 
+  /* The ACTIVE row still takes `background: var(--accent)` from the base
+     `.server-icon.is-active` rule — the mobile override above resets only
+     radius, shadow and border-left — so the row's own `color` is `--white`.
+     But `.server-icon-name` declares `--ink` on itself, which beats an
+     inherited value at any specificity, leaving dark ink on an indigo fill.
+     MEASURED at the rendered element, 760px: light **2.93:1**, dark
+     **3.61:1**, against AA's 4.5:1.
+
+     Found by the M6 final review AFTER manual QA fixed the surrounding rows —
+     same defect species as that fix (a `--rail`-era assumption meeting page
+     ink), one row over, and pre-existing rather than introduced by it.
+     (0,3,0), placed after the (0,1,0) rule it corrects. */
+  .server-icon.is-active .server-icon-name {
+    color: var(--white);
+  }
+
   /* Compound on purpose — tie (2) at the top of this file. This rule and
      `.server-icon.is-active .server-icon-symbol` above are both (0,3,0) and
      this one wins only by coming later; the home tile carries `is-active`

@@ -1940,7 +1940,7 @@ The SDD workspace is gitignored and dies with the session; **anything not writte
 
 - [x] **Step 5: Final gate sweep and commit** — *stylelint 0 bytes · `tsc` 0 bytes · `npm test` 3 failed/254 passed with `api.network-retry.test.ts` the only FAIL file · `check:i18n` clean. Commits `9bf7cd4` (code) and `ef9cd1e` (docs).*
 
-- [~] **Step 6: Hand off the integration decision** — *handed off, NOT executed. Merging a trunk and opening a PR are outward-facing acts on shared history and are the human's call, not the agent's. The instruction is recorded in the closeout §10 and RESUME §0: merge `origin/develop`, PR into it, **never rebase**.*
+- [~] **Step 6: Hand off the integration decision** — *handed off, NOT executed. Merging a trunk and opening a PR are outward-facing acts on shared history and are the human's call, not the agent's. The instruction is recorded in the closeout's final section and RESUME §0: merge `origin/develop`, PR into it, **never rebase**. (Cited by name, not number — the final review added a section and the number moved.)*
 
 Use `superpowers:finishing-a-development-branch`. **Integrate by merging `origin/develop` and then
 opening a PR into it — do NOT rebase.** `redesign` is published at `origin/redesign` and its history

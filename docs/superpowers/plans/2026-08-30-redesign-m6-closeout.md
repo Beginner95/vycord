@@ -2,7 +2,8 @@
 
 **Milestone:** M6, the last of the vycord frontend redesign.
 **Branch:** `redesign` (published at `origin/redesign` — never rebase).
-**Range:** `5de16ee..9bf7cd4` — 16 commits, 65 files, +3395/−699.
+**Range:** `5de16ee..9bf7cd4` — **15** commits, 65 files, +3395/−699 (`git rev-list --count`; the
+spine in §1 has 15 rows. An earlier revision of this line said 16 and contradicted its own table.)
 **Plan:** `2026-08-30-redesign-m6-polish.md` · **Evidence:** `m6-visual-qa-index.md` ·
 **Baseline:** `m6-colour-baseline.json` · **Deltas:** `m6-colour-deltas.json`.
 
@@ -286,7 +287,57 @@ probe — it is a second test account (§7) and a human pass per milestone.
 
 ---
 
-## 10. The integration decision — hand-off
+## 10. Final whole-branch review
+
+Run over all 15 commits on the most capable model. **Verdict: nothing blocks handoff.** Gates
+re-run independently on a clean tree: stylelint 0 bytes · `tsc` 0 bytes · `npm test` 38 files / 257
+with `api.network-retry.test.ts` the only FAIL file · `check:i18n` clean with en/ru new keys 1:1.
+Refs matched the root contract exactly. The alias migration, the twelve class renames, the
+`ChannelSidebar` reorder and decision 13's radius were each re-derived from the shipped tree rather
+than read from the diff.
+
+**Six findings, five of them documentation. Two were introduced by the closing commits — mine.**
+
+| # | Finding | Disposition |
+|---|---|---|
+| F1 | `--call-stage-height` cited at `AppPage.tsx:686`; actual **`:693`** | already fixed at `9a6fadb`, plus a grep that regenerates the whole table |
+| F2 | `primitives.css` cited `Settings.css:14` for `modal-in`; actual **`:22`** | fixed |
+| F3 | `ChatArea.tsx` cited `ChatArea.css:377/:381`; actual `:39` and `:395` — **stale before M6** | fixed, and **re-anchored by selector** |
+| F4 | this closeout said "16 commits" while its own table listed 15 | fixed |
+| F5 | `m6-colour-deltas.json` did not carry T15's three `ServerList` colour changes | fixed, with a note that geometry lives here in §9 |
+| F6 | active mobile server row: dark ink on an indigo fill | **fixed** — see below |
+
+**F1, F2 and F5 are the milestone's named failure mode recurring in the act of closing it.** F1 and F2
+were caused by comment edits in `9bf7cd4` — the same commit that fixed six unrelated bugs — and F5 by
+the fixes in that commit not being written into the ledger built to record exactly that class of
+change. That is worth stating plainly rather than quietly correcting: **the person who documented
+this failure mode four times then committed it twice more while writing the document about it.** The
+remedy that works is not more care; it is the regenerating command, which is what F1's fix now
+carries.
+
+**F6 was a real accessibility defect and is fixed.** The active server row keeps
+`background: var(--accent)` from the base `.server-icon.is-active` rule — the mobile override resets
+only radius, shadow and border-left — so the row's own `color` is `--white`. But `.server-icon-name`
+declares `--ink` **on itself**, which beats an inherited value at any specificity. Measured at the
+rendered element at 760px: **light 2.93:1, dark 3.61:1** against AA's 4.5:1. It is **pre-existing** —
+`5de16ee` already shipped it — and it is the *same species* as the manual-QA defect above, one row
+over: a `--rail`-era assumption meeting page ink. Fixed with a (0,3,0) rule after the (0,1,0) one it
+corrects; the name now reads white on the accent fill in both themes, and both clear AA.
+
+**One thing that cannot be fixed, recorded so it does not mislead.** `c936baf`'s **commit message**
+still carries the *inverted* safety claim about the `ChannelSidebar` reorder — "safe only because of a
+neighbouring rule". The in-file note, both `CLAUDE.md` contracts and §6 of this document all carry the
+corrected version (**DF is inert; the reorder removed an order dependency**), but the message is
+immutable on a published branch. **A future reader grepping the log will find the false version.**
+This paragraph is the only place that says so.
+
+**One check the review could not perform:** it had no network, so its drift-gate read came from stale
+remote refs. **I ran the gate with a real `git fetch --all --prune` at M6 close and it was empty** —
+but the fetch is the gate, and its result expires. Re-run it before merging.
+
+---
+
+## 11. The integration decision — hand-off
 
 **This is the only thing left, and it is a human call.**
 
