@@ -20,7 +20,14 @@
 }
 
 .p2p-modal {
-  width: 340px;
+  /* M6 T8 step 5: was a hard `340px`. Measured, not assumed — it did NOT
+     overflow: `.p2p-overlay` is a flex container and the default `flex-shrink: 1`
+     squeezed the modal to exactly the viewport width, so at 320px it rendered
+     edge to edge with zero gutter and a shrunk, unintended box. Fluid with a
+     max, in the shape ScreenSharePicker.css:128 already uses for the same
+     problem — 92vw leaves ~13px of gutter each side at 320px and the design's
+     340px is unchanged from 370px up. */
+  width: min(340px, 92vw);
   padding: 32px 28px;
   text-align: center;
   background: var(--canvas);

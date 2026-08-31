@@ -58,7 +58,17 @@
 
 /* Mobile-only header affordances: on desktop the channel list is always on
    screen and the sidebar CallDock covers "show call", so both would be dead
-   chrome. Turned back on in the mobile block at the bottom of this section. */
+   chrome.
+
+   Turned back on in TWO places, and the second one is the governing rule over
+   most of the range — do not delete either without reading the other:
+     · the `width <= 768px` block at the bottom of this section, and
+     · the shell, `AppPage.css`'s `width < 900px` block, at (0,2,0).
+   The shell rule is what covers 769–899, where this file's 768 block does not
+   reach (M6 T8: those affordances were dark there, and the panel model had no
+   way out). Both set `display: flex`, so they never conflict — but deleting
+   the shell rule would silently re-open that trap, and deleting this file's
+   rule would leave 0–768 relying entirely on the shell. */
 .chat-back-btn {
   display: none;
   align-items: center;
@@ -127,6 +137,13 @@
   transition: background var(--transition), color var(--transition);
 }
 
+/* Both are turned back on by the shell (AppPage.css), each in the range it
+   belongs to: `.chat-call-btn` inside the `<= 899px` panel model, and
+   `.chat-members-btn` below 1200px — spec §5 gives the member list its own
+   header toggle only once the list leaves the flow, and at >= 1200px the list
+   is always on screen, which left this button a visible, permanently dead
+   control at the default desktop width. */
+.chat-members-btn,
 .chat-call-btn {
   display: none;
 }

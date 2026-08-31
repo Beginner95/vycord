@@ -108,12 +108,23 @@
 }
 
 /* ── Mobile ──
-   M6 T7: boundary moved 768 → 899 (decision 5); the 17 component blocks at
+   M6 T7: boundary moved 768 → 900 (decision 5); the 17 component blocks at
    the old 768/769 boundary deliberately did not move — see the comment on
    the block above. This widens the single-panel mobile model to cover
    769–899px, a range where those 17 component blocks still render their
-   desktop styling; task 8's responsive band system is what reconciles them. */
-@media (width <= 899px) {
+   desktop styling. That is decision 5's DISCLOSED, ACCEPTED cost — "the shell
+   is mobile but components are desktop" — and M6 does not fix it; task 8
+   reconciles the NAVIGATION there (see the affordance block below), not the
+   styling.
+
+   M6 T8: the condition is `width < 900px`, not T7's `width <= 899px`. The
+   layout viewport is FRACTIONAL — page zoom and a fractional DPR both produce
+   non-integer widths — so `<= 899px` and the band's `900px <=` below did not
+   partition it: at 899.5px NEITHER matched and the app rendered all four
+   columns with no shell model at all. `< 900px` is exactly complementary to
+   `900px <= width` at every real number. The boundary is still 900; only the
+   comparison changed. Verified at 899, 899.5 and 900. */
+@media (width < 900px) {
   .app-page .title-bar {
     display: none;
   }
@@ -158,4 +169,76 @@
   .sidebar-gutter {
     display: none;
   }
+
+  /* ── M6 T8: the panel model's navigation affordances, restored for 769–899 ──
+
+     T7 widened the single-panel model to the 900px boundary, but every affordance
+     it depends on is still gated at `width <= 768px` inside its own component
+     file, and those 17 component blocks deliberately did not move. Measured on
+     the pre-task tree at 850×900, all four of these read `display: none` with a
+     0×0 rect while their click handlers still fired: the band booted into the
+     servers panel and servers → chat → members was a ONE-WAY TRIP. The shell
+     owns the panel model, so the shell turns its own affordances on.
+
+     Specificity, not source order (ruling C): `.app-layout X` is (0,2,0) and
+     beats each component's unscoped (0,1,0) `display: none` base rule outright.
+     Nothing here ties, so import order is irrelevant. The visual halves of
+     `.mobile-back-btn` and `.user-list-mobile-header` were hoisted to their
+     components' base rules so this stays a pure `display` flip.
+
+     `.chat-call-btn` is conditionally rendered (only while a call is live in
+     the open channel); when absent this simply matches nothing. */
+  .app-layout .mobile-back-btn,
+  .app-layout .chat-back-btn,
+  .app-layout .chat-call-btn,
+  .app-layout .stage-back-btn,
+  .app-layout .user-list-mobile-header {
+    display: flex;
+  }
+}
+
+/* ═══ M6 T8 — the responsive band system (spec §5) ═══
+
+   Four bands, three boundaries, expressed in range syntax. No fifth boundary is
+   introduced: `<= 640px` already belongs to CommandPalette.css and
+   CallStage.css and M2's layout below 640 ships as-is.
+
+   ≥ 1200px — all four columns (rail 76 / sidebar 252 / chat flex / members
+   236). This is the BASE layout and needs no media query; every band below is
+   subtractive.
+
+   iOS Safari < 16.4 does not parse range syntax and falls back to the base
+   layout here. That is an accepted cost under a standing human ruling — no
+   `max-width` duplicate is added. */
+
+/* 900–1199 — the member list leaves the flow and is revealed by
+   `.chat-members-btn`.
+
+   THE LOWER BOUND IS 900, NOT 1000 (decision 22). Spec §5 names 1000–1200 and
+   is silent on 900–999. Bounding this at 1000 would let all four columns return
+   at 900–999 — i.e. MORE columns at 950px than at 1100px — so 900 is what makes
+   the band meet the mobile model exactly, with no gap. run-bands.mjs asserts
+   that inversion cannot come back by measuring 950px and requiring the column
+   count to be monotonic across 1280/1100/950/850/600.
+
+   "No gap" is a claim about REAL widths, not integers, and it is only true
+   because the block above says `width < 900px`. Paired with `900px <= width`
+   here, the two partition the fractional layout viewport exactly; `<= 899px`
+   would have left 899 < w < 900 matching neither. run-bands.mjs samples 899.5
+   for precisely that reason. */
+@media (900px <= width < 1200px) {
+  /* (0,2,0) over UserList.css's (0,1,0) `display: flex` base. */
+  .app-layout .user-list { display: none; }
+
+  /* (0,3,0) over the line above — the reveal wins on specificity in the same
+     file, so neither rule depends on its position. */
+  .app-layout[data-members-open="1"] .user-list { display: flex; }
+}
+
+/* The members toggle is dead chrome at >= 1200px (the list is already in flow)
+   and is the only route to the list below it, so one rule covers both the
+   900–1199 band and the mobile model. (0,2,0) over ChatArea.css's (0,1,0)
+   `display: none` base. */
+@media (width < 1200px) {
+  .app-layout .chat-members-btn { display: flex; }
 }

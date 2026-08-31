@@ -218,17 +218,57 @@
    `no-descending-specificity` error, but two independent counterfactual runs
    under stylelint 17.14.1 + config-standard show the rule does NOT fire for
    this pair across the @media boundary — the ordering is a readability
-   convention, not a lint requirement.) `grid-column: 2` pulls
-   the popover out of the 42px avatar-gutter track (col 1) it would otherwise
-   land in once `position: static` makes it a real grid item. */
+   convention, not a lint requirement.)
+
+   M6 T8 step 4 splits what used to be one unbounded `(hover: none)` block into
+   REACHABILITY (this block, still unbounded) and LAYOUT (the bounded block
+   below, which is where `position: static` / `grid-column: 2` moved to).
+
+   The brief asked for a width bound on the whole block. That would have been a
+   regression, not a fix: `.msg-actions` is `opacity: 0; pointer-events: none`
+   at base and is revealed only by `:hover`/`:focus-within`, so bounding the
+   reveal at any width leaves quote/edit/delete UNREACHABLE on a hover-incapable
+   pointer above it — the exact hole this block was written to prevent. What
+   actually leaks onto a wide touch screen is the stacked action ROW (the brief's
+   own words), which is the layout half. So the reveal stays unbounded and only
+   the layout moves. */
 @media (hover: none) {
+  .msg-actions {
+    opacity: 0.9;
+    pointer-events: auto;
+  }
+}
+
+/* Layout half — a narrow-screen affordance. At >= 900px the floating popover
+   has room, so a hover-incapable wide screen keeps the popover and loses only
+   the stacked row. `< 900px` matches the shell's panel model exactly — same
+   comparison, same numeral, so a fractional width like 899.5 cannot land in the
+   shell's mobile model while this block sits it out — and adds no boundary.
+   `grid-column: 2` pulls the popover out of the 42px avatar-gutter track
+   (col 1) it would otherwise land in once `position: static` makes it a real
+   grid item.
+
+   `.msg-action-btn` sizing answers to TWO different numbers and only one of
+   them is an accessibility rule: 28×28 at base already CLEARS WCAG 2.5.8
+   (Target Size, Minimum) at 24×24, so this is a shortfall against the design
+   board's >= 40px TOUCH floor, not an accessibility violation. It is therefore
+   raised only where the board's floor applies — a touch pointer on a
+   narrow screen — and 28×28 remains conformant everywhere else. */
+@media (hover: none) and (width < 900px) {
   .msg-actions {
     position: static;
     grid-column: 2;
     justify-self: start;
     margin-top: 4px;
-    opacity: 0.9;
-    pointer-events: auto;
+  }
+
+  /* (0,2,0). The base `.msg-action-btn` 28×28 rule is (0,1,0) but is declared
+     LATER in this file, so an equal-specificity copy here would lose on source
+     order — the failure mode ruling C forbids. Scoping to the parent makes the
+     override win outright, wherever either rule sits. */
+  .msg-actions .msg-action-btn {
+    width: 40px;
+    height: 40px;
   }
 }
 

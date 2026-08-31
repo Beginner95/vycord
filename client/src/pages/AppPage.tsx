@@ -92,6 +92,10 @@ export function AppPage() {
   const [newServerIsPrivate, setNewServerIsPrivate] = useState(false);
   const [createServerError, setCreateServerError] = useState('');
   const [mobilePanel, setMobilePanel] = useState<MobilePanel>('servers');
+  // M6 T8 (spec §5, decision 22): in the 900–1199 band the member list leaves
+  // the flow and this flag is what brings it back. It is read by exactly one
+  // CSS rule, inside that band's media query — see AppPage.css.
+  const [membersOpen, setMembersOpen] = useState(false);
   const [callNotif, setCallNotif] = useState<CallNotif | null>(null);
   const [voiceParticipants, setVoiceParticipants] = useState<Map<string, string[]>>(new Map());
   const [leftSidebarHidden, setLeftSidebarHidden] = useState<boolean>(
@@ -503,6 +507,26 @@ export function AppPage() {
     handleSelectServer(server);
   };
 
+  // M6 T8 — one button, two bands. Below 900px the single-panel model owns the
+  // member list (decision 23) and `mobilePanel` is what moves; in 900–1199 the
+  // list is a column out of the flow (decision 22) and `membersOpen` is what
+  // moves. Both are set unconditionally rather than branching on a
+  // `matchMedia('(width < 900px)')`: each half has no RENDERED effect in the
+  // other's band, because the CSS rule that reads it lives inside that band's
+  // own media query, and a second copy of the 900px boundary in TypeScript
+  // could drift out of step with AppPage.css, which is the only place it
+  // belongs.
+  //
+  // Accepted, and stated precisely rather than as "inert": below 900 this also
+  // flips `membersOpen`, which nothing in that band reads, so its value on
+  // leaving the band is click-parity dependent and decides whether the list is
+  // open on a widen into 900–1199. Never observable below 900, recoverable in
+  // both directions, and cheaper than duplicating the breakpoint here.
+  const handleToggleMembers = () => {
+    setMobilePanel('members');
+    setMembersOpen((v) => !v);
+  };
+
   const handleSelectServer = async (server: Server) => {
     setCurrentServer(server);
     setMembers([]);
@@ -599,7 +623,12 @@ logger.error('Failed to create server:', err, { module: 'app' });
   return (
     <div className="app-page">
       <TitleBar />
-      <div className="app-layout" data-mobile-panel={mobilePanel} data-left-sidebar={leftSidebarHidden ? 'hidden' : 'shown'}>
+      <div
+        className="app-layout"
+        data-mobile-panel={mobilePanel}
+        data-members-open={membersOpen ? '1' : '0'}
+        data-left-sidebar={leftSidebarHidden ? 'hidden' : 'shown'}
+      >
         <button
           className="sidebar-gutter"
           onClick={toggleLeftSidebar}
@@ -656,7 +685,7 @@ logger.error('Failed to create server:', err, { module: 'app' });
             channel={currentChannel}
             user={user}
             onMobileBack={() => setMobilePanel('channels')}
-            onShowMembers={() => setMobilePanel('members')}
+            onShowMembers={handleToggleMembers}
             onJoinVoice={handleJoinVoice}
             onShowCall={
               callChannelId && callChannelId === currentChannel?.id

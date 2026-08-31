@@ -199,8 +199,30 @@
   opacity: 1;
 }
 
-/* Тач-устройства: hover'а нет, поэтому пилюля сразу раскрыта. */
-@media (hover: none) {
+/* Тач-устройства: hover'а нет, поэтому пилюля сразу раскрыта.
+
+   M6 T8 step 4 bounds this at `width < 900px` — the shell's own comparison and
+   numeral, so no fractional width can put the shell in its mobile model while
+   this block sits it out — and adds no new boundary. Unlike MessageRow's
+   `.msg-actions`, which is `opacity: 0; pointer-events: none` at rest so
+   bounding its reveal would make actions UNREACHABLE, this pill's base state is
+   painted and clickable in BOTH themes, and the two themes differ. Measured at
+   1280×900 under touch emulation:
+
+     light  opacity 0.65 · color rgb(138,144,162) (--muted-2)
+     dark   opacity 0.50 · color rgb(154,162,180) (--muted)      ← the rule at
+                                                                   :191–195
+     both   height 24px · min-width 24px  → clears WCAG 2.5.8's 24×24 minimum
+
+   The dark figure is the weaker of the two, and the comment beside :191 says
+   that value «почти сливается с фоном». So on a dark, wide, touch screen this
+   pill now rests permanently dim with no hover to brighten it. That is
+   accepted, not overlooked: it is reachable, it clears 2.5.8, and it is the
+   appearance dark DESKTOP has always shipped — bounding only stops a wide
+   screen borrowing the phone's accent-expanded treatment. If the dark rest
+   state is ever judged too quiet, fix it at :191–195 for every wide screen,
+   not by unbounding this block. */
+@media (hover: none) and (width < 900px) {
   .channel-join-voice {
     height: 28px;
     gap: 6px;
@@ -325,9 +347,30 @@
   gap: 6px;
 }
 
-/* ── Mobile Back Button (hidden on desktop) ── */
+/* ── Mobile Back Button (hidden on desktop) ──
+   M6 T8: the VISUAL half is hoisted here out of the `width <= 768px` block
+   below, which now owns nothing for this button. The single-panel model runs
+   to 899px since T7, so the shell (AppPage.css) turns the button on for that
+   whole range with one `display` flip; duplicating these ten declarations
+   there instead would be the worse trade. Nothing paints at >= 900px — the
+   rule still resolves to `display: none` — so this is a no-op on desktop. */
 .mobile-back-btn {
   display: none;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  padding: 6px;
+  color: var(--text-secondary);
+  background: none;
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: all var(--transition);
+}
+
+.mobile-back-btn:hover {
+  color: var(--text-primary);
+  background: var(--bg-hover);
 }
 
 @media (width <= 768px) {
@@ -338,25 +381,6 @@
 
   .channel-header {
     gap: 10px;
-  }
-
-  .mobile-back-btn {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background: none;
-    border: none;
-    color: var(--text-secondary);
-    cursor: pointer;
-    padding: 6px;
-    border-radius: var(--radius-sm);
-    transition: all var(--transition);
-    flex-shrink: 0;
-  }
-
-  .mobile-back-btn:hover {
-    background: var(--bg-hover);
-    color: var(--text-primary);
   }
 
   .channel {

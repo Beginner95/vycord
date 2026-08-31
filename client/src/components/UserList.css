@@ -186,8 +186,31 @@
   font-size: 12.5px;
 }
 
+/* M6 T8: the visual half of the members panel's mobile header is hoisted out
+   of the `width <= 768px` block below — see the same note in
+   ChannelSidebar.css. The single-panel model runs to 899px since T7, so the
+   shell flips `display` for the whole range and these declarations live in
+   exactly one place. Still `display: none` at >= 900px.
+
+   `.mobile-back-btn` is NOT re-declared here. Its base rule in
+   ChannelSidebar.css is an unscoped (0,1,0) selector that already reaches this
+   panel's button; the copy that used to sit in the block below was dead
+   duplication, and re-adding a `.user-list .mobile-back-btn` here would tie
+   (0,2,0) with the shell's reveal rule and hand the outcome to import order —
+   exactly the failure mode ruling C forbids. */
 .user-list-mobile-header {
   display: none;
+  align-items: center;
+  gap: 10px;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  padding: 16px 16px 12px;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-primary);
+  background: var(--bg-primary);
+  border-bottom: 1px solid var(--border-subtle);
 }
 
 @media (width <= 768px) {
@@ -196,40 +219,6 @@
     min-width: 100vw;
     display: flex;
     flex-direction: column;
-  }
-
-  .user-list-mobile-header {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    padding: 16px 16px 12px;
-    border-bottom: 1px solid var(--border-subtle);
-    font-size: 16px;
-    font-weight: 700;
-    color: var(--text-primary);
-    background: var(--bg-primary);
-    position: sticky;
-    top: 0;
-    z-index: 10;
-  }
-
-  .mobile-back-btn {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background: none;
-    border: none;
-    color: var(--text-secondary);
-    cursor: pointer;
-    padding: 6px;
-    border-radius: var(--radius-sm);
-    transition: all var(--transition);
-    flex-shrink: 0;
-  }
-
-  .mobile-back-btn:hover {
-    background: var(--bg-hover);
-    color: var(--text-primary);
   }
 
   .user-item {
