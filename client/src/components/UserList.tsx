@@ -119,12 +119,14 @@ export function UserList({ onMobileBack, voiceParticipants }: UserListProps) {
   const renderMember = (m: MemberWithUser, online: boolean) => {
     const voiceName = online ? voiceChannelNameFor(m.user_id, voiceParticipants, channels) : null;
     return (
-      <div key={m.user_id} className={`user-item${online ? '' : ' offline'}`}>
+      <div key={m.user_id} className={`user-item${online ? '' : ' is-offline'}`}>
         <span className={`user-avatar-wrap${online ? ' is-online' : ''}`}>
-          <Avatar url={m.avatar_url} username={m.username} className="user-avatar list" />
+          {/* `Avatar` REPLACES this prop, it does not append (Avatar.tsx:24,29),
+              so this is the only source of the element's classes. */}
+          <Avatar url={m.avatar_url} username={m.username} className="user-avatar-list" />
         </span>
         <div className="user-item-text">
-          <span className="username">{m.username}</span>
+          <span className="user-name">{m.username}</span>
           {voiceName && <span className="user-item-sub">{t('server.inVoice', { channel: voiceName })}</span>}
         </div>
         {online && currentUser && m.user_id !== currentUser.id && (

@@ -29,7 +29,7 @@
   color: var(--ink);
 }
 
-.title-bar button.close:hover {
+.title-bar button.title-bar-close:hover {
   background: var(--danger);
   color: #FFF;
 }

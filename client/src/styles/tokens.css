@@ -79,7 +79,7 @@
                  .stage-leave-btn (CallStage.css) · .p2p-reject-btn ·
                  .p2p-ctl-btn.is-off · .p2p-leave-btn (CallUI.css) ·
                  .unread-divider-line (ChatArea.css) ·
-                 .title-bar button.close:hover (TitleBar.css)
+                 .title-bar button.title-bar-close:hover (TitleBar.css)
         3 border .attach-chip.is-error (AttachmentTray.css) ·
                  .link-dialog .input.is-invalid (LinkDialog.css) ·
                  .sticker-dropzone.is-error (StickerManager.css)

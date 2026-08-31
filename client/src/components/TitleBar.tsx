@@ -28,7 +28,7 @@ export function TitleBar() {
           <button onClick={handleMaximize} title={t('common.maximize')}>
             <Square size={13} strokeWidth={1.8} />
           </button>
-          <button className="close" onClick={handleClose} title={t('common.close')}>
+          <button className="title-bar-close" onClick={handleClose} title={t('common.close')}>
             <X size={15} strokeWidth={1.8} />
           </button>
         </>
