@@ -206,7 +206,7 @@ export function ChannelSidebar({
             return (
               <div
                 key={channel.id}
-                className={`voice-card${isActive ? ' current' : ''}`}
+                className={`voice-card${isActive ? ' is-current' : ''}`}
                 onContextMenu={openMenu}
               >
                 <div className="voice-card-row" onClick={() => onSelectChannel(channel)}>
@@ -230,7 +230,7 @@ export function ChannelSidebar({
                         />
                         <span className="voice-participant-name">{resolveUsername(userId)}</span>
                         {mic === 'on' && <Mic size={14} strokeWidth={1.8} className="voice-participant-mic" />}
-                        {mic === 'off' && <MicOff size={14} strokeWidth={1.8} className="voice-participant-mic off" />}
+                        {mic === 'off' && <MicOff size={14} strokeWidth={1.8} className="voice-participant-mic is-off" />}
                       </div>
                     );
                   })}
@@ -247,7 +247,7 @@ export function ChannelSidebar({
           return (
             <div
               key={channel.id}
-              className={`channel${isActive ? ' active' : ''}`}
+              className={`channel-row${isActive ? ' is-active' : ''}`}
               onClick={() => onSelectChannel(channel)}
               onContextMenu={openMenu}
             >
@@ -275,7 +275,7 @@ export function ChannelSidebar({
 
       <div className="user-panel">
         <span className="user-avatar-wrap is-online">
-          <Avatar url={user?.avatar_url} username={user?.username ?? ''} className="user-avatar small" />
+          <Avatar url={user?.avatar_url} username={user?.username ?? ''} className="user-avatar-small" />
         </span>
         <div className="user-details">
           <span className="user-tag">{user?.username}</span>

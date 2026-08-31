@@ -57,9 +57,9 @@
    to one variant class rather than becoming `.user-avatar .user-avatar-list`.
    Consequence swept in the same task: `tools/smoke.mjs`'s avatar census used to
    reach this element through a bare `.user-avatar`, and now names
-   `.user-avatar-list` explicitly. `ChannelSidebar.css`'s `.user-avatar.small` is
-   the same shape and is task 10's — when it collapses, the bare `.user-avatar`
-   left in that census selector stops matching anything and must go with it. */
+   `.user-avatar-list` explicitly. M6 T10 did the same to `ChannelSidebar.css`'s
+   `.user-avatar.small` (now `.user-avatar-small`) and retired the bare
+   `.user-avatar` from that census selector, which by then matched nothing. */
 .user-avatar-list {
   width: 30px;
   height: 30px;

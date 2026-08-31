@@ -96,7 +96,7 @@
   color: var(--ink);
 }
 
-.channel {
+.channel-row {
   padding: 8px 10px;
   margin: 2px 0;
   border-radius: var(--radius-row);
@@ -110,7 +110,7 @@
   transition: background var(--transition), color var(--transition);
 }
 
-.channel .channel-hash {
+.channel-row .channel-hash {
   flex-shrink: 0;
   color: var(--muted-2);
 }
@@ -160,7 +160,7 @@
   transition: max-width var(--transition), opacity var(--transition);
 }
 
-.channel:hover .channel-join-voice,
+.channel-row:hover .channel-join-voice,
 .channel-join-voice:focus-visible {
   opacity: 1;
   gap: 6px;
@@ -169,13 +169,13 @@
   color: var(--white);
 }
 
-.channel:hover .channel-join-voice .channel-join-voice-label,
+.channel-row:hover .channel-join-voice .channel-join-voice-label,
 .channel-join-voice:focus-visible .channel-join-voice-label {
   max-width: 110px;
   opacity: 1;
 }
 
-.channel:hover .channel-join-voice:hover {
+.channel-row:hover .channel-join-voice:hover {
   background: var(--accent-hover);
 }
 
@@ -267,24 +267,24 @@
   }
 }
 
-.channel:hover {
+.channel-row:hover {
   background: var(--row-hover);
   color: var(--ink);
 }
 
-.channel.active {
+.channel-row.is-active {
   background: var(--canvas);
   box-shadow: var(--shadow-row);
   color: var(--ink);
   font-weight: 700;
 }
 
-.channel.active .channel-hash {
+.channel-row.is-active .channel-hash {
   color: var(--accent);
 }
 
 /* Board 2d: dark active nav uses accent-soft, not canvas. */
-[data-theme="dark"] .channel.active {
+[data-theme="dark"] .channel-row.is-active {
   background: var(--accent-soft);
   box-shadow: none;
 }
@@ -303,7 +303,7 @@
   --presence-ring: var(--panel-footer);
 }
 
-.user-avatar.small {
+.user-avatar-small {
   width: 34px;
   height: 34px;
   min-width: 34px;
@@ -383,7 +383,7 @@
     gap: 10px;
   }
 
-  .channel {
+  .channel-row {
     padding: 12px 14px;
     font-size: 15px;
   }
@@ -406,7 +406,7 @@
   gap: 8px;
 }
 
-.voice-card.current {
+.voice-card.is-current {
   box-shadow: var(--shadow-row);
 }
 
@@ -502,7 +502,7 @@
    (Note: as a 14px icon this is non-text content, so the applicable threshold is
    WCAG 1.4.11's 3:1, which 3.92:1 already met. It is moved because 1.4.3's
    4.5:1 is the gate this milestone measures against and the move is free.) */
-.voice-participant-mic.off {
+.voice-participant-mic.is-off {
   color: var(--danger-text);
 }
 

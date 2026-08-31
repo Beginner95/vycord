@@ -42,7 +42,7 @@ export function ServerList({
           <span>{t('server.listTitle')}</span>
         </div>
         <div
-          className={`server-icon home ${!currentServer ? 'active' : ''}`}
+          className={`server-icon server-icon-home ${!currentServer ? 'is-active' : ''}`}
           title={t('server.home')}
         >
           <span className="server-icon-symbol"><Home size={21} strokeWidth={1.8} /></span>
@@ -52,7 +52,7 @@ export function ServerList({
         {servers.map((server) => (
           <div
             key={server.id}
-            className={`server-icon ${currentServer?.id === server.id ? 'active' : ''}`}
+            className={`server-icon ${currentServer?.id === server.id ? 'is-active' : ''}`}
             onClick={() => onSelectServer(server)}
             onContextMenu={(e) => {
               const perms = useServerStore.getState().permissions.get(server.id);
@@ -73,11 +73,11 @@ export function ServerList({
           </div>
         ))}
         <div className="rail-bottom">
-          <div className="server-icon add" onClick={onCreateServer} title={t('server.create')}>
+          <div className="server-icon server-icon-add" onClick={onCreateServer} title={t('server.create')}>
             <span className="server-icon-symbol"><Plus size={20} strokeWidth={1.8} /></span>
             <span className="server-icon-name">{t('server.create')}</span>
           </div>
-          <div className="server-icon search" onClick={onOpenFindServer} title={t('server.explore')}>
+          <div className="server-icon server-icon-search" onClick={onOpenFindServer} title={t('server.explore')}>
             <span className="server-icon-symbol"><Search size={18} strokeWidth={1.8} /></span>
             <span className="server-icon-name">{t('server.explore')}</span>
           </div>

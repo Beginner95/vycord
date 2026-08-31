@@ -51,7 +51,7 @@
   height: 20px;
 }
 
-.server-icon.active::before {
+.server-icon.is-active::before {
   height: 30px;
 }
 
@@ -60,17 +60,43 @@
   color: var(--rail-ink);
 }
 
-.server-icon.active {
+.server-icon.is-active {
   background: var(--accent);
   color: var(--white);
   box-shadow: 0 0 0 3px var(--rail-line);
 }
 
-.server-icon.home {
+/* ── The three rail variants are compound ON PURPOSE. Do not "simplify". ──
+   `.server-icon.server-icon-home` / `-add` / `-search` repeat the block class
+   deliberately. Collapsing each to a bare `.server-icon-home` reads like a
+   cleanup and is a BEHAVIOUR CHANGE: it drops the rule from (0,2,0) to (0,1,0)
+   and loses two ties this file depends on. Both were measured (M6 T10,
+   protocol-level :hover on scratch tiles — tools/probe-t10-cascade.js):
+
+   1. `.server-icon.server-icon-add:hover` below declares only `background` and
+      `filter`, NO `color`. The hovered "+" gets its colour from
+      `.server-icon.server-icon-add` (0,2,0), which currently outranks
+      `.server-icon:hover` (0,2,0, earlier in the file) by source order. At
+      (0,1,0) `.server-icon:hover` wins on specificity instead and the glyph
+      flips --rail-create-ink -> --rail-ink.
+   2. At <=768px, `.server-icon.is-active .server-icon-symbol` and
+      `.server-icon.server-icon-home .server-icon-symbol` are BOTH (0,3,0) and
+      home wins only because it comes later. The home tile does carry
+      `is-active` whenever no server is selected (ServerList.tsx:45), which is
+      the mobile boot state, so at (0,2,0) the home tile's symbol inverts into
+      the generic active-server tile.
+
+   Collapsing also ADDS three `no-descending-specificity` errors (8 -> 11).
+   The single-segment `.home` / `.add` / `.search` names are gone, which is what
+   the rename was for; the compound keeps specificity and source order
+   byte-identical. `UserList.css:54` collapsed its compound safely only because
+   no bare `.user-avatar` rule existed there — `.server-icon` has both a base
+   rule and a `:hover`. */
+.server-icon.server-icon-home {
   color: var(--rail-ink);
 }
 
-.server-icon.home.active {
+.server-icon.server-icon-home.is-active {
   background: var(--accent);
   color: var(--white);
 }
@@ -87,22 +113,25 @@
   border-top: 1px solid var(--rail-line);
 }
 
-.server-icon.add {
+/* Compound on purpose — tie (1) at the top of this file. The `color` below is
+   what `.server-icon:hover` takes over if this rule drops to (0,1,0), because
+   `.server-icon.server-icon-add:hover` declares no `color` of its own. */
+.server-icon.server-icon-add {
   background: var(--rail-create-bg);
   color: var(--rail-create-ink);
 }
 
-.server-icon.add:hover {
+.server-icon.server-icon-add:hover {
   background: var(--rail-create-bg);
   filter: brightness(1.2);
 }
 
-.server-icon.search {
+.server-icon.server-icon-search {
   background: var(--rail-item);
   color: var(--rail-muted);
 }
 
-.server-icon.search:hover {
+.server-icon.server-icon-search:hover {
   background: var(--rail-item-hover);
   color: var(--rail-ink);
 }
@@ -195,7 +224,7 @@
     color: var(--text-primary);
   }
 
-  .server-icon.active {
+  .server-icon.is-active {
     border-radius: 0;
     box-shadow: none;
     border-left: 3px solid var(--brand-color);
@@ -214,7 +243,7 @@
     font-weight: 700;
   }
 
-  .server-icon.active .server-icon-symbol {
+  .server-icon.is-active .server-icon-symbol {
     background: var(--brand-color);
     color: var(--text-inverse);
   }
@@ -229,18 +258,23 @@
     text-overflow: ellipsis;
   }
 
-  .server-icon.home .server-icon-symbol {
+  /* Compound on purpose — tie (2) at the top of this file. This rule and
+     `.server-icon.is-active .server-icon-symbol` above are both (0,3,0) and
+     this one wins only by coming later; the home tile carries `is-active`
+     whenever no server is selected. Dropping the block class here inverts the
+     home tile's symbol in this band. */
+  .server-icon.server-icon-home .server-icon-symbol {
     background: var(--bg-primary);
     color: var(--brand-color);
   }
 
-  .server-icon.add .server-icon-symbol {
+  .server-icon.server-icon-add .server-icon-symbol {
     background: var(--green-50);
     color: var(--green-color);
     font-size: 22px;
   }
 
-  .server-icon.search .server-icon-symbol {
+  .server-icon.server-icon-search .server-icon-symbol {
     background: var(--brand-50);
     color: var(--brand-color);
     font-size: 16px;

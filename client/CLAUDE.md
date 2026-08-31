@@ -155,17 +155,33 @@ list's avatars with no lint error, no type error and no failing test.** Grep
   as global. They are `attachment-count-1` … `attachment-count-4` now
   (`MessageAttachments.tsx:62`, `MessageAttachments.css:13,17–19,72–74`). One
   namespace, one owner file.
-- **43 lint errors are `selector-class-pattern`, and they are not in unmigrated
-  files** — they are in files whose *class names* are not yet migrated.
-  Measured per file: `ChannelSidebar.css` 16, `ServerList.css` 14,
-  `UserList.css` 12, `TitleBar.css` 1 (43 total; every other stylesheet is
-  clean on this rule). `ChannelSidebar.css` is thoroughly migrated — it declares
+- **`selector-class-pattern` is now at ZERO, and that zero is the invariant.**
+  It was **43** for most of the redesign — `ChannelSidebar.css` 16,
+  `ServerList.css` 14, `UserList.css` 12, `TitleBar.css` 1 — all of them
+  **single-segment names** (`.channel`, `.active`, `.add`, `.home`, `.search`,
+  `.close`, `.list`, `.small`, `.offline`, `.username`, `.current`, `.off`) in
+  files that were otherwise thoroughly migrated: `ChannelSidebar.css` declares
   `--presence-ring`, carries M2-era rationale comments and uses canonical tokens
-  throughout. What still fails is the **single-segment name**: `.channel`,
-  `.active`, `.add`, `.home`, `.search`, `.close`, `.list`, `.small`,
-  `.offline`, `.username`, `.current`, `.off`. Token migration and class-name
-  migration are separate axes; a file can be done on one and not the other.
-  Pre-existing debt, not permission to add more.
+  throughout. Token migration and class-name migration are separate axes.
+  **M6 T9** cleared `UserList.css` and `TitleBar.css` (13); **M6 T10** cleared
+  `ChannelSidebar.css` and `ServerList.css` (30). The whole repo total went
+  51 → 38 → **8**, and those 8 are all `no-descending-specificity`. **There is
+  no remaining debt on this rule, so any new error is one you just added.**
+- **Collapsing a compound to a single class changes specificity — measure the
+  cascade, do not assume it.** M6 T10's plan table said
+  `.server-icon.add` → `.server-icon-add`, i.e. (0,2,0) → (0,1,0). Measured with
+  protocol-level `:hover` on scratch tiles: the hovered create tile's glyph flips
+  from `--rail-create-ink` `rgb(74,222,150)` to `--rail-ink` `rgb(228,231,240)`,
+  because `.server-icon:hover` (0,2,0) then outranks it; and at ≤768px the home
+  tile's symbol flips from `--bg-primary`/`--brand-color` to the inverse, because
+  `.server-icon.is-active .server-icon-symbol` (0,3,0) then outranks
+  `.server-icon-home .server-icon-symbol` (0,2,0). It also *adds* three
+  `no-descending-specificity` errors (8 → 11). So the rail variants are written
+  as **`.server-icon.server-icon-home`** (and `-add`, `-search`) — the offending
+  single-segment name is gone, specificity and source order are byte-identical,
+  and `probe-t10-cascade.js` + `t10-scratch.js` are the measurement. T9's
+  `.user-avatar.list` → `.user-avatar-list` collapse was safe only because no
+  bare `.user-avatar` rule existed and nothing tied against it.
 
 ### Classes that carry no CSS rule on purpose
 
@@ -185,6 +201,25 @@ e.g. `probe-attach-escape.js:50`,
 `out.lightboxClosedByEscape = !document.querySelector('.lightbox')`, which would
 have passed forever with no error, no failing test and no visual difference.
 Sweep `__tests__/` **and** `.superpowers/sdd/*/tools/*.js`.
+
+`tools/selector-sweep.mjs` automates most of that sweep (emissions, `querySelector`
+family, `classList` arguments, whole-`className` writes, literal `class=` in
+injected markup, CSS selector sites, and prose/comment references). **It sweeps
+ONE class per run — pass two `--class` flags and it exits 2 rather than answering
+for the first one only.** Three channels remain a hand-read obligation, and each
+has drawn blood:
+
+- **Selectors held in variables.** M6 T10's rename missed
+  `const railSel = '.server-icon:not(.home):not(.add):not(.search)'` in four
+  probes, because no dot-anchored rewrite matches `:not(.home)` and the sweep
+  reports the *call* (`querySelectorAll(railSel)`) as unresolvable. Found only by
+  grepping every quoted string for the class token.
+- **Markup in a data table.** `probe-dark-parity.js`'s fixtures are
+  `[html, selector]` pairs assigned to `innerHTML` through a variable, so the
+  literal `class="…"` is invisible to the sweep's markup channel.
+- **Prose without a leading dot.** The prose scan matches the token `.name`; a
+  comment saying "the off state" carries nothing to match. Read the sentences
+  *around* each prose hit.
 
 ---
 

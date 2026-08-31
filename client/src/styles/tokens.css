@@ -98,7 +98,7 @@
      The two foregrounds that failed AA on their real dark composited ground were
      moved individually to --danger-text and carry their own comments — this is
      why the census above drops from 5 fg to 3:
-       .voice-participant-mic.off (ChannelSidebar.css)  3.92:1 → 8.15:1 dark
+       .voice-participant-mic.is-off (ChannelSidebar.css)  3.92:1 → 8.15:1 dark
        .msg-mention-everyone      (MessageRow.css)      4.22:1 → 8.76:1 dark
      The three that remain measure 4.82 / 4.54 / 4.82:1 on dark ground and are
      left alone. Guarded by probe-dark-parity.js assertion A1, which fails if this
