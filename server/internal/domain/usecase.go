@@ -15,6 +15,24 @@ type AuthUseCase interface {
 	Logout(refreshToken string) error
 }
 
+type OTPUseCase interface {
+	// RequestCode выпускает и отправляет код на почту. Возвращает nil, не
+	// отправляя письма, если пользователя нет или он не подходит под
+	// purpose: ответ API не должен зависеть от существования аккаунта.
+	// Отказ по лимиту приходит как *OTPThrottledError.
+	RequestCode(email string, p OTPPurpose) error
+	// VerifyCode проверяет код и при успехе открывает сессию. Для
+	// purpose=registration дополнительно проставляет email_verified_at.
+	VerifyCode(email, code string, p OTPPurpose) (*User, string, string, error)
+}
+
+// OTPSender — узкий срез OTPUseCase для authUseCase: регистрации нужна
+// только отправка кода, а не проверка. Узкий порт вместо целого юзкейса
+// не даёт зависимости разрастись.
+type OTPSender interface {
+	RequestCode(email string, p OTPPurpose) error
+}
+
 type UserUseCase interface {
 	GetByID(id uuid.UUID) (*User, error)
 	Search(query string, limit int) ([]*User, error)
