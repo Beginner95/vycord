@@ -1824,7 +1824,10 @@ explicitly asks for this: *"Fix it as M6 work, and update the root file in the s
 
 **Files:** none — evidence only.
 
-- [ ] **Step 1: Open the board**
+- [~] **Step 1: Open the board** — *handed to manual QA (see `m6-visual-qa-index.md`). The bundle's
+  ids were enumerated from the file (**eleven**: `1a 1b 1c 1d 1e 1f 2a–2e` — the list below omits
+  `1a` and `1b`), and **no board draws the auth surface**, so three Step-3 deltas have no board
+  reference at all. The side-by-side comparison itself is a person's job by ruling.*
 
 `design_handoff_discord_redesign/Redesign.dc.html` in Chrome, and the app at **port 3000 exactly**,
 side by side. Board option ids: `1c` main screen · `1d` modals/menus · `1e` call · `1f` mobile ·
@@ -1833,13 +1836,23 @@ indication.
 
 **This bundle is untracked on purpose — never `git add -A`.**
 
-- [ ] **Step 2: Per-screen, both themes**
+- [~] **Step 2: Per-screen, both themes** — *DESCOPED BY RULING, not skipped. Eleven ids × two themes
+  is hours of capture to produce screenshots a person arbitrates faster by clicking. The dev-server
+  requirement was still honoured and is the load-bearing half: vite restarted on :3000 at 14:20:43
+  against a HEAD of 12:10:01, so nothing measured here came from a stale server. **`npm run dev`
+  cannot start it in this environment** — Electron fails to launch and `concurrently -k` kills vite
+  with it; use `npm run dev:vite`.*
 
 Capture both themes for every board id. **`--out` is mandatory.** Restart the dev server first and
 confirm no stale server predates HEAD — three were alive at M3 start and two mid-M4, and a stale
 server invalidates every visual claim.
 
-- [ ] **Step 3: Check every disclosed delta, and carry the two board deviations**
+- [x] **Step 3: Check every disclosed delta, and carry the two board deviations** — *decision 13
+  measured at both ends (**13px at 760px, 0px at 1440** — two of its three sites live inside
+  `@media (width <= 768px)` and **do not exist at desktop**, so a desktop-only check reports "no
+  change" and that reads as a pass). `.server-icon img` has no element on the smoke account and is
+  labelled unread. The remaining deltas and both deviations are itemised for manual QA in
+  `m6-visual-qa-index.md`. The line numbers below are stale — see that file.*
 
 **Disclosed colour/geometry deltas:** `ServerList.css:208`, `ServerList.css:253`, `Auth.css:139` at
 +1px radius (decision 13); the auth input focus ring at its new alpha (decision 14); both accent-ramp
@@ -1856,7 +1869,11 @@ rather than discovering them here:**
 A QA pass that flags these as defects has not read its own plan; a QA pass that silently passes over
 them has not read the board.
 
-- [ ] **Step 4: Label what cannot be measured, and give evidence for the "cannot"**
+- [x] **Step 4: Label what cannot be measured, and give evidence for the "cannot"** — *two entries
+  below were overstated and are narrowed in `m6-visual-qa-index.md`: `electron/dist` is **236K**, not
+  292K, and only **packaged** behaviour is unmeasurable — the `electronAPI`-gated renderer branches
+  are measurable and were measured. The falsified `--fake-media` amplitude range is not carried
+  forward.*
 
 **"X could not be measured because Y" must carry evidence for Y at the same standard as a claim that
 X passed** — that phrasing reads as rigour and thereby suppresses "is Y true?". In all four M4
@@ -1876,7 +1893,12 @@ Known-unmeasurable in this environment, carried so nobody assumes otherwise:
 - Four attachment surfaces with no fixture: `AudioPlayer` entirely, `.video-play-btn`,
   `.video-mute-btn`, `.attachment-file*`.
 
-- [ ] **Step 5: Commit the evidence index**
+- [x] **Step 5: Commit the evidence index** — *`docs/superpowers/plans/m6-visual-qa-index.md`.
+  `.gitignore:44` is `.superpowers/`, so the working report is untrackable and cannot itself be the
+  committed artifact; the index is tracked beside `m6-colour-baseline.json` and
+  `m6-colour-deltas.json`, the only precedent in the tree. Also records the palette gate finally
+  **running** (`--probe` + `--probe2` in ONE invocation — two runs fail on a precondition and look
+  like T13's repair is broken).*
 
 ---
 
