@@ -21,7 +21,15 @@
 .emoji-picker-grid {
   display: grid;
   flex: 1;
-  grid-template-columns: repeat(var(--emoji-cols, 8), 1fr);
+
+  /* M6 T12: was `repeat(var(--emoji-cols, 8), 1fr)`. --emoji-cols was never set
+     anywhere — not in CSS, not in JS (`grep -rn emoji-cols src/` returns this
+     line and nothing else), so the var() only ever resolved to its own fallback.
+     The fallback was also what hid it from
+     csstools/value-no-unknown-custom-properties, i.e. a guard guarding nothing
+     that additionally suppressed the rule M6 T13 uses as its audit gate. Written
+     as the constant it always was. */
+  grid-template-columns: repeat(8, 1fr);
   gap: 2px;
   padding: 8px;
   overflow-y: auto;

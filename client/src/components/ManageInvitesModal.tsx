@@ -97,7 +97,7 @@ export function ManageInvitesModal({ serverId, onClose }: ManageInvitesModalProp
           <ul className="invites-list">
             {invites.map((invite) => (
               <li key={invite.code} className="invites-row">
-                <div>
+                <div className="invites-row-main">
                   <span className="invites-code">{invite.code}</span>
                   <span className="invites-meta">
                     {t('server.invites.usesCount', { count: String(invite.uses) })}

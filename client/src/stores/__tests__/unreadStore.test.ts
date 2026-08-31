@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { useUnreadStore, firstUnreadId } from '../unreadStore';
 import type { Message } from '@/types';
 
@@ -33,9 +33,56 @@ describe('unreadStore', () => {
   it('firstUnreadId: empty list → null', () => {
     expect(firstUnreadId({ messageId: 'a', ts: '2026-08-25T10:00:00Z' }, [])).toBeNull();
   });
-  it('markRead survives a corrupt localStorage payload', () => {
+  it('markRead overwrites a corrupt localStorage payload', () => {
+    // Переименован осознанно. Под прежним именем «survives a corrupt payload»
+    // тест НЕ проверял то, что обещал: catch живёт в load(), а load() вызывается
+    // при инициализации стора, то есть на импорте модуля — раньше любого
+    // beforeEach и раньше этой строки. К моменту setItem стор уже построен, и
+    // испорченное значение здесь не читает никто. Что тест действительно
+    // проверяет — что markRead перезатирает мусор в хранилище, — и это его новое
+    // имя. Настоящую половину закрывают три теста ниже.
     window.localStorage.setItem('vycord.lastRead', '{not json');
     useUnreadStore.getState().markRead('c1', 'm1', '2026-08-25T12:00:00Z');
     expect(useUnreadStore.getState().lastRead.c1.messageId).toBe('m1');
+    expect(JSON.parse(window.localStorage.getItem('vycord.lastRead')!)).toHaveProperty('c1');
+  });
+});
+
+// load() читает localStorage ровно один раз — в аргументе create(), то есть на
+// импорте модуля. Единственный способ проверить его — импортировать модуль
+// заново после того, как хранилище уже заполнено, поэтому здесь vi.resetModules()
+// и динамический import вместо статического useUnreadStore сверху файла.
+describe('unreadStore: load() at module import', () => {
+  const freshLastRead = async () => {
+    vi.resetModules();
+    const fresh = await import('../unreadStore');
+    return fresh.useUnreadStore.getState().lastRead;
+  };
+
+  afterEach(() => {
+    window.localStorage.removeItem('vycord.lastRead');
+    vi.resetModules();
+  });
+
+  it('reads a valid payload back', async () => {
+    // Положительный контроль, без которого {} в тестах ниже неотличимо от
+    // «load() вообще не выполнялся» и все они всегда зелёные.
+    const mark = { messageId: 'm9', ts: '2026-08-25T12:00:00Z' };
+    window.localStorage.setItem('vycord.lastRead', JSON.stringify({ c9: mark }));
+    expect(await freshLastRead()).toEqual({ c9: mark });
+  });
+
+  it('falls back to {} on a syntactically corrupt payload (the catch)', async () => {
+    window.localStorage.setItem('vycord.lastRead', '{not json');
+    expect(await freshLastRead()).toEqual({});
+  });
+
+  it('falls back to {} on valid JSON that is not an object (the typeof guard)', async () => {
+    // Отдельная ветка от catch: JSON.parse('42') не бросает, и без проверки
+    // typeof стор получил бы число вместо словаря отметок.
+    window.localStorage.setItem('vycord.lastRead', '42');
+    expect(await freshLastRead()).toEqual({});
+    window.localStorage.setItem('vycord.lastRead', 'null');
+    expect(await freshLastRead()).toEqual({});
   });
 });

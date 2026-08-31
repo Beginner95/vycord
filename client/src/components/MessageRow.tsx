@@ -23,7 +23,13 @@ function renderMessageContent(content: string, members: MemberWithUser[], t: TFu
     }
     if (token.type === 'role') {
       return (
-        <span key={i} className="msg-mention msg-mention-role">
+        // M6 T12: `msg-mention-role` dropped. It carried no CSS rule anywhere
+        // (pre-existing since before M2), so it changed nothing visually, and it
+        // is not an identity hook either — selector-sweep reports 0 CSS sites,
+        // 0 querySelector sites and 0 prose references, so no probe addresses it.
+        // Removed rather than given a rule: the design board says nothing about
+        // role mentions, so styling them would be unrequested design.
+        <span key={i} className="msg-mention">
           @{t(LEGACY_ROLE_KEYS[token.value])}
         </span>
       );

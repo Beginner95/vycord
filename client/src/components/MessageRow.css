@@ -334,6 +334,34 @@
   animation: msg-jump-flash 2.2s var(--ease-out);
 }
 
+/* M6 T12: an OWN row needs its own end frame. msg-jump-flash lands on
+   `background: transparent`, which for 2.2s overrides .msg-row.is-own's
+   --own-msg-bg tint — so jumping to your own message stripped the very cue that
+   says the message is yours, and the row snapped its tint back only when the
+   animation ended. The accent bar survived (it is a border, not a background),
+   so the row read as half-owned throughout.
+   Two keyframes rather than one parameterised by a custom property: a
+   `var(--msg-rest-bg)` end frame would need a fallback to satisfy
+   csstools/value-no-unknown-custom-properties, and a gratuitous fallback is
+   exactly what M6 T13's audit gate cannot see through.
+   Specificity (0,3,0) beats .msg-row.is-highlight's (0,2,0), so this wins
+   regardless of source order. Budget: same 2.2s one-shot exceedance already
+   recorded for msg-jump-flash in base.css — background only, no transform. */
+.msg-row.is-own.is-highlight {
+  animation: msg-jump-flash-own 2.2s var(--ease-out);
+}
+
+@keyframes msg-jump-flash-own {
+  0%,
+  40% {
+    background: var(--accent-soft);
+  }
+
+  100% {
+    background: var(--own-msg-bg);
+  }
+}
+
 /* ═══ Inline editor ═══ */
 .msg-edit {
   position: relative;

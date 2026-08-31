@@ -236,19 +236,43 @@
    was 1881px against a 385px plate — scrollWidth === clientWidth on the span (it
    never shrank) and the plate overflowing by 1535px. The ellipsis moved to
    .stage-name below; overflow: hidden stays here as the clip of last resort at the
-   rounded edge. min-width is belt-and-braces only, stated as such: the plate is
-   absolutely positioned, not a flex item, so its min-width: auto already resolved
-   to 0 (measured). The declaration that does the work is overflow on the SPAN,
-   which zeroes that span's automatic minimum size so it can shrink at all. */
-.stage-plate {
+   rounded edge. The declaration that does the work is overflow on the SPAN, which
+   zeroes that span's automatic minimum size so it can shrink at all.
+   `min-width: 0` used to be documented here as belt-and-braces, on the grounds
+   that the plate was absolutely positioned and so already had a resolved
+   min-width of 0. M6 T12 made the plate a flex ITEM of .stage-tile-footer, so
+   that reasoning no longer holds and the declaration is now load-bearing: without
+   it the plate's automatic minimum size stops it shrinking, and the ellipsis
+   below it can never fire. */
+
+/* M6 T12: the plate and the camera-off chip used to be two independently
+   anchored absolute boxes — plate at `bottom/left: 10px` with
+   `max-width: calc(100% - 20px)`, chip at `bottom/right: 10px` — so on a narrow
+   tile they simply grew into each other. Re-derived with probe-t12-geom.js
+   (scratch fixture, real stylesheet): on a 265px tile the plate and chip overlap
+   by 7.5px / 183.8px² for the name «Константин Иванов», which is the "8px on a
+   265px tile" the record carried; at a 200px tile it is 72.5px / 1776.3px².
+   Two absolute boxes cannot negotiate, and the chip's width is text — so it
+   cannot be turned into a fixed lane the way .stage-share-badge's was.
+   One flex footer can: the plate shrinks and its .stage-name ellipsises (which
+   is what .stage-name was always for), and the chip keeps its intrinsic width. */
+.stage-tile-footer {
   position: absolute;
   bottom: 10px;
   left: 10px;
+  right: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  z-index: 2;
+}
+
+.stage-plate {
   display: flex;
   align-items: center;
   gap: 7px;
   min-width: 0;
-  max-width: calc(100% - 20px);
   padding: 5px 10px;
   border-radius: var(--radius-row);
   background: var(--stage-plate);
@@ -256,12 +280,12 @@
   font-size: 12px;
   font-weight: 600;
   overflow: hidden;
-  z-index: 2;
 }
 
-/* The name span inside .stage-plate and .stage-thumb-label — the flex ITEM, which
-   is where text-overflow has to live. Emitted at four sites in CallStage.tsx (both
-   plates, both thumb labels). */
+/* The name span inside .stage-plate, .stage-thumb-label and .stage-focus-label —
+   the flex ITEM, which is where text-overflow has to live. Emitted at FIVE sites
+   in CallStage.tsx (both plates, both thumb labels, and the focused-view label
+   as of M6 T12). */
 .stage-name {
   min-width: 0;
   overflow: hidden;
@@ -318,17 +342,17 @@
   50% { height: 13px; }
 }
 
+/* M6 T12: a flex item of .stage-tile-footer, no longer an absolute box of its
+   own. flex-shrink: 0 is the half that makes the fix a fix — the plate is what
+   must give way, because it has an ellipsis and this two-word chip does not. */
 .stage-state-chip {
-  position: absolute;
-  bottom: 10px;
-  right: 10px;
+  flex-shrink: 0;
   padding: 4px 8px;
   border-radius: 7px;
   background: var(--stage-plate);
   font-size: 11px;
   font-weight: 600;
   color: var(--stage-muted);
-  z-index: 2;
 }
 
 /* left is a permanent lane, not a 10px inset — the same remedy Ruling T4-a applied
@@ -811,6 +835,12 @@
   display: block;
 }
 
+/* max-width + overflow are M6 T12: the label had neither, so a long focused
+   name grew the box past .stage-focus-main and was hard-clipped by that
+   element's overflow: hidden — no ellipsis, no indication text was missing.
+   Same remedy as .stage-plate: cap the container, and let the .stage-name span
+   inside it (added at the emission site) carry the ellipsis. 28px = the 14px
+   inset doubled, so the label can never touch the opposite edge. */
 .stage-focus-label {
   position: absolute;
   bottom: 14px;
@@ -818,6 +848,9 @@
   display: flex;
   align-items: center;
   gap: 8px;
+  min-width: 0;
+  max-width: calc(100% - 28px);
+  overflow: hidden;
   padding: 5px 10px;
   border-radius: var(--radius-row);
   background: var(--stage-plate);
@@ -827,8 +860,18 @@
   z-index: 5;
 }
 
+/* flex-shrink: 0 for the same reason .stage-state-chip carries it — the name is
+   what must give way, because it has an ellipsis and this badge does not. It is
+   NOT redundant, though it is currently invisible: measured at 900/300/200px the
+   badge holds 99.3px and never squashes, but only because «Демонстрация» /
+   «Sharing» are single words, so the badge's default min-width: auto already
+   floors it at its own min-content width. That is incidental to the strings, and
+   M6 T12 is what made it matter — capping .stage-focus-label put its children
+   under shrink pressure for the first time. A two-word label would have wrapped
+   here with nothing to catch it. */
 .stage-focus-badge {
   display: flex;
+  flex-shrink: 0;
   align-items: center;
   gap: 4px;
   padding: 2px 8px;
@@ -917,9 +960,44 @@
   height: 100vh;
 }
 
-/* ── Thumbnail strip ── */
+/* ── Thumbnail strip ──
+   M6 T12, decision 8: the strip SHRINKS with the stage instead of holding a
+   fixed 110px. Measured on the pre-fix tree at 1440×900 (channel-body 773px,
+   probe-t12-thumbs.js), with the stage set to each height the split handle can
+   actually produce — it clamps to 20–80% at AppPage.tsx:144:
+
+                             .stage-focus   .stage-focus-main    thumbs
+     stage 20% (155px)             4px       0px →   0px     110px → 17px
+     stage 55% (425px)           274px     164px → 205px     110px → 68px
+     stage 80% (618px)           467px     357px → 357px     110px → 110px
+
+   i.e. at the default split the strip ate 110 of 274px, and the focused video
+   gained 25% back. The percentage resolves against .stage-focus (a flex item
+   with a definite height), NOT against --call-stage-height, so the 20–80% drag
+   range is untouched by construction.
+
+   `min(110px, 25%)` is not an arbitrary ratio: 110px IS 25% of 440px, so the
+   strip keeps its full size whenever .stage-focus is at least 440px tall and
+   never takes more than a quarter of it below that. The rejected alternative —
+   `height: max(var(--call-stage-height, 55%), 75%)` — would have collapsed the
+   effective drag range to 75–80% inside a focus view.
+
+   DISCLOSED, and deliberately not fixed here: at the 20% clamp this rule does
+   NOT save the thumbnails. 17px of strip minus 16px of vertical padding is a
+   ~1px tile, so where the user used to see thumbnails and no video they now see
+   neither. A floor (`max(56px, …)`) cannot help: .stage-focus is 4px there in
+   total, and a floored strip would simply overflow it. The cause is upstream and
+   predates this rule — a fixed 56px topbar plus a ~95px control bar is 151px of
+   chrome against a 155px stage, so the focused view has nothing to divide. Do
+   not read this rule as "thumbnails survive at every stage height"; it shrinks
+   the strip proportionally wherever .stage-focus has room for one at all.
+
+   .stage-thumb's fixed `width: calc(94px * 16 / 9)` became wrong the moment the
+   strip could shrink (a 52px-tall tile would still have been 167px wide), so it
+   is expressed as the aspect ratio it always encoded — byte-equivalent at rest,
+   correct at every other height. */
 .stage-thumbs {
-  height: 110px;
+  height: min(110px, 25%);
   display: flex;
   align-items: stretch;
   gap: 8px;
@@ -945,8 +1023,9 @@
 
 .stage-thumb {
   position: relative;
-  width: calc(94px * 16 / 9);
   height: 100%;
+  width: auto;
+  aspect-ratio: 16 / 9;
   flex-shrink: 0;
   border-radius: 10px;
   background: var(--stage-tile);

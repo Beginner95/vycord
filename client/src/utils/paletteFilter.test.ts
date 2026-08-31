@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import {
-  rankByName, buildPalette, moveSelection,
-  CAP_CHANNELS, CAP_MESSAGES, PALETTE_MIN_QUERY, type PaletteActionDef,
+  rankByName, buildPalette, moveSelection, selectedIndexOf, shouldShowEmptyState,
+  CAP_CHANNELS, CAP_MESSAGES, PALETTE_MIN_QUERY,
+  type PaletteActionDef, type PaletteMessage,
 } from './paletteFilter';
 import type { Channel } from '@/types';
 
@@ -12,6 +13,9 @@ const ch = (id: string, name: string, position = 0): Channel => ({
 
 const action = (id: string, label: string): PaletteActionDef =>
   ({ id, label, run: () => {} });
+
+const msg = (id: string, content: string): PaletteMessage =>
+  ({ id, username: 'a', content, created_at: '2026-08-25T12:00:00Z' });
 
 describe('rankByName', () => {
   // Все три имени кириллические намеренно: запрос 'ген' не совпал бы с латинским
@@ -52,16 +56,20 @@ describe('rankByName', () => {
   });
 });
 
+// Module-level so the selectedIndexOf / shouldShowEmptyState suites below can
+// drive REAL models through buildPalette instead of hand-written row literals.
+const baseInput = {
+  channels: [ch('1', 'общий'), ch('2', 'генерал')],
+  actions: [action('a', 'Создать канал')],
+  messages: [] as PaletteMessage[],
+  messagesTotal: 0,
+  hasChannel: true,
+  messagesLoading: false,
+  messagesError: null as string | null,
+};
+
 describe('buildPalette', () => {
-  const base = {
-    channels: [ch('1', 'общий'), ch('2', 'генерал')],
-    actions: [action('a', 'Создать канал')],
-    messages: [],
-    messagesTotal: 0,
-    hasChannel: true,
-    messagesLoading: false,
-    messagesError: null,
-  };
+  const base = baseInput;
 
   it('orders groups channels → messages → actions', () => {
     const model = buildPalette({
@@ -117,14 +125,54 @@ describe('buildPalette', () => {
   it('gives each group a `from` index that indexes into the flat row list', () => {
     const model = buildPalette({
       ...base, query: 'ген',
+      messagesLoading: true,
       // Тот же приём, что и в тесте порядка групп выше: без совпадающего
       // действия выжила бы только группа channels и `from` всегда был бы 0 —
       // тест не смог бы отличить правильную арифметику от жёстко зашитого нуля.
       actions: [action('a', 'Войти в голосовой «генерал»')],
     });
     expect(model.groups.length).toBeGreaterThanOrEqual(2);
+    // `from` indexes the first SELECTABLE row (paletteFilter.ts:41-51), and status
+    // rows never enter `rows` at all — so the universal this test used to assert,
+    // «model.rows[group.from + i] === group.rows[i]» over EVERY row, is not one the
+    // module satisfies. It passed only because no fixture here built a
+    // status-bearing group; the `messagesLoading: true` above builds one, and
+    // against the unnarrowed assertion this test FAILS (measured, M6 T12:
+    // messages.from pointed at the following group's first action row).
+    //
+    // Narrowed rather than "fixed" in the module: making the old universal true
+    // would mean putting status rows into `rows`, which is precisely what makes a
+    // row SELECTABLE — Enter would activate «Ищем…». That is a behaviour change,
+    // not a test fix.
     for (const group of model.groups) {
-      group.rows.forEach((row, i) => expect(model.rows[group.from + i]).toBe(row));
+      group.rows
+        .filter((row) => row.kind !== 'status')
+        .forEach((row, i) => expect(model.rows[group.from + i]).toBe(row));
+    }
+  });
+
+  it('never mixes status and selectable rows inside one group', () => {
+    // THE invariant `from + i` actually rests on, and nothing guarded it before.
+    // CommandPalette.tsx:374 derives a row's selection index as `group.from + i`
+    // where `i` is the group-LOCAL index — it counts status rows too. That is only
+    // correct while no group holds both kinds; a mixed group would silently point
+    // every row after the status line at the wrong target. The module's own
+    // docblock states the assumption, so it is asserted here rather than trusted.
+    const fixtures: Array<[string, Partial<Parameters<typeof buildPalette>[0]>]> = [
+      ['loading', { messagesLoading: true }],
+      ['error', { messagesError: 'Нет доступа' }],
+      ['results', { messages: [msg('m1', 'генерал')], messagesTotal: 1 }],
+      ['results + show-all', { messages: [msg('m1', 'генерал')], messagesTotal: 99 }],
+      ['no channel', { hasChannel: false, messagesLoading: true }],
+    ];
+    for (const [label, patch] of fixtures) {
+      const model = buildPalette({
+        ...base, query: 'ген', actions: [action('a', 'Войти в голосовой «генерал»')], ...patch,
+      });
+      for (const group of model.groups) {
+        const kinds = new Set(group.rows.map((r) => r.kind === 'status'));
+        expect(kinds.size, `${label}/${group.key} mixes status and selectable rows`).toBe(1);
+      }
     }
   });
 
@@ -147,4 +195,53 @@ describe('moveSelection', () => {
   it('wraps before the first row', () => expect(moveSelection(0, -1, 3)).toBe(2));
   it('moves normally in between', () => expect(moveSelection(0, 1, 3)).toBe(1));
   it('clamps to 0 on an empty list', () => expect(moveSelection(0, 1, 0)).toBe(0));
+});
+
+describe('selectedIndexOf', () => {
+  // Строки берём из настоящей модели, а не из литералов: тест должен ломаться,
+  // если buildPalette сменит схему id, а не проверять свою же выдумку.
+  const model = buildPalette({
+    ...baseInput, query: 'ген', actions: [action('a', 'Войти в голосовой «генерал»')],
+  });
+
+  it('returns 0 when nothing is selected', () =>
+    expect(selectedIndexOf(model.rows, null)).toBe(0));
+
+  it('finds the flat index of the selected id', () => {
+    const last = model.rows.length - 1;
+    expect(last).toBeGreaterThan(0); // иначе тест не отличил бы находку от нуля
+    expect(selectedIndexOf(model.rows, model.rows[last].id)).toBe(last);
+  });
+
+  it('falls back to the first row when the id has disappeared', () =>
+    expect(selectedIndexOf(model.rows, 'channel-vanished')).toBe(0));
+
+  it('returns 0 on an empty row list', () =>
+    expect(selectedIndexOf([], 'channel-1')).toBe(0));
+});
+
+describe('shouldShowEmptyState', () => {
+  const modelFor = (patch: Partial<Parameters<typeof buildPalette>[0]>) =>
+    buildPalette({ ...baseInput, query: 'ген', ...patch });
+
+  it('is false while a resting (empty) query lists everything', () =>
+    expect(shouldShowEmptyState(modelFor({ query: '' }), '')).toBe(false));
+
+  it('is false for a whitespace-only query', () =>
+    expect(shouldShowEmptyState(modelFor({ query: '   ' }), '   ')).toBe(false));
+
+  it('is true when a real query matched nothing at all', () => {
+    const model = modelFor({ query: 'zzzz', channels: [], actions: [] });
+    expect(model.groups).toHaveLength(0);
+    expect(shouldShowEmptyState(model, 'zzzz')).toBe(true);
+  });
+
+  it('is false when the only surviving group holds just a status row', () => {
+    // Регрессия, ради которой функция и вынесена: на `rows.length === 0` пустое
+    // состояние отрисовалось бы прямо над видимой строкой «Ищем…».
+    const model = modelFor({ query: 'zzzz', channels: [], actions: [], messagesLoading: true });
+    expect(model.rows).toHaveLength(0);
+    expect(model.groups).toHaveLength(1);
+    expect(shouldShowEmptyState(model, 'zzzz')).toBe(false);
+  });
 });

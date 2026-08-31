@@ -29,6 +29,15 @@ describe('messageStore delivery/loading', () => {
     s.setMessages([m('p', { deliveryState: 'sending' })]);
     s.updateMessage('p', { deliveryState: 'failed' });
     expect(useMessageStore.getState().messages[0].deliveryState).toBe('failed');
+    // Половина, которой у теста не было: имя обещало «and clear», а очистку он
+    // никогда не проверял. Она не декоративна — это путь «отправка удалась»:
+    // MessageRow.css гасит .msg-row.is-sending / .is-failed по этому же полю,
+    // так что не сброшенный deliveryState оставил бы доставленное сообщение
+    // приглушённым навсегда.
+    s.updateMessage('p', { deliveryState: undefined });
+    expect(useMessageStore.getState().messages[0].deliveryState).toBeUndefined();
+    // Остальное сообщение переживает очистку — патч не подменяет объект целиком.
+    expect(useMessageStore.getState().messages[0].id).toBe('p');
   });
   it('setLoading toggles', () => {
     useMessageStore.getState().setLoading(true);

@@ -92,7 +92,13 @@ export function ConnectionIndicator({ metrics }: { metrics?: ConnectionQualityMe
   const ref = useRef<HTMLDivElement>(null);
   const tipRef = useRef<HTMLDivElement>(null);
   const [tip, setTip] = useState<
-    { top: number; left: number; host: HTMLElement; clamped: boolean } | null
+    {
+      top: number; left: number; host: HTMLElement; clamped: boolean;
+      // M6 T12: `left` is the tooltip's centre AFTER clamping; `anchorLeft` is
+      // the indicator's centre, which clamping must not move. `arrowLeft` is the
+      // difference, expressed in the tooltip's own coordinates.
+      anchorLeft: number; arrowLeft: number | null;
+    } | null
   >(null);
 
   const showTip = useCallback(() => {
@@ -108,7 +114,8 @@ export function ConnectionIndicator({ metrics }: { metrics?: ConnectionQualityMe
     // фуллскрин всей сцены, а вместе с ним — целую сетку наводимых .stage-conn,
     // поэтому цель портала выбирается заново на каждом наведении.
     const host = (document.fullscreenElement as HTMLElement | null) ?? document.body;
-    setTip({ top: r.top - 8, left: r.left + r.width / 2, host, clamped: false });
+    const anchorLeft = r.left + r.width / 2;
+    setTip({ top: r.top - 8, left: anchorLeft, host, clamped: false, anchorLeft, arrowLeft: null });
   }, []);
   const hideTip = useCallback(() => setTip(null), []);
 
@@ -151,7 +158,22 @@ export function ConnectionIndicator({ metrics }: { metrics?: ConnectionQualityMe
     if (top > vh - margin) top = vh - margin;
     if (left - w / 2 < margin) left = margin + w / 2;
     if (left + w / 2 > vw - margin) left = vw - margin - w / 2;
-    setTip({ ...tip, top, left, clamped: true });
+    // M6 T12: the arrow is `left: 50%` in CSS, i.e. the centre of the TOOLTIP.
+    // The two horizontal clamps above move the tooltip without moving the
+    // indicator, so as soon as either fired the arrow pointed at empty stage
+    // instead of at the chip it belongs to. Re-aim it at the anchor, in the
+    // tooltip's own coordinates, and keep it clear of the tooltip's rounded
+    // corners. 8px is the arrow's HALF-DIAGONAL rounded up, not half its width:
+    // the square is rotate(45deg), so its rendered half-width is
+    // 10 / 2 * √2 ≈ 7.07px, and anything under that lets a corner poke out.
+    // Set unconditionally: with no clamping this evaluates to exactly w / 2,
+    // which is what `left: 50%` already produced — one code path, not two.
+    // An inline style rather than a custom property on purpose: a
+    // `var(--tip-arrow-x)` would be undeclared to stylelint's
+    // value-no-unknown-custom-properties, and giving it a fallback to silence
+    // that is precisely what blinds M6 T13's audit gate.
+    const arrowLeft = Math.min(w - 8, Math.max(8, tip.anchorLeft - (left - w / 2)));
+    setTip({ ...tip, top, left, clamped: true, arrowLeft });
   }, [tip]);
 
   if (!metrics) return null;
@@ -203,7 +225,10 @@ export function ConnectionIndicator({ metrics }: { metrics?: ConnectionQualityMe
                 </div>
               </div>
             )}
-            <span className="stage-tip-arrow" />
+            <span
+              className="stage-tip-arrow"
+              style={tip.arrowLeft === null ? undefined : { left: tip.arrowLeft }}
+            />
           </div>,
           tip.host,
         )}
@@ -386,17 +411,21 @@ function RemoteParticipantTile({
           onClose={onCloseVolumePopover}
         />
       )}
-      <div className="stage-plate">
-        {muted
-          ? <span className="stage-plate-mic is-muted"><MicOff size={12} strokeWidth={1.8} /></span>
-          : speaking
-            ? <span className="stage-eq"><span /><span /><span /></span>
-            : <span className="stage-plate-mic"><Mic size={12} strokeWidth={1.8} /></span>}
-        <span className="stage-name">{displayName}</span>
+      {/* M6 T12: plate and chip share a flex footer instead of being two
+          independently-anchored absolute boxes. See .stage-tile-footer. */}
+      <div className="stage-tile-footer">
+        <div className="stage-plate">
+          {muted
+            ? <span className="stage-plate-mic is-muted"><MicOff size={12} strokeWidth={1.8} /></span>
+            : speaking
+              ? <span className="stage-eq"><span /><span /><span /></span>
+              : <span className="stage-plate-mic"><Mic size={12} strokeWidth={1.8} /></span>}
+          <span className="stage-name">{displayName}</span>
+        </div>
+        {!participant.stream && !showWatchOverlay && (
+          <div className="stage-state-chip">{t('call.cameraOffChip')}</div>
+        )}
       </div>
-      {!participant.stream && !showWatchOverlay && (
-        <div className="stage-state-chip">{t('call.cameraOffChip')}</div>
-      )}
       <ConnectionIndicator metrics={quality} />
     </div>
   );
@@ -449,6 +478,7 @@ export function CallStage({ onMobileBackToChat }: CallStageProps) {
   // each button reads its OWN target, so neither ever shows the exit glyph for
   // a surface that is not fullscreen.
   const [fullscreenTarget, setFullscreenTarget] = useState<'stage' | 'focus' | null>(null);
+  const [fullscreenEl, setFullscreenEl] = useState<Element | null>(null);
 
   // Ruling T4-e — a glyph must reflect what its OWN button's click does, and on
   // the two platforms that is not the same question.
@@ -533,6 +563,11 @@ export function CallStage({ onMobileBackToChat }: CallStageProps) {
     const onFsChange = () => {
       const el = document.fullscreenElement;
       setFullscreenTarget(el ? (el === stageRef.current ? 'stage' : 'focus') : null);
+      // M6 T12: kept as STATE, not read off document during render — the error
+      // toast below needs the top-layer element as a portal host and must
+      // re-render when it changes. Null on the Electron path, which never sets
+      // document.fullscreenElement; that is correct, see the toast.
+      setFullscreenEl(el);
     };
     document.addEventListener('fullscreenchange', onFsChange);
     return () => document.removeEventListener('fullscreenchange', onFsChange);
@@ -822,7 +857,25 @@ export function CallStage({ onMobileBackToChat }: CallStageProps) {
       {isReconnecting && (
         <div className="stage-reconnecting">{t('call.reconnecting')}</div>
       )}
-      {stageError && <div className="error-toast">{stageError}</div>}
+      {/* M6 T12: the toast is a child of .call-stage, but focus fullscreen puts
+          .stage-focus-main — a DESCENDANT of the stage — into the top layer, and
+          the top layer paints only the fullscreen element and its own
+          descendants. So a screen-share error raised while watching a share
+          fullscreen rendered into a subtree the compositor was not drawing:
+          present in the DOM, auto-dismissed after 5s, never seen. Whole-stage
+          fullscreen (decision 24) was always fine — there the stage itself is
+          the top-layer element and the toast is inside it.
+          Re-targeting a portal on fullscreenchange is the pattern .stage-tip
+          already uses in this file for the identical reason; this reuses the
+          existing fullscreenchange listener rather than adding a second one.
+          fullscreenEl is null on the Electron path (setFullScreen never sets
+          document.fullscreenElement) — and correctly so: Electron fullscreen
+          uses no top layer, so the in-place toast is visible there already. */}
+      {stageError && (
+        fullscreenEl && fullscreenTarget === 'focus'
+          ? createPortal(<div className="error-toast">{stageError}</div>, fullscreenEl)
+          : <div className="error-toast">{stageError}</div>
+      )}
       {showSourcePickerModal && (
         <ScreenSourcePicker
           sources={screenSources}
@@ -901,7 +954,12 @@ export function CallStage({ onMobileBackToChat }: CallStageProps) {
                   className="stage-focus-video"
                 />
                 <div className="stage-focus-label">
-                  {focusedName}
+                  {/* M6 T12: the name is a .stage-name span for the same reason
+                      the two plates and two thumb labels are — text-overflow has
+                      to live on the flex ITEM, not on the flex container. As a
+                      bare text node it had nowhere to put an ellipsis and the
+                      label just ran under .stage-focus-main's overflow: hidden. */}
+                  <span className="stage-name">{focusedName}</span>
                   {screenSharers.has(focusedUserId) && (
                     <span className="stage-focus-badge">
                       <MonitorUp size={12} strokeWidth={1.8} /> {t('call.sharingBadge')}
@@ -1011,17 +1069,19 @@ export function CallStage({ onMobileBackToChat }: CallStageProps) {
                     <MonitorUp size={12} strokeWidth={1.8} /> {t('call.sharingBadge')}
                   </div>
                 )}
-                <div className="stage-plate">
-                  {isMuted
-                    ? <span className="stage-plate-mic is-muted"><MicOff size={12} strokeWidth={1.8} /></span>
-                    : micLevel > SPEAKING_THRESHOLD
-                      ? <span className="stage-eq"><span /><span /><span /></span>
-                      : <span className="stage-plate-mic"><Mic size={12} strokeWidth={1.8} /></span>}
-                  <span className="stage-name">{user?.username} {t('call.youSuffix')}</span>
+                <div className="stage-tile-footer">
+                  <div className="stage-plate">
+                    {isMuted
+                      ? <span className="stage-plate-mic is-muted"><MicOff size={12} strokeWidth={1.8} /></span>
+                      : micLevel > SPEAKING_THRESHOLD
+                        ? <span className="stage-eq"><span /><span /><span /></span>
+                        : <span className="stage-plate-mic"><Mic size={12} strokeWidth={1.8} /></span>}
+                    <span className="stage-name">{user?.username} {t('call.youSuffix')}</span>
+                  </div>
+                  {isVideoOff && !isScreenSharing && (
+                    <div className="stage-state-chip">{t('call.cameraOffChip')}</div>
+                  )}
                 </div>
-                {isVideoOff && !isScreenSharing && (
-                  <div className="stage-state-chip">{t('call.cameraOffChip')}</div>
-                )}
                 <ConnectionIndicator metrics={localQuality} />
               </div>
 

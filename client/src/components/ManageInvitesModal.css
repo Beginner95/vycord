@@ -37,6 +37,25 @@
   background: var(--canvas-3);
 }
 
+/* M6 T12, step 3 — re-derived, because the M4 note that recorded this defect
+   named a wrapper class that does not exist in the file. It never did: the
+   element between `.invites-row` and `.invites-code` WAS an unclassed <div>, so
+   there was no class to lose. It is `.invites-row-main` now
+   (ManageInvitesModal.tsx:100 — the same line, classed), and that is the whole
+   fix.
+
+   Why `.invites-code`'s overflow/text-overflow/white-space trio could never
+   fire: the wrapper is a flex item of `.invites-row`, and a flex item's default
+   `min-width: auto` floors it at its content's min-content width. The wrapper
+   therefore never got narrower than the code, the code never overflowed, and an
+   ellipsis has nothing to elide. `min-width: 0` removes that floor and `flex: 1`
+   makes the wrapper — rather than the fixed-width `.invites-actions` — absorb
+   the row's spare width. */
+.invites-row-main {
+  flex: 1;
+  min-width: 0;
+}
+
 .invites-code {
   display: block;
   font-family: var(--font-mono);

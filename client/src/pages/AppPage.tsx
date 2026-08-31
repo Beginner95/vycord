@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { useAuthStore } from '@/stores/authStore';
 import { useServerStore } from '@/stores/serverStore';
 import { useMessageStore } from '@/stores/messageStore';
@@ -636,7 +637,20 @@ logger.error('Failed to create server:', err, { module: 'app' });
           title={leftSidebarHidden ? t('sidebar.show') : t('sidebar.hide')}
           aria-pressed={leftSidebarHidden}
         >
-          {leftSidebarHidden ? '▶' : '◀'}
+          {/* M6 T12, decision 25: was `▶`/`◀` — the last emoji-as-icon in the
+              tree, excluded by M1's own plan. The 14 below is the gutter's own
+              constraint before it is a style choice: .sidebar-gutter is 16px
+              wide (AppPage.css:77), so ServerList's 18/20/21 cannot fit. 14 is
+              also ChannelSidebar's small tier — the surface immediately to the
+              right of this gutter, at ChannelSidebar.tsx:232,233,266 — and sits
+              in the 10–15 chevron band the client contract names.
+              Written "14" and not the prop form on purpose: client/CLAUDE.md §3
+              asserts icon counts gathered by `grep -oE 'size=\{[0-9]+\}'`, which
+              cannot tell a comment from a tag, and this comment inflated that
+              count by one until it was reworded. */}
+          {leftSidebarHidden
+            ? <ChevronRight size={14} strokeWidth={1.8} />
+            : <ChevronLeft size={14} strokeWidth={1.8} />}
         </button>
         <ServerList
           servers={servers}

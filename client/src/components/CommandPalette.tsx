@@ -14,7 +14,8 @@ import { apiService, apiErrorText } from '@/services/api';
 import { Avatar } from '@/components/Avatar';
 import { snippetAround, splitMatches } from '@/utils/searchSnippet';
 import {
-  buildPalette, moveSelection, PALETTE_MAX_QUERY, PALETTE_DEBOUNCE_MS, PALETTE_MIN_QUERY, CAP_MESSAGES,
+  buildPalette, moveSelection, selectedIndexOf, shouldShowEmptyState,
+  PALETTE_MAX_QUERY, PALETTE_DEBOUNCE_MS, PALETTE_MIN_QUERY, CAP_MESSAGES,
   type PaletteActionDef, type PaletteRow, type PaletteMessage,
 } from '@/utils/paletteFilter';
 import './CommandPalette.css';
@@ -261,9 +262,7 @@ export function CommandPalette({
 
   // selectedId переживает сплайс строк; если строка с этим id пропала
   // совсем (по-настоящему новый результат), откат на первую строку.
-  const selectedIndex = selectedId !== null
-    ? Math.max(model.rows.findIndex((row) => row.id === selectedId), 0)
-    : 0;
+  const selectedIndex = selectedIndexOf(model.rows, selectedId);
 
   useEffect(() => {
     listRef.current
@@ -421,7 +420,7 @@ export function CommandPalette({
               })}
             </div>
           ))}
-          {model.groups.length === 0 && query.trim() && (
+          {shouldShowEmptyState(model, query) && (
             <div className="palette-empty">{t('palette.empty', { query: query.trim() })}</div>
           )}
         </div>

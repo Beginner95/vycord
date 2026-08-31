@@ -85,7 +85,6 @@
   border-right: 1px solid var(--border-subtle);
   color: var(--text-muted);
   cursor: pointer;
-  font-size: 11px;
 }
 
 .sidebar-gutter:hover {

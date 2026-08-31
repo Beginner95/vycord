@@ -100,8 +100,10 @@ a:hover {
    a translate of ≤6px or a scale of ≥0.95 reads as a fade and keeps running;
    ≥10px of travel is re-pointed at the shared `fade-in`.
      keep   fade-in · screen-picker-fade · error-boundary-fade-in (opacity only)
-     keep   msg-jump-flash 2.2s — animates `background` only, no transform, so
-            its budget exceedance is a colour fade, not movement
+     keep   msg-jump-flash / msg-jump-flash-own 2.2s — animate `background` only,
+            no transform, so their budget exceedance is a colour fade, not
+            movement (the -own variant is M6 T12: same flash, ending on the own
+            row's tint instead of transparent)
      keep   modal-in 4px · msg-in 6px · stage-tip-in 4px · scale-in 0.95 ·
             error-boundary-scale-in 0.96
      fade   slide-down 10px · call-notif-slide-in 20px ·

@@ -137,6 +137,31 @@ export function buildPalette(input: PaletteInput): PaletteModel {
   return { groups, rows };
 }
 
+/** Resolve the sticky `selectedId` back to a flat row index.
+ *
+ * CommandPalette keeps the selection as an ID rather than an index because an
+ * async message result splices `rows` while `query` is unchanged, and an index
+ * would then point at a different row than the user picked. When the ID has
+ * disappeared entirely (a genuinely new result set) `findIndex` returns -1 and
+ * the selection falls back to the first row — hence the `Math.max(…, 0)`, which
+ * also covers the no-selection case. */
+export function selectedIndexOf(rows: PaletteRow[], selectedId: string | null): number {
+  if (selectedId === null) return 0;
+  return Math.max(rows.findIndex((row) => row.id === selectedId), 0);
+}
+
+/** Whether the palette should render its «ничего не найдено» line.
+ *
+ * Keyed on `groups`, not on `rows`: a query that matches no channel and no
+ * action but does trigger a message search emits a messages group holding one
+ * STATUS row, which never enters `rows` (see `PaletteGroup.from`). Testing
+ * `rows.length === 0` there would render the empty state directly above a
+ * visible «Ищем…» line. An empty/whitespace query shows no empty state at all —
+ * the palette opens on a resting list, not on a "no results" message. */
+export function shouldShowEmptyState(model: PaletteModel, query: string): boolean {
+  return model.groups.length === 0 && query.trim() !== '';
+}
+
 export function moveSelection(current: number, delta: number, rowCount: number): number {
   if (rowCount <= 0) return 0;
   return (((current + delta) % rowCount) + rowCount) % rowCount;
