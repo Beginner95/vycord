@@ -1,14 +1,17 @@
+/* Per-participant volume popover. Portals to the document, so it sits on the
+   theme-adaptive popover surface (--canvas/--line/--ink), not on the
+   theme-invariant stage chrome. */
 .volume-popover {
   position: fixed;
   display: flex;
   align-items: center;
   gap: 8px;
-  background: var(--bg-primary);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-sm);
-  box-shadow: var(--shadow-md);
   padding: 8px 10px;
-  z-index: 1100;
+  background: var(--canvas);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-row);
+  box-shadow: var(--shadow-popover);
+  z-index: var(--z-popover);
   cursor: default;
 }
 
@@ -17,9 +20,10 @@
 }
 
 .volume-popover-value {
+  min-width: 32px;
   font-size: 12px;
   font-weight: 600;
-  color: var(--text-primary);
-  min-width: 32px;
+  color: var(--ink);
   text-align: right;
+  font-variant-numeric: tabular-nums;
 }

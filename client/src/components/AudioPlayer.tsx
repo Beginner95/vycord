@@ -1,4 +1,5 @@
 import { useRef, useState } from 'react';
+import { Pause, Play } from 'lucide-react';
 import { useT } from '@/i18n';
 import { notifyPlaying } from '@/utils/chatMediaCoordinator';
 import './AudioPlayer.css';
@@ -44,7 +45,7 @@ export function AudioPlayer({ src, fileName }: AudioPlayerProps) {
   return (
     <div className="audio-player">
       <button type="button" className="audio-play-btn" onClick={toggle} aria-label={playing ? t('chat.pause') : t('chat.play')}>
-        {playing ? '❚❚' : '▶'}
+        {playing ? <Pause size={16} strokeWidth={1.8} /> : <Play size={16} strokeWidth={1.8} />}
       </button>
 
       <div className="audio-body">
@@ -52,6 +53,7 @@ export function AudioPlayer({ src, fileName }: AudioPlayerProps) {
         <input
           type="range"
           className="audio-seek"
+          aria-label={t('chat.seekPosition')}
           min={0}
           max={duration || 0}
           step={0.1}

@@ -70,7 +70,11 @@ describe('MediaLightbox', () => {
 
     fireEvent.keyDown(document, { key: 'Escape' });
 
-    expect(onClose).toHaveBeenCalled();
+    // Exactly once. M5.5 T4 moved this component onto useModalFocus's modal
+    // stack, replacing its own bubble-phase document listener; a second call
+    // would mean both are live, which is the regression the adoption exists to
+    // prevent. `toHaveBeenCalled()` could not see it.
+    expect(onClose).toHaveBeenCalledTimes(1);
   });
 
   it('стрелки листают вложения', () => {

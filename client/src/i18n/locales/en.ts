@@ -14,9 +14,8 @@ export const en: Dictionary = {
     removing: 'Removing...',
     back: 'Back',
     logout: 'Log out',
-    logoutConfirm: 'Are you sure you want to log out?',
-    yes: 'Yes',
-    no: 'No',
+    logoutTitle: 'Log out?',
+    logoutBody: 'You can sign back in at any time.',
     minimize: 'Minimize',
     maximize: 'Maximize',
     imageOpenFailed: 'Failed to open the image',
@@ -58,7 +57,8 @@ export const en: Dictionary = {
     linkUrlInvalid: 'Enter a valid link (http/https/www/mailto)',
     insert: 'Insert',
     cancel: 'Cancel',
-    deleteConfirm: 'Delete message?',
+    deleteTitle: 'Delete message?',
+    deleteBody: 'The message will be deleted forever. This cannot be undone.',
     back: 'Back',
     welcomeTitle: 'Welcome to Vy Cord!',
     welcomeSubtitle: 'Select a channel to start chatting',
@@ -81,32 +81,46 @@ export const en: Dictionary = {
       one: 'Enter at least {{count}} character to search this channel',
       other: 'Enter at least {{count}} characters to search this channel',
     }),
+    nothingFoundTitle: 'Nothing found',
     nothingFound: 'Nothing found for “{{query}}”',
     loadMore: 'Load more',
     legacyRoleOwner: 'Owner',
     legacyRoleAdmin: 'Admin',
     legacyRoleMember: 'Member',
-    emptyChannelTitle: 'Welcome to #{{channel}}!',
-    emptyChannelSubtitle: 'This is the start of the #{{channel}} channel.',
+    quietTitle: 'It’s quiet here',
+    quietBody: 'Start the conversation in #{{channel}} — write the first message.',
+    writeFirst: 'Write the first message',
+    newMessages: 'New messages',
+    noServersTitle: 'No servers yet',
+    noServersBody: 'Create a server — or find an existing one via the search in the left rail.',
+    haveCode: 'I have a code',
     noStickers: 'No stickers in this server yet',
     manageStickers: 'Manage stickers',
     manageStickersTitle: 'Server stickers',
     stickerNamePlaceholder: 'Sticker name',
-    deleteStickerConfirm: 'Delete this sticker?',
+    deleteStickerTitle: 'Delete sticker “{{name}}”?',
+    deleteStickerBody: 'The sticker will no longer be available to anyone on this server.',
     stickers: 'Stickers',
     stickerDropHint: 'Drop a file here or click to choose',
     stickerFormats: 'PNG, JPG or GIF · max 2 MB',
     stickerRemoveFile: 'Remove file',
     stickerUpload: 'Upload sticker',
+    youChip: 'you',
+    formatting: 'Formatting',
+    send: 'Send',
+    composerHint: 'Enter — send · Shift+Enter — new line',
+    sending: 'sending',
+    sendFailed: 'not sent',
+    retry: 'retry',
+    discardFailed: 'Discard',
     attach: 'Attach a file',
     attachImage: 'Image',
     attachVideo: 'Video',
     attachAudio: 'Audio',
     attachFile: 'File',
-    send: 'Send',
     removeAttachment: 'Remove attachment',
     dropFilesHere: 'Drop the file to attach it',
-    retry: 'Retry',
+    retryUpload: 'Retry',
     download: 'Download',
     fullscreen: 'Fullscreen',
     play: 'Play',
@@ -115,6 +129,8 @@ export const en: Dictionary = {
     unmute: 'Unmute',
     previous: 'Previous',
     next: 'Next',
+    seekPosition: 'Playback position',
+    uploadProgress: 'Upload progress',
   },
   call: {
     participants: plural({
@@ -133,6 +149,7 @@ export const en: Dictionary = {
     unitPercent: '%',
     unitMs: 'ms',
     unitKbps: 'kbps',
+    participantVolume: 'Participant volume',
 
     // Screen source picker modal
     selectScreen: 'Select a screen to share',
@@ -147,13 +164,14 @@ export const en: Dictionary = {
     focusParticipant: 'Focus on this participant',
     sharingBadge: 'Sharing',
     watchShare: 'Watch',
-    youSuffix: '(You)',
+    youSuffix: '(you)',
+    cameraOffChip: 'camera off',
 
     // Header and banners
+    live: 'LIVE',
     groupCallTitle: 'Group Call',
     resizeSplit: 'Resize call area',
     showCall: 'Call',
-    screenSharingActive: 'Screen sharing active',
     isSharingScreen: '{{name}} is sharing their screen',
     view: 'View',
     dismiss: 'Dismiss',
@@ -173,6 +191,10 @@ export const en: Dictionary = {
     stopScreenShare: 'Stop screen sharing',
     shareScreen: 'Share screen',
     leaveCall: 'Leave call',
+    ctlMic: 'Mic',
+    ctlCamera: 'Camera',
+    ctlScreen: 'Screen',
+    leaveLabel: 'Leave',
 
     // Screen share errors
     screenPermissionDenied: 'Screen Recording permission is denied. Please grant it in System Settings → Privacy & Security → Screen Recording, then restart the app.',
@@ -188,6 +210,7 @@ export const en: Dictionary = {
 
     // Voice join button in the chat header
     joinVoice: 'Join voice',
+    joinChannel: 'Join channel',
     inThisCall: 'You are in this call',
     goToCall: 'Go to call',
     inCallAt: 'In call',
@@ -198,6 +221,13 @@ export const en: Dictionary = {
     rejected: 'Call was rejected',
     startFailed: 'Failed to start call',
     endCall: 'End call',
+    acceptCall: 'Accept',
+    rejectCall: 'Decline',
+
+    // Mobile voice banner (board 1f)
+    voiceBanner: 'In voice "{{channel}}" — {{count}}',
+    bannerJoin: 'Join',
+    bannerGoToCall: 'To call',
   },
   settings: {
     language: 'Language',
@@ -228,6 +258,9 @@ export const en: Dictionary = {
     themeLight: 'Light',
 
     audio: 'Audio',
+    sectionSounds: 'Sounds',
+    sectionMicrophone: 'Microphone',
+    sectionDevices: 'Devices',
     messageNotifications: 'Message Notifications',
     messageNotificationsDescription: 'Play a sound when you receive a new message',
     callSounds: 'Call Sounds',
@@ -246,6 +279,12 @@ export const en: Dictionary = {
     noiseCancellationLoading: 'Loading DeepFilterNet3 model...',
     noiseCancellationDescription: 'AI noise suppression — removes background noise from your mic',
     noiseCancellationUnsupported: 'Noise cancellation requires AudioWorklet support (Chrome/Edge/Firefox 76+)',
+    micTest: 'Mic test',
+    micTestDescription: 'Say something — the bar shows your input level',
+    micTestStart: 'Test',
+    micTestStop: 'Stop',
+    inputLevel: 'input level',
+    micTestError: 'Could not access the microphone',
     inputDevice: 'Input Device',
     inputDeviceDescription: 'Select your microphone',
     outputDevice: 'Output Device',
@@ -259,6 +298,7 @@ export const en: Dictionary = {
     defaultCamera: 'Default Camera',
 
     cropAvatarTitle: 'Crop avatar',
+    cropZoom: 'Zoom',
   },
   server: {
     listTitle: 'Servers',
@@ -270,19 +310,27 @@ export const en: Dictionary = {
     nameLabel: 'Server Name',
     namePlaceholder: 'My Awesome Server',
 
-    // Server search
+    // Rail search tile (ServerList): its title and caption
     explore: 'Explore Servers',
-    searchPlaceholder: 'Search servers...',
-    search: 'Search',
-    searching: 'Searching...',
-    join: 'Join',
-    noneFound: 'No servers found',
-    orSeparator: 'or',
+
+    // Find-server modal (board 1d): one field — a name AND an invite code
+    findServer: {
+      title: 'Find a server',
+      description: 'Enter a server name or an invite code',
+      placeholder: 'Name or code…',
+      results: 'Results',
+      joinAction: 'Join',
+      byInvite: 'By invite code',
+      noResults: 'Nothing found for “{{query}}”',
+      footerQuestion: "Can't find your server?",
+      createOwn: 'Create your own',
+    },
 
     // Context menu
-    editMenu: 'Edit',
+    editMenu: 'Server settings',
     deleteMenu: 'Delete server',
-    deleteConfirm: 'Delete server “{{name}}”? This cannot be undone.',
+    deleteTitle: 'Delete server “{{name}}”?',
+    deleteBody: 'The server, its channels and all messages will be permanently deleted.',
 
     // Edit modal
     editTitle: 'Edit server',
@@ -296,11 +344,13 @@ export const en: Dictionary = {
     online: 'Online',
     offline: 'Offline',
     callUser: 'Call {{name}}',
+    inVoice: 'in voice · {{channel}}',
 
     // Privacy
     privateLabel: 'Private server',
     privateHint: 'New members can only join via an invite link — "Invite" in the server menu.',
     inviteMenu: 'Invite',
+    serverMenu: 'Server menu',
 
     // Invites
     invites: {
@@ -313,11 +363,17 @@ export const en: Dictionary = {
       usesCount: 'uses: {{count}}',
     },
 
-    // Join by code
+    // Invite card at the bottom of the member list
+    inviteCard: {
+      title: 'Invite friends',
+      hint: 'Bring your friends to this server',
+      noExpiry: 'Link never expires',
+      expiresDays: 'Link lives for {{days}} d.',
+      copyLink: 'Copy link',
+    },
+
+    // Join by code: the found-server preview inside the find-server modal
     joinByCode: {
-      label: 'Have an invite code?',
-      placeholder: 'Invite code',
-      preview: 'Check',
       memberCount: 'members: {{count}}',
     },
   },
@@ -325,15 +381,41 @@ export const en: Dictionary = {
     hide: 'Hide sidebar',
     show: 'Show sidebar',
   },
+  palette: {
+    title: 'Quick jump',
+    placeholder: 'Channels, messages, actions…',
+    esc: 'esc',
+    groupChannels: 'Channels — this server',
+    groupMessages: 'Messages — this channel',
+    groupActions: 'Actions',
+    enterOpen: 'open',
+    navHint: 'navigate',
+    selectHint: 'select',
+    globalHintBefore: 'Opens with',
+    globalHintAfter: 'from anywhere',
+    searching: 'Searching…',
+    showAll: 'Show all results',
+    empty: 'Nothing found for “{{query}}”',
+    createChannel: 'Create channel',
+    joinVoice: 'Join voice in “{{channel}}”',
+    openSettings: 'Open settings',
+    themeDark: 'Switch to dark theme',
+    themeLight: 'Switch to light theme',
+    createServer: 'Create server',
+    findServer: 'Find server',
+    searchInChannel: 'Search in #{{channel}}',
+  },
   channel: {
     noServerHint: 'Select or create a server to get started',
     channels: 'Channels',
+    ncOn: 'NC on',
 
     // Context menu
     editMenu: 'Edit',
     deleteMenu: 'Delete channel',
     deleteLastDisabled: 'Cannot delete the last channel of a server',
-    deleteConfirm: 'Delete channel “{{name}}”?',
+    deleteTitle: 'Delete channel “{{name}}”?',
+    deleteBody: 'All messages in this channel will be permanently deleted.',
 
     // Edit modal
     editTitle: 'Edit channel',
@@ -352,6 +434,17 @@ export const en: Dictionary = {
     restartAndInstall: 'Restart and install',
     failed: 'Automatic update failed',
     downloadManually: 'Download manually',
+  },
+  crash: {
+    title: 'Something went wrong',
+    body: 'We already know about this error. Try reloading the app.',
+    reload: 'Reload',
+    copyId: 'Copy',
+    eventId: 'ID: {{id}}',
+    feedbackSummary: 'What were you doing when this happened?',
+    feedbackPlaceholder: 'Optional, but it really helps',
+    feedbackSend: 'Send',
+    feedbackSent: 'Thanks, sent',
   },
   errors: {
     unknown: 'Unknown error',

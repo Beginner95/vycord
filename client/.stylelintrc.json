@@ -1,0 +1,18 @@
+{
+  "extends": ["stylelint-config-standard"],
+  "plugins": ["stylelint-value-no-unknown-custom-properties"],
+  "rules": {
+    "no-descending-specificity": true,
+    "selector-class-pattern": [
+      "^(?:btn|input|kbd|modal|mention)$|^(?:is|has)-[a-z0-9]+(?:-[a-z0-9]+)*$|^[a-z][a-z0-9]*(?:-[a-z0-9]+)+$",
+      {
+        "resolveNestedSelectors": true,
+        "message": "Class needs a component prefix (multi-segment kebab-case). State modifiers: is-*/has-*. One namespace = one owner file (see M2 plan, decision 4)."
+      }
+    ],
+    "csstools/value-no-unknown-custom-properties": [
+      true,
+      { "importFrom": ["src/styles/tokens.css", "src/styles/base.css"] }
+    ]
+  }
+}

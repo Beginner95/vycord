@@ -1,1139 +1,497 @@
 .chat-area {
   position: relative;
-  flex: 1;
   display: flex;
+  flex: 1;
   flex-direction: column;
-  background: var(--bg-base);
   min-width: 0;
+  background: var(--canvas);
 }
 
-.chat-empty {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  color: var(--text-muted);
-}
-
-.chat-empty h2 {
-  font-size: 26px;
-  margin-bottom: 8px;
-  color: var(--text-primary);
-  font-weight: 700;
-  letter-spacing: -0.02em;
-}
-
-.chat-empty p {
-  font-size: 14px;
-  color: var(--text-secondary);
-}
-
-/* ── Chat Header ── */
+/* ═══ Header — 58px, closes the M1 56/58 seam (board 1c column C) ═══ */
 .chat-header {
-  height: 56px;
-  padding: 0 24px;
   display: flex;
-  align-items: center;
-  border-bottom: 1px solid var(--border-subtle);
-  background: var(--bg-primary);
   gap: 10px;
-  box-shadow: var(--shadow-sm);
-}
-
-.channel-hash {
-  font-size: 20px;
-  font-weight: 600;
-  color: var(--text-muted);
-}
-
-.chat-header h3 {
-  font-size: 15px;
-  font-weight: 700;
-  color: var(--text-primary);
-  letter-spacing: -0.01em;
-}
-
-/* ── Chat Messages ── */
-.chat-messages {
-  flex: 1;
-  overflow-y: auto;
-  padding: 20px 24px;
-  display: flex;
-  flex-direction: column;
-}
-
-.welcome-message {
-  margin-bottom: 16px;
-  padding: 16px 0;
-}
-
-.welcome-message h1 {
-  font-size: 26px;
-  font-weight: 800;
-  margin-bottom: 6px;
-  color: var(--text-primary);
-  letter-spacing: -0.02em;
-}
-
-.welcome-message p {
-  color: var(--text-secondary);
-  font-size: 14px;
-}
-
-/* ── Individual Message ── */
-.message {
-  display: flex;
-  gap: 14px;
-  padding: 6px 0;
-  margin-top: 18px;
-  max-width: 70%;
-}
-
-.message:first-child {
-  margin-top: 0;
-}
-
-.message.compact {
-  margin-top: 2px;
-  padding: 2px 0;
-}
-
-.message.compact .message-content {
-  padding-left: 54px;
-}
-
-/* ── Other user's messages (left) ── */
-.message.other {
-  align-self: flex-start;
-}
-
-.message.other:hover {
-  background: rgba(0, 0, 0, 0.02);
-  margin-left: -24px;
-  padding-left: 24px;
-  border-radius: var(--radius-sm);
-}
-
-.message.other .message-content {
-  flex: 1;
-  min-width: 0;
-}
-
-.message.other .message-header {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  margin-bottom: 3px;
-}
-
-.message.other .message-author {
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--text-primary);
-}
-
-.message-text {
-  white-space: pre-wrap;
-}
-
-.message.other .message-text {
-  background: var(--bg-primary);
-  padding: 8px 14px;
-  border-radius: 2px var(--radius-lg) var(--radius-lg) var(--radius-lg);
-  border: 1px solid var(--border-subtle);
-  display: inline-block;
-  max-width: 100%;
-}
-
-/* ── My messages (right) ── */
-.message.self {
-  align-self: flex-end;
-  flex-direction: row-reverse;
-}
-
-.message.self:hover {
-  background: var(--brand-50);
-  margin-right: -24px;
-  padding-right: 24px;
-  padding-left: 24px;
-  border-radius: var(--radius-sm);
-}
-
-.message.self .message-content {
-  flex: 1;
-  min-width: 0;
-  text-align: right;
-}
-
-.message.self .message-header {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  margin-bottom: 3px;
-  justify-content: flex-end;
-}
-
-.message.self .message-author {
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--brand-600);
-}
-
-.message.self .message-text {
-  background: linear-gradient(135deg, var(--brand-50), var(--brand-100));
-  padding: 8px 14px;
-  border-radius: var(--radius-lg) 2px var(--radius-lg) var(--radius-lg);
-  border: 1px solid var(--brand-200);
-  display: inline-block;
-  max-width: 100%;
-  text-align: left;
-}
-
-/* ── Avatar ── */
-.message-avatar {
-  width: 40px;
-  height: 40px;
-  min-width: 40px;
-  border-radius: var(--radius-full);
-  background: linear-gradient(135deg, var(--brand-300), var(--brand-500));
-  display: flex;
   align-items: center;
-  justify-content: center;
-  font-size: 15px;
+  height: 58px;
+  min-height: 58px;
+  padding: 0 18px;
+  border-bottom: 1px solid var(--line);
+}
+
+.chat-header-hash {
+  flex-shrink: 0;
+  color: var(--muted-2);
+}
+
+.chat-header-name {
+  overflow: hidden;
+  font-size: 15.5px;
   font-weight: 700;
-  color: var(--text-inverse);
-  box-shadow: 0 2px 6px rgba(99, 102, 241, 0.15);
-  object-fit: cover;
+  color: var(--ink);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.message-avatar.self {
-  background: linear-gradient(135deg, var(--brand-400), var(--brand-600));
-}
-
-/* ── Message hover actions ── */
-.message {
-  position: relative;
-}
-
-.message-actions {
+/* Mobile-only two-line title (name + server/participants subtitle) — the
+   sibling .chat-header-name above is the desktop one-liner and stays put;
+   this wrapper is dead chrome on desktop, turned on in the mobile block. */
+.chat-header-title {
   display: none;
-  position: absolute;
-  top: -14px;
-  gap: 2px;
-  background: var(--bg-primary);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-sm);
-  box-shadow: var(--shadow-sm);
-  padding: 2px;
+  min-width: 0;
 }
 
-.message.self .message-actions {
-  right: 54px;
-}
-
-.message.other .message-actions {
-  left: 54px;
-}
-
-.message:hover .message-actions {
-  display: flex;
-}
-
-.message-action-btn {
-  background: none;
-  border: none;
-  color: var(--text-muted);
-  width: 26px;
-  height: 26px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: var(--radius-sm);
-  cursor: pointer;
-  transition: all var(--transition);
-}
-
-.message-action-btn:hover {
-  background: var(--bg-hover);
-  color: var(--text-primary);
-}
-
-.message-action-btn--danger:hover {
-  background: var(--red-500);
-  color: white;
-}
-
-.message-edit-input {
-  width: 100%;
-  padding: 8px 14px;
-  border: 1.5px solid var(--brand-color);
-  border-radius: var(--radius-sm);
-  background: var(--bg-primary);
-  color: var(--text-primary);
-  font-size: 14px;
-  font-family: inherit;
-  outline: none;
-  resize: none;
-  max-height: 40vh;
-  overflow-y: auto;
-}
-
-.message-edit-wrapper {
-  position: relative;
-}
-
-.message-edit-wrapper .mention-dropdown {
-  left: 0;
-  right: 0;
-}
-
-/* ── Chat Input ── */
-.chat-input {
-  padding: 0 24px 20px;
-  position: relative;
-}
-
-.chat-input form {
-  position: relative;
-}
-
-.chat-input-toolbar {
-  display: flex;
-  gap: 6px;
-  margin-bottom: 6px;
-  flex-wrap: wrap;
-}
-
-.toolbar-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 30px;
-  height: 30px;
-  padding: 0 8px;
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-sm);
-  background: var(--bg-primary);
-  color: var(--text-muted);
-  cursor: pointer;
-  transition: all var(--transition);
-}
-
-.toolbar-btn:hover { background: var(--bg-hover); color: var(--text-primary); }
-.toolbar-btn.active { background: var(--brand-50); border-color: var(--brand-color); color: var(--brand-600); }
-
-.toolbar-txt { font-size: 14px; font-weight: 600; line-height: 1; }
-.toolbar-txt em { font-style: italic; }
-.toolbar-txt u { text-decoration: underline; }
-
-.chat-input textarea {
-  width: 100%;
-  padding: 13px 46px 13px 18px;
-  border: 1.5px solid var(--border-color);
-  border-radius: var(--radius-lg);
-  background: var(--bg-primary);
-  color: var(--text-primary);
-  font-size: 14px;
-  font-family: inherit;
-  outline: none;
-  resize: none;
-  max-height: 40vh;
-  overflow-y: auto;
-  transition: all var(--transition);
-  box-shadow: var(--shadow-sm);
-}
-
-.chat-input textarea::placeholder {
-  color: var(--text-muted);
-}
-
-.chat-input textarea:focus {
-  border-color: var(--brand-color);
-  box-shadow: 0 0 0 3px var(--brand-subtle), var(--shadow-md);
-}
-
-/* Отправка кнопкой нужна и без текста: одни вложения не отправить через
-   enter в пустом textarea — это неочевидно, кнопка даёт явный триггер. */
-.composer-send-btn {
-  position: absolute;
-  right: 8px;
-  bottom: 11px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 30px;
-  height: 30px;
-  border: none;
-  border-radius: var(--radius-sm);
-  background: transparent;
-  color: var(--brand-color);
-  cursor: pointer;
-  transition: all var(--transition);
-}
-
-.composer-send-btn:hover:not(:disabled) { background: var(--brand-50); }
-
-.composer-send-btn:disabled {
-  color: var(--text-muted);
-  cursor: default;
-  opacity: 0.5;
-}
-
-/* ── Title Bar ── */
-.title-bar {
-  height: 40px;
-  background: var(--bg-primary);
-  border-bottom: 1px solid var(--border-subtle);
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  -webkit-app-region: drag;
-}
-
-.title-bar button {
-  -webkit-app-region: no-drag;
-  background: none;
-  border: none;
-  color: var(--text-muted);
-  width: 46px;
-  height: 40px;
-  cursor: pointer;
-  font-size: 13px;
-  transition: all var(--transition);
-}
-
-.title-bar button:hover {
-  background: var(--bg-hover);
-  color: var(--text-primary);
-}
-
-.title-bar button.close:hover {
-  background: var(--red-500);
-  color: white;
-}
-
-/* ── Error Toast ── */
-.error-toast {
-  position: fixed;
-  top: 52px;
-  left: 50%;
-  transform: translateX(-50%);
-  background: var(--red-500);
-  color: white;
-  padding: 10px 20px;
-  border-radius: var(--radius-md);
-  font-size: 13px;
+.chat-header-sub {
+  overflow: hidden;
+  font-size: 11.5px;
   font-weight: 500;
-  z-index: 2000;
-  box-shadow: var(--shadow-lg);
-  animation: slideDown 0.3s var(--ease-out);
+  color: var(--muted-2);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-@keyframes slideDown {
-  from {
-    opacity: 0;
-    transform: translateX(-50%) translateY(-10px);
-  }
-  to {
-    opacity: 1;
-    transform: translateX(-50%) translateY(0);
-  }
+.chat-header-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-left: auto;
 }
 
-/* ── Mobile ── */
-.mobile-back-btn,
-.mobile-call-btn,
-.mobile-members-btn {
+/* Mobile-only header affordances: on desktop the channel list is always on
+   screen and the sidebar CallDock covers "show call", so both would be dead
+   chrome.
+
+   Turned back on in TWO places, and the second one is the governing rule over
+   most of the range — do not delete either without reading the other:
+     · the `width <= 768px` block at the bottom of this section, and
+     · the shell, `AppPage.css`'s `width < 900px` block, at (0,2,0).
+   The shell rule is what covers 769–899, where this file's 768 block does not
+   reach (M6 T8: those affordances were dark there, and the panel model had no
+   way out). Both set `display: flex`, so they never conflict — but deleting
+   the shell rule would silently re-open that trap, and deleting this file's
+   rule would leave 0–768 relying entirely on the shell. */
+.chat-back-btn {
   display: none;
-}
-
-@media (max-width: 768px) {
-  .mobile-back-btn,
-  .mobile-call-btn,
-  .mobile-members-btn {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background: none;
-    border: none;
-    color: var(--text-secondary);
-    cursor: pointer;
-    padding: 6px;
-    font-size: 16px;
-    border-radius: var(--radius-sm);
-    transition: all var(--transition);
-    flex-shrink: 0;
-  }
-
-  .mobile-back-btn:hover,
-  .mobile-call-btn:hover,
-  .mobile-members-btn:hover {
-    background: var(--bg-hover);
-    color: var(--text-primary);
-  }
-
-  /* На мобильном auto-margin остаётся только у первой кнопки правой группы
-     (звонок, если он идёт в этом канале, иначе участники), чтобы иконка
-     поиска не "отрывалась" от неё, а звонок и участники шли вплотную. */
-  .chat-search-btn {
-    margin-left: 0;
-  }
-
-  .chat-search-btn + .mobile-call-btn,
-  .chat-search-btn + .mobile-members-btn {
-    margin-left: auto;
-  }
-
-  .chat-header {
-    gap: 6px;
-  }
-
-  .chat-header--empty {
-    min-height: 56px;
-  }
-
-  .chat-messages {
-    padding: 16px;
-  }
-
-  .message {
-    max-width: 85%;
-  }
-
-  .chat-input {
-    padding: 0 12px 12px;
-    padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px));
-  }
-
-  .chat-input textarea {
-    font-size: 16px;
-  }
-}
-
-/* ── Quotes ── */
-.message-quote {
-  display: block;
-  border-left: 3px solid var(--border-color);
-  padding-left: 10px;
-  color: var(--text-muted);
-}
-
-/* ── Lists (глобальный reset обнуляет padding/margin у ul/ol) ── */
-.message-text ol,
-.message-text ul {
-  margin: 4px 0 4px;
-  padding-left: 1.4em;
-}
-
-.message-text li {
-  margin: 0;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
   padding: 0;
-}
-
-/* ── Mentions ── */
-.mention {
-  color: var(--brand-600);
-  background: var(--brand-50);
-  border-radius: 4px;
-  padding: 0 2px;
-  font-weight: 500;
-}
-
-.mention-self {
-  background: var(--brand-200);
-  font-weight: 600;
-}
-
-.mention-everyone {
-  color: var(--red-500);
-  background: var(--brand-50);
-  font-weight: 600;
-}
-
-.mention-dropdown {
-  position: absolute;
-  bottom: calc(100% + 6px);
-  left: 0;
-  right: 0;
-  max-height: 220px;
-  overflow-y: auto;
-  background: var(--bg-primary);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-sm);
-  box-shadow: var(--shadow-md);
-  list-style: none;
-  margin: 0;
-  padding: 4px;
-  z-index: 20;
-}
-
-.mention-dropdown li {
-  padding: 8px 10px;
-  border-radius: var(--radius-sm);
+  color: var(--muted);
+  background: transparent;
+  border: none;
+  border-radius: 9px;
   cursor: pointer;
-  color: var(--text-primary);
-  font-size: 14px;
+  transition: background var(--transition), color var(--transition);
 }
 
-.mention-dropdown li.active,
-.mention-dropdown li:hover {
-  background: var(--bg-hover);
-}
-
-/* ── Floating quote toolbar ── */
-.floating-quote-btn {
-  position: fixed;
-  z-index: 1000;
-  transform: translateX(-50%);
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 12px;
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-md);
-  background: var(--bg-elevated);
-  color: var(--text-primary);
-  font-size: 12.5px;
-  font-weight: 500;
-  cursor: pointer;
-  box-shadow: var(--shadow-md);
-}
-
-.floating-quote-btn:hover {
-  background: var(--bg-hover);
+.chat-back-btn:hover {
+  color: var(--ink);
+  background: var(--canvas-2);
 }
 
 .chat-voice-btn {
-  margin-left: auto;
   display: inline-flex;
-  align-items: center;
   gap: 6px;
-  padding: 4px 10px;
-  border: none;
-  border-radius: 4px;
-  background: var(--bg-elevated);
-  color: var(--text-primary);
+  align-items: center;
+  height: 34px;
+  padding: 0 12px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--muted);
+  background: var(--canvas);
+  border: 1px solid var(--line-strong);
+  border-radius: 9px;
   cursor: pointer;
-  font-size: 13px;
-}
-
-.chat-voice-btn:hover:not(:disabled) {
-  background: var(--brand-color);
-  color: #fff;
+  transition: background var(--transition), color var(--transition);
 }
 
 .chat-voice-btn:disabled {
-  opacity: 0.6;
   cursor: default;
 }
 
-/* ── Message Search integration ── */
-.chat-search-btn {
-  margin-left: auto;
-  display: flex;
-  align-items: center;
-  padding: 6px;
-  color: var(--text-secondary);
-  background: none;
-  border: none;
-  border-radius: var(--radius-sm);
-  cursor: pointer;
-  transition: color 0.12s, background 0.12s;
+.chat-voice-btn:hover:not(:disabled) {
+  color: var(--ink);
+  background: var(--canvas-2);
 }
 
-.chat-search-btn:hover {
-  color: var(--text-primary);
-  background: var(--bg-hover);
+.chat-voice-btn.is-in-call {
+  color: var(--accent-text);
+  background: var(--accent-soft);
+  border-color: var(--accent-border);
 }
 
-.chat-search-btn.active {
-  color: var(--brand-color);
-  background: var(--brand-subtle);
-}
-
-.message.jump-highlight {
-  animation: jump-flash 2.2s ease-out;
-  border-radius: var(--radius-md);
-}
-
-@keyframes jump-flash {
-  0% {
-    background: var(--brand-subtle);
-    box-shadow: inset 3px 0 0 var(--brand-color);
-  }
-  60% {
-    background: var(--brand-subtle);
-    box-shadow: inset 3px 0 0 var(--brand-color);
-  }
-  100% {
-    background: transparent;
-    box-shadow: none;
-  }
-}
-
-.back-to-latest-btn {
-  position: absolute;
-  bottom: 96px;
-  left: 50%;
-  transform: translateX(-50%);
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 8px 16px;
-  font-size: 13px;
-  font-weight: 600;
-  color: #fff;
-  background: var(--brand-color);
-  border: none;
-  border-radius: var(--radius-xl);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.18);
-  cursor: pointer;
-  z-index: 15;
-  transition: background 0.12s;
-}
-
-.back-to-latest-btn:hover {
-  background: var(--brand-hover);
-}
-
-/* ── Emoji picker ── */
-.emoji-picker {
-  position: absolute;
-  bottom: calc(100% + 8px);
-  left: 0;
-  width: 264px;
-  max-height: 240px;
-  display: flex;
-  flex-direction: column;
-  background: var(--bg-elevated);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-md);
-  box-shadow: var(--shadow-lg);
-  z-index: 30;
-  overflow: hidden;
-}
-
-.emoji-picker-grid {
-  display: grid;
-  grid-template-columns: repeat(var(--emoji-cols, 8), 1fr);
-  gap: 2px;
-  padding: 8px;
-  overflow-y: auto;
-  flex: 1;
-}
-
-.emoji-cell {
+.chat-search-btn,
+.chat-members-btn,
+.chat-call-btn {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 28px;
-  height: 28px;
-  border: none;
-  background: none;
-  border-radius: var(--radius-sm);
-  font-size: 18px;
-  line-height: 1;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  color: var(--muted);
+  background: var(--canvas);
+  border: 1px solid var(--line-strong);
+  border-radius: 9px;
   cursor: pointer;
-  transition: background var(--transition);
+  transition: background var(--transition), color var(--transition);
 }
 
-.emoji-cell:hover {
-  background: var(--bg-hover);
-}
-
-.emoji-picker-tabs {
-  display: flex;
-  gap: 2px;
-  padding: 6px 8px;
-  border-top: 1px solid var(--border-subtle);
-  background: var(--bg-primary);
-  overflow-x: auto;
-}
-
-.emoji-tab {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 28px;
-  height: 28px;
-  padding: 0 4px;
-  border: none;
-  background: none;
-  border-radius: var(--radius-sm);
-  font-size: 16px;
-  line-height: 1;
-  cursor: pointer;
-  transition: background var(--transition);
-}
-
-.emoji-tab:hover {
-  background: var(--bg-hover);
-}
-
-.emoji-tab.active {
-  background: var(--bg-hover);
-}
-
-/* ── Sticker messages ── */
-.message-sticker-wrap {
-  display: inline-block;
-  background: var(--bg-primary);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-lg);
-  padding: 6px;
-}
-
-.message-sticker {
-  display: block;
-  width: 160px;
-  height: 160px;
-  object-fit: contain;
-  border-radius: var(--radius-md);
-  background: none;
-}
-
-/* ── Sticker picker ── */
-.sticker-picker {
-  position: absolute;
-  bottom: calc(100% + 8px);
-  left: 0;
-  width: 264px;
-  max-height: 240px;
-  display: flex;
-  flex-direction: column;
-  background: var(--bg-elevated);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-md);
-  box-shadow: var(--shadow-lg);
-  z-index: 30;
-  overflow: hidden;
-}
-
-.sticker-picker-grid {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 6px;
-  padding: 10px;
-  overflow-y: auto;
-  flex: 1;
-}
-
-.sticker-cell {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 4px;
-  border: none;
-  background: none;
-  border-radius: var(--radius-sm);
-  cursor: pointer;
-  transition: background var(--transition);
-}
-
-.sticker-cell:hover {
-  background: var(--bg-hover);
-}
-
-.sticker-cell img {
-  width: 100%;
-  height: auto;
-  object-fit: contain;
-  border-radius: var(--radius-sm);
-}
-
-.sticker-empty {
-  grid-column: 1 / -1;
-  padding: 20px 10px;
-  text-align: center;
-  color: var(--text-muted);
-  font-size: 13px;
-}
-
-.sticker-manage-btn {
-  display: block;
-  width: 100%;
-  padding: 8px;
-  border: none;
-  border-top: 1px solid var(--border-subtle);
-  background: var(--bg-primary);
-  color: var(--brand-color);
-  font-size: 13px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: background var(--transition);
-}
-
-.sticker-manage-btn:hover {
-  background: var(--bg-hover);
-}
-
-/* ── Sticker manager ── */
-.sticker-manager-overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.5);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 100;
-}
-
-.sticker-manager {
-  width: 360px;
-  max-height: 70vh;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  padding: 20px;
-  background: var(--bg-elevated);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-lg);
-  overflow: hidden;
-}
-
-.sticker-manager h3 {
-  margin: 0;
-  font-size: 16px;
-  font-weight: 700;
-  color: var(--text-primary);
-}
-
-.sticker-manager-upload {
-  display: flex;
-  gap: 8px;
-}
-
-.sticker-manager-upload input[type="text"] {
-  flex: 1;
-  min-width: 0;
-  padding: 8px 12px;
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-sm);
-  background: var(--bg-primary);
-  color: var(--text-primary);
-  font-size: 13px;
-  font-family: inherit;
-  outline: none;
-}
-
-.sticker-manager-upload input[type="text"]:focus {
-  border-color: var(--brand-color);
-}
-
-.sticker-file-input-hidden {
+/* Both are turned back on by the shell (AppPage.css), each in the range it
+   belongs to: `.chat-call-btn` inside the `<= 899px` panel model, and
+   `.chat-members-btn` below 1200px — spec §5 gives the member list its own
+   header toggle only once the list leaves the flow, and at >= 1200px the list
+   is always on screen, which left this button a visible, permanently dead
+   control at the default desktop width. */
+.chat-members-btn,
+.chat-call-btn {
   display: none;
 }
 
-.sticker-dropzone {
+.chat-search-btn:hover,
+.chat-members-btn:hover,
+.chat-call-btn:hover {
+  color: var(--ink);
+  background: var(--canvas-2);
+}
+
+.chat-search-btn.is-active {
+  color: var(--accent-text);
+  background: var(--accent-soft);
+  border-color: var(--accent-border);
+}
+
+/* ═══ Message list ═══ */
+.chat-messages {
   display: flex;
+  flex: 1;
   flex-direction: column;
-  align-items: center;
-  gap: 8px;
-  padding: 20px 12px;
-  border: 1.5px dashed var(--border-color);
-  border-radius: var(--radius-md);
-  background: var(--bg-input, var(--bg-primary));
-  color: var(--text-secondary);
-  text-align: center;
-  cursor: pointer;
-  transition: border-color var(--transition), background var(--transition);
-}
-
-.sticker-dropzone:hover,
-.sticker-dropzone.active {
-  border-color: var(--brand-color);
-  background: var(--bg-hover);
-}
-
-.sticker-dropzone.error {
-  border-color: var(--red-500);
-}
-
-.sticker-dropzone-icon {
-  font-size: 26px;
-  line-height: 1;
-}
-
-.sticker-dropzone-hint {
-  font-size: 13px;
-  color: var(--text-secondary);
-}
-
-.sticker-dropzone-restrictions {
-  font-size: 12px;
-  color: var(--text-muted);
-}
-
-.sticker-dropzone-preview {
-  max-width: 120px;
-  max-height: 120px;
-  border-radius: var(--radius-sm);
-  object-fit: contain;
-}
-
-.sticker-preview-info {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  padding: 8px;
-  border-radius: var(--radius-sm);
-  background: var(--bg-primary);
-}
-
-.sticker-preview-name {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 12px;
-  color: var(--text-secondary);
-}
-
-.sticker-preview-actions {
-  display: flex;
-  gap: 6px;
-}
-
-.sticker-preview-actions button,
-.sticker-upload-submit {
-  padding: 6px 12px;
-  border: none;
-  border-radius: var(--radius-sm);
-  font-size: 12px;
-  cursor: pointer;
-  transition: background var(--transition);
-}
-
-.sticker-preview-actions button {
-  background: var(--bg-hover);
-  color: var(--text-primary);
-}
-
-.sticker-preview-actions button:hover {
-  background: var(--border-subtle);
-}
-
-.sticker-upload-submit {
-  background: var(--brand-color, #5865f2);
-  color: #fff;
-}
-
-.sticker-upload-submit:hover:not(:disabled) {
-  opacity: 0.9;
-}
-
-.sticker-upload-submit:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.sticker-manager-list {
-  flex: 1;
+  padding: 18px 20px 8px;
   overflow-y: auto;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
 }
 
-.sticker-manager-item {
+/* ═══ Unread divider (board 2b, spec §4.4) — anchor pinned per channel
+   entry by ChatArea, not restyled/moved by this stylesheet. ═══ */
+.unread-divider {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 6px 8px;
-  border-radius: var(--radius-sm);
-  background: var(--bg-primary);
+  margin: 10px 0 6px;
 }
 
-.sticker-manager-item img {
-  object-fit: contain;
-  border-radius: var(--radius-sm);
-}
-
-.sticker-manager-item span {
+.unread-divider-line {
   flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 13px;
-  color: var(--text-primary);
+  height: 1px;
+  background: var(--danger);
+  opacity: 0.5;
 }
 
-.sticker-manager-item button {
-  padding: 4px 10px;
+.unread-divider-pill {
+  flex-shrink: 0;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--danger-soft);
+  color: var(--danger-text);
+  font-size: 10.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+/* ═══ Skeleton loading — avatar circle + two bars, 1.2s shimmer ═══ */
+@keyframes chat-shimmer {
+  0%,
+  100% { opacity: 1; }
+  50% { opacity: 0.55; }
+}
+
+.chat-skel-row {
+  display: grid;
+  grid-template-columns: 42px 1fr;
+  gap: 0 12px;
+  padding: 5px 8px;
+}
+
+.chat-skel-avatar {
+  width: 38px;
+  height: 38px;
+  background: var(--line);
+  border-radius: 50%;
+}
+
+.chat-skel-line {
+  height: 12px;
+  margin-bottom: 8px;
+  background: var(--line);
+  border-radius: 6px;
+}
+
+.chat-skel-line-short { width: 30%; }
+.chat-skel-line-long { width: 70%; }
+
+/* Only the leaves shimmer. With `.chat-skel-row` in this list too, the row's
+   own opacity multiplied with its children's — the trough was 0.55 × 0.55 ≈
+   0.30, not the 0.55 the keyframe declares. */
+.chat-skel-avatar,
+.chat-skel-line {
+  animation: chat-shimmer 1.2s ease-in-out infinite;
+}
+
+/* ═══ Empty states — shared card recipe (board 2a) ═══
+   One `.chat-empty-card` recipe for all three ChatArea variants (quiet
+   channel, no-servers, servers-exist-no-channel); centers itself via
+   auto margins in the flex column it's dropped into (.chat-area or
+   .chat-messages — both already flex:1 column), so no extra wrapper. */
+.chat-empty-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: min(100%, 340px);
+  min-height: 300px;
+  margin: auto;
+  padding: 36px 28px;
+  text-align: center;
+  background: var(--canvas);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  gap: 14px;
+}
+
+.chat-empty-tile {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 56px;
+  height: 56px;
+  color: var(--accent-text);
+  background: var(--accent-soft);
+  border-radius: 18px;
+}
+
+.chat-empty-tiles {
+  display: flex;
+  flex-shrink: 0;
+  gap: 8px;
+}
+
+.chat-empty-tiles-slot {
+  width: 40px;
+  height: 40px;
+  background: var(--line);
+  border-radius: 12px;
+}
+
+.chat-empty-tiles-slot.is-active {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--online);
+  background: var(--rail);
+}
+
+.chat-empty-title {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 800;
+  color: var(--ink);
+  letter-spacing: -0.01em;
+}
+
+.chat-empty-body {
+  max-width: 250px;
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--muted);
+}
+
+.chat-empty-card .btn {
+  margin-top: 4px;
+}
+
+/* Both blocks must stay AFTER `.chat-empty-card .btn` above: `.chat-empty-actions .btn`
+   is (0,2,0), identical to it, so source order is the only tie-break — placed
+   earlier it would silently do nothing (and splitting the margin-top out into a
+   second `.chat-empty-actions` rule trips no-duplicate-selectors, so it is
+   merged here). Without the override the two-button column ships an 8px gap
+   plus 4px of inherited margin = 12px, where board 1d specifies 8px; the
+   column's own 4px keeps the lift the single button used to provide. */
+.chat-empty-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.chat-empty-actions .btn {
+  margin-top: 0;
+}
+
+/* The send-error toast lives in primitives.css as `.error-toast` — ChatArea
+   renders that shared class instead of maintaining a twin (final-review fix 5;
+   `.chat-error-toast` and its byte-identical keyframe were deleted here). */
+
+/* ═══ Jump back to the latest messages (history mode) ═══ */
+.chat-jump-btn {
+  position: absolute;
+  bottom: 96px;
+  left: 50%;
+  z-index: 15;
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  padding: 8px 16px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--white);
+  background: var(--accent);
   border: none;
-  border-radius: var(--radius-sm);
-  background: var(--red-500);
-  color: white;
-  font-size: 12px;
+  border-radius: var(--radius-pill);
+  box-shadow: var(--shadow-menu);
   cursor: pointer;
+  transform: translateX(-50%);
   transition: background var(--transition);
 }
 
-.sticker-manager-item button:hover {
-  background: var(--red-600);
+.chat-jump-btn:hover {
+  background: var(--accent-hover);
 }
 
-.sticker-manager > button {
-  align-self: flex-end;
-  padding: 8px 16px;
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-sm);
-  background: var(--bg-primary);
-  color: var(--text-primary);
-  font-size: 13px;
-  cursor: pointer;
-  transition: all var(--transition);
+/* The floating "quote selection" affordance both selection surfaces render
+   lives in FloatingQuoteButton.tsx / .css (.quote-float-btn). */
+
+/* ═══ Mobile (board 1f) ═══ */
+@media (width <= 768px) {
+  .chat-back-btn,
+  .chat-call-btn {
+    display: flex;
+  }
+
+  .chat-header {
+    height: 56px;
+    min-height: 56px;
+    gap: 8px;
+    padding: 0 10px;
+  }
+
+  /* flex-shrink: 0 on every fixed-size header control — without it the row's
+     only other shrinkable item (.chat-header-title, min-width: 0 for its own
+     ellipsis) doesn't absorb 100% of an overflow; the flexbox algorithm was
+     observed stealing ~2px off .chat-back-btn instead, dropping it under the
+     40px hit-target floor. Title/subtitle text is what should truncate here,
+     never the tap targets. */
+  .chat-back-btn {
+    flex-shrink: 0;
+    width: 40px;
+    height: 40px;
+    border-radius: 11px;
+  }
+
+  /* The desktop one-line name hides; the two-line title+subtitle wrapper
+     (a sibling further down the header, not nested under it) takes over. */
+  .chat-header > .chat-header-name {
+    display: none;
+  }
+
+  .chat-header-title {
+    display: block;
+  }
+
+  .chat-header-actions {
+    flex-shrink: 0;
+  }
+
+  .chat-search-btn,
+  .chat-members-btn,
+  .chat-call-btn {
+    width: 40px;
+    height: 40px;
+    border-radius: 11px;
+  }
+
+  .chat-search-btn {
+    background: var(--canvas-2);
+    border: none;
+  }
+
+  /* `justify-content` is required here and nowhere else in this group. The
+     base rule is `display: inline-flex` with `align-items: center` and NO
+     `justify-content` — harmless at desktop, where the button is auto-width
+     around icon+label. Once this block fixes the width at 40px and hides the
+     label, the lone icon fell to the flex line's start edge: visibly off-centre
+     against `.chat-search-btn`/`.chat-call-btn`/`.chat-members-btn`, which all
+     declare `justify-content: center` in their shared rule above. Reported from
+     manual QA. */
+  .chat-voice-btn {
+    gap: 0;
+    justify-content: center;
+    width: 40px;
+    height: 40px;
+    padding: 0;
+    border-radius: 11px;
+  }
+
+  .chat-header-actions .chat-voice-btn {
+    color: var(--accent-text);
+    background: var(--accent-soft);
+  }
+
+  .chat-voice-btn span {
+    display: none;
+  }
+
+  .chat-messages {
+    padding: 16px 12px 8px;
+  }
 }
 
-.sticker-manager > button:hover {
-  background: var(--bg-hover);
-}
+/* M5.5 T5: the attach popover now wears the same shell as its two composer
+   siblings (EmojiPicker.css / StickerPicker.css) — --canvas fill, --line
+   hairline, 12px radius, --shadow-popover — instead of the legacy aliases it
+   arrived with. It anchors to `.composer-field`, the nearest positioned
+   ancestor.
 
-/* Отделяет группу «вставить контент» (стикеры, эмодзи, скрепка) от кнопок
-   форматирования: в ряду из девяти одинаковых кнопок прикрепление файла
-   иначе теряется. */
-.toolbar-sep {
-  width: 1px;
-  align-self: stretch;
-  margin: 4px 4px;
-  background: var(--border-color);
-}
-
+   `right: 0`, not `left: 0`. The attach button is the second control from the
+   RIGHT end of the field (Composer.tsx:381, between the emoji toggle and send),
+   so anchoring the popover to the field's left edge opened it at the opposite
+   end of the composer from the control that owns it — reported from manual QA.
+   Right-anchoring puts its edge under the button group. Do not "restore" the
+   left anchor without moving the button. */
 .attach-picker {
   position: absolute;
   bottom: calc(100% + 8px);
-  left: 0;
+  right: 0;
   z-index: 30;
   display: flex;
   flex-direction: column;
   min-width: 180px;
   padding: 4px;
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-md);
-  background: var(--bg-elevated);
-  box-shadow: var(--shadow-lg);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--canvas);
+  box-shadow: var(--shadow-popover);
 }
 
 .attach-picker-item {
   padding: 8px 12px;
   border: none;
-  border-radius: 4px;
+  border-radius: var(--radius-chip);
   background: none;
-  color: var(--text-primary);
+  color: var(--ink);
   font-size: 14px;
   text-align: left;
   cursor: pointer;
 }
 
 .attach-picker-item:hover {
-  background: var(--bg-hover);
+  background: var(--row-hover);
 }
 
+/* --scrim rather than a bare black: the drop target sits over the theme-aware
+   message list, and --ink keeps its contrast against the dimmed canvas in both
+   themes (the overlay is transient, so no hover/active states). */
 .chat-drop-overlay {
   position: absolute;
   inset: 0;
@@ -1141,10 +499,11 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  border: 2px dashed var(--accent, #5865f2);
-  border-radius: 8px;
-  background: rgb(0 0 0 / 45%);
-  color: var(--text-primary);
+  border: 2px dashed var(--accent);
+  border-radius: var(--radius-composer);
+  background: var(--scrim);
+  color: var(--ink);
   font-size: 16px;
   pointer-events: none; /* иначе оверлей сам съест событие drop */
 }
+

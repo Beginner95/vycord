@@ -1,159 +1,233 @@
 .user-list {
-  width: 240px;
-  min-width: 240px;
-  background: var(--bg-primary);
-  border-left: 1px solid var(--border-subtle);
-  padding: 16px 10px;
+  width: 236px;
+  min-width: 236px;
+  background: var(--panel);
+  border-left: 1px solid var(--panel-line);
+  display: flex;
+  flex-direction: column;
+  padding: 16px 12px;
+}
+
+.user-list-scroll {
+  flex: 1;
+  min-height: 0;
   overflow-y: auto;
 }
 
 .user-category {
-  padding: 6px 8px;
-  color: var(--text-muted);
-  font-size: 11px;
+  padding: 0 4px 6px;
+  color: var(--muted-2);
+  font-size: var(--fs-group);
   font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.05em;
-  margin-bottom: 8px;
+  letter-spacing: var(--ls-group);
+}
+
+.user-category.online-label {
+  color: var(--online-text);
+}
+
+.user-category + .user-category,
+.user-item + .user-category {
+  margin-top: 14px;
 }
 
 .user-item {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 8px;
-  border-radius: var(--radius-md);
-  cursor: pointer;
-  transition: all var(--transition);
+  gap: 9px;
+  padding: 6px 8px;
+  margin-bottom: 4px;
+  border-radius: var(--radius-row);
   position: relative;
 }
 
-.user-item:hover {
-  background: var(--bg-hover);
+.user-item:not(.is-offline) {
+  background: var(--canvas);
+  box-shadow: var(--shadow-row);
 }
 
-.user-avatar.list {
-  width: 34px;
-  height: 34px;
-  min-width: 34px;
-  border-radius: var(--radius-full);
-  background: linear-gradient(135deg, var(--brand-200), var(--brand-400));
+.user-item.is-offline:hover {
+  background: var(--row-hover);
+}
+
+/* M6 T9: this was the compound `.user-avatar.list`. `.list` is a single-segment
+   name and no `.user-avatar` rule exists anywhere — the base token carried zero
+   declarations and only ever served to make the compound — so the pair collapses
+   to one variant class rather than becoming `.user-avatar .user-avatar-list`.
+   Consequence swept in the same task: `tools/smoke.mjs`'s avatar census used to
+   reach this element through a bare `.user-avatar`, and now names
+   `.user-avatar-list` explicitly. M6 T10 did the same to `ChannelSidebar.css`'s
+   `.user-avatar.small` (now `.user-avatar-small`) and retired the bare
+   `.user-avatar` from that census selector, which by then matched nothing. */
+.user-avatar-list {
+  width: 30px;
+  height: 30px;
+  min-width: 30px;
+  border-radius: 11px;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 13px;
-  font-weight: 700;
-  color: var(--text-inverse);
-  position: relative;
+  font-size: 12px;
+  overflow: hidden;
   object-fit: cover;
 }
 
-.user-avatar.list.online::after {
-  content: '';
-  position: absolute;
-  bottom: -1px;
-  right: -1px;
+.user-item .user-avatar-wrap.is-online::after {
   width: 11px;
   height: 11px;
-  border-radius: var(--radius-full);
-  background: var(--green-color);
-  border: 2.5px solid var(--bg-primary);
-  box-shadow: 0 0 0 1px var(--green-color);
 }
 
-.user-avatar.list.offline::after {
-  content: '';
-  position: absolute;
-  bottom: -1px;
-  right: -1px;
-  width: 11px;
-  height: 11px;
-  border-radius: var(--radius-full);
-  background: var(--text-muted);
-  border: 2.5px solid var(--bg-primary);
-}
-
-.user-item.offline .user-avatar.list,
-.user-item.offline .username {
-  opacity: 0.5;
-}
-
-.username {
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--text-primary);
+.user-item-text {
   flex: 1;
   min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.user-name {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ink);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
+.user-item.is-offline .user-name {
+  font-weight: 500;
+  color: var(--muted);
+}
+
+.user-item-sub {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--muted-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Offline avatar: light = neutral grey tile; dark = the user's hash hue
+   at ~30% alpha with a light tint initial (spec §4.3 / board 2b). */
+.user-item.is-offline .user-avatar-list {
+  --avatar-bg: var(--avatar-offline);
+  --avatar-ink: var(--muted-2);
+}
+
+[data-theme="dark"] .user-item.is-offline .user-avatar-list {
+  /* --avatar-color is JS-injected (Avatar.tsx:32), so `importFrom` cannot see it
+     and a bare var() flags csstools/value-no-unknown-custom-properties. These two
+     fallbacks are the LAST sanctioned ones (M6 T3, step 7) — every remaining bare
+     var() is task 13's audit gate, and a fallback added elsewhere silences it.
+     --avatar-bg / --avatar-ink are read ONLY from Avatar.tsx:33,34 and by no CSS
+     file: rename either and the member list's avatars break with no lint error,
+     no type error and no failing test. */
+  --avatar-bg: color-mix(in srgb, var(--avatar-color, var(--accent)) 30%, transparent);
+  --avatar-ink: color-mix(in srgb, var(--avatar-color, var(--accent)) 55%, var(--white));
+}
+
+.user-item.is-offline img.user-avatar-list {
+  opacity: 0.5;
+}
+
 .call-user-btn {
-  margin-left: auto;
-  background: none;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
   border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--muted-2);
   cursor: pointer;
-  font-size: 14px;
-  padding: 5px 7px;
-  border-radius: var(--radius-sm);
   opacity: 0;
-  transition: all var(--transition);
+  transition: opacity var(--transition), background var(--transition), color var(--transition);
+}
+
+.call-user-btn:hover {
+  background: var(--online-soft);
+  color: var(--online-text);
 }
 
 .user-item:hover .call-user-btn {
   opacity: 1;
 }
 
-.call-user-btn:hover {
-  background: var(--green-50);
-  transform: scale(1.1);
+/* ── Invite card (pinned bottom) ── */
+.invite-card {
+  margin-top: 12px;
+  background: var(--canvas);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-card);
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
 
+.invite-card-title {
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.invite-card-sub {
+  margin: 0;
+  font-size: var(--fs-caption);
+  font-weight: 400;
+  color: var(--muted);
+}
+
+.invite-card-error {
+  margin: 0;
+  font-size: 11px;
+  color: var(--danger-text);
+}
+
+.invite-card .invite-card-btn {
+  width: 100%;
+  height: 32px;
+  font-size: 12.5px;
+}
+
+/* M6 T8: the visual half of the members panel's mobile header is hoisted out
+   of the `width <= 768px` block below — see the same note in
+   ChannelSidebar.css. The single-panel model runs to 899px since T7, so the
+   shell flips `display` for the whole range and these declarations live in
+   exactly one place. Still `display: none` at >= 900px.
+
+   `.mobile-back-btn` is NOT re-declared here. Its base rule in
+   ChannelSidebar.css is an unscoped (0,1,0) selector that already reaches this
+   panel's button; the copy that used to sit in the block below was dead
+   duplication, and re-adding a `.user-list .mobile-back-btn` here would tie
+   (0,2,0) with the shell's reveal rule and hand the outcome to import order —
+   exactly the failure mode ruling C forbids. */
 .user-list-mobile-header {
   display: none;
+  align-items: center;
+  gap: 10px;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  padding: 16px 16px 12px;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--ink);
+  background: var(--canvas);
+  border-bottom: 1px solid var(--line);
 }
 
-@media (max-width: 768px) {
+@media (width <= 768px) {
   .user-list {
     width: 100vw;
     min-width: 100vw;
     display: flex;
     flex-direction: column;
-  }
-
-  .user-list-mobile-header {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    padding: 16px 16px 12px;
-    border-bottom: 1px solid var(--border-subtle);
-    font-size: 16px;
-    font-weight: 700;
-    color: var(--text-primary);
-    background: var(--bg-primary);
-    position: sticky;
-    top: 0;
-    z-index: 10;
-  }
-
-  .mobile-back-btn {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background: none;
-    border: none;
-    color: var(--text-secondary);
-    cursor: pointer;
-    padding: 6px;
-    border-radius: var(--radius-sm);
-    transition: all var(--transition);
-    flex-shrink: 0;
-  }
-
-  .mobile-back-btn:hover {
-    background: var(--bg-hover);
-    color: var(--text-primary);
   }
 
   .user-item {

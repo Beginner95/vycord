@@ -2,6 +2,7 @@ import { useT } from '@/i18n';
 import { useDismissOnOutside } from '@/hooks/useDismissOnOutside';
 import type { Sticker } from '@/types';
 import { resolveUploadUrl } from '@/services/api';
+import './StickerPicker.css';
 
 interface StickerPickerProps {
   stickers: Sticker[];
@@ -17,17 +18,17 @@ export function StickerPicker({ stickers, onSelect, onClose, onManage }: Sticker
     <div className="sticker-picker" role="dialog" ref={ref}>
       <div className="sticker-picker-grid">
         {stickers.length === 0 ? (
-          <div className="sticker-empty">{t('chat.noStickers')}</div>
+          <div className="sticker-picker-empty">{t('chat.noStickers')}</div>
         ) : (
           stickers.map((s) => (
-            <button key={s.id} type="button" className="sticker-cell" onClick={() => onSelect(s)}>
+            <button key={s.id} type="button" className="sticker-picker-cell" onClick={() => onSelect(s)}>
               <img src={resolveUploadUrl(s.image_url)} alt={s.name} />
             </button>
           ))
         )}
       </div>
       {onManage && (
-        <button type="button" className="sticker-manage-btn" onClick={onManage}>
+        <button type="button" className="sticker-picker-manage-btn" onClick={onManage}>
           {t('chat.manageStickers')}
         </button>
       )}

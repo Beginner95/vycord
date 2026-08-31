@@ -1,0 +1,168 @@
+import type { Channel } from '@/types';
+
+// Board 2c: query debounce 120ms. The deep panel (MessageSearch) stays at 300ms
+// on purpose — it paginates a committed query, the palette previews one.
+export const PALETTE_DEBOUNCE_MS = 120;
+// Server-enforced: server/internal/delivery/http/handler/message.go:124 rejects
+// a query under 2 or over 100 runes with 400 CodeSearchQueryLength.
+export const PALETTE_MIN_QUERY = 2;
+export const PALETTE_MAX_QUERY = 100;
+export const CAP_CHANNELS = 6;
+export const CAP_MESSAGES = 5;
+// 7 = ровно размер полного реестра действий (решение 16), чтобы пустой запрос
+// никогда молча не отбрасывал действие (решение 15).
+export const CAP_ACTIONS = 7;
+
+export interface PaletteActionDef {
+  id: string;
+  label: string;
+  run: () => void;
+}
+
+export interface PaletteMessage {
+  id: string;
+  username: string;
+  content: string;
+  created_at: string;
+}
+
+export type PaletteRow =
+  | { kind: 'channel'; id: string; channel: Channel }
+  | { kind: 'message'; id: string; message: PaletteMessage }
+  | { kind: 'action'; id: string; action: PaletteActionDef }
+  | { kind: 'show-all'; id: 'show-all' }
+  // Status rows render inside a group but are NOT selectable and never enter `rows`.
+  | { kind: 'status'; id: string; text: string };
+
+export type PaletteGroupKey = 'channels' | 'messages' | 'actions';
+
+export interface PaletteGroup {
+  key: PaletteGroupKey;
+  /** Flat index of this group's first SELECTABLE row.
+   *
+   * CommandPalette.tsx derives a row's selection index as `group.from + i`,
+   * where `i` is the group-LOCAL index (it counts status rows too). That
+   * arithmetic is only correct because buildPalette never emits a group that
+   * mixes status and selectable rows — today the messages group is either
+   * exactly one status row or all selectable rows, never both. If a future
+   * group ever interleaves the two (e.g. a "N more in other channels" status
+   * line rendered alongside real result rows), `from + i` will overcount and
+   * point past the intended row — recompute the offset per-row instead of
+   * assuming `i` skips no status rows. */
+  from: number;
+  rows: PaletteRow[];
+}
+
+export interface PaletteModel {
+  groups: PaletteGroup[];
+  /** Selectable rows in render order; the array index IS the selection index. */
+  rows: PaletteRow[];
+}
+
+export interface PaletteInput {
+  query: string;
+  channels: Channel[];
+  actions: PaletteActionDef[];
+  messages: PaletteMessage[];
+  messagesTotal: number;
+  hasChannel: boolean;
+  messagesLoading: boolean;
+  messagesError: string | null;
+}
+
+function normalise(value: string): string {
+  // Никакой ё/е-нормализации (решение 17): осознанный пробел, а не забытый случай.
+  return value.toLocaleLowerCase();
+}
+
+export function rankByName<T>(
+  items: T[],
+  query: string,
+  nameOf: (item: T) => string,
+  cap: number,
+): T[] {
+  const q = normalise(query.trim());
+  if (!q) return items.slice(0, cap);
+  const prefix: T[] = [];
+  const substring: T[] = [];
+  for (const item of items) {
+    const name = normalise(nameOf(item));
+    if (name.startsWith(q)) prefix.push(item);
+    else if (name.includes(q)) substring.push(item);
+  }
+  return [...prefix, ...substring].slice(0, cap);
+}
+
+export function buildPalette(input: PaletteInput): PaletteModel {
+  const {
+    query, channels, actions, messages, messagesTotal,
+    hasChannel, messagesLoading, messagesError,
+  } = input;
+  const trimmed = query.trim();
+
+  const channelRows: PaletteRow[] = rankByName(channels, trimmed, (c) => c.name, CAP_CHANNELS)
+    .map((channel) => ({ kind: 'channel', id: `channel-${channel.id}`, channel }));
+
+  const actionRows: PaletteRow[] = rankByName(actions, trimmed, (a) => a.label, CAP_ACTIONS)
+    .map((action) => ({ kind: 'action', id: `action-${action.id}`, action }));
+
+  const messageRows: PaletteRow[] = [];
+  const wantsMessages = hasChannel && trimmed.length >= PALETTE_MIN_QUERY;
+  if (wantsMessages) {
+    if (messagesError) {
+      messageRows.push({ kind: 'status', id: 'messages-error', text: messagesError });
+    } else if (messagesLoading) {
+      messageRows.push({ kind: 'status', id: 'messages-loading', text: '' });
+    } else {
+      for (const message of messages.slice(0, CAP_MESSAGES)) {
+        messageRows.push({ kind: 'message', id: `message-${message.id}`, message });
+      }
+      if (messageRows.length > 0 && messagesTotal > messageRows.length) {
+        messageRows.push({ kind: 'show-all', id: 'show-all' });
+      }
+    }
+  }
+
+  const groups: PaletteGroup[] = [];
+  const rows: PaletteRow[] = [];
+  const push = (key: PaletteGroupKey, groupRows: PaletteRow[]) => {
+    if (groupRows.length === 0) return;
+    groups.push({ key, from: rows.length, rows: groupRows });
+    rows.push(...groupRows.filter((row) => row.kind !== 'status'));
+  };
+  push('channels', channelRows);
+  push('messages', messageRows);
+  push('actions', actionRows);
+
+  return { groups, rows };
+}
+
+/** Resolve the sticky `selectedId` back to a flat row index.
+ *
+ * CommandPalette keeps the selection as an ID rather than an index because an
+ * async message result splices `rows` while `query` is unchanged, and an index
+ * would then point at a different row than the user picked. When the ID has
+ * disappeared entirely (a genuinely new result set) `findIndex` returns -1 and
+ * the selection falls back to the first row — hence the `Math.max(…, 0)`, which
+ * also covers the no-selection case. */
+export function selectedIndexOf(rows: PaletteRow[], selectedId: string | null): number {
+  if (selectedId === null) return 0;
+  return Math.max(rows.findIndex((row) => row.id === selectedId), 0);
+}
+
+/** Whether the palette should render its «ничего не найдено» line.
+ *
+ * Keyed on `groups`, not on `rows`: a query that matches no channel and no
+ * action but does trigger a message search emits a messages group holding one
+ * STATUS row, which never enters `rows` (see `PaletteGroup.from`). Testing
+ * `rows.length === 0` there would render the empty state directly above a
+ * visible «Ищем…» line. An empty/whitespace query shows no empty state at all —
+ * the palette opens on a resting list, not on a "no results" message. */
+export function shouldShowEmptyState(model: PaletteModel, query: string): boolean {
+  return model.groups.length === 0 && query.trim() !== '';
+}
+
+export function moveSelection(current: number, delta: number, rowCount: number): number {
+  if (rowCount <= 0) return 0;
+  return (((current + delta) % rowCount) + rowCount) % rowCount;
+}

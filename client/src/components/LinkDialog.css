@@ -1,44 +1,59 @@
-.link-dialog-backdrop {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.4);
-  z-index: 1000;
-  display: flex;
-  align-items: flex-end;
-  justify-content: center;
-  padding: 24px;
-}
+/* ── Link dialog ───────────────────────────────────────────────────────────
+   Now a plain `.modal` inside `.modal-overlay`: the hand-rolled
+   `.link-dialog-backdrop` (own scrim, no blur, bottom-docked) is deleted, so the
+   dialog is centred and shares the app's scrim + blur. Fields use the `.input`
+   primitive, the error uses `.modal-error`, the footer uses `.modal-actions` +
+   `.btn` roles.
 
+   The five raw hexes are gone with them, and they were three different kinds.
+   TWO were dead-alias fallbacks that could never fire (`--bg-elevated` and
+   `--bg-secondary` were both DEFINED at the time, in tokens.css's legacy-alias
+   block, so the fallback hex was unreachable. M6 T13 deleted that block; those
+   two names now resolve to nothing anywhere in the tree. Had the declarations
+   survived to T13 they would have flipped from "fallback unreachable" to
+   "fallback is the only value" — silently, since a `var(--x, hex)` is exactly
+   what silences the audit rule. They were deleted long before that). TWO — the invalid-URL input
+   border and the error text — hung off `var(--danger-color, <hex>)`, and
+   `--danger-color` is defined NOWHERE in the tree (verified at M4 T8:
+   `rg -- '--danger-color' src/` matched only this file), so that fallback hex —
+   not a token — was the colour actually rendering; `var(--danger)` /
+   `.modal-error` replace them. The FIFTH was a bare three-digit white on
+   `.link-dialog-submit`'s `color`, hanging off no variable at all;
+   `.btn-primary`'s `var(--white)` replaces it.
+
+   (This comment writes no literal hex, and that WAS a hard constraint: the M4-era
+   raw-colour grep did not exempt comments, and writing one here broke that gate
+   twice during M4 T8. **It is no longer a constraint** — M6 T13's gate,
+   `tools/t13-raw-colour-gate.mjs`, strips comments before counting anything,
+   which is why `tokens.css`, `Auth.css`, `TitleBar.css`, `ChannelSidebar.css`
+   and `ProfileSettings.css` all now quote hexes in prose to document the values
+   they REMOVED. This comment stays hex-free because it reads fine that way, not
+   because a gate still forbids it. If you hand-grep instead of running the tool,
+   strip comments first or you will count this paragraph.)
+
+   `width` here ties with `.modal { width: 90%; max-width: 440px }` on
+   specificity and is won by injection order only — component CSS is injected
+   after the base layer (M2 cascade fact, CONSTRAINTS §9). `max-width: 90%`
+   matches `.modal`'s own idiom and keeps the small-viewport shrink the old
+   `width: 100%; max-width: 420px` had. */
 .link-dialog {
-  width: 100%;
-  max-width: 420px;
-  background: var(--bg-elevated, #2b2d31);
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-lg);
-  padding: 16px;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
+  width: 380px;
+  max-width: 90%;
 }
 
-.link-dialog-field { display: flex; flex-direction: column; gap: 6px; font-size: 12.5px; color: var(--text-muted); }
-.link-dialog-field input {
-  padding: 8px 10px;
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-sm);
-  background: var(--bg-primary);
-  color: var(--text-primary);
-  outline: none;
+.link-dialog-field {
+  display: block;
+  margin-bottom: 14px;
 }
-.link-dialog-field input.error { border-color: var(--danger-color, #f23f42); }
-.link-dialog-error { color: var(--danger-color, #f23f42); font-size: 12px; }
-.link-dialog-actions { display: flex; justify-content: flex-end; gap: 8px; }
-.link-dialog-cancel, .link-dialog-submit {
-  padding: 7px 14px;
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-sm);
-  cursor: pointer;
-  background: var(--bg-secondary, #383a40);
-  color: var(--text-primary);
+
+.link-dialog-field span {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--muted);
 }
-.link-dialog-submit { background: var(--brand-color); border-color: var(--brand-color); color: #fff; }
+
+.link-dialog .input.is-invalid {
+  border-color: var(--danger);
+}

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { useAuthStore } from '@/stores/authStore';
 import { useServerStore } from '@/stores/serverStore';
 import { useMessageStore } from '@/stores/messageStore';
@@ -8,12 +9,18 @@ import { logger } from '@/utils/logger';
 import { ServerList } from '@/components/ServerList';
 import { ChannelSidebar } from '@/components/ChannelSidebar';
 import { ChatArea } from '@/components/ChatArea';
+import { FindServerModal } from '@/components/FindServerModal';
+import { CommandPalette } from '@/components/CommandPalette';
+import { Settings } from '@/components/Settings';
+import { CreateChannelModal } from '@/components/CreateChannelModal';
 import { UserList } from '@/components/UserList';
 import { TitleBar } from '@/components/TitleBar';
 import { CallUI } from '@/components/CallUI';
 import { CallStage } from '@/components/CallStage';
+import { CallNotifBanner } from '@/components/CallNotifBanner';
 import { groupCallService } from '@/services/groupCall';
 import { useCallStore, initCallBridge } from '@/stores/callStore';
+import { usePaletteHotkey } from '@/hooks/usePaletteHotkey';
 import { useT } from '@/i18n';
 import type { Server, Channel, Message, MemberWithUser } from '@/types';
 import './AppPage.css';
@@ -74,14 +81,22 @@ function startCallRingtone(): () => void {
 
 export function AppPage() {
   const t = useT();
+  usePaletteHotkey();
   const { user, accessToken, logout } = useAuthStore();
-  const { servers, setServers, setCurrentServer, currentServer, setChannels, channels, currentChannel, setCurrentChannel, setMembers, members, setPermissions } = useServerStore();
+  const { servers, setServers, setServersLoaded, setCurrentServer, currentServer, setChannels, channels, currentChannel, setCurrentChannel, setMembers, members, setPermissions } = useServerStore();
   const { setMessages } = useMessageStore();
   const [showCreateServer, setShowCreateServer] = useState(false);
+  const [findServerOpen, setFindServerOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [createChannelOpen, setCreateChannelOpen] = useState(false);
   const [newServerName, setNewServerName] = useState('');
   const [newServerIsPrivate, setNewServerIsPrivate] = useState(false);
   const [createServerError, setCreateServerError] = useState('');
   const [mobilePanel, setMobilePanel] = useState<MobilePanel>('servers');
+  // M6 T8 (spec §5, decision 22): in the 900–1199 band the member list leaves
+  // the flow and this flag is what brings it back. It is read by exactly one
+  // CSS rule, inside that band's media query — see AppPage.css.
+  const [membersOpen, setMembersOpen] = useState(false);
   const [callNotif, setCallNotif] = useState<CallNotif | null>(null);
   const [voiceParticipants, setVoiceParticipants] = useState<Map<string, string[]>>(new Map());
   const [leftSidebarHidden, setLeftSidebarHidden] = useState<boolean>(
@@ -187,19 +202,19 @@ export function AppPage() {
   useEffect(() => {
     // Listen for incoming messages via WebSocket
     const unsubscribe = wsService.on('chat_message', (payload) => {
-      const msg = payload as Record<string, unknown>;
+      const msg = payload as Message;
       if (currentChannel && msg.channel_id === currentChannel.id) {
         // Own messages are added optimistically via HTTP response in ChatArea — skip to avoid duplicates
         if (user && msg.user_id === user.id) return;
-        const fullMsg: Message = {
-          id: msg.id as string,
-          channel_id: msg.channel_id as string,
-          user_id: msg.user_id as string,
-          content: msg.content as string,
-          created_at: msg.created_at as string,
-          updated_at: (msg.updated_at as string) || (msg.created_at as string),
-        };
-        useMessageStore.getState().addMessage(fullMsg);
+        // Spread, don't re-pick fields: the broadcast carries the same
+        // domain.Message the REST read does — attachments (already signed
+        // server-side) and sticker included. Rebuilding the object by hand
+        // dropped them, so an incoming image or sticker stayed invisible
+        // until a reload refetched the message over HTTP.
+        useMessageStore.getState().addMessage({
+          ...msg,
+          updated_at: msg.updated_at || msg.created_at,
+        });
       }
     });
 
@@ -427,8 +442,19 @@ export function AppPage() {
             if (channel) {
               setCurrentChannel(channel);
               wsService.joinChannel(channel.id);
-              const messages = await apiService.getMessages(channel.id);
-              setMessages(messages as Message[]);
+              useMessageStore.getState().setLoading(true);
+              try {
+                const messages = await apiService.getMessages(channel.id);
+                // Same stale-response guard as handleSelectChannel (fix 2):
+                // this restore path is slow (two awaits before it starts), so
+                // the user can easily have clicked another channel already.
+                if (useServerStore.getState().currentChannel?.id !== channel.id) return;
+                setMessages(messages as Message[]);
+              } finally {
+                if (useServerStore.getState().currentChannel?.id === channel.id) {
+                  useMessageStore.getState().setLoading(false);
+                }
+              }
               return;
             }
           }
@@ -448,6 +474,10 @@ export function AppPage() {
       handleSelectServer(data[0]);
     } catch (err) {
       logger.error('Failed to load servers:', err, { module: 'app' });
+    } finally {
+      // Lands true on failure too, so a failed fetch doesn't leave ChatArea's
+      // no-servers gate hanging open forever (board 2a follow-up fix).
+      setServersLoaded(true);
     }
   };
 
@@ -476,6 +506,26 @@ export function AppPage() {
       setServers([...current, server]);
     }
     handleSelectServer(server);
+  };
+
+  // M6 T8 — one button, two bands. Below 900px the single-panel model owns the
+  // member list (decision 23) and `mobilePanel` is what moves; in 900–1199 the
+  // list is a column out of the flow (decision 22) and `membersOpen` is what
+  // moves. Both are set unconditionally rather than branching on a
+  // `matchMedia('(width < 900px)')`: each half has no RENDERED effect in the
+  // other's band, because the CSS rule that reads it lives inside that band's
+  // own media query, and a second copy of the 900px boundary in TypeScript
+  // could drift out of step with AppPage.css, which is the only place it
+  // belongs.
+  //
+  // Accepted, and stated precisely rather than as "inert": below 900 this also
+  // flips `membersOpen`, which nothing in that band reads, so its value on
+  // leaving the band is click-parity dependent and decides whether the list is
+  // open on a widen into 900–1199. Never observable below 900, recoverable in
+  // both directions, and cheaper than duplicating the breakpoint here.
+  const handleToggleMembers = () => {
+    setMobilePanel('members');
+    setMembersOpen((v) => !v);
   };
 
   const handleSelectServer = async (server: Server) => {
@@ -515,11 +565,27 @@ export function AppPage() {
     const currentSrv = useServerStore.getState().currentServer;
     apiService.updateLastVisited(currentSrv?.id ?? null, channel.id).catch(() => {});
 
+    useMessageStore.getState().setLoading(true);
     try {
       const data = await apiService.getMessages(channel.id);
+      // Stale-response guard (final-review fix 2). On a fast A→B→C switch an
+      // earlier fetch can resolve after the user has moved on; without this it
+      // paints the wrong channel's list. `setCurrentChannel` above is a
+      // synchronous zustand write that immediately precedes `setLoading(true)`,
+      // so this id comparison is exact, not a heuristic.
+      if (useServerStore.getState().currentChannel?.id !== channel.id) return;
       setMessages(data as Message[]);
     } catch (err) {
       logger.error('Failed to load messages:', err, { module: 'app' });
+    } finally {
+      // Guarding only `setMessages` is half a fix: a stale `finally` flipping
+      // `loading` false while `messages` still belongs to the previous channel
+      // is exactly what lets ChatArea latch its unread anchor off the wrong
+      // list. Whoever owns the current channel clears its own flag — see the
+      // no-strand argument in task-13-fixwave-report.md.
+      if (useServerStore.getState().currentChannel?.id === channel.id) {
+        useMessageStore.getState().setLoading(false);
+      }
     }
   };
 
@@ -558,7 +624,12 @@ logger.error('Failed to create server:', err, { module: 'app' });
   return (
     <div className="app-page">
       <TitleBar />
-      <div className="app-layout" data-mobile-panel={mobilePanel} data-left-sidebar={leftSidebarHidden ? 'hidden' : 'shown'}>
+      <div
+        className="app-layout"
+        data-mobile-panel={mobilePanel}
+        data-members-open={membersOpen ? '1' : '0'}
+        data-left-sidebar={leftSidebarHidden ? 'hidden' : 'shown'}
+      >
         <button
           className="sidebar-gutter"
           onClick={toggleLeftSidebar}
@@ -566,7 +637,27 @@ logger.error('Failed to create server:', err, { module: 'app' });
           title={leftSidebarHidden ? t('sidebar.show') : t('sidebar.hide')}
           aria-pressed={leftSidebarHidden}
         >
-          {leftSidebarHidden ? '▶' : '◀'}
+          {/* M6 T12, decision 25: was `▶`/`◀` — the last emoji-as-icon in the
+              tree, excluded by M1's own plan. The glyph size below is the
+              gutter's own constraint before it is a style choice: it must fit
+              inside `.sidebar-gutter` (AppPage.css — anchored by selector, not
+              line: this comment has outlived two renumberings), so ServerList's
+              18/20/21 cannot fit at any gutter width we would accept.
+
+              M6 T15: 14 → 16, with the gutter 16px → 22px in the same change.
+              They were sized together and must move together — 14 was the most
+              a 16px gutter could hold, and manual QA read it as a hairline. 16
+              still sits inside the 10–15… band's spirit at its top edge and
+              matches ChannelSidebar's small tier region to the right of this
+              gutter; shrink one and you must shrink the other.
+
+              Written as bare numerals and not the prop form on purpose:
+              icon-census greps for the size-prop literal cannot tell a comment
+              from a tag, and this comment inflated such a count by one until it
+              was reworded. */}
+          {leftSidebarHidden
+            ? <ChevronRight size={16} strokeWidth={1.8} />
+            : <ChevronLeft size={16} strokeWidth={1.8} />}
         </button>
         <ServerList
           servers={servers}
@@ -574,8 +665,7 @@ logger.error('Failed to create server:', err, { module: 'app' });
           user={user}
           onSelectServer={handleSelectServer}
           onCreateServer={() => { setShowCreateServer(true); setCreateServerError(''); }}
-          onJoinServer={handleJoinServer}
-          onServerJoined={handleServerJoined}
+          onOpenFindServer={() => setFindServerOpen(true)}
           onServerDeleted={handleServerRemoved}
         />
 
@@ -592,6 +682,9 @@ logger.error('Failed to create server:', err, { module: 'app' });
           members={members}
           onChannelDeleted={handleChannelRemoved}
           onGoToCall={handleGoToCall}
+          onServerDeleted={handleServerRemoved}
+          onOpenSettings={() => setSettingsOpen(true)}
+          onCreateChannel={() => setCreateChannelOpen(true)}
         />
 
         {/* Сцена звонка показывается только в том канале, где идёт звонок:
@@ -613,20 +706,37 @@ logger.error('Failed to create server:', err, { module: 'app' });
             channel={currentChannel}
             user={user}
             onMobileBack={() => setMobilePanel('channels')}
-            onShowMembers={() => setMobilePanel('members')}
+            onShowMembers={handleToggleMembers}
             onJoinVoice={handleJoinVoice}
             onShowCall={
               callChannelId && callChannelId === currentChannel?.id
                 ? () => setMobilePanel('call')
                 : undefined
             }
+            onCreateServer={() => { setShowCreateServer(true); setCreateServerError(''); }}
+            onFindServer={() => setFindServerOpen(true)}
+            voiceParticipants={voiceParticipants}
           />
         </div>
 
         {/* Список участников виден всегда, включая звонок: чат и сцена теперь
             делят колонку, и прятать соседнюю панель больше не за чем. */}
-        <UserList onMobileBack={() => setMobilePanel('chat')} />
+        <UserList onMobileBack={() => setMobilePanel('chat')} voiceParticipants={voiceParticipants} />
       </div>
+
+      <FindServerModal
+        open={findServerOpen}
+        onClose={() => setFindServerOpen(false)}
+        onJoinServer={handleJoinServer}
+        onServerJoined={handleServerJoined}
+        onCreateServer={() => { setShowCreateServer(true); setCreateServerError(''); }}
+      />
+
+      <Settings isOpen={settingsOpen} onClose={() => setSettingsOpen(false)} onLogout={handleLogout} />
+
+      {createChannelOpen && currentServer && (
+        <CreateChannelModal serverId={currentServer.id} onClose={() => setCreateChannelOpen(false)} />
+      )}
 
       {showCreateServer && (
         <div className="modal-overlay" onClick={() => { setShowCreateServer(false); setCreateServerError(''); }}>
@@ -658,10 +768,10 @@ logger.error('Failed to create server:', err, { module: 'app' });
               </div>
               {createServerError && <p className="modal-error">{createServerError}</p>}
               <div className="modal-actions">
-                <button type="button" onClick={() => { setShowCreateServer(false); setCreateServerError(''); }}>
+                <button type="button" className="btn btn-secondary" onClick={() => { setShowCreateServer(false); setCreateServerError(''); }}>
                   {t('common.cancel')}
                 </button>
-                <button type="submit" className="primary">
+                <button type="submit" className="btn btn-primary">
                   {t('server.createSubmit')}
                 </button>
               </div>
@@ -671,36 +781,32 @@ logger.error('Failed to create server:', err, { module: 'app' });
       )}
 
       {callNotif && (
-        <div className="call-notif-banner">
-          <span className="call-notif-icon">🔔</span>
-          <span className="call-notif-text">
-            <strong>{callNotif.callerName}</strong> {t('call.invitesTo')}{' '}
-            <strong>#{callNotif.channelName}</strong>
-          </span>
-          <button
-            className="call-notif-join"
-            onClick={() => {
-              stopRingtoneRef.current?.();
-              stopRingtoneRef.current = null;
-              const ch = channels.find((c) => c.id === callNotif.channelId);
-              if (ch) { handleSelectChannel(ch); handleJoinVoice(ch); }
-              setCallNotif(null);
-            }}
-          >
-            {t('call.joinCall')}
-          </button>
-          <button
-            className="call-notif-dismiss"
-            onClick={() => {
-              stopRingtoneRef.current?.();
-              stopRingtoneRef.current = null;
-              setCallNotif(null);
-            }}
-          >
-            ✕
-          </button>
-        </div>
+        <CallNotifBanner
+          callerName={callNotif.callerName}
+          channelName={callNotif.channelName}
+          onJoin={() => {
+            stopRingtoneRef.current?.();
+            stopRingtoneRef.current = null;
+            const ch = channels.find((c) => c.id === callNotif.channelId);
+            if (ch) { handleSelectChannel(ch); handleJoinVoice(ch); }
+            setCallNotif(null);
+          }}
+          onDismiss={() => {
+            stopRingtoneRef.current?.();
+            stopRingtoneRef.current = null;
+            setCallNotif(null);
+          }}
+        />
       )}
+      <CommandPalette
+        onSelectChannel={handleSelectChannel}
+        onOpenSettings={() => setSettingsOpen(true)}
+        onCreateChannel={() => setCreateChannelOpen(true)}
+        onCreateServer={() => { setShowCreateServer(true); setCreateServerError(''); }}
+        onFindServer={() => setFindServerOpen(true)}
+        onJoinVoice={handleJoinVoice}
+        onShowChat={() => setMobilePanel('chat')}
+      />
       <CallUI />
     </div>
   );

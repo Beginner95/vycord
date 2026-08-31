@@ -1,0 +1,68 @@
+/* Board 1f voice banner — mobile-only; desktop has the sidebar voice card. */
+.voice-banner {
+  display: none;
+  align-items: center;
+  gap: 10px;
+  margin: 10px 12px 0;
+  padding: 10px 12px;
+  background: var(--accent-soft);
+  border: 1px solid var(--accent-border);
+  border-radius: 12px;
+  flex-shrink: 0;
+}
+
+@media (width <= 768px) {
+  .voice-banner {
+    display: flex;
+  }
+}
+
+.voice-banner-avatars {
+  display: flex;
+  flex-shrink: 0;
+}
+
+.voice-banner .voice-banner-avatar {
+  width: 24px;
+  height: 24px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  object-fit: cover;
+  box-shadow: 0 0 0 1.5px var(--accent-soft);
+}
+
+.voice-banner-avatar + .voice-banner-avatar {
+  margin-left: -6px;
+}
+
+.voice-banner-text {
+  flex: 1;
+  min-width: 0;
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--accent-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.voice-banner-btn {
+  flex-shrink: 0;
+  height: 32px;
+  padding: 0 14px;
+  border: none;
+  border-radius: var(--radius-row);
+  background: var(--accent);
+  color: var(--white);
+  font-size: 12.5px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background var(--transition);
+}
+
+.voice-banner-btn:hover {
+  background: var(--accent-hover);
+}

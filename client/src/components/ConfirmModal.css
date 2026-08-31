@@ -1,0 +1,45 @@
+/* Destructive confirmation — board 1d. Reused app-wide from M4 on. */
+.confirm-modal {
+  width: 300px;
+  padding: 20px;
+  background: var(--canvas);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-modal);
+  box-shadow: var(--shadow-modal);
+  animation: modal-in 0.18s var(--ease-out);
+}
+
+.confirm-modal-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  background: var(--danger-soft);
+  color: var(--danger-text);
+  margin-bottom: 12px;
+}
+
+.confirm-modal-title {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--ink);
+  margin-bottom: 6px;
+}
+
+.confirm-modal-body {
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--muted);
+  margin-bottom: 16px;
+}
+
+.confirm-modal-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.confirm-modal-actions .btn {
+  flex: 1;
+}

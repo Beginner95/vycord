@@ -50,10 +50,10 @@ export function CreateChannelModal({ serverId, onClose }: CreateChannelModalProp
           </div>
           {error && <p className="modal-error">{error}</p>}
           <div className="modal-actions">
-            <button type="button" onClick={onClose}>
+            <button type="button" className="btn btn-secondary" onClick={onClose}>
               {t('common.cancel')}
             </button>
-            <button type="submit" className="primary" disabled={saving || !name.trim()}>
+            <button type="submit" className="btn btn-primary" disabled={saving || !name.trim()}>
               {saving ? t('common.saving') : t('channel.createButton')}
             </button>
           </div>

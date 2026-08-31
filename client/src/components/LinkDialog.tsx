@@ -28,27 +28,29 @@ export function LinkDialog({ open, onClose, onInsert }: LinkDialogProps) {
     onClose();
   };
 
+  // onMouseDown, а не onClick: диалог живёт внутри композера, и клик по
+  // подложке не должен успеть увести фокус из textarea до закрытия.
   return (
-    <div className="link-dialog-backdrop" onMouseDown={onClose}>
-      <div className="link-dialog" onMouseDown={(e) => e.stopPropagation()}>
+    <div className="modal-overlay" onMouseDown={onClose}>
+      <div className="modal link-dialog" onMouseDown={(e) => e.stopPropagation()}>
         <label className="link-dialog-field">
           <span>{t('chat.linkText')}</span>
-          <input value={label} onChange={(e) => { setLabel(e.target.value); setError(false); }} autoFocus />
+          <input className="input" value={label} onChange={(e) => { setLabel(e.target.value); setError(false); }} autoFocus />
         </label>
         <label className="link-dialog-field">
           <span>{t('chat.linkUrl')}</span>
           <input
-            className={error ? 'error' : ''}
+            className={`input${error ? ' is-invalid' : ''}`}
             value={url}
             onChange={(e) => { setUrl(e.target.value); setError(false); }}
             placeholder="https://"
             onKeyDown={(e) => { if (e.key === 'Enter') submit(); if (e.key === 'Escape') onClose(); }}
           />
         </label>
-        {error && <div className="link-dialog-error">{t('chat.linkUrlInvalid')}</div>}
-        <div className="link-dialog-actions">
-          <button type="button" className="link-dialog-cancel" onClick={onClose}>{t('chat.cancel')}</button>
-          <button type="button" className="link-dialog-submit" onClick={submit}>{t('chat.insert')}</button>
+        {error && <p className="modal-error">{t('chat.linkUrlInvalid')}</p>}
+        <div className="modal-actions">
+          <button type="button" className="btn btn-secondary" onClick={onClose}>{t('chat.cancel')}</button>
+          <button type="button" className="btn btn-primary" onClick={submit}>{t('chat.insert')}</button>
         </div>
       </div>
     </div>

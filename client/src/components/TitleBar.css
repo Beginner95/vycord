@@ -1,0 +1,41 @@
+/* Height is fixed at 40px — UpdateBanner.css positions itself at top: 40px
+   against this, and AppPage.css hides .title-bar on mobile. Keep in sync. */
+.title-bar {
+  height: 40px;
+  background: var(--canvas);
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  -webkit-app-region: drag;
+}
+
+.title-bar button {
+  -webkit-app-region: no-drag;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  color: var(--muted-2);
+  width: 46px;
+  height: 40px;
+  cursor: pointer;
+  transition: background var(--transition), color var(--transition);
+}
+
+.title-bar button:hover {
+  background: var(--canvas-2);
+  color: var(--ink);
+}
+
+/* `color` was a raw `#FFF` — the last non-Auth raw colour in any `*.css`
+   (spec section 9.4, cleared by M6 T13). --white is #FFF on :root and takes no
+   dark override, so this is byte-identical in both themes: measured at this
+   element under protocol-level :hover, rgb(255, 255, 255) on rgb(231, 68, 74)
+   before and after. It stays --white rather than --stage-ink or a literal
+   because the ground is --danger, which is theme-invariant by decision. */
+.title-bar button.title-bar-close:hover {
+  background: var(--danger);
+  color: var(--white);
+}

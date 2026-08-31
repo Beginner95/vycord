@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { EMOJI_CATEGORIES } from '@/utils/emojis';
 import { useDismissOnOutside } from '@/hooks/useDismissOnOutside';
 import { useT } from '@/i18n';
+import './EmojiPicker.css';
 
 interface EmojiPickerProps {
   onSelect: (emoji: string) => void;
@@ -33,7 +34,7 @@ export function EmojiPicker({ onSelect, onClose }: EmojiPickerProps) {
           <button
             key={c.id}
             type="button"
-            className={`emoji-tab${c.id === active ? ' active' : ''}`}
+            className={`emoji-tab${c.id === active ? ' is-active' : ''}`}
             onClick={() => setActive(c.id)}
             title={c.label}
           >

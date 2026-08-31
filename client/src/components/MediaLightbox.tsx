@@ -1,8 +1,10 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import type { Attachment } from '@/types';
 import { resolveUploadUrl } from '@/services/api';
 import { downloadUrl } from '@/utils/attachmentUrl';
+import { ChevronLeft, ChevronRight, Download, X } from 'lucide-react';
+import { useModalFocus } from '@/hooks/useModalFocus';
 import { useT } from '@/i18n';
 import { VideoPlayer } from './VideoPlayer';
 import './MediaLightbox.css';
@@ -42,25 +44,34 @@ function isLightboxMedia(a: Attachment): boolean {
 export function MediaLightbox({ attachments, index, onIndexChange, onClose }: MediaLightboxProps) {
   const t = useT();
   const current = attachments[index];
+  const ref = useRef<HTMLDivElement>(null);
+
+  // M5.5 T4 (D8): the lightbox is a blocking overlay and now says so. Adopting
+  // useModalFocus buys the modal stack (Escape closes only the top-most
+  // overlay), the Tab trap and focus restore; wearing `.modal-overlay` below is
+  // what makes isBlockingOverlayOpen() count it, so ⌘K no longer opens the
+  // command palette on top of an open lightbox (and Ctrl+Shift+F no longer
+  // toggles the search panel under it — ChatArea.tsx's gate reads the same
+  // predicate).
+  //
+  // Escape deliberately does NOT appear in the arrow-key listener below any
+  // more: useModalFocus owns it. Keeping both would call onClose twice.
+  useModalFocus(!!current, ref, onClose);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        onClose();
-        return;
-      }
       if (e.key === 'ArrowRight' && index < attachments.length - 1) onIndexChange(index + 1);
       if (e.key === 'ArrowLeft' && index > 0) onIndexChange(index - 1);
     };
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
-  }, [index, attachments.length, onIndexChange, onClose]);
+  }, [index, attachments.length, onIndexChange]);
 
   if (!current) return null;
 
   // Портал в body: иначе overflow и z-index ленты обрежут фуллскрин.
   return createPortal(
-    <div className="lightbox" role="dialog" aria-modal="true" onClick={onClose}>
+    <div ref={ref} className="modal-overlay lightbox-root" role="dialog" aria-modal="true" onClick={onClose}>
       <div className="lightbox-content" onClick={(e) => e.stopPropagation()}>
         {current.kind === 'video' ? (
           // В фуллскрине всегда оригинал: миниатюра нужна только ленте.
@@ -72,23 +83,33 @@ export function MediaLightbox({ attachments, index, onIndexChange, onClose }: Me
         <div className="lightbox-bar">
           <span className="lightbox-name">{current.file_name}</span>
           <a className="lightbox-download" href={downloadUrl(current.url)} title={t('chat.download')}>
+            <Download size={16} strokeWidth={1.8} />
             {t('chat.download')}
           </a>
         </div>
       </div>
 
       {index > 0 && (
-        <button type="button" className="lightbox-nav lightbox-nav--prev"
+        <button type="button" className="lightbox-nav is-prev"
           onClick={(e) => { e.stopPropagation(); onIndexChange(index - 1); }}
-          aria-label={t('chat.previous')}>‹</button>
+          aria-label={t('chat.previous')}>
+          <ChevronLeft size={20} strokeWidth={1.8} />
+        </button>
       )}
       {index < attachments.length - 1 && (
-        <button type="button" className="lightbox-nav lightbox-nav--next"
+        <button type="button" className="lightbox-nav is-next"
           onClick={(e) => { e.stopPropagation(); onIndexChange(index + 1); }}
-          aria-label={t('chat.next')}>›</button>
+          aria-label={t('chat.next')}>
+          <ChevronRight size={20} strokeWidth={1.8} />
+        </button>
       )}
 
-      <button type="button" className="lightbox-close" onClick={onClose} aria-label={t('common.close')}>×</button>
+      {/* Without an explicit target useModalFocus focuses the first focusable in
+          DOM order, which here is the download link — landing the caret on a
+          navigation away from the overlay. The close button is the safe default. */}
+      <button type="button" className="lightbox-close" data-autofocus onClick={onClose} aria-label={t('common.close')}>
+        <X size={20} strokeWidth={1.8} />
+      </button>
     </div>,
     document.body,
   );

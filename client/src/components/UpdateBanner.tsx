@@ -96,8 +96,13 @@ export function UpdateBanner() {
           </span>
           {!installRequested && (
             <>
-              <button onClick={handleAvailableInstallClick}>{t('update.install')}</button>
-              <button className="update-banner__dismiss" onClick={() => setDismissed(true)}>
+              <button className="btn btn-primary" onClick={handleAvailableInstallClick}>
+                {t('update.install')}
+              </button>
+              <button
+                className="update-banner-dismiss btn btn-ghost"
+                onClick={() => setDismissed(true)}
+              >
                 {t('update.later')}
               </button>
             </>
@@ -111,13 +116,19 @@ export function UpdateBanner() {
               ? t('update.willInstallAfterCall', { version })
               : t('update.ready', { version })}
           </span>
-          {!waitingForCallEnd && <button onClick={startInstall}>{t('update.restartAndInstall')}</button>}
+          {!waitingForCallEnd && (
+            <button className="btn btn-primary" onClick={startInstall}>
+              {t('update.restartAndInstall')}
+            </button>
+          )}
         </>
       )}
       {status === 'error' && (
         <>
           <span>{t('update.failed')}</span>
-          <button onClick={handleManualDownload}>{t('update.downloadManually')}</button>
+          <button className="btn btn-ghost" onClick={handleManualDownload}>
+            {t('update.downloadManually')}
+          </button>
         </>
       )}
     </div>

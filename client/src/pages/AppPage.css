@@ -3,7 +3,7 @@
   height: 100vh;
   display: flex;
   flex-direction: column;
-  background: var(--bg-base);
+  background: var(--canvas-2);
 }
 
 .app-page .app-layout {
@@ -34,7 +34,8 @@
   height: 6px;
   flex-shrink: 0;
   cursor: row-resize;
-  background: var(--bg-elevated);
+  background: var(--canvas);
+
   /* Без touch-action браузер уводит вертикальный свайп по разделителю в скролл
      и глушит драг ещё до первого pointermove. */
   touch-action: none;
@@ -42,7 +43,7 @@
 }
 
 .call-split-handle:hover {
-  background: var(--brand-color);
+  background: var(--accent);
 }
 
 .channel-body .chat-area {
@@ -53,352 +54,84 @@
 /* Фуллскрин в Electron разворачивает окно ОС, но сцена осталась бы высотой в
    свои 20-80% колонки, и «на весь экран» ничего бы не дало. Пока внутри сцены
    активен фуллскрин-режим, она забирает всю колонку, а разделитель и чат
-   уходят. Чистый CSS: класс is-fullscreen на .screen-share-main уже есть. */
-.channel-body:has(.screen-share-main.is-fullscreen) .call-stage {
+   уходят. Чистый CSS на классе is-fullscreen — целей две (решение 24 плана M3):
+   .stage-focus-main — только демонстрация экрана (кнопка в самом фокус-виде),
+   .call-stage — вся сцена (кнопка в шапке). Без второй пары селекторов кнопка
+   в шапке в Electron растягивала бы окно ОС, а сцена оставалась бы прижата к
+   height: var(--call-stage-height) выше. */
+.channel-body:has(.stage-focus-main.is-fullscreen) .call-stage,
+.channel-body:has(.call-stage.is-fullscreen) .call-stage {
   height: 100%;
   flex: 1 1 auto;
 }
 
-.channel-body:has(.screen-share-main.is-fullscreen) > .call-split-handle,
-.channel-body:has(.screen-share-main.is-fullscreen) > .chat-area {
+.channel-body:has(.stage-focus-main.is-fullscreen) > .call-split-handle,
+.channel-body:has(.stage-focus-main.is-fullscreen) > .chat-area,
+.channel-body:has(.call-stage.is-fullscreen) > .call-split-handle,
+.channel-body:has(.call-stage.is-fullscreen) > .chat-area {
   display: none;
 }
 
-/* ── Left sidebar collapse toggle (desktop only) ── */
+/* ── Left sidebar collapse toggle (desktop only) ──
+   16px → 22px, requested from manual QA at M6 T15 ("too small and hard to
+   read"). The width is the binding constraint on the chevron inside it, not a
+   free style choice: at 16px the glyph could be at most 14 (see AppPage.tsx),
+   which is the bottom of the chevron band and reads as a hairline at arm's
+   length. 22px carries a 16 glyph with 3px of breathing room each side and
+   keeps the gutter narrower than any real control, which is what stops it
+   reading as a column of its own. If you shrink this back, shrink the glyph
+   with it — they were sized together. */
 .sidebar-gutter {
-  width: 16px;
-  min-width: 16px;
+  width: 22px;
+  min-width: 22px;
   flex-shrink: 0;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--bg-elevated);
+  background: var(--canvas);
   border: none;
-  border-right: 1px solid var(--border-subtle);
-  color: var(--text-muted);
+  border-right: 1px solid var(--line);
+  color: var(--muted-2);
   cursor: pointer;
-  font-size: 11px;
 }
 
 .sidebar-gutter:hover {
-  color: var(--text-primary);
+  color: var(--ink);
 }
 
 /* Desktop-only: collapse the left sidebar block. Scoped to min-width so the
-   fixed 'hidden' attribute never competes with the mobile panel rules. */
-@media (min-width: 769px) {
+   fixed 'hidden' attribute never competes with the mobile panel rules.
+   M6 T7: this pair moved 769/768 → 900/899 (decision 5). The 17 component
+   blocks that also sit at the old 768/769 boundary (CallStage.css ×6,
+   ChannelSidebar.css, ChatArea.css, Composer.css, MediaLightbox.css,
+   MessageAttachments.css, MessageRow.css, MessageSearch.css, ServerList.css,
+   UserList.css, VideoPlayer.css, VoiceBanner.css) deliberately stayed at 768 —
+   moving all 19 would be an unrequested behaviour change on lint-clean blocks
+   the previous milestone just certified, some with no smoke fixture to catch
+   a regression. Only this shell pair moves. */
+@media (width >= 900px) {
   .app-layout[data-left-sidebar="hidden"] .server-list { display: none; }
   .app-layout[data-left-sidebar="hidden"] .channel-sidebar { display: none; }
 }
 
-/* ── Modal ── */
-.modal-overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(15, 17, 23, 0.5);
-  backdrop-filter: blur(6px);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 1000;
-  animation: fadeIn 0.15s var(--ease-out);
-}
+/* ── Mobile ──
+   M6 T7: boundary moved 768 → 900 (decision 5); the 17 component blocks at
+   the old 768/769 boundary deliberately did not move — see the comment on
+   the block above. This widens the single-panel mobile model to cover
+   769–899px, a range where those 17 component blocks still render their
+   desktop styling. That is decision 5's DISCLOSED, ACCEPTED cost — "the shell
+   is mobile but components are desktop" — and M6 does not fix it; task 8
+   reconciles the NAVIGATION there (see the affordance block below), not the
+   styling.
 
-@keyframes fadeIn {
-  from { opacity: 0; }
-  to { opacity: 1; }
-}
-
-.modal {
-  background: var(--bg-primary);
-  border-radius: var(--radius-xl);
-  padding: 32px;
-  width: 90%;
-  max-width: 440px;
-  box-shadow: var(--shadow-xl);
-  border: 1px solid var(--border-subtle);
-  animation: scaleIn 0.2s var(--ease-out);
-}
-
-@keyframes scaleIn {
-  from { opacity: 0; transform: scale(0.95); }
-  to { opacity: 1; transform: scale(1); }
-}
-
-.modal h2 {
-  font-size: 20px;
-  font-weight: 700;
-  margin-bottom: 20px;
-  color: var(--text-primary);
-  letter-spacing: -0.01em;
-}
-
-.modal .form-group {
-  margin-bottom: 18px;
-}
-
-.modal .form-group label {
-  display: block;
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--text-secondary);
-  margin-bottom: 6px;
-}
-
-.modal .form-group input {
-  width: 100%;
-  padding: 11px 14px;
-  border: 1.5px solid var(--border-color);
-  border-radius: var(--radius-md);
-  background: var(--bg-base);
-  color: var(--text-primary);
-  font-size: 14px;
-  outline: none;
-  transition: border-color var(--transition), box-shadow var(--transition);
-}
-
-.modal .form-group input:focus {
-  border-color: var(--brand-color);
-  box-shadow: 0 0 0 3px var(--brand-subtle);
-  background: var(--bg-primary);
-}
-
-/* ── Custom checkbox (e.g. "private server" toggle) ── */
-.modal .channel-type-options {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.modal .channel-type-options label {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 8px 10px;
-  border-radius: var(--radius-md);
-  font-size: 14px;
-  font-weight: 500;
-  color: var(--text-primary);
-  cursor: pointer;
-  user-select: none;
-  transition: background var(--transition);
-}
-
-.modal .channel-type-options label:hover {
-  background: var(--bg-hover);
-}
-
-.modal .channel-type-options input[type="radio"] {
-  width: 18px;
-  height: 18px;
-  min-width: 18px;
-  padding: 0;
-  margin: 0;
-  border: 1.5px solid var(--border-color);
-  border-radius: 50%;
-  background: var(--bg-primary);
-  cursor: pointer;
-  appearance: none;
-  -webkit-appearance: none;
-  flex-shrink: 0;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  transition: all var(--transition);
-}
-
-.modal .channel-type-options input[type="radio"]:hover {
-  border-color: var(--brand-400);
-}
-
-.modal .channel-type-options input[type="radio"]:checked {
-  border-color: var(--brand-color);
-}
-
-.modal .channel-type-options input[type="radio"]:checked::after {
-  content: '';
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--brand-color);
-  animation: scaleIn 0.15s var(--ease-out);
-}
-
-.modal .form-group.form-checkbox label {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-bottom: 0;
-  font-size: 14px;
-  font-weight: 500;
-  color: var(--text-primary);
-  cursor: pointer;
-  user-select: none;
-}
-
-.modal .form-checkbox input[type="checkbox"] {
-  width: 20px;
-  height: 20px;
-  min-width: 20px;
-  padding: 0;
-  margin: 0;
-  border: 1.5px solid var(--border-color);
-  border-radius: var(--radius-sm);
-  background: var(--bg-primary);
-  cursor: pointer;
-  appearance: none;
-  -webkit-appearance: none;
-  flex-shrink: 0;
-  transition: all var(--transition);
-}
-
-.modal .form-checkbox input[type="checkbox"]:hover {
-  border-color: var(--brand-400);
-}
-
-.modal .form-checkbox input[type="checkbox"]:checked {
-  background: var(--brand-color);
-  border-color: var(--brand-color);
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='20 6 9 17 4 12'/%3E%3C/svg%3E");
-  background-repeat: no-repeat;
-  background-position: center;
-  background-size: 12px;
-}
-
-.modal .form-checkbox input[type="checkbox"]:checked:hover {
-  background-color: var(--brand-hover);
-  border-color: var(--brand-hover);
-}
-
-.modal .modal-hint {
-  margin-top: 8px;
-  margin-bottom: 0;
-  font-size: 13px;
-  color: var(--text-muted);
-  line-height: 1.5;
-}
-
-.modal-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 10px;
-  margin-top: 24px;
-}
-
-.modal-actions button {
-  padding: 9px 20px;
-  border: 1.5px solid var(--border-color);
-  border-radius: var(--radius-md);
-  font-size: 14px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: all var(--transition);
-}
-
-.modal-actions button:not(.primary) {
-  background: var(--bg-primary);
-  color: var(--text-primary);
-  border-color: var(--border-color);
-}
-
-.modal-actions button:not(.primary):hover {
-  background: var(--bg-hover);
-  border-color: var(--text-muted);
-}
-
-.modal-actions button.primary {
-  background: var(--brand-color);
-  color: var(--text-inverse);
-  border: 1.5px solid var(--brand-color);
-}
-
-.modal-actions button.primary:hover {
-  background: var(--brand-hover);
-  border-color: var(--brand-hover);
-  box-shadow: 0 2px 8px rgba(99, 102, 241, 0.25);
-}
-
-.modal-error {
-  color: var(--red-500);
-  font-size: 13px;
-  margin-top: -8px;
-  margin-bottom: 12px;
-}
-
-/* ── Call notification banner ── */
-.call-notif-banner {
-  position: fixed;
-  top: 16px;
-  right: 16px;
-  z-index: 2000;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 12px 14px;
-  background: var(--bg-primary);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-lg, 10px);
-  box-shadow: var(--shadow-xl);
-  animation: slideInRight 0.2s var(--ease-out);
-  max-width: 340px;
-}
-
-@keyframes slideInRight {
-  from { opacity: 0; transform: translateX(20px); }
-  to   { opacity: 1; transform: translateX(0); }
-}
-
-.call-notif-icon {
-  font-size: 18px;
-  flex-shrink: 0;
-}
-
-.call-notif-text {
-  font-size: 13px;
-  color: var(--text-secondary);
-  flex: 1;
-  min-width: 0;
-}
-
-.call-notif-text strong {
-  color: var(--text-primary);
-}
-
-.call-notif-join {
-  flex-shrink: 0;
-  padding: 5px 14px;
-  background: var(--brand-color);
-  color: var(--text-inverse);
-  border: none;
-  border-radius: var(--radius-md, 6px);
-  font-size: 13px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: background var(--transition);
-}
-
-.call-notif-join:hover {
-  background: var(--brand-hover);
-}
-
-.call-notif-dismiss {
-  flex-shrink: 0;
-  background: none;
-  border: none;
-  color: var(--text-muted);
-  cursor: pointer;
-  font-size: 14px;
-  padding: 2px 4px;
-  line-height: 1;
-  transition: color var(--transition);
-}
-
-.call-notif-dismiss:hover {
-  color: var(--text-primary);
-}
-
-/* ── Mobile ── */
-@media (max-width: 768px) {
+   M6 T8: the condition is `width < 900px`, not T7's `width <= 899px`. The
+   layout viewport is FRACTIONAL — page zoom and a fractional DPR both produce
+   non-integer widths — so `<= 899px` and the band's `900px <=` below did not
+   partition it: at 899.5px NEITHER matched and the app rendered all four
+   columns with no shell model at all. `< 900px` is exactly complementary to
+   `900px <= width` at every real number. The boundary is still 900; only the
+   comparison changed. Verified at 899, 899.5 and 900. */
+@media (width < 900px) {
   .app-page .title-bar {
     display: none;
   }
@@ -415,6 +148,7 @@
 
   .app-layout[data-mobile-panel="servers"] .server-list { display: flex; }
   .app-layout[data-mobile-panel="channels"] .channel-sidebar { display: flex; }
+
   /* На мобильном сплита нет: сцена звонка и чат — две отдельные панели,
      переключаемые через data-mobile-panel, но обе живут внутри одного
      .channel-body (десктопный сплит-контейнер), поэтому его самого нужно
@@ -442,4 +176,76 @@
   .sidebar-gutter {
     display: none;
   }
+
+  /* ── M6 T8: the panel model's navigation affordances, restored for 769–899 ──
+
+     T7 widened the single-panel model to the 900px boundary, but every affordance
+     it depends on is still gated at `width <= 768px` inside its own component
+     file, and those 17 component blocks deliberately did not move. Measured on
+     the pre-task tree at 850×900, all four of these read `display: none` with a
+     0×0 rect while their click handlers still fired: the band booted into the
+     servers panel and servers → chat → members was a ONE-WAY TRIP. The shell
+     owns the panel model, so the shell turns its own affordances on.
+
+     Specificity, not source order (ruling C): `.app-layout X` is (0,2,0) and
+     beats each component's unscoped (0,1,0) `display: none` base rule outright.
+     Nothing here ties, so import order is irrelevant. The visual halves of
+     `.mobile-back-btn` and `.user-list-mobile-header` were hoisted to their
+     components' base rules so this stays a pure `display` flip.
+
+     `.chat-call-btn` is conditionally rendered (only while a call is live in
+     the open channel); when absent this simply matches nothing. */
+  .app-layout .mobile-back-btn,
+  .app-layout .chat-back-btn,
+  .app-layout .chat-call-btn,
+  .app-layout .stage-back-btn,
+  .app-layout .user-list-mobile-header {
+    display: flex;
+  }
+}
+
+/* ═══ M6 T8 — the responsive band system (spec §5) ═══
+
+   Four bands, three boundaries, expressed in range syntax. No fifth boundary is
+   introduced: `<= 640px` already belongs to CommandPalette.css and
+   CallStage.css and M2's layout below 640 ships as-is.
+
+   ≥ 1200px — all four columns (rail 76 / sidebar 252 / chat flex / members
+   236). This is the BASE layout and needs no media query; every band below is
+   subtractive.
+
+   iOS Safari < 16.4 does not parse range syntax and falls back to the base
+   layout here. That is an accepted cost under a standing human ruling — no
+   `max-width` duplicate is added. */
+
+/* 900–1199 — the member list leaves the flow and is revealed by
+   `.chat-members-btn`.
+
+   THE LOWER BOUND IS 900, NOT 1000 (decision 22). Spec §5 names 1000–1200 and
+   is silent on 900–999. Bounding this at 1000 would let all four columns return
+   at 900–999 — i.e. MORE columns at 950px than at 1100px — so 900 is what makes
+   the band meet the mobile model exactly, with no gap. run-bands.mjs asserts
+   that inversion cannot come back by measuring 950px and requiring the column
+   count to be monotonic across 1280/1100/950/850/600.
+
+   "No gap" is a claim about REAL widths, not integers, and it is only true
+   because the block above says `width < 900px`. Paired with `900px <= width`
+   here, the two partition the fractional layout viewport exactly; `<= 899px`
+   would have left 899 < w < 900 matching neither. run-bands.mjs samples 899.5
+   for precisely that reason. */
+@media (900px <= width < 1200px) {
+  /* (0,2,0) over UserList.css's (0,1,0) `display: flex` base. */
+  .app-layout .user-list { display: none; }
+
+  /* (0,3,0) over the line above — the reveal wins on specificity in the same
+     file, so neither rule depends on its position. */
+  .app-layout[data-members-open="1"] .user-list { display: flex; }
+}
+
+/* The members toggle is dead chrome at >= 1200px (the list is already in flow)
+   and is the only route to the list below it, so one rule covers both the
+   900–1199 band and the mobile model. (0,2,0) over ChatArea.css's (0,1,0)
+   `display: none` base. */
+@media (width < 1200px) {
+  .app-layout .chat-members-btn { display: flex; }
 }

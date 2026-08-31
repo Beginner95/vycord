@@ -13,9 +13,8 @@ export const ru = {
     removing: 'Удаление...',
     back: 'Назад',
     logout: 'Выйти',
-    logoutConfirm: 'Вы точно хотите выйти из системы?',
-    yes: 'Да',
-    no: 'Нет',
+    logoutTitle: 'Выйти из аккаунта?',
+    logoutBody: 'Вы сможете снова войти в любой момент.',
     minimize: 'Свернуть',
     maximize: 'Развернуть',
     imageOpenFailed: 'Не удалось открыть изображение',
@@ -57,7 +56,8 @@ export const ru = {
     linkUrlInvalid: 'Введите корректную ссылку (http/https/www/mailto)',
     insert: 'Вставить',
     cancel: 'Отмена',
-    deleteConfirm: 'Удалить сообщение?',
+    deleteTitle: 'Удалить сообщение?',
+    deleteBody: 'Сообщение будет удалено навсегда. Это действие нельзя отменить.',
     back: 'Назад',
     welcomeTitle: 'Добро пожаловать в Vy Cord!',
     welcomeSubtitle: 'Выберите канал, чтобы начать общение',
@@ -84,32 +84,46 @@ export const ru = {
       many: 'Введите минимум {{count}} символов для поиска по каналу',
       other: 'Введите минимум {{count}} символа для поиска по каналу',
     }),
+    nothingFoundTitle: 'Ничего не нашлось',
     nothingFound: 'Ничего не найдено по запросу «{{query}}»',
     loadMore: 'Показать ещё',
     legacyRoleOwner: 'Владелец',
     legacyRoleAdmin: 'Админ',
     legacyRoleMember: 'Участник',
-    emptyChannelTitle: 'Добро пожаловать в #{{channel}}!',
-    emptyChannelSubtitle: 'Это начало канала #{{channel}}.',
+    quietTitle: 'Здесь пока тихо',
+    quietBody: 'Начните обсуждение в #{{channel}} — напишите первое сообщение.',
+    writeFirst: 'Написать первое сообщение',
+    newMessages: 'Новые сообщения',
+    noServersTitle: 'Пока ни одного сервера',
+    noServersBody: 'Создайте сервер — или найдите существующий через поиск в левой панели.',
+    haveCode: 'У меня есть код',
     noStickers: 'В этом сервере пока нет стикеров',
     manageStickers: 'Управлять стикерами',
     manageStickersTitle: 'Стикеры сервера',
     stickerNamePlaceholder: 'Имя стикера',
-    deleteStickerConfirm: 'Удалить этот стикер?',
+    deleteStickerTitle: 'Удалить стикер «{{name}}»?',
+    deleteStickerBody: 'Стикер станет недоступен всем участникам сервера.',
     stickers: 'Стикеры',
     stickerDropHint: 'Перетащите файл сюда или нажмите, чтобы выбрать',
     stickerFormats: 'PNG, JPG или GIF · максимум 2 МБ',
     stickerRemoveFile: 'Убрать файл',
     stickerUpload: 'Загрузить стикер',
+    youChip: 'вы',
+    formatting: 'Форматирование',
+    send: 'Отправить',
+    composerHint: 'Enter — отправить · Shift+Enter — новая строка',
+    sending: 'отправляется',
+    sendFailed: 'не отправлено',
+    retry: 'повторить',
+    discardFailed: 'Отклонить',
     attach: 'Прикрепить файл',
     attachImage: 'Изображение',
     attachVideo: 'Видео',
     attachAudio: 'Аудио',
     attachFile: 'Файл',
-    send: 'Отправить',
     removeAttachment: 'Убрать вложение',
     dropFilesHere: 'Отпустите файл, чтобы прикрепить',
-    retry: 'Повторить',
+    retryUpload: 'Повторить',
     download: 'Скачать',
     fullscreen: 'На весь экран',
     play: 'Воспроизвести',
@@ -118,6 +132,11 @@ export const ru = {
     unmute: 'Включить звук',
     previous: 'Предыдущее',
     next: 'Следующее',
+    // Доступные имена (M6 T5). seekPosition — одна на оба плеера: аудио и
+    // видео имеют один и тот же ползунок перемотки, а вторая строка с тем же
+    // смыслом — это ещё одно место для расхождения переводов.
+    seekPosition: 'Позиция воспроизведения',
+    uploadProgress: 'Ход загрузки',
   },
   call: {
     participants: plural({
@@ -138,6 +157,10 @@ export const ru = {
     unitPercent: '%',
     unitMs: 'мс',
     unitKbps: 'кбит/с',
+    // Доступное имя ползунка громкости участника (M6 T5). volumeLabel рядом —
+    // это title кнопки со значением внутри, для имени самого ползунка он
+    // читался бы как «Громкость 70 %», а не как название регулятора.
+    participantVolume: 'Громкость участника',
 
     // Модалка выбора источника экрана
     selectScreen: 'Выберите экран для демонстрации',
@@ -152,13 +175,14 @@ export const ru = {
     focusParticipant: 'Показать участника крупно',
     sharingBadge: 'Демонстрация',
     watchShare: 'Смотреть',
-    youSuffix: '(Вы)',
+    youSuffix: '(вы)',
+    cameraOffChip: 'камера выкл.',
 
     // Заголовок и баннеры
+    live: 'В ЭФИРЕ',
     groupCallTitle: 'Групповой звонок',
     resizeSplit: 'Изменить высоту звонка',
     showCall: 'Звонок',
-    screenSharingActive: 'Идёт демонстрация экрана',
     isSharingScreen: '{{name}} показывает экран',
     view: 'Смотреть',
     dismiss: 'Скрыть',
@@ -178,6 +202,10 @@ export const ru = {
     stopScreenShare: 'Остановить демонстрацию',
     shareScreen: 'Демонстрировать экран',
     leaveCall: 'Покинуть звонок',
+    ctlMic: 'Микрофон',
+    ctlCamera: 'Камера',
+    ctlScreen: 'Экран',
+    leaveLabel: 'Выйти',
 
     // Ошибки демонстрации экрана
     screenPermissionDenied: 'Доступ к записи экрана запрещён. Разрешите его в Системных настройках → Конфиденциальность и безопасность → Запись экрана и перезапустите приложение.',
@@ -193,6 +221,7 @@ export const ru = {
 
     // Кнопка входа в звонок в шапке чата
     joinVoice: 'Подключиться',
+    joinChannel: 'Войти в канал',
     inThisCall: 'Вы в звонке',
     goToCall: 'Перейти',
     inCallAt: 'В звонке',
@@ -203,6 +232,13 @@ export const ru = {
     rejected: 'Звонок отклонён',
     startFailed: 'Не удалось начать звонок',
     endCall: 'Завершить звонок',
+    acceptCall: 'Принять',
+    rejectCall: 'Отклонить',
+
+    // Мобильный баннер голосового канала (доска 1f)
+    voiceBanner: 'В голосовом «{{channel}}» — {{count}}',
+    bannerJoin: 'Войти',
+    bannerGoToCall: 'К звонку',
   },
   settings: {
     language: 'Язык',
@@ -233,6 +269,9 @@ export const ru = {
     themeLight: 'Светлая',
 
     audio: 'Аудио',
+    sectionSounds: 'Звуки',
+    sectionMicrophone: 'Микрофон',
+    sectionDevices: 'Устройства',
     messageNotifications: 'Уведомления о сообщениях',
     messageNotificationsDescription: 'Звук при получении нового сообщения',
     callSounds: 'Звуки звонков',
@@ -251,6 +290,12 @@ export const ru = {
     noiseCancellationLoading: 'Загрузка модели DeepFilterNet3...',
     noiseCancellationDescription: 'ИИ-шумоподавление — убирает фоновый шум из вашего микрофона',
     noiseCancellationUnsupported: 'Шумоподавлению нужна поддержка AudioWorklet (Chrome/Edge/Firefox 76+)',
+    micTest: 'Проверка микрофона',
+    micTestDescription: 'Скажите что-нибудь — полоска покажет уровень входа',
+    micTestStart: 'Проверить',
+    micTestStop: 'Остановить',
+    inputLevel: 'уровень входа',
+    micTestError: 'Не удалось получить доступ к микрофону',
     inputDevice: 'Устройство ввода',
     inputDeviceDescription: 'Выберите микрофон',
     outputDevice: 'Устройство вывода',
@@ -264,6 +309,7 @@ export const ru = {
     defaultCamera: 'Камера по умолчанию',
 
     cropAvatarTitle: 'Обрезка аватара',
+    cropZoom: 'Масштаб',
   },
   server: {
     listTitle: 'Серверы',
@@ -275,19 +321,27 @@ export const ru = {
     nameLabel: 'Название сервера',
     namePlaceholder: 'Мой классный сервер',
 
-    // Поиск серверов
+    // Плитка «Обзор серверов» в рейле (ServerList): title и подпись
     explore: 'Обзор серверов',
-    searchPlaceholder: 'Поиск серверов...',
-    search: 'Найти',
-    searching: 'Поиск...',
-    join: 'Присоединиться',
-    noneFound: 'Серверы не найдены',
-    orSeparator: 'или',
+
+    // Модалка «Найти сервер» (board 1d): одно поле — и название, и код
+    findServer: {
+      title: 'Найти сервер',
+      description: 'Введите название сервера или код приглашения',
+      placeholder: 'Название или код…',
+      results: 'Результаты',
+      joinAction: 'Войти',
+      byInvite: 'По коду приглашения',
+      noResults: 'Ничего не найдено по запросу «{{query}}»',
+      footerQuestion: 'Нет нужного сервера?',
+      createOwn: 'Создать свой',
+    },
 
     // Контекстное меню
-    editMenu: 'Редактировать',
+    editMenu: 'Настройки сервера',
     deleteMenu: 'Удалить сервер',
-    deleteConfirm: 'Удалить сервер «{{name}}»? Это действие необратимо.',
+    deleteTitle: 'Удалить сервер «{{name}}»?',
+    deleteBody: 'Сервер, его каналы и вся переписка будут удалены безвозвратно.',
 
     // Модалка редактирования
     editTitle: 'Редактировать сервер',
@@ -301,11 +355,13 @@ export const ru = {
     online: 'В сети',
     offline: 'Не в сети',
     callUser: 'Позвонить {{name}}',
+    inVoice: 'в голосовом · {{channel}}',
 
     // Приватность
     privateLabel: 'Приватный сервер',
     privateHint: 'Новых участников можно позвать только по инвайт-ссылке — «Пригласить» в меню сервера.',
     inviteMenu: 'Пригласить',
+    serverMenu: 'Меню сервера',
 
     // Инвайты
     invites: {
@@ -318,11 +374,17 @@ export const ru = {
       usesCount: 'использований: {{count}}',
     },
 
-    // Вступление по коду
+    // Инвайт-карточка внизу списка участников
+    inviteCard: {
+      title: 'Пригласить друзей',
+      hint: 'Позовите друзей на этот сервер',
+      noExpiry: 'Ссылка не истекает',
+      expiresDays: 'Ссылка живёт {{days}} дн.',
+      copyLink: 'Скопировать ссылку',
+    },
+
+    // Вступление по коду: превью найденного сервера в модалке «Найти сервер»
     joinByCode: {
-      label: 'Есть код приглашения?',
-      placeholder: 'Код приглашения',
-      preview: 'Проверить',
       memberCount: 'участников: {{count}}',
     },
   },
@@ -330,15 +392,41 @@ export const ru = {
     hide: 'Скрыть сайдбар',
     show: 'Показать сайдбар',
   },
+  palette: {
+    title: 'Быстрый переход',
+    placeholder: 'Каналы, сообщения, действия…',
+    esc: 'esc',
+    groupChannels: 'Каналы — этот сервер',
+    groupMessages: 'Сообщения — в этом канале',
+    groupActions: 'Действия',
+    enterOpen: 'открыть',
+    navHint: 'навигация',
+    selectHint: 'выбрать',
+    globalHintBefore: 'Открывается на',
+    globalHintAfter: 'из любого места',
+    searching: 'Ищем…',
+    showAll: 'Показать все результаты',
+    empty: 'Ничего не найдено по запросу «{{query}}»',
+    createChannel: 'Создать канал',
+    joinVoice: 'Войти в голосовой «{{channel}}»',
+    openSettings: 'Открыть настройки',
+    themeDark: 'Включить тёмную тему',
+    themeLight: 'Включить светлую тему',
+    createServer: 'Создать сервер',
+    findServer: 'Найти сервер',
+    searchInChannel: 'Искать в канале #{{channel}}',
+  },
   channel: {
     noServerHint: 'Выберите сервер или создайте новый, чтобы начать',
     channels: 'Каналы',
+    ncOn: 'NC вкл.',
 
     // Контекстное меню
     editMenu: 'Редактировать',
     deleteMenu: 'Удалить канал',
     deleteLastDisabled: 'Нельзя удалить последний канал сервера',
-    deleteConfirm: 'Удалить канал «{{name}}»?',
+    deleteTitle: 'Удалить канал «{{name}}»?',
+    deleteBody: 'Все сообщения канала будут удалены безвозвратно.',
 
     // Модалка редактирования
     editTitle: 'Редактировать канал',
@@ -357,6 +445,17 @@ export const ru = {
     restartAndInstall: 'Перезапустить и установить',
     failed: 'Не удалось обновиться автоматически',
     downloadManually: 'Скачать вручную',
+  },
+  crash: {
+    title: 'Что-то пошло не так',
+    body: 'Мы уже знаем об этой ошибке. Попробуйте перезагрузить приложение.',
+    reload: 'Перезагрузить',
+    copyId: 'Скопировать',
+    eventId: 'ID: {{id}}',
+    feedbackSummary: 'Что вы делали, когда это произошло?',
+    feedbackPlaceholder: 'Необязательно, но очень помогает разобраться',
+    feedbackSend: 'Отправить',
+    feedbackSent: 'Спасибо, отправлено',
   },
   errors: {
     unknown: 'Неизвестная ошибка',

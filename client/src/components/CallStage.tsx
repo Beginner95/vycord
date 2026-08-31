@@ -1,5 +1,9 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useLayoutEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
+import {
+  ArrowLeft, Maximize2, Minimize2, Mic, MicOff, Video, VideoOff,
+  MonitorUp, MonitorPlay, PhoneOff, Expand, Volume2, X, LayoutGrid,
+} from 'lucide-react';
 import { useAuthStore } from '@/stores/authStore';
 import { useCallStore, callWatchState } from '@/stores/callStore';
 import type { RemoteParticipant } from '@/stores/callStore';
@@ -14,51 +18,11 @@ import type { DesktopCapturerSource } from '@/types/electron';
 import type { ConnectionQualityMetrics, QualityLevel } from '@/utils/callQuality';
 import { VolumeControlPopover } from './VolumeControlPopover';
 import { ScreenSourcePicker, ScreenQualityPicker } from './ScreenSharePicker';
+import { Avatar } from './Avatar';
 import { useT, useTp, type TKey } from '@/i18n';
+import { useMicLevel } from '@/hooks/useMicLevel';
+import { formatCallDuration, stageGridClass, SPEAKING_THRESHOLD } from '@/utils/callStage';
 import './CallStage.css';
-
-function useMicLevel(stream: MediaStream | null, isMuted: boolean): number {
-  const [level, setLevel] = useState(0);
-  const rafRef = useRef(0);
-  // Tracked as an explicit dependency below because the SFU reuses and mutates
-  // the same MediaStream object as a participant's tracks arrive (audio and
-  // video ontrack fire separately, order not guaranteed) — the object
-  // reference alone doesn't change when it gains an audio track later, so
-  // recomputing this count on every render is what lets the effect re-run.
-  const audioTrackCount = stream?.getAudioTracks().length ?? 0;
-
-  useEffect(() => {
-    // createMediaStreamSource throws InvalidStateError on a stream with no
-    // audio track yet — wait until one is actually present.
-    if (!stream || isMuted || audioTrackCount === 0) {
-      setLevel(0);
-      return;
-    }
-
-    const ctx = new AudioContext();
-    const analyser = ctx.createAnalyser();
-    analyser.fftSize = 256;
-    const source = ctx.createMediaStreamSource(stream);
-    source.connect(analyser);
-
-    const data = new Uint8Array(analyser.frequencyBinCount);
-    const tick = () => {
-      analyser.getByteFrequencyData(data);
-      const avg = data.reduce((a, b) => a + b, 0) / data.length;
-      setLevel(avg / 128);
-      rafRef.current = requestAnimationFrame(tick);
-    };
-    rafRef.current = requestAnimationFrame(tick);
-
-    return () => {
-      cancelAnimationFrame(rafRef.current);
-      source.disconnect();
-      ctx.close();
-    };
-  }, [stream, isMuted, audioTrackCount]);
-
-  return level;
-}
 
 // Attaches a remote MediaStream to a video element and starts playback.
 //
@@ -99,6 +63,20 @@ function attachStreamToElement(el: HTMLVideoElement, stream: MediaStream, userId
     });
 }
 
+// Enters fullscreen on `container`, replacing whatever holds it today.
+//
+// The plain `container.requestFullscreen()` is not enough, and this is measured,
+// not defensive: the fullscreen ELEMENT STACK is a stack. Requesting fullscreen
+// on .stage-focus-main while its ancestor .call-stage already holds it PUSHES,
+// and the next exitFullscreen() POPS back to .call-stage instead of leaving
+// fullscreen. Observed exactly that — after stage → focus → exit, the stage was
+// fullscreen again with `is-fullscreen` back on it. Unwinding first keeps the
+// stack one deep, so one exit always means out.
+async function enterFullscreen(container: HTMLElement): Promise<void> {
+  if (document.fullscreenElement) await document.exitFullscreen().catch(() => {});
+  await container.requestFullscreen().catch(() => {});
+}
+
 // ─── Connection Indicator ────────────────────────────────────────────────────
 // Presentational signal-bars icon showing outbound (uplink) connection quality.
 
@@ -112,7 +90,16 @@ const QUALITY_KEY: Record<QualityLevel, TKey> = {
 export function ConnectionIndicator({ metrics }: { metrics?: ConnectionQualityMetrics }) {
   const t = useT();
   const ref = useRef<HTMLDivElement>(null);
-  const [tip, setTip] = useState<{ top: number; left: number } | null>(null);
+  const tipRef = useRef<HTMLDivElement>(null);
+  const [tip, setTip] = useState<
+    {
+      top: number; left: number; host: HTMLElement; clamped: boolean;
+      // M6 T12: `left` is the tooltip's centre AFTER clamping; `anchorLeft` is
+      // the indicator's centre, which clamping must not move. `arrowLeft` is the
+      // difference, expressed in the tooltip's own coordinates.
+      anchorLeft: number; arrowLeft: number | null;
+    } | null
+  >(null);
 
   const showTip = useCallback(() => {
     const el = ref.current;
@@ -120,9 +107,74 @@ export function ConnectionIndicator({ metrics }: { metrics?: ConnectionQualityMe
     const r = el.getBoundingClientRect();
     // Центрируем над индикатором; фиксированное позиционирование не режется
     // overflow:hidden плитки. Стрелка тултипа смотрит вниз, на индикатор.
-    setTip({ top: r.top - 8, left: r.left + r.width / 2 });
+    //
+    // Портал в document.body невидим, пока какой-то элемент находится в
+    // полноэкранном режиме: top layer показывает только сам fullscreen-элемент
+    // и его потомков. Кнопка «на весь экран» в шапке (решение 24) делает
+    // фуллскрин всей сцены, а вместе с ним — целую сетку наводимых .stage-conn,
+    // поэтому цель портала выбирается заново на каждом наведении.
+    const host = (document.fullscreenElement as HTMLElement | null) ?? document.body;
+    const anchorLeft = r.left + r.width / 2;
+    setTip({ top: r.top - 8, left: anchorLeft, host, clamped: false, anchorLeft, arrowLeft: null });
   }, []);
   const hideTip = useCallback(() => setTip(null), []);
+
+  // Наведение — не единственный момент, когда цель портала может устареть:
+  // фуллскрин можно включить (F11, кнопка в шапке) или выйти по Esc, пока
+  // тултип уже открыт, и тогда он остался бы в прежнем хосте. Пересчитываем
+  // хост и позицию на fullscreenchange, пока тултип на экране.
+  //
+  // resize здесь обязателен, а не «на всякий случай»: вьюпорт меняет размер
+  // ПОСЛЕ fullscreenchange, отдельным кадром. Замерено — без этого слушателя
+  // прижатие считалось по старой высоте и тултип оказывался за нижней кромкой
+  // (bottom 637.3 при innerHeight 544).
+  const tipOpen = tip !== null;
+  useEffect(() => {
+    if (!tipOpen) return;
+    const reposition = () => showTip();
+    document.addEventListener('fullscreenchange', reposition);
+    window.addEventListener('resize', reposition);
+    return () => {
+      document.removeEventListener('fullscreenchange', reposition);
+      window.removeEventListener('resize', reposition);
+    };
+  }, [tipOpen, showTip]);
+
+  // Тултип у верхней кромки сцены уезжал за край вьюпорта (замерено: y = -46.5
+  // при высоте 120.5). Прижимаем его к вьюпорту по факту измерения. Считаем
+  // аналитически из РАЗМЕРА: при transform translate(-50%, -100%) края равны
+  // left ± w/2 и [top - h, top], а вход анимируется трансформом — читать
+  // позицию живого rect во время анимации значило бы мерить смещение анимации.
+  useLayoutEffect(() => {
+    if (!tip || tip.clamped) return;
+    const el = tipRef.current;
+    if (!el) return;
+    const { width: w, height: h } = el.getBoundingClientRect();
+    const margin = 8;
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    let { top, left } = tip;
+    if (top - h < margin) top = margin + h;
+    if (top > vh - margin) top = vh - margin;
+    if (left - w / 2 < margin) left = margin + w / 2;
+    if (left + w / 2 > vw - margin) left = vw - margin - w / 2;
+    // M6 T12: the arrow is `left: 50%` in CSS, i.e. the centre of the TOOLTIP.
+    // The two horizontal clamps above move the tooltip without moving the
+    // indicator, so as soon as either fired the arrow pointed at empty stage
+    // instead of at the chip it belongs to. Re-aim it at the anchor, in the
+    // tooltip's own coordinates, and keep it clear of the tooltip's rounded
+    // corners. 8px is the arrow's HALF-DIAGONAL rounded up, not half its width:
+    // the square is rotate(45deg), so its rendered half-width is
+    // 10 / 2 * √2 ≈ 7.07px, and anything under that lets a corner poke out.
+    // Set unconditionally: with no clamping this evaluates to exactly w / 2,
+    // which is what `left: 50%` already produced — one code path, not two.
+    // An inline style rather than a custom property on purpose: a
+    // `var(--tip-arrow-x)` would be undeclared to stylelint's
+    // value-no-unknown-custom-properties, and giving it a fallback to silence
+    // that is precisely what blinds M6 T13's audit gate.
+    const arrowLeft = Math.min(w - 8, Math.max(8, tip.anchorLeft - (left - w / 2)));
+    setTip({ ...tip, top, left, clamped: true, arrowLeft });
+  }, [tip]);
 
   if (!metrics) return null;
   const { level, packetLoss, rtt, bitrate } = metrics;
@@ -137,47 +189,68 @@ export function ConnectionIndicator({ metrics }: { metrics?: ConnectionQualityMe
   return (
     <div
       ref={ref}
-      className={`conn-indicator conn-indicator--${level}`}
+      className={`stage-conn is-${level}`}
       aria-label={ariaLabel}
       onMouseEnter={showTip}
       onMouseLeave={hideTip}
     >
-      <span className="conn-bar conn-bar--1" />
-      <span className="conn-bar conn-bar--2" />
-      <span className="conn-bar conn-bar--3" />
+      <span className="stage-conn-bar" />
+      <span className="stage-conn-bar" />
+      <span className="stage-conn-bar" />
       {tip &&
         createPortal(
           <div
-            className={`conn-tooltip conn-tooltip--${level}`}
+            ref={tipRef}
+            className={`stage-tip is-${level}`}
             style={{ top: tip.top, left: tip.left }}
             role="tooltip"
           >
-            <div className="conn-tooltip__head">
-              <span className="conn-tooltip__dot" />
-              <span className="conn-tooltip__title">{label}</span>
+            <div className="stage-tip-head">
+              <span className="stage-tip-dot" />
+              <span className="stage-tip-title">{label}</span>
             </div>
             {level !== 'unknown' && (
-              <div className="conn-tooltip__rows">
-                <div className="conn-tooltip__row">
-                  <span className="conn-tooltip__key">{t('call.qualityLoss')}</span>
-                  <span className="conn-tooltip__val">{packetLoss}{t('call.unitPercent')}</span>
+              <div className="stage-tip-rows">
+                <div className="stage-tip-row">
+                  <span className="stage-tip-key">{t('call.qualityLoss')}</span>
+                  <span className="stage-tip-val">{packetLoss}{t('call.unitPercent')}</span>
                 </div>
-                <div className="conn-tooltip__row">
-                  <span className="conn-tooltip__key">{t('call.qualityPing')}</span>
-                  <span className="conn-tooltip__val">{rtt} {t('call.unitMs')}</span>
+                <div className="stage-tip-row">
+                  <span className="stage-tip-key">{t('call.qualityPing')}</span>
+                  <span className="stage-tip-val">{rtt} {t('call.unitMs')}</span>
                 </div>
-                <div className="conn-tooltip__row">
-                  <span className="conn-tooltip__key">{t('call.qualityBitrate')}</span>
-                  <span className="conn-tooltip__val">{bitrate} {t('call.unitKbps')}</span>
+                <div className="stage-tip-row">
+                  <span className="stage-tip-key">{t('call.qualityBitrate')}</span>
+                  <span className="stage-tip-val">{bitrate} {t('call.unitKbps')}</span>
                 </div>
               </div>
             )}
-            <span className="conn-tooltip__arrow" />
+            <span
+              className="stage-tip-arrow"
+              style={tip.arrowLeft === null ? undefined : { left: tip.arrowLeft }}
+            />
           </div>,
-          document.body,
+          tip.host,
         )}
     </div>
   );
+}
+
+// ─── Stage Timer ─────────────────────────────────────────────────────────────
+// Board 1e's «В ЭФИРЕ 12:04». Lives in the live pill and ticks once a second;
+// `startedAt` survives a reconnect on purpose (callStore.onReconnected does not
+// touch it), so the elapsed time keeps counting through a blip.
+
+function StageTimer() {
+  const startedAt = useCallStore((s) => s.startedAt);
+  const [now, setNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, []);
+
+  return <>{formatCallDuration(now - (startedAt ?? now))}</>;
 }
 
 // ─── Remote Participant Tile ─────────────────────────────────────────────────
@@ -219,12 +292,7 @@ function RemoteParticipantTile({
 }: RemoteParticipantTileProps) {
   const t = useT();
   const level = useMicLevel(participant.stream, muted);
-  const speaking = level > 0.05;
-  const micBadgeClass = muted
-    ? 'mic-badge--muted'
-    : speaking
-      ? 'mic-badge--speaking'
-      : 'mic-badge--idle';
+  const speaking = level > SPEAKING_THRESHOLD;
 
   const volumeBtnRef = useRef<HTMLButtonElement>(null);
   const [popoverPosition, setPopoverPosition] = useState<{ top: number; left: number } | null>(null);
@@ -241,29 +309,37 @@ function RemoteParticipantTile({
   if (layout === 'thumbnail') {
     return (
       <div
-        className={`thumbnail-tile ${isFocused ? 'thumbnail-tile--focused' : ''} ${speaking ? 'speaking' : ''}`}
+        className={`stage-thumb${isFocused ? ' is-focused' : ''}${speaking ? ' is-speaking' : ''}`}
+        style={{ '--speak-level': Math.min(1, level) } as React.CSSProperties}
         onClick={onFocus}
         title={displayName}
       >
+        {/* Remote thumb video is never mirrored — only the local preview is. */}
         <video ref={videoRefSetter} autoPlay playsInline style={showWatchOverlay ? { display: 'none' } : undefined} />
-        {!participant.stream && !showWatchOverlay && <div className="thumbnail-placeholder">📷</div>}
+        {!participant.stream && !showWatchOverlay && (
+          <Avatar username={displayName} className="stage-thumb-avatar" />
+        )}
         {showWatchOverlay && (
-          <div className="watch-share-overlay">
-            <span className="watch-share-icon">🖥</span>
-            <button className="watch-share-btn" onClick={(e) => { e.stopPropagation(); onFocus(); }}>
+          <div className="stage-watch-overlay">
+            <MonitorPlay size={16} strokeWidth={1.8} />
+            <button className="stage-watch-btn" onClick={(e) => { e.stopPropagation(); onFocus(); }}>
               {t('call.watchShare')}
             </button>
           </div>
         )}
-        {isSharing && <div className="thumbnail-badge">🖥</div>}
+        {isSharing && (
+          <div className="stage-thumb-badge">
+            <MonitorUp size={10} strokeWidth={1.8} />
+          </div>
+        )}
         <button
           ref={volumeBtnRef}
-          className="volume-btn"
+          className="stage-volume-btn"
           onClick={handleVolumeBtnClick}
           onMouseDown={(e) => e.stopPropagation()}
           title={t('call.volumeLabel', { value: volume })}
         >
-          ⋮
+          <Volume2 size={12} strokeWidth={1.8} />
         </button>
         {isVolumePopoverOpen && popoverPosition && (
           <VolumeControlPopover
@@ -273,35 +349,59 @@ function RemoteParticipantTile({
             onClose={onCloseVolumePopover}
           />
         )}
-        <div className={`mic-badge ${micBadgeClass}`}>{muted ? '🔇' : '🎤'}</div>
         <ConnectionIndicator metrics={quality} />
-        <div className="thumbnail-label">{displayName}</div>
+        {/* Mic state at thumb scale: the full .stage-plate is too big, and the
+            equalizer is illegible at 10px — the is-speaking ring carries that. */}
+        <div className="stage-thumb-label">
+          {muted
+            ? <span className="stage-plate-mic is-muted"><MicOff size={10} strokeWidth={1.8} /></span>
+            : <span className="stage-plate-mic"><Mic size={10} strokeWidth={1.8} /></span>}
+          <span className="stage-name">{displayName}</span>
+        </div>
       </div>
     );
   }
 
   return (
-    <div className={`video-tile ${!participant.stream ? 'video-off' : ''} ${speaking ? 'speaking' : ''}`}>
-      <video ref={videoRefSetter} autoPlay playsInline style={showWatchOverlay ? { display: 'none' } : undefined} />
-      {!participant.stream && !showWatchOverlay && <div className="video-off-placeholder">📷</div>}
+    <div
+      className={`stage-tile${!participant.stream ? ' is-camera-off' : ''}${speaking ? ' is-speaking' : ''}`}
+      style={{ '--speak-level': Math.min(1, level) } as React.CSSProperties}
+    >
+      {/* Remote video is never mirrored — only the local preview carries is-mirrored. */}
+      <video
+        ref={videoRefSetter}
+        autoPlay
+        playsInline
+        className="stage-tile-video"
+        style={showWatchOverlay ? { display: 'none' } : undefined}
+      />
+      {!participant.stream && !showWatchOverlay && (
+        <Avatar username={displayName} className="stage-tile-avatar" />
+      )}
       {showWatchOverlay && (
-        <div className="watch-share-overlay">
-          <span className="watch-share-icon">🖥</span>
-          <button className="watch-share-btn" onClick={(e) => { e.stopPropagation(); onFocus(); }}>
+        <div className="stage-watch-overlay">
+          <MonitorPlay size={20} strokeWidth={1.8} />
+          <button className="stage-watch-btn" onClick={(e) => { e.stopPropagation(); onFocus(); }}>
             {t('call.watchShare')}
           </button>
         </div>
       )}
-      {isSharing && <div className="screen-share-badge">🖥 {t('call.sharingBadge')}</div>}
-      <button className="focus-btn" onClick={onFocus} title={t('call.focusParticipant')}>⛶</button>
+      {isSharing && (
+        <div className="stage-share-badge">
+          <MonitorUp size={12} strokeWidth={1.8} /> {t('call.sharingBadge')}
+        </div>
+      )}
+      <button className="stage-focus-btn" onClick={onFocus} title={t('call.focusParticipant')}>
+        <Expand size={14} strokeWidth={1.8} />
+      </button>
       <button
         ref={volumeBtnRef}
-        className="volume-btn"
+        className="stage-volume-btn"
         onClick={handleVolumeBtnClick}
         onMouseDown={(e) => e.stopPropagation()}
         title={t('call.volumeLabel', { value: volume })}
       >
-        ⋮
+        <Volume2 size={14} strokeWidth={1.8} />
       </button>
       {isVolumePopoverOpen && popoverPosition && (
         <VolumeControlPopover
@@ -311,9 +411,22 @@ function RemoteParticipantTile({
           onClose={onCloseVolumePopover}
         />
       )}
-      <div className={`mic-badge ${micBadgeClass}`}>{muted ? '🔇' : '🎤'}</div>
+      {/* M6 T12: plate and chip share a flex footer instead of being two
+          independently-anchored absolute boxes. See .stage-tile-footer. */}
+      <div className="stage-tile-footer">
+        <div className="stage-plate">
+          {muted
+            ? <span className="stage-plate-mic is-muted"><MicOff size={12} strokeWidth={1.8} /></span>
+            : speaking
+              ? <span className="stage-eq"><span /><span /><span /></span>
+              : <span className="stage-plate-mic"><Mic size={12} strokeWidth={1.8} /></span>}
+          <span className="stage-name">{displayName}</span>
+        </div>
+        {!participant.stream && !showWatchOverlay && (
+          <div className="stage-state-chip">{t('call.cameraOffChip')}</div>
+        )}
+      </div>
       <ConnectionIndicator metrics={quality} />
-      <div className="video-label">{displayName}</div>
     </div>
   );
 }
@@ -359,11 +472,52 @@ export function CallStage({ onMobileBackToChat }: CallStageProps) {
   const bannerDismissed = useCallStore((s) => s.bannerDismissed);
   const remoteScreenStreams = useCallStore((s) => s.remoteScreenStreams);
   const focusedUserId = useCallStore((s) => s.focusedUserId);
-  const [isFullscreen, setIsFullscreen] = useState(false);
+  // Decision 24: which surface is fullscreen, not merely whether one is —
+  // a single boolean sprayed `is-fullscreen` onto the stage AND the focused view.
+  // Ruling T4-c supersedes P1's "the derived boolean survives for the top bar":
+  // each button reads its OWN target, so neither ever shows the exit glyph for
+  // a surface that is not fullscreen.
+  const [fullscreenTarget, setFullscreenTarget] = useState<'stage' | 'focus' | null>(null);
+  const [fullscreenEl, setFullscreenEl] = useState<Element | null>(null);
+
+  // Ruling T4-e — a glyph must reflect what its OWN button's click does, and on
+  // the two platforms that is not the same question.
+  //
+  // Browser: each button owns a distinct element (stageRef / screenShareMainRef)
+  // and its handler branches on its own target, so "is MY surface fullscreen"
+  // is exactly right — that is what T4-c measured.
+  //
+  // Electron: there is only ONE window-level fullscreen, and BOTH handlers take
+  // the same `api.toggleFullscreen()` branch UNCONDITIONALLY (see the two call
+  // sites below) — neither consults fullscreenTarget there. They only differ in
+  // the label they stamp afterwards: 'focus' vs 'stage'. So after entering
+  // fullscreen from one button, the OTHER button would see `target !== mine`,
+  // render Maximize2, and then exit on click — glyph promises enter, action
+  // exits. The defect is symmetric: it hits whichever button did not start it.
+  // On that path both buttons therefore ask "is anything fullscreen".
+  //
+  // REASONED, NOT MEASURED: Electron cannot be launched in this environment.
+  // To check it in one pass: the predicate below is character-for-character the
+  // same test the handlers gate their Electron branch on (`api?.toggleFullscreen`),
+  // so wherever that branch runs, this is true.
+  //
+  // The `is-fullscreen` CLASSES stay per-target on both platforms — they drive
+  // the AppPage `:has()` layout for the surface that was actually requested,
+  // and exactly one of them is ever set.
+  const usesWindowFullscreen = !!(window as Window & typeof globalThis).electronAPI?.toggleFullscreen;
+  const stageFullscreenActive = usesWindowFullscreen
+    ? fullscreenTarget !== null
+    : fullscreenTarget === 'stage';
+  const focusFullscreenActive = usesWindowFullscreen
+    ? fullscreenTarget !== null
+    : fullscreenTarget === 'focus';
+  // Screen-share errors surface as a toast, not a blocking dialog (decision 11).
+  const [stageError, setStageError] = useState<string | null>(null);
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const remoteVideoRefs = useRef<Map<string, HTMLVideoElement>>(new Map());
   const focusedVideoRef = useRef<HTMLVideoElement>(null);
   const screenShareMainRef = useRef<HTMLDivElement>(null);
+  const stageRef = useRef<HTMLDivElement>(null);
 
   const remoteMicMuted = useCallStore((s) => s.remoteMicMuted);
   const participantVolumes = useCallStore((s) => s.participantVolumes);
@@ -402,12 +556,29 @@ export function CallStage({ onMobileBackToChat }: CallStageProps) {
     });
   }, [participants, focusedUserId]);
 
-  // Track fullscreen state changes (ESC key or programmatic exit)
+  // Track fullscreen state changes (ESC key or programmatic exit). The browser
+  // path of both toggles sets no state of its own, so the target is derived here
+  // from whichever element the browser actually put into fullscreen.
   useEffect(() => {
-    const onFsChange = () => setIsFullscreen(!!document.fullscreenElement);
+    const onFsChange = () => {
+      const el = document.fullscreenElement;
+      setFullscreenTarget(el ? (el === stageRef.current ? 'stage' : 'focus') : null);
+      // M6 T12: kept as STATE, not read off document during render — the error
+      // toast below needs the top-layer element as a portal host and must
+      // re-render when it changes. Null on the Electron path, which never sets
+      // document.fullscreenElement; that is correct, see the toast.
+      setFullscreenEl(el);
+    };
     document.addEventListener('fullscreenchange', onFsChange);
     return () => document.removeEventListener('fullscreenchange', onFsChange);
   }, []);
+
+  // Auto-dismiss the stage error toast.
+  useEffect(() => {
+    if (!stageError) return;
+    const timer = setTimeout(() => setStageError(null), 5000);
+    return () => clearTimeout(timer);
+  }, [stageError]);
 
   // Attach stream to the focused main video whenever focus or stream changes.
   // Two cases: focusing a screen-sharer plays their dedicated screen stream
@@ -515,23 +686,47 @@ export function CallStage({ onMobileBackToChat }: CallStageProps) {
     }
   }, [participants, focusedUserId]);
 
-  const handleFullscreen = useCallback(async () => {
+  // Focused-view fullscreen: only the shared surface (decision 24).
+  const handleFocusFullscreen = useCallback(async () => {
     const api = (window as Window & typeof globalThis).electronAPI;
     // In Electron the DOM Fullscreen API can silently no-op on the frameless
     // window, so drive fullscreen through the main process instead.
     if (api?.toggleFullscreen) {
       const next = await api.toggleFullscreen().catch(() => null);
-      if (typeof next === 'boolean') setIsFullscreen(next);
+      if (typeof next === 'boolean') setFullscreenTarget(next ? 'focus' : null);
       return;
     }
     const container = screenShareMainRef.current;
     if (!container) return;
-    if (document.fullscreenElement) {
+    // Branch on THIS button's own target, not on document.fullscreenElement:
+    // during whole-stage fullscreen the glyph says Maximize2, and the old
+    // condition would have exited instead of entering focus fullscreen.
+    // enterFullscreen unwinds any existing fullscreen first — see its comment.
+    if (fullscreenTarget === 'focus') {
       await document.exitFullscreen().catch(() => {});
     } else {
-      await container.requestFullscreen().catch(() => {});
+      await enterFullscreen(container);
     }
-  }, []);
+  }, [fullscreenTarget]);
+
+  // Top-bar fullscreen: the whole stage, not the focused share (decision 24).
+  // Mirror image of the handler above — same own-target branch, so from focus
+  // fullscreen this ENTERS stage fullscreen rather than exiting.
+  const handleStageFullscreen = useCallback(async () => {
+    const api = (window as Window & typeof globalThis).electronAPI;
+    if (api?.toggleFullscreen) {
+      const next = await api.toggleFullscreen().catch(() => null);
+      if (typeof next === 'boolean') setFullscreenTarget(next ? 'stage' : null);
+      return;
+    }
+    const container = stageRef.current;
+    if (!container) return;
+    if (fullscreenTarget === 'stage') {
+      await document.exitFullscreen().catch(() => {});
+    } else {
+      await enterFullscreen(container);
+    }
+  }, [fullscreenTarget]);
 
   const handleLeaveGroupCall = useCallback(() => {
     // leave() сбрасывает стор к IDLE целиком — участники, шареры, фокус и флаги
@@ -576,11 +771,11 @@ export function CallStage({ onMobileBackToChat }: CallStageProps) {
       // Electron: fetch sources → source picker → quality picker → start
       const result = await api.getScreenSources();
       if (result.error === 'screen_permission_denied') {
-        alert(t('call.screenPermissionDenied'));
+        setStageError(t('call.screenPermissionDenied'));
         return;
       }
       if (result.error || !result.sources?.length) {
-        alert(t('call.screenSourcesFailed'));
+        setStageError(t('call.screenSourcesFailed'));
         return;
       }
       setScreenSources(result.sources);
@@ -616,7 +811,7 @@ export function CallStage({ onMobileBackToChat }: CallStageProps) {
         return;
       }
       logger.error('[GroupCall] Screen share failed:', err, { module: 'groupCallUI' });
-      alert(t('call.screenShareFailed'));
+      setStageError(t('call.screenShareFailed'));
     }
   }, [selectedSourceId, t]);
 
@@ -649,7 +844,6 @@ export function CallStage({ onMobileBackToChat }: CallStageProps) {
   const showSourcePickerModal = showSourcePicker && screenSources.length > 0;
 
   const totalParticipants = participants.length + 1;
-  const cols = Math.min(totalParticipants, 4);
 
   // Displayed name for the focused participant
   const focusedName = focusedUserId
@@ -659,9 +853,28 @@ export function CallStage({ onMobileBackToChat }: CallStageProps) {
   const firstSharer = screenSharers.size > 0 ? [...screenSharers][0] : null;
 
   return (
-    <div className="call-stage">
+    <div className={`call-stage${fullscreenTarget === 'stage' ? ' is-fullscreen' : ''}`} ref={stageRef}>
       {isReconnecting && (
-        <div className="gc-reconnecting-banner">{t('call.reconnecting')}</div>
+        <div className="stage-reconnecting">{t('call.reconnecting')}</div>
+      )}
+      {/* M6 T12: the toast is a child of .call-stage, but focus fullscreen puts
+          .stage-focus-main — a DESCENDANT of the stage — into the top layer, and
+          the top layer paints only the fullscreen element and its own
+          descendants. So a screen-share error raised while watching a share
+          fullscreen rendered into a subtree the compositor was not drawing:
+          present in the DOM, auto-dismissed after 5s, never seen. Whole-stage
+          fullscreen (decision 24) was always fine — there the stage itself is
+          the top-layer element and the toast is inside it.
+          Re-targeting a portal on fullscreenchange is the pattern .stage-tip
+          already uses in this file for the identical reason; this reuses the
+          existing fullscreenchange listener rather than adding a second one.
+          fullscreenEl is null on the Electron path (setFullScreen never sets
+          document.fullscreenElement) — and correctly so: Electron fullscreen
+          uses no top layer, so the in-place toast is visible there already. */}
+      {stageError && (
+        fullscreenEl && fullscreenTarget === 'focus'
+          ? createPortal(<div className="error-toast">{stageError}</div>, fullscreenEl)
+          : <div className="error-toast">{stageError}</div>
       )}
       {showSourcePickerModal && (
         <ScreenSourcePicker
@@ -676,20 +889,29 @@ export function CallStage({ onMobileBackToChat }: CallStageProps) {
           onCancel={() => { setShowQualityPicker(false); setSelectedSourceId(null); }}
         />
       )}
-      <div className="group-call-header">
-        <div className="group-call-header-left">
-          {onMobileBackToChat && (
-            <button className="mobile-back-btn" onClick={onMobileBackToChat} aria-label={t('common.back')}>
-              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
-            </button>
-          )}
-          <h2>{t('call.groupCallTitle')}{callChannelName ? ` · #${callChannelName}` : ''}</h2>
+      <div className="stage-topbar">
+        {onMobileBackToChat && (
+          <button className="stage-back-btn" onClick={onMobileBackToChat} aria-label={t('common.back')}>
+            <ArrowLeft size={18} strokeWidth={1.8} />
+          </button>
+        )}
+        <div className="stage-live-pill">
+          <span className="stage-live-dot" />
+          {t('call.live')} <StageTimer />
         </div>
-        <div className="group-call-header-right">
-          {screenSharers.size > 0 && (
-            <span className="header-screen-share-indicator">🖥 {t('call.screenSharingActive')}</span>
-          )}
-          <span className="participant-count">{tp('call.participants', totalParticipants)}</span>
+        <h2 className="stage-title">{callChannelName ? `#${callChannelName}` : t('call.groupCallTitle')}</h2>
+        <div className="stage-topbar-right">
+          <span className="stage-count-chip">{tp('call.participants', totalParticipants)}</span>
+          <button
+            className="stage-fullscreen-btn"
+            onClick={() => { void handleStageFullscreen(); }}
+            aria-label={stageFullscreenActive ? t('call.exitFullscreen') : t('call.fullscreen')}
+            title={stageFullscreenActive ? t('call.exitFullscreen') : t('call.fullscreen')}
+          >
+            {stageFullscreenActive
+              ? <Minimize2 size={16} strokeWidth={1.8} />
+              : <Maximize2 size={16} strokeWidth={1.8} />}
+          </button>
         </div>
       </div>
 
@@ -697,69 +919,85 @@ export function CallStage({ onMobileBackToChat }: CallStageProps) {
         <div className="call-video-area">
           {/* Banner: shown when someone is sharing but user hasn't opened focus view */}
           {firstSharer && !focusedUserId && !bannerDismissed && (
-            <div className="screen-share-banner">
-              <span className="screen-share-banner-icon">🖥</span>
-              <span className="screen-share-banner-text">
+            <div className="stage-share-banner">
+              <MonitorUp size={16} strokeWidth={1.8} />
+              <span className="stage-share-banner-text">
                 {t('call.isSharingScreen', { name: userCache.get(firstSharer) ?? firstSharer.slice(0, 8) })}
               </span>
               <button
-                className="screen-share-banner-btn"
+                className="stage-share-banner-btn"
                 onClick={() => setCall({ focusedUserId: firstSharer })}
               >
                 {t('call.view')}
               </button>
               <button
-                className="screen-share-banner-dismiss"
+                className="stage-share-banner-dismiss"
                 onClick={() => setCall({ bannerDismissed: true })}
                 title={t('call.dismiss')}
               >
-                ✕
+                <X size={14} strokeWidth={1.8} />
               </button>
             </div>
           )}
 
           {focusedUserId ? (
             /* ── Focused / screen-share view ── */
-            <div className="screen-share-view">
+            <div className="stage-focus">
               <div
-                className={`screen-share-main${isFullscreen ? ' is-fullscreen' : ''}`}
+                className={`stage-focus-main${fullscreenTarget === 'focus' ? ' is-fullscreen' : ''}`}
                 ref={screenShareMainRef}
               >
                 <video
                   ref={focusedVideoRef}
                   autoPlay
                   playsInline
-                  className="screen-share-main-video"
+                  className="stage-focus-video"
                 />
-                <div className="screen-share-main-label">
-                  {focusedName}
+                <div className="stage-focus-label">
+                  {/* M6 T12: the name is a .stage-name span for the same reason
+                      the two plates and two thumb labels are — text-overflow has
+                      to live on the flex ITEM, not on the flex container. As a
+                      bare text node it had nowhere to put an ellipsis and the
+                      label just ran under .stage-focus-main's overflow: hidden. */}
+                  <span className="stage-name">{focusedName}</span>
                   {screenSharers.has(focusedUserId) && (
-                    <span className="screen-share-badge-sm">🖥 {t('call.sharingBadge')}</span>
+                    <span className="stage-focus-badge">
+                      <MonitorUp size={12} strokeWidth={1.8} /> {t('call.sharingBadge')}
+                    </span>
                   )}
                 </div>
-                <div className="screen-share-main-controls">
+                {/* On the browser path this button owns the FOCUSED surface
+                    only, so focusFullscreenActive resolves to
+                    fullscreenTarget === 'focus' — whole-stage fullscreen must
+                    not render the exit icon here. On the Electron path it
+                    resolves to "is anything fullscreen" for the reason spelled
+                    out at the state declaration (ruling T4-e). */}
+                <div className="stage-focus-controls">
                   <button
-                    className="screen-share-ctrl-btn"
-                    onClick={() => { void handleFullscreen(); }}
-                    title={isFullscreen ? t('call.exitFullscreen') : t('call.fullscreen')}
+                    className="stage-focus-ctrl-btn"
+                    onClick={() => { void handleFocusFullscreen(); }}
+                    title={focusFullscreenActive ? t('call.exitFullscreen') : t('call.fullscreen')}
                   >
-                    {isFullscreen ? '⊡' : '⛶'}
+                    {focusFullscreenActive
+                      ? <Minimize2 size={16} strokeWidth={1.8} />
+                      : <Maximize2 size={16} strokeWidth={1.8} />}
                   </button>
                   <button
-                    className="screen-share-ctrl-btn"
+                    className="stage-focus-ctrl-btn"
                     onClick={() => setCall({ focusedUserId: null })}
                     title={t('call.backToGrid')}
                   >
-                    ⊞
+                    <LayoutGrid size={16} strokeWidth={1.8} />
                   </button>
                 </div>
               </div>
 
               {/* Thumbnail strip */}
-              <div className="screen-share-thumbnails">
+              <div className="stage-thumbs">
                 {/* Local thumbnail */}
                 <div
-                  className={`thumbnail-tile ${micLevel > 0.05 ? 'speaking' : ''}`}
+                  className={`stage-thumb${micLevel > SPEAKING_THRESHOLD ? ' is-speaking' : ''}`}
+                  style={{ '--speak-level': Math.min(1, micLevel) } as React.CSSProperties}
                   title={`${user?.username ?? ''} ${t('call.youSuffix')}`}
                 >
                   <video
@@ -767,18 +1005,22 @@ export function CallStage({ onMobileBackToChat }: CallStageProps) {
                     autoPlay
                     playsInline
                     muted
-                    className={isScreenSharing ? 'local-video-screen' : 'local-video'}
+                    className={isScreenSharing ? 'is-screen' : 'is-mirrored'}
                   />
                   {isVideoOff && !isScreenSharing && (
-                    <div className="thumbnail-placeholder">📷</div>
+                    <Avatar username={user?.username ?? '?'} url={user?.avatar_url} className="stage-thumb-avatar" />
                   )}
-                  {isScreenSharing && <div className="thumbnail-badge">🖥</div>}
-                  <div className={`mic-badge ${isMuted ? 'mic-badge--muted' : micLevel > 0.05 ? 'mic-badge--speaking' : 'mic-badge--idle'}`}>
-                    {isMuted ? '🔇' : '🎤'}
-                  </div>
+                  {isScreenSharing && (
+                    <div className="stage-thumb-badge">
+                      <MonitorUp size={10} strokeWidth={1.8} />
+                    </div>
+                  )}
                   <ConnectionIndicator metrics={localQuality} />
-                  <div className="thumbnail-label">
-                    {user?.username} {t('call.youSuffix')}
+                  <div className="stage-thumb-label">
+                    {isMuted
+                      ? <span className="stage-plate-mic is-muted"><MicOff size={10} strokeWidth={1.8} /></span>
+                      : <span className="stage-plate-mic"><Mic size={10} strokeWidth={1.8} /></span>}
+                    <span className="stage-name">{user?.username} {t('call.youSuffix')}</span>
                   </div>
                 </div>
 
@@ -806,25 +1048,41 @@ export function CallStage({ onMobileBackToChat }: CallStageProps) {
             </div>
           ) : (
             /* ── Normal video grid ── */
-            <div className="video-grid" style={{ gridTemplateColumns: `repeat(${cols}, 1fr)` }}>
+            <div className={`stage-grid ${stageGridClass(totalParticipants)}`.trim()}>
               {/* Local video */}
-              <div className={`video-tile ${isVideoOff && !isScreenSharing ? 'video-off' : ''} ${micLevel > 0.05 ? 'speaking' : ''}`}>
+              <div
+                className={`stage-tile${isVideoOff && !isScreenSharing ? ' is-camera-off' : ''}${micLevel > SPEAKING_THRESHOLD ? ' is-speaking' : ''}`}
+                style={{ '--speak-level': Math.min(1, micLevel) } as React.CSSProperties}
+              >
                 <video
                   ref={localVideoRef}
                   autoPlay
                   playsInline
                   muted
-                  className={isScreenSharing ? 'local-video-screen' : 'local-video'}
+                  className={`stage-tile-video${isScreenSharing ? ' is-screen' : ' is-mirrored'}`}
                 />
-                {isVideoOff && !isScreenSharing && <div className="video-off-placeholder">📷</div>}
-                {isScreenSharing && <div className="screen-share-badge">🖥 {t('call.sharingBadge')}</div>}
-                <div className={`mic-badge ${isMuted ? 'mic-badge--muted' : micLevel > 0.05 ? 'mic-badge--speaking' : 'mic-badge--idle'}`}>
-                  {isMuted ? '🔇' : '🎤'}
+                {isVideoOff && !isScreenSharing && (
+                  <Avatar username={user?.username ?? '?'} url={user?.avatar_url} className="stage-tile-avatar" />
+                )}
+                {isScreenSharing && (
+                  <div className="stage-share-badge">
+                    <MonitorUp size={12} strokeWidth={1.8} /> {t('call.sharingBadge')}
+                  </div>
+                )}
+                <div className="stage-tile-footer">
+                  <div className="stage-plate">
+                    {isMuted
+                      ? <span className="stage-plate-mic is-muted"><MicOff size={12} strokeWidth={1.8} /></span>
+                      : micLevel > SPEAKING_THRESHOLD
+                        ? <span className="stage-eq"><span /><span /><span /></span>
+                        : <span className="stage-plate-mic"><Mic size={12} strokeWidth={1.8} /></span>}
+                    <span className="stage-name">{user?.username} {t('call.youSuffix')}</span>
+                  </div>
+                  {isVideoOff && !isScreenSharing && (
+                    <div className="stage-state-chip">{t('call.cameraOffChip')}</div>
+                  )}
                 </div>
                 <ConnectionIndicator metrics={localQuality} />
-                <div className="video-label">
-                  {user?.username} {t('call.youSuffix')}
-                </div>
               </div>
 
               {/* Remote videos */}
@@ -851,38 +1109,53 @@ export function CallStage({ onMobileBackToChat }: CallStageProps) {
         </div>
       </div>
 
-      <div className="call-controls">
-        <div
-          className="mic-btn-wrap"
-          style={{ '--mic-level': micLevel } as React.CSSProperties}
-        >
+      <div className="stage-controls">
+        <div className="stage-ctl">
           <button
-            className={`control-btn ${isMuted ? 'active' : ''}`}
+            className={`stage-ctl-btn${isMuted ? ' is-off' : ''}`}
             onClick={handleToggleMute}
             disabled={!isMicAvailable}
             title={!isMicAvailable ? t('call.micUnavailable') : isMuted ? t('call.micOn') : t('call.micOff')}
           >
-            {!isMicAvailable ? '🚫' : isMuted ? '🔇' : '🎤'}
+            {isMuted ? <MicOff size={16} strokeWidth={1.8} /> : <Mic size={16} strokeWidth={1.8} />}
           </button>
+          <span className="stage-ctl-label">{t('call.ctlMic')}</span>
         </div>
-        <button
-          className={`control-btn ${isVideoOff ? 'active' : ''}`}
-          onClick={handleToggleVideo}
-          disabled={isScreenSharing}
-          title={isScreenSharing ? t('call.cameraUnavailableSharing') : isVideoOff ? t('call.cameraOn') : t('call.cameraOff')}
-        >
-          {isVideoOff ? '📷' : '🎥'}
-        </button>
-        <button
-          className={`control-btn ${isScreenSharing ? 'screen-sharing-active' : ''}`}
-          onClick={() => { void handleToggleScreenShare(); }}
-          title={isScreenSharing ? t('call.stopScreenShare') : t('call.shareScreen')}
-        >
-          🖥
-        </button>
-        <button className="control-btn end-call" onClick={handleLeaveGroupCall} title={t('call.leaveCall')}>
-          📞
-        </button>
+        <div className="stage-ctl">
+          <button
+            className={`stage-ctl-btn${isVideoOff ? ' is-off' : ''}`}
+            onClick={handleToggleVideo}
+            disabled={isScreenSharing}
+            title={isScreenSharing ? t('call.cameraUnavailableSharing') : isVideoOff ? t('call.cameraOn') : t('call.cameraOff')}
+          >
+            {isVideoOff ? <VideoOff size={16} strokeWidth={1.8} /> : <Video size={16} strokeWidth={1.8} />}
+          </button>
+          <span className="stage-ctl-label">{t('call.ctlCamera')}</span>
+        </div>
+        <div className="stage-ctl">
+          <button
+            className={`stage-ctl-btn${isScreenSharing ? ' is-on' : ''}`}
+            onClick={() => { void handleToggleScreenShare(); }}
+            title={isScreenSharing ? t('call.stopScreenShare') : t('call.shareScreen')}
+          >
+            <MonitorUp size={16} strokeWidth={1.8} />
+          </button>
+          <span className="stage-ctl-label">{t('call.ctlScreen')}</span>
+        </div>
+        <div className="stage-ctl-divider" />
+        {/* M6 T15, from manual QA: this was the only control in the bar whose
+            label sat INSIDE the button, as a pill, while mic / camera / screen
+            all wear `.stage-ctl` — icon-only button with `.stage-ctl-label`
+            beneath. It now takes the same shape. The button keeps its own class
+            and its danger fill; only the label moved out. `.stage-leave-btn` is
+            still the selector probe-stage-mobile.js measures for the 40px tap
+            floor, so do not fold it into `.stage-ctl-btn`. */}
+        <div className="stage-ctl">
+          <button className="stage-leave-btn" onClick={handleLeaveGroupCall} title={t('call.leaveCall')}>
+            <PhoneOff size={16} strokeWidth={1.8} />
+          </button>
+          <span className="stage-ctl-label">{t('call.leaveLabel')}</span>
+        </div>
       </div>
     </div>
   );

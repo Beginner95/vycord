@@ -14,6 +14,17 @@ export function fireTestEvent(key: string, type: string, event: unknown = {}): v
   listeners.get(`${key}:${type}`)?.forEach((listener) => listener(event));
 }
 
+const localStorageImpl = {
+  getItem: (key: string) => store.get(key) ?? null,
+  setItem: (key: string, value: string) => void store.set(key, String(value)),
+  removeItem: (key: string) => void store.delete(key),
+  clear: () => store.clear(),
+  key: (index: number) => Array.from(store.keys())[index] ?? null,
+  get length() {
+    return store.size;
+  },
+};
+
 // В node-окружении настоящих window/document нет — подставляем минимальные
 // заглушки. В файлах с "@vitest-environment jsdom" они уже настоящие, и
 // затирать их нельзя: на них держится @testing-library/react.
@@ -22,6 +33,9 @@ if (typeof globalThis.window === 'undefined') {
     electronAPI: undefined,
     addEventListener: (type: string, listener: (event: unknown) => void) => addListener('window', type, listener),
     removeEventListener: () => {},
+    // Сохранено из redesign-ветки: unreadStore и AppPage читают именно
+    // `window.localStorage`, а не глобальный. В jsdom он настоящий.
+    localStorage: localStorageImpl as any,
     setTimeout: ((fn: () => void, ms?: number) => globalThis.setTimeout(fn, ms)) as unknown as Window['setTimeout'],
     clearTimeout: ((id: number) => globalThis.clearTimeout(id)) as unknown as Window['clearTimeout'],
     dispatchEvent: () => true,
@@ -38,16 +52,7 @@ if (typeof globalThis.document === 'undefined') {
 }
 
 if (typeof globalThis.localStorage === 'undefined') {
-  globalThis.localStorage = {
-    getItem: (key: string) => store.get(key) ?? null,
-    setItem: (key: string, value: string) => void store.set(key, String(value)),
-    removeItem: (key: string) => void store.delete(key),
-    clear: () => store.clear(),
-    key: (index: number) => Array.from(store.keys())[index] ?? null,
-    get length() {
-      return store.size;
-    },
-  };
+  globalThis.localStorage = localStorageImpl;
 }
 
 if (typeof globalThis.Event === 'undefined') {
