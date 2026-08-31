@@ -48,11 +48,35 @@ func (s *Local) Save(_ context.Context, key string, r io.Reader, _ string) (stri
 	return s.urlPrefix + "/" + key, nil
 }
 
-func (s *Local) Delete(_ context.Context, url string) error {
-	key := strings.TrimPrefix(url, s.urlPrefix+"/")
-	if key == url {
-		return fmt.Errorf("url %q does not belong to this storage", url)
+func (s *Local) Open(_ context.Context, key string) (io.ReadSeekCloser, error) {
+	path := filepath.Join(s.rootDir, filepath.FromSlash(key))
+
+	f, err := os.Open(path)
+	if os.IsNotExist(err) {
+		return nil, fmt.Errorf("open %s: %w", key, ErrNotFound)
 	}
+	if err != nil {
+		return nil, fmt.Errorf("open file %s: %w", key, err)
+	}
+
+	// os.Open на директории не возвращает ошибку вовсе: без этой проверки
+	// наружу ушёл бы «успешный» ReadSeekCloser, у которого падает первый же
+	// Read — далеко от причины. Save создаёт промежуточные каталоги, так что
+	// ключ вполне может указать на каталог.
+	info, err := f.Stat()
+	if err != nil || info.IsDir() {
+		f.Close()
+		return nil, fmt.Errorf("open %s: %w", key, ErrNotFound)
+	}
+
+	return f, nil
+}
+
+// Delete принимает и URL, который вернул Save (так удаляются аватары, иконки
+// и стикеры), и голый ключ (так адресуются вложения: в БД лежит storage_key,
+// а не URL). Удаление несуществующего файла ошибкой не считается.
+func (s *Local) Delete(_ context.Context, urlOrKey string) error {
+	key := strings.TrimPrefix(urlOrKey, s.urlPrefix+"/")
 
 	path := filepath.Join(s.rootDir, filepath.FromSlash(key))
 	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {

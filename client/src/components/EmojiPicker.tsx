@@ -1,18 +1,21 @@
 import { useState } from 'react';
 import { EMOJI_CATEGORIES } from '@/utils/emojis';
+import { useDismissOnOutside } from '@/hooks/useDismissOnOutside';
 import { useT } from '@/i18n';
+import './EmojiPicker.css';
 
 interface EmojiPickerProps {
   onSelect: (emoji: string) => void;
   onClose: () => void;
 }
 
-export function EmojiPicker({ onSelect, onClose: _onClose }: EmojiPickerProps) {
+export function EmojiPicker({ onSelect, onClose }: EmojiPickerProps) {
   const t = useT();
   const [active, setActive] = useState(EMOJI_CATEGORIES[0].id);
+  const ref = useDismissOnOutside<HTMLDivElement>(onClose);
 
   return (
-    <div className="emoji-picker" role="dialog">
+    <div className="emoji-picker" role="dialog" ref={ref}>
       <div className="emoji-picker-grid">
         {EMOJI_CATEGORIES.find((c) => c.id === active)?.emojis.map((e, i) => (
           <button
@@ -31,7 +34,7 @@ export function EmojiPicker({ onSelect, onClose: _onClose }: EmojiPickerProps) {
           <button
             key={c.id}
             type="button"
-            className={`emoji-tab${c.id === active ? ' active' : ''}`}
+            className={`emoji-tab${c.id === active ? ' is-active' : ''}`}
             onClick={() => setActive(c.id)}
             title={c.label}
           >

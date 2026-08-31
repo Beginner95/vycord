@@ -14,6 +14,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getScreenSources: () => ipcRenderer.invoke('get-screen-sources'),
   audioAssetsUrl,
   setLocale: (locale: string) => ipcRenderer.send('locale:changed', locale),
+  setTheme: (theme: string) => ipcRenderer.send('theme:changed', theme),
   update: {
     onAvailable: (cb: (version: string) => void) =>
       ipcRenderer.on('update:available', (_event, data: { version: string }) => cb(data.version)),

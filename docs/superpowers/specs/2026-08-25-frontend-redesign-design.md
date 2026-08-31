@@ -1,0 +1,151 @@
+# Frontend Redesign — Design Spec
+
+**Date:** 2026-08-25
+**Status:** Approved
+**Design source of truth:** `design_handoff_discord_redesign/` (README.md + `Redesign.dc.html` board). This spec records *decisions and deviations*; pixel values, tokens, and per-screen specs live in the handoff README and are not duplicated here except where we deviate.
+
+## 1. Goal & constraints
+
+Visually rebuild the vycord client to the handoff design system: one chat metaphor, one icon set, four button roles, three depth levels, light + dark themes. **No backend changes** — all REST/WebSocket contracts (`src/services/api.ts`, `src/services/websocket.ts`, `src/types/index.ts`) stay exactly as they are. No framework migration: React 19 + Vite + Zustand + plain per-component CSS remain.
+
+## 2. Scope decisions (settled with the user)
+
+| Decision | Choice |
+|---|---|
+| Feature scope | **Restyle + client-feasible features.** Implement: command palette (scoped, see M5), optimistic send with `sending`/`failed` delivery states, empty states, unread **divider only** (entry-time, see §4.4). **Skip until a backend phase:** typing indicator, read receipts, reactions, attachment cards, and **live unread/mention badges** (sidebar bars, rail counts — undeliverable client-side, see §3). The hover popover ships with edit/delete/quote; no react button. "Quote" = the existing composer prefill (`>` text), not a persisted reply relation. |
+| App font | **Inter** (self-hosted woff2, 400–800), not the handoff's Plus Jakarta Sans — Plus Jakarta Sans has no Cyrillic glyphs and the product UI is Russian. **JetBrains Mono 500** for kbd hints/mono accents as specced. |
+| Delivery | **One long-lived `redesign` branch**, built in milestone PRs, released to users as a single version. No mixed-design releases. |
+| Unspecced surfaces | **Restyle everything** to the new system, extrapolating the design language: stickers (picker + manager), legacy 1:1 call overlay, NC/audio settings incl. test-sound buttons, volume popover, screen-share picker, update banner, avatar crop, error boundary. |
+| Search UX | **Keep both**: ⌘K palette is the primary quick-nav (channels → messages → actions); the paginated `MessageSearch` panel survives restyled for deep search, reachable from the chat header and a "show all results" row in the palette. |
+| Token migration | **Option B**: new canonical tokens named per the handoff (`--accent`, `--ink`, `--panel`, `--rail`, `--own-msg-bg`, …) with **temporary aliases** for the old names (`--bg-secondary: var(--panel)` etc.) so untouched surfaces stay coherent mid-migration; aliases deleted in the final milestone. |
+| Voice UI | **Adapt the design to unified channels** (VYC-77, commit `4674032`, migration 017 dropped `channels.type` — every channel is both text and voice). No separate «ГОЛОСОВЫЕ» group: one channel list; the design's voice-card treatment (participants, mic states, «Войти в канал») renders on any channel with an active voice session; every row keeps a quiet join-voice affordance. The design's grouping principle is expressed through state, not a type column. |
+
+## 3. Current-state facts the plan relies on
+
+- `src/index.css` is the only live global stylesheet (imported from `main.tsx`); it already defines CSS-variable tokens and a `[data-theme="dark"]` override set by `stores/themeStore.ts`.
+- Token discipline is good: 17 of 23 component CSS files have zero hardcoded hex. Raw values survive in `CallStage.css` (~20 hex + ~40 rgba), `LinkDialog.css` (5 hex), `ChatArea.css` (4), `ChannelSidebar.css` (2), `MessageSearch.css` (1), plus raw rgba in `CallUI.css` (~21).
+- **Server-side constraints (verified):** `SendToChannel` (`server/internal/delivery/ws/hub.go`) delivers `chat_message` events only to clients whose `CurrentChannelID` matches — clients receive **no** events for channels they aren't viewing, so live unread/mention badges cannot be computed client-side. Channels have **no type** (VYC-77 / migration 017). Message search is **per-channel only** (`/api/v1/channels/{id}/messages/search`), and the client holds only the active server's channel list.
+- Layout already matches the design's skeleton: `AppPage.tsx` owns TitleBar + rail (`ServerList`, 72px) + sidebar (`ChannelSidebar`, 260px) + chat (`ChatArea`) + member list (`UserList`, 240px). Target widths: 76 / 252 / flex / 236.
+- Messages render as **asymmetric bubbles** (`.message.self` / `.message.other` with reversed header/avatar) — the largest JSX change is unifying this.
+- ~40 emoji are used as UI icons across 15 files; no icon library; a handful of hand-inlined SVGs in 6 files.
+- Inter is referenced in `--font-sans` but **never loaded**; the app renders in system fallback today.
+- Shared modal/form styles live in `pages/AppPage.css` (used by 7 modal surfaces); `.title-bar` is styled in `ChatArea.css`; `ScreenSharePicker.tsx` imports `CallStage.css` — extraction hazards.
+- Dead Vite-template files: `src/style.css`, `src/main.ts`, `src/counter.ts`, `src/assets/{hero.png,typescript.svg,vite.svg}`, `public/icons.svg`.
+- i18n is a custom type-safe module (`src/i18n/`, ru = source dictionary, en mirror, `npm run check:i18n`). `ErrorBoundary.tsx` has hardcoded Russian strings.
+- Absent today (grep-verified): reactions, typing, unread, delivery states, attachment rendering, command palette, channel search.
+- Electron: frameless window with `backgroundColor: '#313338'` hardcoded in `electron/main.ts` (dark flash on light-mode launch); custom `TitleBar` must coexist with the new design (the board doesn't include one — style it in rail/panel colors).
+
+## 4. Architecture
+
+### 4.1 Styles layer (`src/styles/`)
+
+New directory, imported from `main.tsx` in place of the current single-file system:
+
+- `tokens.css` — `:root` light tokens named per the handoff README tables (colors, radii, shadows, spacing, focus ring) + `[data-theme="dark"]` set from board option `2d`; the temporary alias block for old token names sits at the end, clearly marked for deletion.
+- `fonts.css` — `@font-face` for self-hosted Inter (400/500/600/700/800) and JetBrains Mono 500 (woff2 files under `src/assets/fonts/`, bundled by Vite); `--font-sans` / `--font-mono`.
+- `base.css` — reset, body, scrollbar, selection, focus-visible (accent ring per spec: `1.5px solid accent` + `0 0 0 3px rgba(79,70,229,.13)` on inputs), type-scale custom properties.
+- `primitives.css` — shared component classes:
+  - Buttons: `primary`, `secondary` (outline), `ghost`, `danger-soft`, `danger` (solid, destructive confirm only), one shared disabled state.
+  - Inputs/textareas with the focus ring; select (36px, r9, chevron), toggle (44×26, 160ms), slider (150×6 track, accent fill), level meter.
+  - Modal shell: overlay + dialog (r16, modal shadow, 180ms opacity + 4px rise), header/close-button pattern — **extracted from `AppPage.css`**, which stops carrying shared styles.
+  - Context menu (r14, menu shadow, caps label, separated destructive row), kbd chip (mono 11px), pills/badges, skeleton shimmer.
+
+Component CSS files stay per-component but consume tokens + primitives.
+
+### 4.2 Icons
+
+`lucide-react`, used directly (no wrapper): sizes 16–21px, `strokeWidth={1.8}` per spec. Every emoji-as-icon and hand-inlined SVG is replaced. Emoji remain only as *content* (message emoji picker, stickers).
+
+### 4.3 Avatars
+
+`Avatar.tsx` gains the deterministic color system (board `2b`): hash(username) → fixed 8-color palette, white 700 initial; uploaded avatar images unchanged; offline-in-dark = same hue at ~30% alpha. Squircle radii per size table (never circles for servers; presence dots stay circles).
+
+### 4.4 New client-side state
+
+- `unreadStore` (new zustand store), **divider-only scope**: a `lastReadByChannel` map (last-read message id/timestamp) persisted in localStorage. On channel entry, `firstUnreadMessageId` is computed from the fetched messages vs. the stored mark and drives the "НОВЫЕ СООБЩЕНИЯ" divider, which stays until the user leaves the channel; the mark advances when the last message enters the viewport. **No sidebar unread bars, no rail mention badges** — the server only pushes message events for the currently-viewed channel (§3), so live badges are deferred to the backend phase alongside typing/reactions.
+- `messageStore` messages gain a client-only `deliveryState?: 'sending' | 'failed'` via optimistic send: append immediately at 75% opacity with a clock chip; reconcile on server ack; on failure show the `danger` "не отправлено · повторить" chip with retry. No `read` state (backend).
+- `paletteStore`: `{ isOpen, query, results }` for ⌘K.
+
+### 4.5 Electron
+
+`electron/main.ts` `backgroundColor` follows the persisted theme to kill the launch flash — main can't read renderer localStorage, so `themeStore` mirrors the choice to a main-readable location via a small IPC call (written on change, read at window creation; default = light `canvas`). `TitleBar` CSS moves to its own file, styled with rail/panel tokens.
+
+## 5. Milestones
+
+Each is a PR into `redesign`; the app is fully functional after each (aliases keep untouched surfaces coherent).
+
+- **M0 — Foundation.** Delete dead files; create `src/styles/`; load fonts; add lucide; extract modal shell from `AppPage.css`; move `.title-bar` styles out of `ChatArea.css` (also update its mobile override in `AppPage.css` and the 40px-height assumption in `UpdateBanner.css`); Avatar color system; Electron backgroundColor fix. Visual change is minimal by design.
+- **M1 — App shell** (board `1c` columns A/B/D, adapted per §2 Voice UI). Rail 76px (home, divider, squircle tiles, bottom create+search group; **no unread/mention badges** — deferred). Sidebar 252px: one unified channel list (no «ГОЛОСОВЫЕ» group); rows in the design's text-channel style with active/idle states and a quiet join-voice affordance; a channel with an active voice session renders the design's **voice card** (participants, mic states, «Войти в канал»); restyled footer user panel + CallDock. Member list 236px (online/offline groups, "в голосовом · X" sub-lines, bottom invite card wired to the existing invites API — hidden without the invite permission, expiry text derived from `expires_at`, never hardcoded).
+- **M2 — Chat** (board `1c` column C, `2a`, `2b`, `1f`). Single left-aligned metaphor (grid `42px 1fr`, grouping window **5 min** — changed from today's 7), own message = `own-msg-bg` + 2px accent border + "вы" chip; header 58px; date dividers; hover action popover (edit/delete/quote); delete via the new destructive-confirm modal (replaces `window.confirm`); composer single field with `Aa` toggle hiding the formatting toolbar, accent send square, hint line; restyled mention dropdown/emoji/sticker pickers; empty states; unread divider + viewport mark-read (introduces the `unreadStore`); optimistic delivery states; enter animation (220ms) and skeleton loading; mobile chat per `1f` within the existing single-panel mobile model.
+- **M3 — Calls** (board `1e`, `2e`). CallStage on `stage` tokens: top bar (live pill + timer, counter, fullscreen), responsive tile grid (1/2/3 columns by participant count), name plates with mic/equalizer, speaking ring driven by real audio levels (existing speaking detection), control bar (three toggles with labels, divider, danger "Выйти" pill); screen-share view + picker; quality tooltip; `CallUI` 1:1 overlay restyled; mobile voice banner.
+- **M4 — Modals, menus, settings** (board `1d` + unspecced). Find-server modal (name search + invite code merged into **one field**); settings modal (186px nav, new toggle/select/slider/level-meter, "Выйти" pinned bottom in danger) covering profile/audio-NC/video/appearance; server & channel context menus; destructive confirmation reused app-wide; then: manage invites, edit server/channel, create channel/server, sticker manager, avatar crop, update banner, error boundary (strings moved into i18n).
+- **M5 — Command palette** (board `2c`, scope adapted to the APIs). New component + `paletteStore`; `⌘K`/`Ctrl+K` global; groups ordered channels → messages → actions with **explicit scopes labeled in the group headers**: channels = current server (client-side filter over `serverStore.channels`), messages = current channel (existing per-channel search API, 120ms debounce; «СООБЩЕНИЯ — в этом канале»), actions = global (create channel, join voice, open settings, switch theme…). No cross-server fan-out. Full keyboard nav (`↑↓`, `↵`, `esc`); "show all results" row opens the restyled deep-search panel.
+- **M6 — Polish & closure.** Dark-theme parity pass on every surface (`2d`); responsive per design: ≥1200px four columns, 1000–1200px member list hidden behind header toggle, <900px sidebar drawer, <640px mobile layout — both sides of the current 768/769px breakpoint pair migrate to the 900px boundary; `prefers-reduced-motion` (drop loops, keep fades); animation budget audit (≤250ms ease-out); i18n additions ru+en with `check:i18n` green; **delete the token alias block**; final visual QA side-by-side with `Redesign.dc.html` per screen.
+
+## 6. Testing
+
+- Vitest for new logic: unread store transitions, optimistic delivery reconciliation, palette filtering/grouping, avatar hash stability, message grouping window.
+- `npm run check:i18n` stays green each milestone (new strings land in ru + en together).
+- Existing audio e2e (`client/e2e/`) untouched — no audio-path changes.
+- Visual QA: open the design board and the app side by side in Chrome per milestone; final pass in M6.
+
+## 7. Out of scope
+
+Backend/API changes of any kind; typing indicators; read receipts; reactions; attachment upload/rendering; server-side unread state and **live unread/mention badges**; reintroducing `channels.type` (VYC-77 stands); cross-server search fan-out in the palette; new i18n languages; changes to `services/` (WebRTC, NC, echo cancellation) beyond none.
+
+## 8. Risks & mitigations
+
+- **`ChatArea.tsx` (1071 lines) rewrite risk** — M2 splits it into subcomponents (MessageRow, Composer, pickers) as part of the work; behavior covered by targeted vitest where practical.
+- **Long-lived branch drift vs `main`** — rebase the `redesign` branch on `main` at each milestone boundary.
+- **Alias layer masking missed conversions** — M6 alias deletion doubles as the audit: build + grep for old token names, **plus** a grep for raw hex/`rgba()` values outside `tokens.css`, must both come up empty (token-name grep alone misses the raw values listed in §3).
+- **Optimistic send vs current send path** — reconciliation keyed on server-assigned id via the existing WS message event; retry re-invokes the same API call.
+
+## 9. Amendment — 2026-08-30 (M5.5 trunk integration)
+
+Appended, not merged into the text above: §§1–8 stand as written and as dated.
+Each item below names the clause it amends.
+
+1. **`develop` is the trunk; `main` has not moved since the branch point.**
+   §8's *"Long-lived branch drift vs `main`* — rebase the `redesign` branch on
+   `main` at each milestone boundary"* is superseded on both halves. `origin/main`
+   (`d17bddd`) is an ancestor of `redesign`, so it is not a drift source;
+   `origin/develop` is. And `origin/redesign` is **published** (`2dc4974`, an
+   ancestor of local `redesign`), so the branch **merges** from `origin/develop`
+   and is **never rebased**. The drift gate is
+   `git fetch --all --prune && git log redesign..origin/develop` — the fetch is
+   part of the gate, not a precondition someone may skip.
+
+2. **Attachments arrived from trunk (VYC-82).** §2 lists "attachment cards" under
+   *Skip until a backend phase* and §7 lists "attachment upload/rendering" as out
+   of scope. Both remain correct as written: the feature stays out of scope **to
+   build**. It shipped on `develop` independently, so the merged tree now
+   contains it, and §2's *Unspecced surfaces* clause — "restyle everything to the
+   new system, extrapolating the design language" — extends to it. That clause's
+   named list is illustrative, not exhaustive: **treat `MessageAttachments`,
+   `AttachmentTray`, `AttachmentButton`, `VideoPlayer`, `AudioPlayer` and
+   `MediaLightbox` as included in it** (§2's own text is unchanged — this
+   amendment records the reading, it does not edit the list). M5.5 restyles these
+   six surfaces; they are not otherwise redesigned, and no attachment behaviour
+   is added.
+
+3. **The §1/§7 scope wall means "no redesign-authored changes"**, not "these
+   paths never change." §1 fixes the REST/WS contracts (`services/api.ts`,
+   `services/websocket.ts`, `types/index.ts`) and §7 excludes `services/` and all
+   backend work. Trunk changes to those paths arriving via a merge from
+   `origin/develop` are **not violations** of either clause. The wall constrains
+   what this branch may author, and the merge-vs-rebase rule in item 1 is what
+   keeps the distinction auditable in history.
+
+4. **§8's raw-value audit gate is scoped to `*.css`**, with a named non-CSS
+   allowlist. Taken literally — "a grep for raw hex/`rgba()` values outside
+   `tokens.css` must come up empty" — the gate could never pass, because three
+   non-CSS sites legitimately hold raw colour:
+   - `utils/avatarColor.ts:5–12` — the 8-colour avatar palette §4.3 mandates;
+   - `AvatarCropModal.tsx:109,116` — `ctx.fillStyle` / `ctx.strokeStyle` canvas
+     fills (`rgba()`, not hex), which cannot read a CSS custom property;
+   - `Avatar.tsx:34` — the `#FFFFFF` fallback in `var(--avatar-ink, #FFFFFF)`.
+
+   Those three are permanently exempt. The CSS half of the gate is **not yet
+   met** as of `bab71ef`: four sites remain outside `tokens.css` —
+   `pages/Auth.css:90,127,140` and `TitleBar.css:34`. Clearing them is M6's work,
+   and the gate passes when that grep is empty over `*.css` alone.

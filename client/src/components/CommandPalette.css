@@ -1,0 +1,251 @@
+/* ═══ Command palette (board 2c) — 600px dialog, r16, palette shadow ═══
+   Оверлей переиспользует .modal-overlay (скрим, blur, fade-in) и правит ровно
+   три свойства: align-items и z-index ПЕРЕКРЫВАЮТ базовые, а padding
+   ДОБАВЛЯЕТ — .modal-overlay padding не объявляет вовсе. z-index --z-palette
+   (1150), а не --z-overlay (1000): .context-menu лежит на --z-menu (1050) и
+   иначе рисовался бы поверх палитры, а --z-popover (1100) занято —
+   .screen-picker-backdrop и .volume-popover (решение 10; план M5
+   и RESUME называют первый селектор screen-share-picker — такого класса в
+   репозитории нет, номер при этом верный; имя пишем БЕЗ точки намеренно,
+   чтобы двунаправленный скан классов не считал его селектором). Компонентный
+   CSS выигрывает у базового слоя по порядку источника — доказано в dev и в
+   dist (M2 T1). */
+.palette-overlay {
+  align-items: flex-start;
+  padding: 12vh 16px 16px;
+  z-index: var(--z-palette);
+}
+
+.palette-dialog {
+  display: flex;
+  flex-direction: column;
+  width: min(600px, 100%);
+  overflow: hidden;
+  background: var(--canvas);
+  border-radius: var(--radius-modal);
+  box-shadow: var(--shadow-palette);
+  animation: modal-in 0.18s var(--ease-out);
+}
+
+/* ═══ Search row ═══ */
+.palette-search {
+  display: flex;
+  gap: 11px;
+  align-items: center;
+  padding: 16px 18px;
+  border-bottom: 1px solid var(--line);
+}
+
+.palette-search-icon {
+  flex-shrink: 0;
+  color: var(--muted-2);
+}
+
+.palette-input {
+  flex: 1;
+  min-width: 0;
+  font-family: inherit;
+  font-size: 15px;
+  font-weight: 400;
+  color: var(--ink);
+  background: none;
+  border: none;
+  outline: none;
+  caret-color: var(--accent);
+}
+
+.palette-input::placeholder {
+  color: var(--faint);
+}
+
+/* Кольцо фокуса снято намеренно (решение 26): поле автофокусное и
+   единственное внутри ловушки, сигнал фокуса — акцентная каретка. */
+.palette-input:focus-visible {
+  outline: none;
+}
+
+.kbd.palette-esc {
+  flex-shrink: 0;
+  padding: 3px 8px;
+  font-weight: 600;
+  color: var(--muted-2);
+  border: none;
+}
+
+/* ═══ Results ═══ */
+.palette-list {
+  max-height: min(52vh, 420px);
+  padding: 10px 8px 12px;
+  overflow-y: auto;
+}
+
+.palette-group-label {
+  padding: 14px 12px 6px;
+  font-size: var(--fs-group);
+  font-weight: 700;
+  letter-spacing: var(--ls-group);
+  color: var(--muted-2);
+  text-transform: uppercase;
+}
+
+.palette-group:first-child .palette-group-label {
+  padding-top: 8px;
+}
+
+.palette-row {
+  display: flex;
+  gap: 11px;
+  align-items: center;
+  padding: 9px 12px;
+  border-radius: var(--radius-btn);
+  cursor: pointer;
+}
+
+.palette-row.is-selected {
+  background: var(--accent-soft);
+}
+
+.palette-row-icon {
+  flex-shrink: 0;
+  color: var(--muted-2);
+}
+
+/* Иконка действия отделена от иконки канала парой --muted / --muted-2
+   (board 2c). «Темнее» — только в светлой теме: там --muted темнее --muted-2,
+   а в тёмной паре светлота инвертируется (--muted светлее --muted-2, и
+   --muted-2 там помечен refine-in-M6). Двухуровневое различие сохраняется в
+   обеих темах, направление — нет.
+   Селектор именно :has(): иконка стоит в разметке ПЕРЕД лейблом, поэтому
+   `.palette-row-action ~ .palette-row-icon` не совпал бы никогда. Правило
+   живёт МЕЖДУ базовым .palette-row-icon (0,1,0) и .is-selected (0,3,0): оно
+   само (0,3,0), так что порядок остаётся неубывающим
+   (no-descending-specificity), а выделенная строка действия получает --accent
+   так же, как выделенный канал. Сам .palette-row-action собственных
+   объявлений не несёт: он всегда стоит рядом с .palette-row-name и живёт
+   исключительно как маркер для этого :has(). */
+.palette-row:has(.palette-row-action) .palette-row-icon {
+  color: var(--muted);
+}
+
+.palette-row.is-selected .palette-row-icon {
+  color: var(--accent);
+}
+
+.palette-row-name {
+  overflow: hidden;
+  font-size: var(--fs-label);
+  font-weight: 600;
+  color: var(--ink);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.palette-row.is-selected .palette-row-name {
+  font-weight: 700;
+}
+
+.kbd.palette-enter {
+  flex-shrink: 0;
+  margin-left: auto;
+  padding: 3px 8px;
+  font-weight: 600;
+  color: var(--accent);
+  background: var(--canvas);
+  border-color: var(--accent-border);
+}
+
+.palette-status,
+.palette-empty {
+  padding: 9px 12px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+/* ═══ Message rows ═══ */
+.palette-avatar {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  font-size: 10px;
+  border-radius: var(--radius-row);
+}
+
+.palette-snippet {
+  overflow: hidden;
+  font-size: var(--fs-label);
+  font-weight: 400;
+  color: var(--ink);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.palette-snippet mark {
+  font-weight: 700;
+  color: var(--hl-ink);
+  background: var(--hl-bg);
+}
+
+.palette-date {
+  flex-shrink: 0;
+  margin-left: auto;
+  font-size: var(--fs-caption);
+  font-weight: 500;
+  color: var(--faint);
+}
+
+/* ═══ Footer hint bar ═══ */
+.palette-footer {
+  display: flex;
+  gap: 14px;
+  align-items: center;
+  padding: 10px 18px;
+  background: var(--canvas-3);
+  border-top: 1px solid var(--line);
+}
+
+.palette-hint {
+  font-size: var(--fs-caption);
+  font-weight: 500;
+  color: var(--muted-2);
+}
+
+.palette-hint-end {
+  margin-left: auto;
+}
+
+.palette-key {
+  font-family: var(--font-mono);
+  color: var(--muted);
+}
+
+@media (width <= 640px) {
+  .palette-overlay {
+    padding: 8vh 12px 12px;
+  }
+
+  .palette-list {
+    max-height: 60vh;
+  }
+
+  /* Измерено на 390×844 с --touch (M5 T7): контент-бокс футера — 330px, три
+     подсказки в него не влезают и КАЖДАЯ ломается на две строки (35.5px при
+     line-height 17.25px), футер растёт с 39.25px до 56.5px. Прячем именно
+     третью, по двум независимым причинам.
+     (1) Ширина здесь — ПРОКСИ для сенсорного устройства, а не гарантия: в
+     условии стоит только width, никакого (hover: none). В узком окне
+     десктопа ⌘K работает, и там подсказка просто тесная; на телефоне, ради
+     которого брейкпоинт и заведён, такой клавиши нет вовсе — и там она уже
+     неверная. Термин (hover: none) НЕ добавлен намеренно: это изменение
+     поведения, выходящее за рамки T7.
+     (2) Причина, не зависящая от устройства: это самая длинная из трёх
+     подсказок и единственная чисто справочная — две оставшиеся описывают
+     действия внутри уже открытой палитры, а эта объясняет, как открыть то,
+     что уже открыто.
+     flex-wrap отвергнут: он всё равно уводит футер во вторую строку. */
+  .palette-hint-end {
+    display: none;
+  }
+}

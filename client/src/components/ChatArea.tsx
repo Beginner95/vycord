@@ -1,33 +1,49 @@
-import { useState, useEffect, useRef, useCallback, type FormEvent, type KeyboardEvent, type ChangeEvent, type ClipboardEvent } from 'react';
-import type { RefObject } from 'react';
-import { useMessageStore } from '@/stores/messageStore';
-import { LinkDialog } from '@/components/LinkDialog';
-import { EmojiPicker } from '@/components/EmojiPicker';
-import { StickerPicker } from '@/components/StickerPicker';
+import { Fragment, useState, useEffect, useRef, useCallback, type DragEvent, type ReactNode } from 'react';
+import { ArrowDown, ChevronLeft, Hash, Headphones, Mic, Plus, Search, Users } from 'lucide-react';
+import { useMessageStore, type ChatMessage } from '@/stores/messageStore';
+import { useUnreadStore, firstUnreadId } from '@/stores/unreadStore';
 import { StickerManager } from '@/components/StickerManager';
-import { toggleQuote, toggleBullet, toggleNumbered, toggleWrap, type LineToggle } from '@/utils/textTransforms';
-import { isUnsafeUrl } from '@/utils/markdown';
 import type { Message } from '@/types';
-import { apiService, apiErrorText, resolveUploadUrl, ApiError } from '@/services/api';
+import { apiService, apiErrorText, ApiError } from '@/services/api';
 import { wsService } from '@/services/websocket';
 import { audioService } from '@/services/audio';
 import { useServerStore } from '@/stores/serverStore';
 import { useCallStore } from '@/stores/callStore';
-import { tokenizeMentions, LEGACY_ROLE_KEYS } from '@/utils/mentions';
 import { logger } from '@/utils/logger';
 import { collectUnresolvedUserIds } from '@/utils/userCache';
-import { useMentionAutocomplete } from '@/hooks/useMentionAutocomplete';
+import { isContinuation } from '@/utils/messageGroups';
 import { can, PERMISSIONS } from '@/utils/permissions';
 import { useFloatingSelectionToolbar } from '@/hooks/useFloatingSelectionToolbar';
+import { isBlockingOverlayOpen } from '@/hooks/useModalFocus';
+import { usePaletteStore } from '@/stores/paletteStore';
 import { MessageSearch } from '@/components/MessageSearch';
-import { Avatar } from '@/components/Avatar';
+import { MessageRow } from '@/components/MessageRow';
+import { Composer, type ComposerHandle } from '@/components/Composer';
+import { FloatingQuoteButton } from '@/components/FloatingQuoteButton';
 import { DayDivider } from '@/components/DayDivider';
-import type { Channel, User, MemberWithUser } from '@/types';
+import { ConfirmModal } from '@/components/ConfirmModal';
+import { VoiceBanner } from '@/components/VoiceBanner';
+import { MediaLightbox, pickLightboxMedia } from '@/components/MediaLightbox';
+import { useAttachmentUpload } from '@/hooks/useAttachmentUpload';
+import type { Attachment, Channel, User } from '@/types';
 import type { Sticker } from '@/types';
-import { useT, useDateFormat, isSameCalendarDay, type TFunc } from '@/i18n';
-import { Fragment, type ReactNode } from 'react';
-import { parseInline, blockify, normalizeLinkHref, type MdInlineNode } from '@/utils/markdown';
+import { useT, useTp, useDateFormat, isSameCalendarDay } from '@/i18n';
 import './ChatArea.css';
+
+// Shared card recipe for the three ChatArea empty states (board 2a): quiet
+// channel, no servers, servers-exist-but-no-channel-selected. `tile` is the
+// 56px icon tile (or the no-servers 3-tile strip) — omitted for the plain
+// "pick a channel" variant.
+function ChatEmptyCard({ tile, title, body, action }: { tile?: ReactNode; title: string; body: string; action?: ReactNode }) {
+  return (
+    <div className="chat-empty-card">
+      {tile}
+      <h2 className="chat-empty-title">{title}</h2>
+      <p className="chat-empty-body">{body}</p>
+      {action}
+    </div>
+  );
+}
 
 interface ChatAreaProps {
   channel: Channel | null;
@@ -36,147 +52,101 @@ interface ChatAreaProps {
   onShowMembers?: () => void;
   onJoinVoice?: (channel: Channel) => void;
   onShowCall?: () => void;
+  onCreateServer?: () => void;
+  onFindServer?: () => void;
+  voiceParticipants?: Map<string, string[]>;
 }
 
-const QUOTE_PREFIX = '> ';
-
-function lineRangeForSelection(value: string, start: number, end: number) {
-  const lineStart = start <= 0 ? 0 : value.lastIndexOf('\n', start - 1) + 1;
-  // A selection that ends exactly at the start of a new line (e.g. Shift+Down
-  // stopping at column 0 of the next line) has selected 0 characters of that
-  // line — don't treat it as touched.
-  const selEnd = end > start && value[end - 1] === '\n' ? end - 1 : end;
-  const searchFrom = Math.max(selEnd, lineStart);
-  const endIdx = value.indexOf('\n', searchFrom);
-  const lineEnd = endIdx === -1 ? value.length : endIdx;
-  return { lineStart, lineEnd };
-}
-
-function renderMessageContent(content: string, members: MemberWithUser[], t: TFunc, currentUserId?: string) {
-  return tokenizeMentions(content).map((token, i) => {
-    if (token.type === 'text') {
-      return token.value;
-    }
-    if (token.type === 'role') {
-      return (
-        <span key={i} className="mention mention-role">
-          @{t(LEGACY_ROLE_KEYS[token.value])}
-        </span>
-      );
-    }
-    if (token.type === 'everyone') {
-      return (
-        <span key={i} className="mention mention-everyone">
-          @everyone
-        </span>
-      );
-    }
-    const member = members.find((m) => m.user_id === token.value);
-    const isSelf = token.value === currentUserId;
-    return (
-      <span key={i} className={`mention${isSelf ? ' mention-self' : ''}`}>
-        @{member?.username ?? 'unknown-user'}
-      </span>
-    );
-  });
-}
-
-function renderInlineNodes(nodes: MdInlineNode[], members: MemberWithUser[], t: TFunc, currentUserId?: string): ReactNode {
-  return nodes.map((n, i) => {
-    switch (n.type) {
-      case 'text':
-        return <Fragment key={i}>{renderMessageContent(n.text, members, t, currentUserId)}</Fragment>;
-      case 'strong':
-        return <strong key={i}>{renderInlineNodes(n.children, members, t, currentUserId)}</strong>;
-      case 'em':
-        return <em key={i}>{renderInlineNodes(n.children, members, t, currentUserId)}</em>;
-      case 'u':
-        return <u key={i}>{renderInlineNodes(n.children, members, t, currentUserId)}</u>;
-      case 'link':
-        return (
-          <a key={i} href={normalizeLinkHref(n.url)} target="_blank" rel="noopener noreferrer">
-            {renderInlineNodes(n.label, members, t, currentUserId)}
-          </a>
-        );
-    }
-  });
-}
-
-function renderMessageBody(content: string, members: MemberWithUser[], t: TFunc, currentUserId?: string) {
-  return blockify(content).map((b, i) => {
-    switch (b.kind) {
-      case 'plain':
-        return <span key={i}>{renderInlineNodes(parseInline(b.text), members, t, currentUserId)}</span>;
-      case 'quote':
-        return <span key={i} className="message-quote">{renderInlineNodes(parseInline(b.text), members, t, currentUserId)}</span>;
-      case 'ol':
-        return (
-          <ol key={i}>
-            {b.items.map((it, j) => (
-              <li key={j}>{renderInlineNodes(parseInline(it), members, t, currentUserId)}</li>
-            ))}
-          </ol>
-        );
-      case 'ul':
-        return (
-          <ul key={i}>
-            {b.items.map((it, j) => (
-              <li key={j}>{renderInlineNodes(parseInline(it), members, t, currentUserId)}</li>
-            ))}
-          </ul>
-        );
-    }
-  });
-}
-
-function FloatingQuoteButton({ x, y, onConfirm }: { x: number; y: number; onConfirm: () => void }) {
-  const t = useT();
-  return (
-    <button
-      type="button"
-      className="floating-quote-btn"
-      style={{ left: x, top: y }}
-      aria-label={t('chat.quote')}
-      title={t('chat.quote')}
-      onMouseDown={(e) => {
-        e.preventDefault();
-        onConfirm();
-      }}
-    >
-      <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 21c3 0 7-1 7-8V5c0-1.25-.756-2.017-2-2H4c-1.25 0-2 .75-2 1.972V11c0 1.25.75 2 2 2 1 0 1 0 1 1v1c0 1-1 2-2 2s-1 .008-1 1.031V20c0 1 0 1 1 1z"/><path d="M15 21c3 0 7-1 7-8V5c0-1.25-.757-2.017-2-2h-4c-1.25 0-2 .75-2 1.972V11c0 1.25.75 2 2 2h.75c0 2.25.25 4-2.75 4v3c0 1 0 1 1 1z"/></svg>
-    </button>
-  );
-}
-
-function insertEmojiAtCaret(el: HTMLTextAreaElement, setValue: (v: string) => void, emoji: string) {
-  const start = el.selectionStart ?? el.value.length;
-  const end = el.selectionEnd ?? el.value.length;
-  const next = el.value.slice(0, start) + emoji + el.value.slice(end);
-  setValue(next);
-  requestAnimationFrame(() => {
-    el.focus();
-    el.setSelectionRange(start + emoji.length, start + emoji.length);
-  });
-}
-
-export function ChatArea({ channel, user, onMobileBack, onShowMembers, onJoinVoice, onShowCall }: ChatAreaProps) {
+export function ChatArea({ channel, user, onMobileBack, onShowMembers, onJoinVoice, onShowCall, onCreateServer, onFindServer, voiceParticipants }: ChatAreaProps) {
   const callChannelId = useCallStore((s) => s.callChannelId);
   const t = useT();
-  const { formatTime, formatFullDate } = useDateFormat();
-  const { messages, setMessages, addMessage, updateMessage, removeMessage } = useMessageStore();
+  const tp = useTp();
+  const { formatFullDate } = useDateFormat();
+  const { messages, loading, setMessages, addMessage, updateMessage, replaceMessage, removeMessage } = useMessageStore();
   const { members, currentServer } = useServerStore();
-  const [input, setInput] = useState('');
-  const [caretInQuoteLine, setCaretInQuoteLine] = useState(false);
+  const servers = useServerStore((s) => s.servers);
+  const serversLoaded = useServerStore((s) => s.serversLoaded);
   const [sendError, setSendError] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLTextAreaElement>(null);
+  const pendingSeqRef = useRef(0);
+  const composerRef = useRef<ComposerHandle>(null);
   const chatMessagesRef = useRef<HTMLDivElement>(null);
   const [searchOpen, setSearchOpen] = useState(false);
+  const [searchSeed, setSearchSeed] = useState<{ id: number; query: string } | null>(null);
+  const paletteCommand = usePaletteStore((s) => s.command);
+  const clearPaletteCommand = usePaletteStore((s) => s.clearCommand);
   const [historyMode, setHistoryMode] = useState(false);
   const [highlightedId, setHighlightedId] = useState<string | null>(null);
-  const [stickerPickerOpen, setStickerPickerOpen] = useState(false);
   const [stickerManagerOpen, setStickerManagerOpen] = useState(false);
   const [serverStickers, setServerStickers] = useState<Sticker[]>([]);
+
+  // Drag-and-drop is a column-level concern (the scrim covers the whole chat
+  // area, not just the composer), so ChatArea calls the upload hook too. The
+  // hook holds no local state of its own — a stable-reference zustand
+  // selector plus useCallback wrappers over store actions — so this and
+  // Composer's call are two views of one store, and nothing has to be
+  // drilled between them. Cost: ChatArea re-renders on each progress tick
+  // even though it only needs `addFiles`. Accepted, not fixed.
+  const uploads = useAttachmentUpload(channel?.id);
+
+  // Counter, not a boolean: dragleave fires from every child element the
+  // pointer crosses inside the chat, and a boolean would make the overlay
+  // flicker.
+  const [dragDepth, setDragDepth] = useState(0);
+
+  const handleDragEnter = (e: DragEvent<HTMLElement>) => {
+    if (!e.dataTransfer?.types.includes('Files')) return;
+    e.preventDefault();
+    setDragDepth((d) => d + 1);
+  };
+
+  const handleDragOver = (e: DragEvent<HTMLElement>) => {
+    if (e.dataTransfer?.types.includes('Files')) e.preventDefault();
+  };
+
+  const handleDragLeave = () => setDragDepth((d) => Math.max(0, d - 1));
+
+  const handleDrop = (e: DragEvent<HTMLElement>) => {
+    if (!e.dataTransfer?.files?.length) return;
+    e.preventDefault();
+    setDragDepth(0);
+    uploads.addFiles(e.dataTransfer.files);
+  };
+
+  // A drag left in flight when the user switches channels would strand the
+  // scrim over the new channel: no dragleave is ever delivered for the
+  // unmounted subtree.
+  useEffect(() => { setDragDepth(0); }, [channel?.id]);
+
+  /** Which message's media is open fullscreen; mounted once, at column level. */
+  const [lightbox, setLightbox] = useState<{ attachments: Attachment[]; index: number } | null>(null);
+  useEffect(() => { setLightbox(null); }, [channel?.id]);
+
+  // Канал команд палитры (решение 5): MessageSearch и jumpToMessage живут
+  // только здесь, поэтому только два действия палитры доходят через
+  // paletteStore, а не прямым колбэком из AppPage.
+  useEffect(() => {
+    const cmd = paletteCommand;
+    if (!cmd) return;
+    // Снимаем команду ПЕРВЫМ делом: повторный заход эффекта становится no-op.
+    clearPaletteCommand(cmd.id);
+    // Канал мог смениться между открытием палитры и ↵ — тогда команда чужая.
+    if (!channel || cmd.channelId !== channel.id) return;
+    if (cmd.kind === 'chat-search') { setSearchSeed({ id: cmd.id, query: cmd.query }); setSearchOpen(true); }
+    else jumpToMessage(cmd.messageId);
+  }, [paletteCommand, channel, clearPaletteCommand]);
+
+  // Unread divider anchor (spec §4.4): computed once per channel entry from
+  // the persisted mark, then pinned — new messages arriving while the user is
+  // in the channel must not move it. Re-entering recomputes from scratch.
+  const [unreadAnchorId, setUnreadAnchorId] = useState<string | null>(null);
+  const anchorComputedRef = useRef(false);
+  useEffect(() => { anchorComputedRef.current = false; setUnreadAnchorId(null); }, [channel?.id]);
+  useEffect(() => {
+    if (anchorComputedRef.current || loading || !channel || messages.length === 0) return;
+    anchorComputedRef.current = true;
+    setUnreadAnchorId(firstUnreadId(useUnreadStore.getState().lastRead[channel.id], messages));
+  }, [messages, loading, channel]);
 
   // Cache for user info (id → username)
   const [userCache, setUserCache] = useState<Map<string, { username: string; avatar_url?: string }>>(new Map());
@@ -190,28 +160,115 @@ export function ChatArea({ channel, user, onMobileBack, onShowMembers, onJoinVoi
   const canMentionEveryone = can(permissions, PERMISSIONS.MENTION_EVERYONE);
   const canManageStickers = can(permissions, PERMISSIONS.MANAGE_SERVER);
 
-  const composeMention = useMentionAutocomplete({
-    value: input,
-    setValue: setInput,
-    inputRef,
-    members,
-    canMentionEveryone,
-  });
-
   useEffect(() => {
     if (historyMode) return; // в режиме просмотра истории не утаскиваем вниз
     scrollToBottom();
   }, [messages, historyMode]);
 
+  // Viewport mark-read: the persisted `lastRead` mark advances whenever the
+  // bottom sentinel is visible, but (per the divider-pin behavior above) this
+  // never moves the already-computed `unreadAnchorId` while the user stays in
+  // the channel. `messagesEndRef` is unconditional in the JSX below — it must
+  // exist through the loading skeleton and the empty-channel state too, or
+  // this observer attaches to nothing on those entry paths.
+  //
+  // Deps include `messages`, not just `channel?.id`: IntersectionObserver
+  // delivers a spec-guaranteed initial notification as soon as `observe()`
+  // is called if the target is already intersecting — which the sentinel
+  // usually is, since it's unconditional and the container rarely scrolls
+  // it out of view. On a channel switch that notification fires before the
+  // new channel's fetch has replaced `useMessageStore`'s `messages`, so a
+  // channel_id filter alone would go quiet (no crash, but also no mark) —
+  // it needs a fresh `observe()` once the real messages for THIS channel
+  // have actually landed, hence re-running this effect on `messages` too.
+  // The `m.channel_id === channel.id` filter is the other half: it stops a
+  // still-in-flight notification from a just-left channel's stale message
+  // list writing into the *new* channel's mark (verified empirically — see
+  // task-10-report.md).
   useEffect(() => {
-    inputRef.current?.focus();
-    composeMention.reset();
-    editMention.reset();
-    setCaretInQuoteLine(false);
+    const sentinel = messagesEndRef.current;
+    const root = chatMessagesRef.current;
+    if (!sentinel || !root || !channel) return;
+    const observer = new IntersectionObserver((entries) => {
+      if (!entries.some((e) => e.isIntersecting)) return;
+      const msgs = useMessageStore.getState().messages;
+      const last = [...msgs].reverse().find((m) => !m.deliveryState && m.channel_id === channel.id);
+      if (last) useUnreadStore.getState().markRead(channel.id, last.id, last.created_at);
+    }, { root, threshold: 0 });
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [channel?.id, messages]);
+
+  useEffect(() => {
+    setEditingId(null);
     setSearchOpen(false);
+    // Иначе стартовавший в канале A запрос из палитры переживает переключение
+    // канала и всплывает как initialQuery при следующем РУЧНОМ открытии через
+    // кнопку в канале B (тот путь не трогает searchSeed — см. header-кнопку).
+    setSearchSeed(null);
     setHistoryMode(false);
     setHighlightedId(null);
+    setConfirmDeleteId(null);
   }, [channel?.id]);
+
+  // Only rows *appended* to the list already on screen animate in (220ms).
+  // "Appended" is derived from the list itself rather than from explicit reset
+  // calls at every setMessages site: a channel switch, a jump-to-message, a
+  // back-to-latest, a delete, or a stale fetch landing after the user has moved
+  // on all produce a list whose predecessor is not a prefix of it, and each of
+  // those must re-seed the baseline silently instead of stagger-flashing the
+  // whole batch. Growing a previously EMPTY list only animates a single-message
+  // append (the first message in a fresh channel) — a bulk fill of an empty
+  // list is the initial channel load, not something the user just did.
+  const prevIdsRef = useRef<string[]>([]);
+  const [enteredIds, setEnteredIds] = useState<Set<string>>(new Set());
+  useEffect(() => {
+    const ids = messages.map((m) => m.id);
+    const prev = prevIdsRef.current;
+
+    // Task 11 Correction 1: `replaceMessage(tempId, serverMsg)` (optimistic
+    // send reconciling on the HTTP response) is a same-length array whose id
+    // at exactly one position changes — the shape test below reads that as a
+    // list replacement and wipes `enteredIds` entirely, which would strip the
+    // is-entering class off any OTHER row still mid-fade (e.g. a second
+    // message sent moments later). A single-position id swap at unchanged
+    // length is a reconciliation, not a replacement: advance the tracking ref
+    // and leave `enteredIds` untouched — the reconciled row remounts under
+    // its new id (Fragment key={msg.id} below) with no entering class either
+    // way, so it always mounts already at full opacity (one deliberate
+    // "delivered" pop, not a second fade-in — see task-11 report).
+    if (ids.length === prev.length && ids.length > 0) {
+      let diffCount = 0;
+      for (let i = 0; i < ids.length; i++) {
+        if (ids[i] !== prev[i]) {
+          diffCount++;
+          if (diffCount > 1) break;
+        }
+      }
+      if (diffCount === 1) {
+        prevIdsRef.current = ids;
+        return;
+      }
+    }
+
+    prevIdsRef.current = ids;
+    const isAppend =
+      (prev.length > 0 || ids.length === 1) &&
+      ids.length >= prev.length &&
+      prev.every((id, i) => id === ids[i]);
+    if (!isAppend) {
+      setEnteredIds((current) => (current.size ? new Set() : current));
+      return;
+    }
+    const fresh = ids.slice(prev.length);
+    if (fresh.length) {
+      setEnteredIds((current) => {
+        const next = new Set(current);
+        fresh.forEach((id) => next.add(id));
+        return next;
+      });
+    }
+  }, [messages]);
 
   const refreshStickers = useCallback(() => {
     const sid = currentServer?.id;
@@ -228,21 +285,16 @@ export function ChatArea({ channel, user, onMobileBack, onShowMembers, onJoinVoi
 
   useEffect(() => {
     const handler = (e: globalThis.KeyboardEvent) => {
+      if (isBlockingOverlayOpen()) return;
       if (e.ctrlKey && e.shiftKey && (e.key === 'F' || e.key === 'f' || e.code === 'KeyF')) {
         e.preventDefault();
-        setSearchOpen((open) => !open);
-      }
+        setSearchSeed(null);      // безусловно: клавиатурное открытие — это
+        setSearchOpen((o) => !o); // всегда новый ручной поиск, а не повтор
+      }                           // запроса из палитры
     };
     document.addEventListener('keydown', handler);
     return () => document.removeEventListener('keydown', handler);
   }, []);
-
-  useEffect(() => {
-    const el = inputRef.current;
-    if (!el) return;
-    el.style.height = 'auto';
-    el.style.height = `${el.scrollHeight}px`;
-  }, [input]);
 
   // Fetch usernames for all unique user_ids in messages
   useEffect(() => {
@@ -354,8 +406,7 @@ export function ChatArea({ channel, user, onMobileBack, onShowMembers, onJoinVoi
       window.setTimeout(() => setHighlightedId(null), 2200);
     } catch (err) {
 logger.error('Failed to jump to message:', err, { module: 'chat' });
-      setSendError(apiErrorText(err, t));
-      setTimeout(() => setSendError(null), 5000);
+      showSendError(err);
     }
   };
 
@@ -371,198 +422,90 @@ logger.error('Failed to jump to message:', err, { module: 'chat' });
     }
   };
 
-  const handleSubmit = async (e: FormEvent) => {
-    e.preventDefault();
-    if (!channel || !input.trim() || !user) return;
+  const showSendError = (err: unknown) => {
+    setSendError(apiErrorText(err, t));
+    setTimeout(() => setSendError(null), 5000);
+  };
 
+  /**
+   * Composer's send callback (Task 11: optimistic). The row is added right
+   * away at `deliveryState: 'sending'`; the HTTP response reconciles it in
+   * place (`replaceMessage`) or, on failure, flips it to `'failed'` so
+   * MessageRow's own chip — not a toast — carries the error and the retry.
+   *
+   * Final-review fix 1: the chip is only reachable while the row is still in
+   * the store. If the user switches channels before the POST rejects, AppPage
+   * has already replaced the whole `messages` array, so `updateMessage(tempId)`
+   * no-ops against a list that no longer contains it and NO failed row can ever
+   * render. Falling back to the toast keeps the pre-M2 floor — a send never
+   * fails silently — without reintroducing a toast on the path the chip owns.
+   */
+  const sendMessage = async (content: string, attachments?: Attachment[]) => {
+    if (!channel || !user) return;
+    const tempId = `pending-${Date.now()}-${pendingSeqRef.current++}`;
+    const now = new Date().toISOString();
+    // The attachments are already uploaded, so the optimistic row can render
+    // them straight away — and, if the POST fails, the `failed` row still
+    // knows its ids so `retrySend` can re-send exactly the same blobs.
+    addMessage({
+      id: tempId, channel_id: channel.id, user_id: user.id,
+      content, created_at: now, updated_at: now, deliveryState: 'sending',
+      attachments,
+    });
     try {
-      const msg = await apiService.createMessage(channel.id, input.trim()) as Message;
-      addMessage(msg);
-      setInput('');
-      setCaretInQuoteLine(false);
+      const msg = await apiService.createMessage(
+        channel.id, content, undefined, attachments?.length ? attachments.map((a) => a.id) : undefined,
+      ) as Message;
+      replaceMessage(tempId, msg);
     } catch (err) {
       logger.error('Failed to send message:', err, { module: 'chat' });
-      setSendError(apiErrorText(err, t));
-      setTimeout(() => setSendError(null), 5000);
+      const stillThere = useMessageStore.getState().messages.some((m) => m.id === tempId);
+      if (stillThere) updateMessage(tempId, { deliveryState: 'failed' });
+      else showSendError(err);
     }
   };
 
-  const sendSticker = async (sticker: Sticker) => {
-    if (!channel || !user) return;
+  const retrySend = async (msg: ChatMessage) => {
+    if (!channel) return;
+    // Guards a same-task double-click on the retry chip the same way the
+    // composer's submittingRef guards double-Enter (verified empirically:
+    // without this, two synchronous clicks fired two real POSTs — a real
+    // duplicate persisted server-side even though the UI only ever showed
+    // one row, since the second `replaceMessage(msg.id, ...)` silently
+    // no-ops once the first response already swapped `msg.id` away). Zustand
+    // writes are synchronous (unlike React state), so reading the live store
+    // here — not the `msg` closure — sees the first click's 'sending' write
+    // immediately, before the second click's handler runs.
+    const current = useMessageStore.getState().messages.find((m) => m.id === msg.id);
+    if (!current || current.deliveryState !== 'failed') return;
+    updateMessage(msg.id, { deliveryState: 'sending' });
+    try {
+      // Re-send the ids the failed row was carrying, or the retry would
+      // quietly drop the user's files and post a bare text message.
+      const saved = await apiService.createMessage(
+        channel.id, msg.content, undefined,
+        msg.attachments?.length ? msg.attachments.map((a) => a.id) : undefined,
+      ) as Message;
+      replaceMessage(msg.id, saved);
+    } catch (err) {
+      logger.error('Failed to send message:', err, { module: 'chat' });
+      updateMessage(msg.id, { deliveryState: 'failed' });
+    }
+  };
+
+  const sendSticker = async (sticker: Sticker): Promise<boolean> => {
+    if (!channel || !user) return false;
     try {
       const msg = await apiService.createMessage(channel.id, '', sticker.id) as Message;
       addMessage(msg);
-      setStickerPickerOpen(false);
+      return true;
     } catch (err) {
-      setSendError(apiErrorText(err, t));
-      setTimeout(() => setSendError(null), 5000);
+      showSendError(err);
+      return false;
     }
   };
 
-  const handleComposeKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (composeMention.handleKeyDown(e)) return;
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      handleSubmit(e as unknown as FormEvent);
-    }
-  };
-
-  const updateQuoteButtonActive = (value: string = input, caret?: number) => {
-    const el = inputRef.current;
-    const pos = caret ?? el?.selectionStart ?? 0;
-    const { lineStart, lineEnd } = lineRangeForSelection(value, pos, pos);
-    setCaretInQuoteLine(value.slice(lineStart, lineEnd).startsWith(QUOTE_PREFIX));
-  };
-
-  const handleComposeChange = (e: ChangeEvent<HTMLTextAreaElement>) => {
-    composeMention.handleChange(e);
-    updateQuoteButtonActive(e.target.value, e.target.selectionStart ?? undefined);
-  };
-
-  const applyRangeToggle = (
-    value: string,
-    setValue: (v: string) => void,
-    ref: RefObject<HTMLTextAreaElement | null>,
-    fn: (v: string, s: number, e: number) => LineToggle,
-  ) => {
-    const el = ref.current;
-    if (!el) return;
-    const s = el.selectionStart ?? value.length;
-    const e = el.selectionEnd ?? value.length;
-    const r = fn(value, s, e);
-    setValue(r.value);
-    requestAnimationFrame(() => {
-      el.focus();
-      el.setSelectionRange(r.start, r.end);
-    });
-  };
-
-  const wrapSelection = (
-    value: string,
-    setValue: (v: string) => void,
-    ref: RefObject<HTMLTextAreaElement | null>,
-    marker: string,
-  ) => {
-    const el = ref.current;
-    if (!el) return;
-    const s = el.selectionStart ?? value.length;
-    const e = el.selectionEnd ?? value.length;
-    const r = toggleWrap(value, s, e, marker);
-    setValue(r.value);
-    requestAnimationFrame(() => {
-      el.focus();
-      el.setSelectionRange(r.start, r.end);
-    });
-  };
-
-  const toggleQuotePrefixRange = (start: number, end: number) => {
-    const el = inputRef.current;
-    const r = toggleQuote(input, start, end);
-    setInput(r.value);
-    setCaretInQuoteLine(!r.allPrefixed);
-    requestAnimationFrame(() => {
-      el?.focus();
-      el?.setSelectionRange(r.start, r.end);
-    });
-  };
-
-  const toggleQuotePrefix = () => {
-    const el = inputRef.current;
-    const start = el?.selectionStart ?? input.length;
-    const end = el?.selectionEnd ?? input.length;
-    toggleQuotePrefixRange(start, end);
-  };
-
-  const composeWrap = (marker: string) => wrapSelection(input, setInput, inputRef, marker);
-  const composeBullet = () => applyRangeToggle(input, setInput, inputRef, toggleBullet);
-  const composeNumbered = () => applyRangeToggle(input, setInput, inputRef, toggleNumbered);
-
-  const editWrap = (marker: string) => wrapSelection(editValue, setEditValue, editInputRef, marker);
-  const editBullet = () => applyRangeToggle(editValue, setEditValue, editInputRef, toggleBullet);
-  const editNumbered = () => applyRangeToggle(editValue, setEditValue, editInputRef, toggleNumbered);
-
-  const [linkTarget, setLinkTarget] = useState<'compose' | 'edit' | null>(null);
-  const openLinkFor = (target: 'compose' | 'edit') => setLinkTarget(target);
-  const [emojiPickerOpen, setEmojiPickerOpen] = useState(false);
-  const [editEmojiPickerOpen, setEditEmojiPickerOpen] = useState(false);
-
-  const insertLink = (label: string, url: string) => {
-    const isEdit = linkTarget === 'edit';
-    const value = isEdit ? editValue : input;
-    const ref = isEdit ? editInputRef : inputRef;
-    const setValue = isEdit ? setEditValue : setInput;
-    const el = ref.current;
-    if (!el) return;
-    const text = label || url;
-    const token = `[${text}](${url})`;
-    const start = el.selectionStart ?? value.length;
-    const end = el.selectionEnd ?? value.length;
-    const next = value.slice(0, start) + token + value.slice(end);
-    setValue(next);
-    setLinkTarget(null);
-    requestAnimationFrame(() => {
-      el.focus();
-      el.setSelectionRange(start + token.length, start + token.length);
-    });
-  };
-
-  const handleComposePaste = (e: ClipboardEvent<HTMLTextAreaElement>) => {
-    const el = e.currentTarget;
-    const start = el.selectionStart ?? el.value.length;
-    const end = el.selectionEnd ?? el.value.length;
-    const text = e.clipboardData?.getData('text/plain') ?? '';
-    const sel = el.value.slice(start, end);
-    if (start !== end && sel.trim() && text.trim() && !isUnsafeUrl(text.trim())) {
-      e.preventDefault();
-      const token = `[${sel.trim()}](${text.trim()})`;
-      const next = el.value.slice(0, start) + token + el.value.slice(end);
-      setInput(next);
-      requestAnimationFrame(() => {
-        el.focus();
-        el.setSelectionRange(start + token.length, start + token.length);
-      });
-      setCaretInQuoteLine(false);
-    }
-  };
-
-  const composeSelectionToolbar = useFloatingSelectionToolbar({
-    containerRef: inputRef,
-    resubscribeKey: channel?.id,
-    getSelectionInfo: (e) => {
-      const el = inputRef.current;
-      const start = el?.selectionStart;
-      const end = el?.selectionEnd;
-      if (!el || start == null || end == null || start === end) return null;
-      const text = el.value.slice(start, end);
-      if (e) return { text, x: e.clientX, y: e.clientY + 16 };
-      const rect = el.getBoundingClientRect();
-      return { text, x: rect.left + 24, y: rect.top - 8 };
-    },
-    onConfirm: () => {
-      const el = inputRef.current;
-      const start = el?.selectionStart;
-      const end = el?.selectionEnd;
-      if (!el || start == null || end == null) return;
-      toggleQuotePrefixRange(start, end);
-    },
-  });
-
-  const insertQuoteIntoCompose = (text: string) => {
-    const el = inputRef.current;
-    if (!el) return;
-    const quotedBlock = text
-      .split('\n')
-      .map((line) => (line.startsWith(QUOTE_PREFIX) ? line : `${QUOTE_PREFIX}${line}`))
-      .join('\n');
-    const newValue = input.length === 0 ? quotedBlock : `${quotedBlock}\n${input}`;
-    const caret = input.length === 0 ? quotedBlock.length : quotedBlock.length + 1;
-    setInput(newValue);
-    requestAnimationFrame(() => {
-      el.focus();
-      el.setSelectionRange(caret, caret);
-      updateQuoteButtonActive(newValue, caret);
-    });
-  };
+  const insertQuoteIntoCompose = (text: string) => composerRef.current?.insertQuote(text);
 
   const chatSelectionToolbar = useFloatingSelectionToolbar({
     containerRef: chatMessagesRef,
@@ -584,102 +527,33 @@ logger.error('Failed to jump to message:', err, { module: 'chat' });
     },
   });
 
+  // Which message is open in the inline editor; the edit session's own state
+  // (draft value, mentions, pickers) lives inside <MessageRow>'s MessageEditor.
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [editValue, setEditValue] = useState('');
-  const editInputRef = useRef<HTMLTextAreaElement>(null);
-  const editMention = useMentionAutocomplete({
-    value: editValue,
-    setValue: setEditValue,
-    inputRef: editInputRef,
-    members,
-    canMentionEveryone,
-  });
 
-  useEffect(() => {
-    const el = editInputRef.current;
-    if (!el) return;
-    el.style.height = 'auto';
-    el.style.height = `${el.scrollHeight}px`;
-  }, [editValue, editingId]);
-
-  const toggleEditQuotePrefixRange = (start: number, end: number) => {
-    const el = editInputRef.current;
-    const r = toggleQuote(editValue, start, end);
-    setEditValue(r.value);
-    requestAnimationFrame(() => {
-      el?.focus();
-      el?.setSelectionRange(r.start, r.end);
-    });
-  };
-
-  const editSelectionToolbar = useFloatingSelectionToolbar({
-    containerRef: editInputRef,
-    resubscribeKey: editingId,
-    getSelectionInfo: (e) => {
-      const el = editInputRef.current;
-      const start = el?.selectionStart;
-      const end = el?.selectionEnd;
-      if (!el || start == null || end == null || start === end) return null;
-      const text = el.value.slice(start, end);
-      if (e) return { text, x: e.clientX, y: e.clientY + 16 };
-      const rect = el.getBoundingClientRect();
-      return { text, x: rect.left + 24, y: rect.top - 8 };
-    },
-    onConfirm: () => {
-      const el = editInputRef.current;
-      const start = el?.selectionStart;
-      const end = el?.selectionEnd;
-      if (!el || start == null || end == null) return;
-      toggleEditQuotePrefixRange(start, end);
-    },
-  });
-
-  const startEdit = (msg: Message) => {
-    if (msg.sticker_id) return;
-    setEditingId(msg.id);
-    setEditValue(msg.content);
-    editMention.reset();
-  };
-
-  const cancelEdit = () => {
-    if (linkTarget === 'edit') return;
-    setEditingId(null);
-    setEditValue('');
-    editMention.reset();
-  };
-
-  const saveEdit = async (messageId: string) => {
-    if (!channel || !editValue.trim()) return;
+  const saveEdit = async (messageId: string, content: string) => {
+    if (!channel || !content) return;
     const original = messages.find((m) => m.id === messageId);
-    if (original && editValue.trim() === original.content) {
-      cancelEdit();
+    if (original && content === original.content) {
+      setEditingId(null);
       return;
     }
     try {
-      const updated = await apiService.updateMessage(channel.id, messageId, editValue.trim()) as Message;
+      const updated = await apiService.updateMessage(channel.id, messageId, content) as Message;
       updateMessage(messageId, updated);
-      cancelEdit();
+      setEditingId(null);
     } catch (err) {
-logger.error('Failed to update message:', err, { module: 'chat' });
-      setSendError(apiErrorText(err, t));
-      setTimeout(() => setSendError(null), 5000);
+      logger.error('Failed to update message:', err, { module: 'chat' });
+      showSendError(err);
     }
   };
 
-  const handleEditKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>, messageId: string) => {
-    if (editMention.handleKeyDown(e)) return;
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      saveEdit(messageId);
-    } else if (e.key === 'Escape') {
-      e.preventDefault();
-      cancelEdit();
-    }
-  };
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
-  const handleDelete = async (messageId: string) => {
-    if (!channel) return;
-    if (!window.confirm(t('chat.deleteConfirm'))) return;
+  const confirmDelete = async () => {
+    const messageId = confirmDeleteId;
+    setConfirmDeleteId(null);
+    if (!channel || !messageId) return;
     try {
       await apiService.deleteMessage(channel.id, messageId);
       removeMessage(messageId);
@@ -699,235 +573,237 @@ logger.error('Failed to update message:', err, { module: 'chat' });
   if (!channel) {
     return (
       <main className="chat-area">
-        <div className="chat-header chat-header--empty">
+        <div className="chat-header">
           {onMobileBack && (
-            <button className="mobile-back-btn" onClick={onMobileBack} aria-label={t('chat.back')}>
-              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+            <button type="button" className="chat-back-btn" onClick={onMobileBack} aria-label={t('chat.back')}>
+              <ChevronLeft size={18} strokeWidth={1.8} />
             </button>
           )}
         </div>
-        <div className="chat-empty">
-          <h2>{t('chat.welcomeTitle')}</h2>
-          <p>{t('chat.welcomeSubtitle')}</p>
-        </div>
+        {!serversLoaded ? null : servers.length === 0 ? (
+          <ChatEmptyCard
+            tile={
+              <div className="chat-empty-tiles">
+                <div className="chat-empty-tiles-slot" />
+                <div className="chat-empty-tiles-slot is-active">
+                  <Plus size={16} strokeWidth={1.8} />
+                </div>
+                <div className="chat-empty-tiles-slot" />
+              </div>
+            }
+            title={t('chat.noServersTitle')}
+            body={t('chat.noServersBody')}
+            action={
+              <div className="chat-empty-actions">
+                <button type="button" className="btn btn-primary" onClick={() => onCreateServer?.()}>
+                  {t('server.create')}
+                </button>
+                {onFindServer && (
+                  <button type="button" className="btn btn-secondary" onClick={onFindServer}>
+                    {t('chat.haveCode')}
+                  </button>
+                )}
+              </div>
+            }
+          />
+        ) : (
+          <ChatEmptyCard title={t('chat.welcomeTitle')} body={t('chat.welcomeSubtitle')} />
+        )}
       </main>
     );
   }
 
   return (
-    <main className="chat-area">
+    <main
+      className="chat-area"
+      onDragEnter={handleDragEnter}
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+    >
+      {dragDepth > 0 && (
+        <div className="chat-drop-overlay">
+          <span>{t('chat.dropFilesHere')}</span>
+        </div>
+      )}
       <div className="chat-header">
         {onMobileBack && (
-          <button className="mobile-back-btn" onClick={onMobileBack} aria-label={t('chat.back')}>
-            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+          <button type="button" className="chat-back-btn" onClick={onMobileBack} aria-label={t('chat.back')}>
+            <ChevronLeft size={18} strokeWidth={1.8} />
           </button>
         )}
-        <span className="channel-hash">#</span>
-        <h3>{channel.name}</h3>
-        {onJoinVoice && (
+        <Hash size={17} strokeWidth={1.8} className="chat-header-hash" />
+        {/* The document's h1 (M6 T5). The open channel is what the page is
+            about, so the persistent header carries the level — NOT
+            `.chat-empty-title` (still an h2 at :41), which would either name an
+            absence in the no-channel state or produce a SECOND h1 whenever the
+            empty card renders inside an open channel.
+            BOTH copies below are h1, and that is deliberate: this name is
+            rendered twice on purpose (desktop one-liner + mobile two-line
+            wrapper) and two `display: none` rules in ChatArea.css hide exactly
+            one of them at every viewport — `.chat-header-title` in the base
+            block, and `.chat-header > .chat-header-name` inside
+            `@media (width <= 768px)`. **Cited by selector on purpose:** the
+            line numbers this comment used to give (:377/:381) were already
+            wrong before M6 closed — :377 is a brace and :381 is inside an
+            unrelated comment. Grep the two selectors; do not trust a number
+            here. display:none removes an element from the
+            accessibility tree, so precisely one h1 is ever exposed — whereas
+            promoting only one copy would leave the OTHER viewport with no h1
+            at all. */}
+        <h1 className="chat-header-name">{channel.name}</h1>
+        {/* Mobile-only two-line title (board 1f): the plain .chat-header-name
+            above hides on mobile, this wrapper (hidden on desktop) takes over
+            with the channel name plus a server/participants subtitle. */}
+        <div className="chat-header-title">
+          <h1 className="chat-header-name">{channel.name}</h1>
+          <div className="chat-header-sub">
+            {currentServer?.name} · {tp('call.participants', members.length)}
+          </div>
+        </div>
+        <div className="chat-header-actions">
+          {onJoinVoice && (
+            <button
+              type="button"
+              className={`chat-voice-btn${callChannelId === channel.id ? ' is-in-call' : ''}`}
+              onClick={() => {
+                if (callChannelId === channel.id) return;
+                onJoinVoice(channel);
+              }}
+              disabled={callChannelId === channel.id}
+              title={
+                callChannelId === channel.id
+                  ? t('call.inThisCall')
+                  : callChannelId
+                    ? t('call.goToCall')
+                    : t('call.joinVoice')
+              }
+            >
+              <Headphones size={16} strokeWidth={1.8} />
+              <span>
+                {callChannelId === channel.id
+                  ? t('call.inThisCall')
+                  : callChannelId
+                    ? t('call.goToCall')
+                    : t('call.joinVoice')}
+              </span>
+            </button>
+          )}
           <button
             type="button"
-            className={`chat-voice-btn${callChannelId === channel.id ? ' in-call' : ''}`}
+            className={`chat-search-btn${searchOpen ? ' is-active' : ''}`}
             onClick={() => {
-              if (callChannelId === channel.id) return;
-              onJoinVoice(channel);
+              if (searchOpen) { setSearchOpen(false); setSearchSeed(null); }
+              else setSearchOpen(true);
             }}
-            disabled={callChannelId === channel.id}
-            title={
-              callChannelId === channel.id
-                ? t('call.inThisCall')
-                : callChannelId
-                  ? t('call.goToCall')
-                  : t('call.joinVoice')
-            }
+            aria-label={t('chat.searchMessages')}
+            title={t('chat.searchHint')}
           >
-            🎧{' '}
-            {callChannelId === channel.id
-              ? t('call.inThisCall')
-              : callChannelId
-                ? t('call.goToCall')
-                : t('call.joinVoice')}
+            <Search size={17} strokeWidth={1.8} />
           </button>
-        )}
-        <button
-          type="button"
-          className={`chat-search-btn${searchOpen ? ' active' : ''}`}
-          onClick={() => setSearchOpen((open) => !open)}
-          aria-label={t('chat.searchMessages')}
-          title={t('chat.searchHint')}
-        >
-          <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-        </button>
-        {onShowCall && (
-          <button className="mobile-call-btn" onClick={onShowCall} aria-label={t('call.showCall')} title={t('call.showCall')}>
-            🎙
-          </button>
-        )}
-        {onShowMembers && (
-          <button className="mobile-members-btn" onClick={onShowMembers} aria-label={t('chat.members')}>
-            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
-          </button>
-        )}
+          {onShowCall && (
+            <button type="button" className="chat-call-btn" onClick={onShowCall} aria-label={t('call.showCall')} title={t('call.showCall')}>
+              <Mic size={17} strokeWidth={1.8} />
+            </button>
+          )}
+          {onShowMembers && (
+            <button type="button" className="chat-members-btn" onClick={onShowMembers} aria-label={t('chat.members')} title={t('chat.members')}>
+              <Users size={17} strokeWidth={1.8} />
+            </button>
+          )}
+        </div>
       </div>
 
+      <VoiceBanner
+        channelName={channel.name}
+        participantIds={voiceParticipants?.get(channel.id) ?? []}
+        members={members}
+        inThisCall={callChannelId === channel.id}
+        onJoin={() => onJoinVoice?.(channel)}
+        onShowCall={onShowCall}
+      />
+
       <div className="chat-messages" ref={chatMessagesRef}>
-        {messages.length === 0 ? (
-          <div className="welcome-message">
-            <h1>{t('chat.emptyChannelTitle', { channel: channel.name })}</h1>
-            <p>{t('chat.emptyChannelSubtitle', { channel: channel.name })}</p>
-          </div>
+        {loading ? (
+          Array.from({ length: 6 }, (_, i) => (
+            <div className="chat-skel-row" key={i} aria-hidden="true">
+              <div className="chat-skel-avatar" />
+              <div>
+                <div className="chat-skel-line chat-skel-line-short" />
+                <div className="chat-skel-line chat-skel-line-long" />
+              </div>
+            </div>
+          ))
+        ) : messages.length === 0 ? (
+          <ChatEmptyCard
+            tile={
+              <div className="chat-empty-tile">
+                <Hash size={22} strokeWidth={1.8} />
+              </div>
+            }
+            title={t('chat.quietTitle')}
+            body={t('chat.quietBody', { channel: channel.name })}
+            action={
+              <button type="button" className="btn btn-primary" onClick={() => composerRef.current?.focus()}>
+                {t('chat.writeFirst')}
+              </button>
+            }
+          />
         ) : (
-          <>
-            {messages.map((msg, idx) => {
-              const prevMsg = messages[idx - 1];
-              const msgDate = new Date(msg.created_at);
-              const dayChanged =
-                !prevMsg ||
-                !isSameCalendarDay(msgDate, new Date(prevMsg.created_at));
-              const isFromMe = msg.user_id === user?.id;
-              const isCompact =
-                !!prevMsg &&
-                !dayChanged &&
-                prevMsg.user_id === msg.user_id &&
-                new Date(msg.created_at).getTime() - new Date(prevMsg.created_at).getTime() < 420000;
-
-              // Username/avatar: server member list first (kept live via
-              // user_updated WS events, see AppPage), then the per-message
-              // fetch cache as fallback for authors who left the server.
-              const member = !isFromMe ? members.find((m) => m.user_id === msg.user_id) : undefined;
-              const cached = !isFromMe ? userCache.get(msg.user_id) : undefined;
-              const displayName = isFromMe
-                ? user!.username
-                : (member?.username ?? cached?.username ?? msg.user_id.slice(0, 8));
-              const avatarUrl = isFromMe ? user?.avatar_url : (member?.avatar_url ?? cached?.avatar_url);
-
-              const isEdited = msg.updated_at !== msg.created_at;
-              const isEditing = editingId === msg.id;
-
-              return (
-                <Fragment key={msg.id}>
-                  {dayChanged && <DayDivider label={formatFullDate(msgDate)} />}
-                  <div
-                    data-message-id={msg.id}
-                    className={`message ${isCompact ? 'compact' : ''} ${isFromMe ? 'self' : 'other'}${highlightedId === msg.id ? ' jump-highlight' : ''}`}
-                  >
-                  {!isCompact && !isFromMe && (
-                    <Avatar url={avatarUrl} username={displayName} className="message-avatar" />
-                  )}
-                  <div className="message-content">
-                    {!isCompact && !isFromMe && (
-                      <div className="message-header">
-                        <span className="message-author">{displayName}</span>
-                        <span className="message-timestamp">
-                          {formatTime(new Date(msg.created_at))}
-                          {isEdited && t('chat.edited')}
-                        </span>
-                      </div>
-                    )}
-                    {!isCompact && isFromMe && (
-                      <div className="message-header self">
-                        <span className="message-timestamp">
-                          {formatTime(new Date(msg.created_at))}
-                          {isEdited && t('chat.edited')}
-                        </span>
-                        <span className="message-author">{displayName}</span>
-                      </div>
-                    )}
-                    {isEditing ? (
-                      <div className="message-edit-wrapper">
-                        <textarea
-                          ref={editInputRef}
-                          className="message-edit-input"
-                          value={editValue}
-                          onChange={editMention.handleChange}
-                          onKeyDown={(e) => handleEditKeyDown(e, msg.id)}
-                          onBlur={cancelEdit}
-                          maxLength={2000}
-                          rows={1}
-                          autoFocus
-                        />
-                        <div className="chat-input-toolbar">
-                          <button type="button" onMouseDown={(e) => e.preventDefault()} className="toolbar-btn" aria-label={t('chat.bold')} title={t('chat.bold')} onClick={() => editWrap('**')}><strong className="toolbar-txt">B</strong></button>
-                          <button type="button" onMouseDown={(e) => e.preventDefault()} className="toolbar-btn" aria-label={t('chat.italic')} title={t('chat.italic')} onClick={() => editWrap('*')}><em className="toolbar-txt">I</em></button>
-                          <button type="button" onMouseDown={(e) => e.preventDefault()} className="toolbar-btn" aria-label={t('chat.underline')} title={t('chat.underline')} onClick={() => editWrap('__')}><u className="toolbar-txt">U</u></button>
-                          <button type="button" onMouseDown={(e) => e.preventDefault()} className="toolbar-btn" aria-label={t('chat.link')} title={t('chat.link')} onClick={() => openLinkFor('edit')}>
-                            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
-                          </button>
-                          <button type="button" onMouseDown={(e) => e.preventDefault()} className="toolbar-btn" aria-label={t('chat.numberedList')} title={t('chat.numberedList')} onClick={editNumbered}>
-                            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 6h12"/><path d="M4 12h12"/><path d="M4 18h12"/><path d="M15 7.5l2.5-2.5 1.5 1.5L17.5 9z"/><path d="M15 14l2.5-2.5 1.5 1.5L17.5 15.5z"/><path d="M15 20.5l2.5-2.5 1.5 1.5L17.5 22z"/></svg>
-                          </button>
-                          <button type="button" onMouseDown={(e) => e.preventDefault()} className="toolbar-btn" aria-label={t('chat.bulletedList')} title={t('chat.bulletedList')} onClick={editBullet}>
-                            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 6h11M9 12h11M9 18h11"/><path d="M4 6h.01M4 12h.01M4 18h.01"/></svg>
-                          </button>
-                          <button type="button" onMouseDown={(e) => e.preventDefault()} className={`toolbar-btn${editEmojiPickerOpen ? ' active' : ''}`} aria-label={t('chat.emoji')} title={t('chat.emoji')} onClick={() => setEditEmojiPickerOpen((open) => !open)}>
-                            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/></svg>
-                          </button>
-                        </div>
-                        {editMention.mentionQuery !== null && editMention.mentionEntries.length > 0 && (
-                          <ul className="mention-dropdown">
-                            {editMention.mentionEntries.map((entry, i) => (
-                              <li
-                                key={editMention.entryKey(entry)}
-                                className={i === editMention.mentionIndex ? 'active' : ''}
-                                onMouseDown={(e) => {
-                                  e.preventDefault();
-                                  editMention.selectEntry(entry);
-                                }}
-                              >
-                                @{entry.label}
-                              </li>
-                            ))}
-                          </ul>
-                        )}
-                        {editEmojiPickerOpen && (
-                          <EmojiPicker
-                            onSelect={(e) => { insertEmojiAtCaret(editInputRef.current!, setEditValue, e); setEditEmojiPickerOpen(false); }}
-                            onClose={() => setEditEmojiPickerOpen(false)}
-                          />
-                        )}
-                      </div>
-                    ) : msg.sticker_id && msg.sticker ? (
-                      <div className="message-sticker-wrap">
-                        <img className="message-sticker" src={resolveUploadUrl(msg.sticker.image_url)} alt={msg.sticker.name} />
-                      </div>
-                    ) : msg.sticker_id ? (
-                      <div className="message-text">{t('chat.stickerRemoved')}</div>
-                    ) : (
-                      <div className="message-text">{renderMessageBody(msg.content, members, t, user?.id)}</div>
-                    )}
+          messages.map((msg, idx) => {
+            const prevMsg = messages[idx - 1];
+            const msgDate = new Date(msg.created_at);
+            const dayChanged = !prevMsg || !isSameCalendarDay(msgDate, new Date(prevMsg.created_at));
+            const isOwn = msg.user_id === user?.id;
+            const continuation = !dayChanged && isContinuation(prevMsg, msg);
+            // Username/avatar: server member list first (kept live via
+            // user_updated WS events, see AppPage), then the per-message
+            // fetch cache as fallback for authors who left the server.
+            const member = !isOwn ? members.find((m) => m.user_id === msg.user_id) : undefined;
+            const cached = !isOwn ? userCache.get(msg.user_id) : undefined;
+            const displayName = isOwn ? user!.username : (member?.username ?? cached?.username ?? msg.user_id.slice(0, 8));
+            const avatarUrl = isOwn ? user?.avatar_url : (member?.avatar_url ?? cached?.avatar_url);
+            return (
+              <Fragment key={msg.id}>
+                {dayChanged && <DayDivider label={formatFullDate(msgDate)} />}
+                {msg.id === unreadAnchorId && (
+                  <div className="unread-divider" role="separator" aria-label={t('chat.newMessages')}>
+                    <span className="unread-divider-line" />
+                    <span className="unread-divider-pill">{t('chat.newMessages')}</span>
+                    <span className="unread-divider-line" />
                   </div>
-                  {!isCompact && isFromMe && (
-                    <Avatar url={avatarUrl} username={displayName} className="message-avatar self" />
-                  )}
-                  {isFromMe && !isEditing && (
-                    <div className="message-actions">
-                      {!msg.sticker_id && (
-                      <button
-                        type="button"
-                        className="message-action-btn"
-                        aria-label={t('common.edit')}
-                        onClick={() => startEdit(msg)}
-                      >
-                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg>
-                      </button>
-                      )}
-                      <button
-                        type="button"
-                        className="message-action-btn message-action-btn--danger"
-                        aria-label={t('common.delete')}
-                        onClick={() => handleDelete(msg.id)}
-                      >
-                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
-                      </button>
-                    </div>
-                  )}
-                  </div>
-                </Fragment>
-              );
-            })}
-            <div ref={messagesEndRef} />
-          </>
+                )}
+                <MessageRow
+                  msg={msg}
+                  isOwn={isOwn}
+                  isContinuation={continuation}
+                  displayName={displayName}
+                  avatarUrl={avatarUrl}
+                  isEditing={editingId === msg.id}
+                  highlighted={highlightedId === msg.id}
+                  entered={enteredIds.has(msg.id)}
+                  members={members}
+                  currentUserId={user?.id}
+                  canMentionEveryone={canMentionEveryone}
+                  onStartEdit={() => setEditingId(msg.id)}
+                  onCancelEdit={() => setEditingId(null)}
+                  onSaveEdit={(content) => saveEdit(msg.id, content)}
+                  onDelete={() => setConfirmDeleteId(msg.id)}
+                  onQuote={() => insertQuoteIntoCompose(msg.content)}
+                  onRetry={() => retrySend(msg)}
+                  // Client-only row (never reached the server) — no API call,
+                  // no confirm modal, just drop it from the store.
+                  onDiscard={() => removeMessage(msg.id)}
+                  // pickLightboxMedia narrows the row-local index to the
+                  // image/video subset and returns null for a non-media
+                  // click (a pdf chip) — nothing to open fullscreen.
+                  onOpenAttachment={(index) => setLightbox(pickLightboxMedia(msg.attachments ?? [], index))}
+                />
+              </Fragment>
+            );
+          })
         )}
+        <div ref={messagesEndRef} />
       </div>
 
       {sendError && (
@@ -936,104 +812,17 @@ logger.error('Failed to update message:', err, { module: 'chat' });
         </div>
       )}
 
-      <div className="chat-input">
-        <div className="chat-input-toolbar">
-          <button
-            type="button"
-            className={`toolbar-btn${caretInQuoteLine ? ' active' : ''}`}
-            aria-pressed={caretInQuoteLine}
-            aria-label={t('chat.quote')}
-            title={t('chat.quote')}
-            onClick={toggleQuotePrefix}
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 21c3 0 7-1 7-8V5c0-1.25-.756-2.017-2-2H4c-1.25 0-2 .75-2 1.972V11c0 1.25.75 2 2 2 1 0 1 0 1 1v1c0 1-1 2-2 2s-1 .008-1 1.031V20c0 1 0 1 1 1z"/><path d="M15 21c3 0 7-1 7-8V5c0-1.25-.757-2.017-2-2h-4c-1.25 0-2 .75-2 1.972V11c0 1.25.75 2 2 2h.75c0 2.25.25 4-2.75 4v3c0 1 0 1 1 1z"/></svg>
-          </button>
-          <button type="button" className="toolbar-btn" aria-label={t('chat.bold')} title={t('chat.bold')} onClick={() => composeWrap('**')}>
-            <strong className="toolbar-txt">B</strong>
-          </button>
-          <button type="button" className="toolbar-btn" aria-label={t('chat.italic')} title={t('chat.italic')} onClick={() => composeWrap('*')}>
-            <em className="toolbar-txt">I</em>
-          </button>
-          <button type="button" className="toolbar-btn" aria-label={t('chat.underline')} title={t('chat.underline')} onClick={() => composeWrap('__')}>
-            <u className="toolbar-txt">U</u>
-          </button>
-          <button type="button" className="toolbar-btn" aria-label={t('chat.link')} title={t('chat.link')} onClick={() => openLinkFor('compose')}>
-            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
-          </button>
-          <button type="button" className="toolbar-btn" aria-label={t('chat.numberedList')} title={t('chat.numberedList')} onClick={composeNumbered}>
-            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 6h12"/><path d="M4 12h12"/><path d="M4 18h12"/><path d="M15 7.5l2.5-2.5 1.5 1.5L17.5 9z"/><path d="M15 14l2.5-2.5 1.5 1.5L17.5 15.5z"/><path d="M15 20.5l2.5-2.5 1.5 1.5L17.5 22z"/></svg>
-          </button>
-          <button type="button" className="toolbar-btn" aria-label={t('chat.bulletedList')} title={t('chat.bulletedList')} onClick={composeBullet}>
-            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 6h11M9 12h11M9 18h11"/><path d="M4 6h.01M4 12h.01M4 18h.01"/></svg>
-          </button>
-          <button type="button" className={`toolbar-btn${stickerPickerOpen ? ' active' : ''}`} aria-label={t('chat.stickers')} title={t('chat.stickers')} onClick={() => setStickerPickerOpen((open) => !open)}>
-            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12a9 9 0 1 1-9-9"/><path d="M12 3a9 9 0 0 1 9 9"/><path d="M21 12h-4l-2 2-2-2"/></svg>
-          </button>
-          <button type="button" className={`toolbar-btn${emojiPickerOpen ? ' active' : ''}`} aria-label={t('chat.emoji')} title={t('chat.emoji')} onClick={() => setEmojiPickerOpen((open) => !open)}>
-            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/></svg>
-          </button>
-        </div>
-        <form onSubmit={handleSubmit}>
-          <textarea
-            ref={inputRef}
-            value={input}
-            onChange={handleComposeChange}
-            onKeyDown={handleComposeKeyDown}
-            onPaste={handleComposePaste}
-            onSelect={() => updateQuoteButtonActive()}
-            onClick={() => updateQuoteButtonActive()}
-            onKeyUp={() => updateQuoteButtonActive()}
-            placeholder={t('chat.messagePlaceholder', { channel: channel.name })}
-            maxLength={2000}
-            rows={1}
-          />
-          {composeMention.mentionQuery !== null && composeMention.mentionEntries.length > 0 && (
-            <ul className="mention-dropdown">
-              {composeMention.mentionEntries.map((entry, i) => (
-                <li
-                  key={composeMention.entryKey(entry)}
-                  className={i === composeMention.mentionIndex ? 'active' : ''}
-                  onMouseDown={(e) => {
-                    e.preventDefault();
-                    composeMention.selectEntry(entry);
-                  }}
-                >
-                  @{entry.label}
-                </li>
-              ))}
-            </ul>
-          )}
-        </form>
-        {emojiPickerOpen && (
-          <EmojiPicker
-            onSelect={(e) => { insertEmojiAtCaret(inputRef.current!, setInput, e); setEmojiPickerOpen(false); }}
-            onClose={() => setEmojiPickerOpen(false)}
-          />
-        )}
-        {stickerPickerOpen && (
-          <StickerPicker
-            stickers={serverStickers}
-            onSelect={sendSticker}
-            onClose={() => setStickerPickerOpen(false)}
-            onManage={canManageStickers ? () => setStickerManagerOpen(true) : undefined}
-          />
-        )}
-      </div>
-
-      {composeSelectionToolbar.visible && (
-        <FloatingQuoteButton
-          x={composeSelectionToolbar.x}
-          y={composeSelectionToolbar.y}
-          onConfirm={composeSelectionToolbar.confirm}
-        />
-      )}
-      {editSelectionToolbar.visible && (
-        <FloatingQuoteButton
-          x={editSelectionToolbar.x}
-          y={editSelectionToolbar.y}
-          onConfirm={editSelectionToolbar.confirm}
-        />
-      )}
+      <Composer
+        ref={composerRef}
+        channel={channel}
+        members={members}
+        canMentionEveryone={canMentionEveryone}
+        onSend={sendMessage}
+        serverStickers={serverStickers}
+        onSendSticker={sendSticker}
+        canManageStickers={canManageStickers}
+        onOpenStickerManager={() => setStickerManagerOpen(true)}
+      />
       {chatSelectionToolbar.visible && (
         <FloatingQuoteButton
           x={chatSelectionToolbar.x}
@@ -1043,29 +832,48 @@ logger.error('Failed to update message:', err, { module: 'chat' });
       )}
       {searchOpen && (
         <MessageSearch
+          key={searchSeed?.id ?? 0}
           channel={channel}
+          initialQuery={searchSeed?.query}
           onJumpToMessage={jumpToMessage}
-          onClose={() => setSearchOpen(false)}
+          onClose={() => { setSearchOpen(false); setSearchSeed(null); }}
         />
       )}
       {historyMode && (
-        <button type="button" className="back-to-latest-btn" onClick={backToLatest}>
-          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><polyline points="19 12 12 19 5 12"/></svg>
+        <button type="button" className="chat-jump-btn" onClick={backToLatest}>
+          <ArrowDown size={16} strokeWidth={1.8} />
           <span>{t('chat.jumpToLatest')}</span>
         </button>
       )}
-      <LinkDialog
-        open={linkTarget !== null}
-        onClose={() => setLinkTarget(null)}
-        onInsert={insertLink}
-      />
       {stickerManagerOpen && channel && (
         <StickerManager
           serverId={channel.server_id}
-          onClose={() => { setStickerManagerOpen(false); setStickerPickerOpen(false); }}
+          onClose={() => setStickerManagerOpen(false)}
           onStickersChanged={refreshStickers}
         />
       )}
+      {/* Portals to <body> itself, so the mount point only decides ownership,
+          not stacking. M5.5 T4 closed the overlay contract this comment used
+          to record as open: the lightbox now wears `.modal-overlay` and adopts
+          useModalFocus, so isBlockingOverlayOpen() DOES see it — which is why
+          the Ctrl+Shift+F gate at the top of this file no longer toggles the
+          search panel underneath an open lightbox. */}
+      {lightbox && (
+        <MediaLightbox
+          attachments={lightbox.attachments}
+          index={lightbox.index}
+          onIndexChange={(index) => setLightbox((cur) => (cur ? { ...cur, index } : cur))}
+          onClose={() => setLightbox(null)}
+        />
+      )}
+      <ConfirmModal
+        open={confirmDeleteId !== null}
+        title={t('chat.deleteTitle')}
+        body={t('chat.deleteBody')}
+        confirmLabel={t('common.delete')}
+        onConfirm={confirmDelete}
+        onCancel={() => setConfirmDeleteId(null)}
+      />
     </main>
   );
 }

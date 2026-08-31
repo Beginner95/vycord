@@ -1,0 +1,701 @@
+/* ═══════════════════════════════════════════════════════
+   VYCORD — Shared primitives (buttons, inputs, modal shell)
+   Four button roles + one disabled state, per design handoff.
+   ═══════════════════════════════════════════════════════ */
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 34px;
+  padding: 0 14px;
+  border-radius: var(--radius-btn);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  font-weight: 600;
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: background var(--transition), border-color var(--transition), color var(--transition);
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+.btn-primary {
+  background: var(--accent);
+  color: var(--white);
+}
+
+.btn-primary:hover {
+  background: var(--accent-hover);
+}
+
+.btn-secondary {
+  background: var(--canvas);
+  color: var(--ink);
+  border-color: var(--line-strong);
+}
+
+.btn-secondary:hover {
+  background: var(--canvas-2);
+}
+
+.btn-ghost {
+  background: transparent;
+  color: var(--muted);
+}
+
+.btn-ghost:hover {
+  background: var(--canvas-2);
+  color: var(--ink);
+}
+
+.btn-danger-soft {
+  background: var(--danger-soft);
+  color: var(--danger-text);
+}
+
+.btn-danger-soft:hover {
+  background: var(--danger);
+  color: var(--white);
+}
+
+.btn-danger {
+  background: var(--danger);
+  color: var(--white);
+}
+
+.btn-danger:hover {
+  filter: brightness(0.94);
+}
+
+.input {
+  width: 100%;
+  padding: 11px 14px;
+  border: 1.5px solid var(--line-strong);
+  border-radius: var(--radius-card);
+  background: var(--canvas);
+  color: var(--ink);
+  font-size: 14px;
+  outline: none;
+  transition: border-color var(--transition), box-shadow var(--transition);
+}
+
+.input::placeholder {
+  color: var(--faint);
+}
+
+.input:focus {
+  border-color: var(--accent);
+  box-shadow: var(--focus-ring);
+}
+
+.kbd {
+  display: inline-block;
+  padding: 2px 6px;
+  border-radius: var(--radius-chip);
+  background: var(--chip-bg);
+  border: 1px solid var(--line);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--muted);
+}
+
+/* ── Form primitives (toggle · select · slider · level meter) ──
+   Placed ABOVE the modal block on purpose: `.toggle-switch input` strips to the
+   key selector `input` — the same key as `.modal .form-group input`, and the less
+   specific of the two. Below the modal block stylelint reports
+   no-descending-specificity (measured, M4 T2). Do not move this cluster down. ── */
+
+/* ── Toggle (board: 44×26 r13, on accent / off line-strong, 20px knob, 160ms) ── */
+.toggle-switch {
+  position: relative;
+  display: inline-block;
+  width: 44px;
+  height: 26px;
+  flex-shrink: 0;
+}
+
+.toggle-switch input {
+  position: absolute;
+  opacity: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  cursor: pointer;
+}
+
+.toggle-track {
+  position: absolute;
+  inset: 0;
+  border-radius: 13px;
+  background: var(--line-strong);
+  transition: background 0.16s var(--ease-out);
+  pointer-events: none;
+}
+
+.toggle-track::before {
+  content: '';
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--white);
+  box-shadow: var(--shadow-row);
+  transition: transform 0.16s var(--ease-out);
+}
+
+.toggle-switch input:checked + .toggle-track {
+  background: var(--accent);
+}
+
+.toggle-switch input:checked + .toggle-track::before {
+  transform: translateX(18px);
+}
+
+/* The pointer target is the INPUT, not the track: .toggle-track above is
+   `pointer-events: none`, so a cursor rule on the track would be a no-op.
+   Lifted here from `.settings-pane .toggle-switch input:disabled` in M4 T8 —
+   T7 pane-scoped it only because primitives.css was not in its file list. */
+.toggle-switch input:disabled {
+  cursor: not-allowed;
+}
+
+.toggle-switch input:disabled + .toggle-track {
+  opacity: 0.35;
+}
+
+.toggle-switch input:focus-visible + .toggle-track {
+  box-shadow: var(--focus-ring);
+}
+
+/* ── Select (board: 36px, r9, line-strong outline, chevron 14px in JSX) ── */
+.select-wrap {
+  position: relative;
+  display: inline-flex;
+}
+
+.select-control {
+  height: 36px;
+  min-width: 180px;
+  padding: 0 32px 0 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-row);
+  background: var(--canvas);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  font-size: 12.5px;
+  font-weight: 500;
+  cursor: pointer;
+  outline: none;
+  appearance: none;
+  transition: border-color var(--transition), box-shadow var(--transition);
+}
+
+.select-control:hover {
+  border-color: var(--muted-2);
+}
+
+.select-control:focus-visible {
+  border-color: var(--accent);
+  box-shadow: var(--focus-ring);
+}
+
+.select-chevron {
+  position: absolute;
+  top: 50%;
+  right: 10px;
+  transform: translateY(-50%);
+  display: flex;
+  color: var(--muted-2);
+  pointer-events: none;
+}
+
+/* ── Slider (board: 150×6 r3 track, accent fill, 16px white knob w/ 2px accent border).
+   --slider-fill is JS-injected (invisible to importFrom) — fallback required.
+   The ::-moz-range-* twins are deliberately omitted: Electron 41 + Chrome are
+   the shipping targets and the app carries no other -moz- styling. ── */
+.slider-input {
+  width: 150px;
+  height: 16px;
+  margin: 0;
+  appearance: none;
+  background: transparent;
+  cursor: pointer;
+}
+
+.slider-input::-webkit-slider-runnable-track {
+  height: 6px;
+  border-radius: 3px;
+  background: linear-gradient(to right, var(--accent) var(--slider-fill, 0%), var(--track-bg) var(--slider-fill, 0%));
+}
+
+.slider-input::-webkit-slider-thumb {
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  margin-top: -5px;
+  border-radius: 50%;
+  background: var(--white);
+  border: 2px solid var(--accent);
+  box-shadow: var(--shadow-row);
+}
+
+.slider-input:focus-visible {
+  outline: none;
+}
+
+.slider-input:focus-visible::-webkit-slider-thumb {
+  box-shadow: var(--focus-ring);
+}
+
+/* ── Level meter (board: 6px r3 track, online fill, caption 11.5/600 muted-2).
+   --meter-level is JS-injected — fallback required. ── */
+.level-meter {
+  width: 150px;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--track-bg);
+  overflow: hidden;
+}
+
+.level-meter-fill {
+  width: var(--meter-level, 0%);
+  height: 100%;
+  border-radius: 3px;
+  background: var(--online);
+  transition: width 0.08s linear;
+}
+
+.level-meter-caption {
+  margin-top: 6px;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--muted-2);
+}
+
+/* ── Panel icon button (sidebar footer, call dock): 30×30, r9, white ── */
+.panel-icon-btn {
+  width: 30px;
+  height: 30px;
+  min-width: 30px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-row);
+  background: var(--canvas);
+  color: var(--muted);
+  box-shadow: var(--shadow-row);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background var(--transition), color var(--transition);
+}
+
+.panel-icon-btn:hover {
+  color: var(--ink);
+}
+
+.panel-icon-btn.is-off {
+  background: var(--danger-soft);
+  color: var(--danger-text);
+}
+
+/* .panel-icon-btn:hover above is (0,2,0) — 1 class + :hover — the SAME
+   specificity as .is-off's (0,2,0) two lines up, so the tie is broken by
+   source order: .is-off, declared LATER, always wins — hover's colour never
+   applies to an off button and it visibly does nothing on hover (M1 item,
+   fixed M6 T4). This compound selector is (0,3,0) and wins unconditionally,
+   independent of where it is declared, per Ruling A. */
+.panel-icon-btn.is-off:hover {
+  color: var(--ink);
+}
+
+.panel-icon-btn.is-danger:hover {
+  background: var(--danger);
+  color: var(--white);
+}
+
+/* ── Avatar wrapper with presence dot (pseudo-elements can't attach to <img>) ── */
+.user-avatar-wrap {
+  position: relative;
+  flex-shrink: 0;
+  display: flex;
+}
+
+.user-avatar-wrap.is-online::after {
+  content: '';
+  position: absolute;
+  right: -2px;
+  bottom: -2px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--online);
+  border: 2px solid var(--presence-ring, var(--canvas));
+}
+
+/* ── Modal ── */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: var(--scrim);
+  backdrop-filter: blur(6px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: var(--z-overlay);
+  animation: fade-in 0.18s var(--ease-out);
+}
+
+/* Shared animation vocabulary. Kebab-case since M4 T2 (keyframes-name-pattern);
+   every consumer of the old camelCase names was renamed in that same commit.
+   Live consumers, RE-DERIVED from `rg -n 'fade-in|scale-in|modal-in' src/` at
+   M6 T4 — every line number below was re-checked, not carried forward — so
+   check before deleting any of these:
+     fade-in  — .modal-overlay below; EmojiPicker.css:18, StickerPicker.css:17
+     scale-in — .context-menu below. NO external consumers left: T9's
+                AvatarCropModal.css rewrite dropped the last one (it was the
+                only file outside primitives.css using it).
+     modal-in — .modal below; ConfirmModal.css:9, CallUI.css:30,
+                Settings.css:22, CommandPalette.css:26 (added in M5 T3, after
+                the M4 T9 re-derivation below — that's why it was missing
+                here until this pass). The radio `::after` this comment used
+                to list as a second internal consumer was deleted in M6 T4
+                with the rest of the dead `.channel-type-options` block
+                (orphaned pre-M4 by VYC-77, commit 4674032) — modal-in now
+                has exactly one internal consumer.
+   T9 also removed AvatarCropModal.css's fade-in reference: its overlay is the
+   `.modal-overlay` primitive now, so it takes fade-in transitively — exactly
+   like Settings.css. ErrorBoundary.css deliberately owns private copies
+   (error-boundary-fade-in / -scale-in) and is not a consumer of these.
+   StickerManager.css never referenced any of the three, before or after T9. */
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes scale-in {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.modal {
+  background: var(--canvas);
+  border-radius: var(--radius-modal);
+  padding: 24px;
+  width: 90%;
+  max-width: 440px;
+  box-shadow: var(--shadow-modal);
+  border: 1px solid var(--line);
+  animation: modal-in 0.18s var(--ease-out);
+}
+
+@keyframes modal-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.modal h2 {
+  font-size: 19px;
+  font-weight: 800;
+  line-height: 1.25;
+  letter-spacing: -0.01em;
+  margin-bottom: 20px;
+  color: var(--ink);
+}
+
+.modal .form-group {
+  margin-bottom: 18px;
+}
+
+.modal .form-group label {
+  display: block;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--muted);
+  margin-bottom: 6px;
+}
+
+.modal .form-group input {
+  width: 100%;
+  padding: 11px 14px;
+  border: 1.5px solid var(--line-strong);
+  border-radius: var(--radius-row);
+  background: var(--canvas-3);
+  color: var(--ink);
+  font-size: 14px;
+  outline: none;
+  transition: border-color var(--transition), box-shadow var(--transition);
+}
+
+.modal .form-group input:focus {
+  border-color: var(--accent);
+  box-shadow: var(--focus-ring);
+  background: var(--canvas);
+}
+
+/* ── Custom checkbox (e.g. "private server" toggle) ── */
+.modal .form-group.form-checkbox label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 0;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--ink);
+  cursor: pointer;
+  user-select: none;
+}
+
+.modal .form-checkbox input[type="checkbox"] {
+  width: 20px;
+  height: 20px;
+  min-width: 20px;
+  padding: 0;
+  margin: 0;
+  border: 1.5px solid var(--line-strong);
+  border-radius: var(--radius-chip);
+  background: var(--canvas);
+  cursor: pointer;
+  appearance: none;
+  flex-shrink: 0;
+  transition: all var(--transition);
+}
+
+.modal .form-checkbox input[type="checkbox"]:hover {
+  border-color: var(--accent);
+}
+
+.modal .form-checkbox input[type="checkbox"]:checked {
+  background: var(--accent);
+  border-color: var(--accent);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='20 6 9 17 4 12'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: 12px;
+}
+
+.modal .form-checkbox input[type="checkbox"]:checked:hover {
+  background-color: var(--accent-hover);
+  border-color: var(--accent-hover);
+}
+
+.modal .modal-hint {
+  margin-top: 8px;
+  margin-bottom: 0;
+  font-size: 13px;
+  color: var(--muted-2);
+  line-height: 1.5;
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 24px;
+}
+
+.modal-error {
+  color: var(--danger-text);
+  font-size: 13px;
+  margin-top: -8px;
+  margin-bottom: 12px;
+}
+
+/* ── Modal header pattern (board 1d): title block + 30×30 close chip ── */
+.modal-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+/* An <h2 class="modal-title"> inside .modal is hit by BOTH `.modal h2` (0,1,1)
+   and `.modal-title` (0,1,0). Their shared declarations are byte-identical, so
+   the only live effect is `.modal h2 { margin-bottom: 20px }` — a declaration
+   .modal-title never makes and therefore cannot override. Unzeroed it becomes
+   part of the flex item's outer height, growing this header ~30px → ~44px on
+   top of the 16px below, so title-to-content rendered ~36px instead of 16px
+   (M4 T8 review finding; measured by probe-modal-sweep phases B and D).
+   Zeroed here rather than by deleting `.modal h2`'s margin: CreateChannelModal,
+   EditChannelModal and AppPage's create-server modal still emit a bare <h2>
+   inside .modal and depend on that 20px. Selector is `.modal .modal-header h2`
+   (0,2,1) against `.modal h2`'s (0,1,1): it wins on specificity alone, so a
+   reorder or a merge can no longer silently restore the 16px regression. All
+   five `.modal-header` consumers sit inside an element carrying `modal`
+   (FindServer, ManageInvites, EditServer, AvatarCrop, StickerManager), so the
+   added `.modal` step never costs a match.
+   FindServerModal dodges the collision with <div class="modal-title">, which is
+   safe there because that dialog carries role="dialog" + aria-label; the two
+   modals converted in T8 keep a real <h2> for heading semantics instead. */
+.modal .modal-header h2 {
+  margin-bottom: 0;
+}
+
+.modal-title {
+  font-size: 19px;
+  font-weight: 800;
+  line-height: 1.25;
+  letter-spacing: -0.01em;
+  color: var(--ink);
+}
+
+.modal-sub {
+  margin-top: 4px;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+
+.modal-close-btn {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-row);
+  background: var(--chip-bg);
+  color: var(--muted);
+  cursor: pointer;
+  transition: background var(--transition), color var(--transition);
+}
+
+.modal-close-btn:hover {
+  background: var(--line);
+  color: var(--ink);
+}
+
+/* ── Context menu (board 1d): r14, menu shadow, caps label, separated danger last ── */
+.context-menu {
+  position: fixed;
+  z-index: var(--z-menu);
+  min-width: 236px;
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  background: var(--canvas);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  box-shadow: var(--shadow-menu);
+  animation: scale-in 0.12s var(--ease-out);
+}
+
+.context-menu-label {
+  padding: 6px 10px 4px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--muted-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.context-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 10px;
+  border: none;
+  border-radius: var(--radius-row);
+  background: none;
+  text-align: left;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink);
+  cursor: pointer;
+  transition: background var(--transition);
+}
+
+/* :disabled must stay ABOVE the :hover rule. Measured under this repo's
+   .stylelintrc.json, first in M4 T2 and RE-MEASURED in M4 T8: the two orderings
+   were linted as isolated counterfactual files under `client/` (so importFrom
+   resolves) — :disabled first → 0 problems; :hover first → exactly
+   1 no-descending-specificity error naming both selectors. The claim stands.
+   T2's citation of "ContextMenu.css:41 is a live instance" is dropped: T4
+   deleted ContextMenu.css, so there is no live instance left to point at. */
+.context-menu-item:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.context-menu-item:hover:not(:disabled) {
+  background: var(--canvas-2);
+}
+
+.context-menu-item.is-danger {
+  color: var(--danger);
+}
+
+.context-menu-item.is-danger:hover:not(:disabled) {
+  background: var(--danger-soft);
+}
+
+.context-menu-separator {
+  height: 1px;
+  margin: 4px 8px;
+  background: var(--line);
+}
+
+/* ── Toast (shared: ChatArea, CallUI, StickerManager) ──
+   Task 8 lifted this out of ChatArea.css verbatim, which left three
+   DELETE-IN-M6 aliases (--red-500, --radius-md, --shadow-lg) being consumed
+   from the canonical styles layer. De-aliased here to the tokens they already
+   resolve to today — same rendered values, no scheduled break:
+     --red-500 → --danger, --radius-md (9px) → --radius-row, --shadow-lg →
+     --shadow-menu, bare `white` → --white.
+   Duration is 0.22s, not the original 0.3s: ChatArea now renders this class,
+   and the chat surface's animation budget is 250ms. Same easing, same
+   transform, so CallUI/StickerManager are visually unchanged. */
+.error-toast {
+  position: fixed;
+  top: 52px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--danger);
+  color: var(--white);
+  padding: 10px 20px;
+  border-radius: var(--radius-row);
+  font-size: 13px;
+  font-weight: 500;
+  z-index: var(--z-toast);
+  box-shadow: var(--shadow-menu);
+  animation: slide-down 0.22s var(--ease-out);
+}
+
+@keyframes slide-down {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) translateY(-10px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+  }
+}

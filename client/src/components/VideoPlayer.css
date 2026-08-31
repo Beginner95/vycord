@@ -1,0 +1,101 @@
+/* Inline video player, reused by the message row and by the lightbox.
+   Unspecced surface. The frame follows the message row (board 2b) —
+   --radius-card, --canvas-2 poster ground — while the transport bar sits ON
+   the video and therefore uses the --media-* group, which does not flip with
+   the theme. */
+.video-player {
+  position: relative;
+  width: 100%;
+}
+
+.video-player-media {
+  display: block;
+  width: 100%;
+  height: auto;
+  max-height: 340px;
+  border-radius: var(--radius-card);
+  background: var(--canvas-2);
+  object-fit: cover;
+  cursor: pointer;
+}
+
+.video-player.is-lightbox {
+  width: auto;
+  max-width: 92vw;
+}
+
+.video-player.is-lightbox .video-player-media {
+  width: auto;
+  max-width: 92vw;
+  max-height: 84vh;
+  border-radius: var(--radius-chip);
+  object-fit: contain;
+}
+
+.video-player-bar {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-radius: 0 0 var(--radius-card) var(--radius-card);
+  background: linear-gradient(to top, var(--media-plate), transparent);
+  opacity: 0;
+  transition: opacity var(--transition);
+}
+
+.video-player:hover .video-player-bar,
+.video-player:focus-within .video-player-bar {
+  opacity: 1;
+}
+
+.video-player.is-lightbox .video-player-bar {
+  border-radius: 0 0 var(--radius-chip) var(--radius-chip);
+  opacity: 1;
+}
+
+.video-play-btn,
+.video-mute-btn {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: var(--media-chrome);
+  color: var(--white);
+  cursor: pointer;
+  transition: background var(--transition);
+}
+
+.video-play-btn:hover,
+.video-mute-btn:hover {
+  background: var(--media-chrome-hover);
+}
+
+.video-seek {
+  flex: 1;
+  min-width: 0;
+  accent-color: var(--accent);
+}
+
+.video-time {
+  flex: none;
+  color: var(--white);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+@media (width <= 768px) {
+  .video-play-btn,
+  .video-mute-btn {
+    width: 32px;
+    height: 32px;
+  }
+}

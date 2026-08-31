@@ -1,5 +1,6 @@
-import { app, BrowserWindow, ipcMain, Tray, Menu, session, desktopCapturer, systemPreferences, shell } from 'electron';
+import { app, BrowserWindow, ipcMain, Tray, Menu, session, desktopCapturer, systemPreferences, shell, nativeTheme } from 'electron';
 import * as path from 'path';
+import * as fs from 'fs';
 import { initAutoUpdater } from './updater';
 import { TRAY_LABELS, isTrayLocale, type TrayLocale } from './tray-labels';
 import * as Sentry from '@sentry/electron/main';
@@ -26,6 +27,26 @@ if (!isDev && SENTRY_DSN !== 'REPLACE_WITH_GLITCHTIP_DSN') {
   Sentry.setTag('platform', 'electron-main');
 }
 
+// Тема окна до загрузки рендерера: renderer localStorage главному процессу
+// недоступен, поэтому renderer зеркалит выбор темы в ui-prefs.json (IPC
+// 'theme:changed' ниже). До первой записи — системная тема (nativeTheme),
+// как и getInitialTheme() в stores/themeStore.ts.
+// Цвета ниже ('#0E1017' / '#FFFFFF') — это значения --canvas (тёмная/светлая
+// тема) из src/styles/tokens.css. Держать в синхронности вручную: при любом
+// изменении --canvas в tokens.css (в т.ч. в рамках доработки тёмной темы в
+// M6) обновить и эти значения.
+function windowBackgroundColor(): string {
+  const prefsPath = path.join(app.getPath('userData'), 'ui-prefs.json');
+  try {
+    const prefs = JSON.parse(fs.readFileSync(prefsPath, 'utf-8')) as { theme?: string };
+    if (prefs.theme === 'dark') return '#0E1017';
+    if (prefs.theme === 'light') return '#FFFFFF';
+  } catch {
+    // no prefs yet — fall through to system theme
+  }
+  return nativeTheme.shouldUseDarkColors ? '#0E1017' : '#FFFFFF';
+}
+
 function createWindow(): BrowserWindow {
   mainWindow = new BrowserWindow({
     width: 1400,
@@ -34,7 +55,7 @@ function createWindow(): BrowserWindow {
     minHeight: 600,
     titleBarStyle: 'hidden',
     frame: false,
-    backgroundColor: '#313338',
+    backgroundColor: windowBackgroundColor(),
     webPreferences: {
       preload: path.resolve(electronDistDir, 'preload.js'),
       contextIsolation: true,
@@ -134,6 +155,16 @@ ipcMain.on('locale:changed', (_event, locale: unknown) => {
   if (!isTrayLocale(locale) || locale === currentTrayLocale) return;
   currentTrayLocale = locale;
   buildTrayMenu();
+});
+
+ipcMain.on('theme:changed', (_event, theme: unknown) => {
+  if (theme !== 'dark' && theme !== 'light') return;
+  const prefsPath = path.join(app.getPath('userData'), 'ui-prefs.json');
+  try {
+    fs.writeFileSync(prefsPath, JSON.stringify({ theme }));
+  } catch {
+    // non-fatal: worst case is a wrong launch background next start
+  }
 });
 
 // Sync IPC: preload (sandbox:true, no Node.js) calls this to get the correct audio URL.

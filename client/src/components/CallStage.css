@@ -1,589 +1,812 @@
-/* ── Call Stage (блок в потоке над чатом) ── */
-/* Высоту задаёт сплит в AppPage.css, поэтому здесь никакого flex-grow:
-   иначе сцена растянулась бы на всю колонку и вытеснила чат. */
+/* ── Call stage — board 1e (base) / 2e (speaking). Root class .call-stage is
+   the cross-file contract with AppPage.css's split/fullscreen/mobile rules —
+   kept by decision 2 of the M3 plan. Everything else is stage-*. ── */
 .call-stage {
   flex: 0 0 auto;
   min-width: 0;
   display: flex;
   flex-direction: column;
-  background: var(--bg-base);
+  background: var(--stage);
   position: relative;
 }
 
-.gc-reconnecting-banner {
+/* ── Top bar: 56px, live pill + title + counter + fullscreen ── */
+.stage-topbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: 56px;
+  padding: 0 16px;
+  flex-shrink: 0;
+  border-bottom: 1px solid var(--stage-line);
+}
+
+/* flex-shrink is load-bearing, not tidying: this is a flex item in .stage-topbar
+   and 40px is only its flex BASIS. Measured on the phone widths it exists for —
+   29.2px at 420px wide, 18px at 360px — i.e. the decision-22 touch floor this
+   button's whole mobile rule exists to guarantee was being shrunk away. The
+   title beside it already carries min-width: 0, so it absorbs the deficit. */
+.stage-back-btn {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-row);
+  background: var(--stage-chip);
+  color: var(--stage-ink);
+  cursor: pointer;
+}
+
+.stage-live-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 12px;
+  border-radius: var(--radius-pill);
+  background: var(--live-pill-bg);
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--live-pill-text);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+/* --stage-online, not --online: this dot sits on the always-dark stage bar, beside
+   --live-pill-text which is already theme-invariant. --online flips to its light
+   value in light theme (decision 25(b) keeps stage chrome out of that flip). */
+.stage-live-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--stage-online);
+  flex-shrink: 0;
+}
+
+.stage-title {
+  font-size: 14.5px;
+  font-weight: 700;
+  color: var(--stage-ink);
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.stage-topbar-right {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.stage-count-chip {
+  padding: 7px 12px;
+  border-radius: var(--radius-row);
+  background: var(--stage-chip);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--stage-muted);
+  white-space: nowrap;
+}
+
+/* flex-shrink mirrors .stage-back-btn, but honestly it is insurance here, not a
+   live fix — measured, not assumed. The back button is a direct .stage-topbar
+   item and really did shrink (29.2px at 420px, 18px at 360px). This one sits
+   inside .stage-topbar-right, whose own min-width: auto floor already protects
+   it: with the mobile panel on «call» the rendered box is 40×40 at 300/360/420/
+   768px with flex-shrink 0 AND with 1, even with .stage-title squeezed to 0px by
+   a 60-character channel name. The declaration makes the decision-22 40px floor
+   a property of the button rather than an accident of its wrapper's min-content
+   width — nothing in today's layout exercises it. */
+.stage-fullscreen-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-row);
+  background: var(--stage-chip);
+  color: var(--stage-ink);
+  cursor: pointer;
+  transition: background var(--transition);
+}
+
+/* Mobile ≥40px floor (decision 22) — kept next to the base rule it overrides.
+   Position relative to the :hover rule is cosmetic; see the note above the
+   tile-chip media block. */
+@media (width <= 768px) {
+  .stage-fullscreen-btn {
+    width: 40px;
+    height: 40px;
+  }
+}
+
+.stage-fullscreen-btn:hover {
+  background: var(--stage-toggle);
+}
+
+.stage-reconnecting {
   position: absolute;
-  top: 12px;
+  top: 68px;
   left: 50%;
   transform: translateX(-50%);
   z-index: 30;
   padding: 8px 16px;
-  border-radius: 8px;
-  background: rgba(230, 160, 30, 0.92);
-  color: #1a1a1a;
+  border-radius: var(--radius-row);
+  border: 1px solid var(--warning);
+  background: var(--stage-bar);
+  color: var(--warning);
+  font-size: 13px;
   font-weight: 600;
 }
 
-.group-call-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 16px 24px;
-  background: var(--bg-primary);
-  border-bottom: 1px solid var(--border-subtle);
-}
-
-.group-call-header h2 {
-  font-size: 18px;
-  font-weight: 700;
-  color: var(--text-primary);
-  letter-spacing: -0.01em;
-}
-
-.participant-count {
-  font-size: 13px;
-  color: var(--text-secondary);
-  background: var(--bg-secondary);
-  padding: 5px 14px;
-  border-radius: var(--radius-sm);
-  font-weight: 500;
-}
-
-.group-call-header-left {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-}
-
-/* ── Call Body (видео-область) ── */
-.call-body {
-  flex: 1;
-  display: flex;
-  overflow: hidden;
-}
-
-/* ── Video Grid ── */
-.video-grid {
+/* ── Tile grid: 1 col ≤1, 2 cols ≤4 (default), 3 cols 5+ ──
+   grid-auto-rows: max-content is load-bearing, not tidying — stated here as
+   what was measured, not as a mechanism. Counterfactual run live at 5
+   participants in a 55% split (3 cols × 2 rows, 236.59px tall container):
+   max-content gives tracks of 149.25px — exactly the tiles' 16/9 height — so
+   row 2 starts 163.25px below row 1 (149.25 + 14px gap), the rows never
+   collide, and the surplus becomes the scroll `overflow: auto` below already
+   anticipates (scrollHeight 348px). With `auto` the tracks instead collapse to
+   93.30px, the container fit ((236.59 − 36 padding − 14 gap) / 2 = 93.295),
+   while the tiles still measure 149.23px: row 2 then starts 107.30px down,
+   42px INSIDE row 1, and the tiles overlap. So the declaration buys
+   non-overlapping rows plus honest scroll height, not a min-content floor. */
+.stage-grid {
   flex: 1;
   display: grid;
+  grid-template-columns: 1fr 1fr;
+  grid-auto-rows: max-content;
   gap: 14px;
-  padding: 20px;
+  padding: 18px;
   overflow: auto;
   align-content: start;
 }
 
-.video-tile {
-  position: relative;
-  background: var(--bg-secondary);
-  border-radius: var(--radius-lg);
-  overflow: hidden;
-  aspect-ratio: 16 / 9;
-  box-shadow: var(--shadow-md);
-  border: 1px solid var(--border-subtle);
+.stage-grid.is-solo {
+  grid-template-columns: 1fr;
 }
 
-.video-tile video {
+.stage-grid.is-many {
+  grid-template-columns: 1fr 1fr 1fr;
+}
+
+/* ── Participant tile ── */
+.stage-tile {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  aspect-ratio: 16 / 9;
+  border-radius: 14px;
+  background: var(--stage-tile);
+  overflow: hidden;
+}
+
+/* 2e: ring radius maps level 0→1 to 2→6px, driven by the real level.
+   --speak-level is JS-injected (invisible to importFrom) — fallback required. */
+.stage-tile.is-speaking {
+  box-shadow: 0 0 0 calc(2px + var(--speak-level, 0) * 4px) var(--speak-ring);
+}
+
+.stage-tile-video {
   position: absolute;
   inset: 0;
   width: 100%;
   height: 100%;
   object-fit: cover;
-  z-index: 0;
 }
 
-.video-tile video.local-video {
+.stage-tile-video.is-mirrored {
   transform: scaleX(-1);
-  transform-origin: center;
 }
 
-.video-tile.video-off {
-  background: linear-gradient(135deg, var(--bg-secondary), var(--brand-50));
+.stage-tile-video.is-screen {
+  transform: none;
 }
 
-.video-off-placeholder {
-  position: absolute;
-  inset: 0;
+.stage-tile.is-camera-off .stage-tile-video {
+  visibility: hidden;
+}
+
+.call-stage .stage-tile-avatar {
+  width: 74px;
+  height: 74px;
+  border-radius: 26px;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 48px;
-  opacity: 0.4;
+  font-size: 28px;
   z-index: 1;
+  object-fit: cover;
 }
 
-.video-label {
+/* ── Name plate: mic / equalizer + name ──
+   This rule used to carry white-space/overflow/text-overflow itself. text-overflow
+   does not apply to a flex container's ITEMS, so a long name hard-clipped at the
+   plate edge instead of ellipsizing: measured at 1440px wide, the name span's box
+   was 1881px against a 385px plate — scrollWidth === clientWidth on the span (it
+   never shrank) and the plate overflowing by 1535px. The ellipsis moved to
+   .stage-name below; overflow: hidden stays here as the clip of last resort at the
+   rounded edge. The declaration that does the work is overflow on the SPAN, which
+   zeroes that span's automatic minimum size so it can shrink at all.
+   `min-width: 0` used to be documented here as belt-and-braces, on the grounds
+   that the plate was absolutely positioned and so already had a resolved
+   min-width of 0. M6 T12 made the plate a flex ITEM of .stage-tile-footer, so
+   that reasoning no longer holds and the declaration is now load-bearing: without
+   it the plate's automatic minimum size stops it shrinking, and the ellipsis
+   below it can never fire. */
+
+/* M6 T12: the plate and the camera-off chip used to be two independently
+   anchored absolute boxes — plate at `bottom/left: 10px` with
+   `max-width: calc(100% - 20px)`, chip at `bottom/right: 10px` — so on a narrow
+   tile they simply grew into each other. Re-derived with probe-t12-geom.js
+   (scratch fixture, real stylesheet): on a 265px tile the plate and chip overlap
+   by 7.5px / 183.8px² for the name «Константин Иванов», which is the "8px on a
+   265px tile" the record carried; at a 200px tile it is 72.5px / 1776.3px².
+   Two absolute boxes cannot negotiate, and the chip's width is text — so it
+   cannot be turned into a fixed lane the way .stage-share-badge's was.
+   One flex footer can: the plate shrinks and its .stage-name ellipsises (which
+   is what .stage-name was always for), and the chip keeps its intrinsic width. */
+.stage-tile-footer {
   position: absolute;
   bottom: 10px;
   left: 10px;
-  background: rgba(15, 17, 23, 0.7);
-  backdrop-filter: blur(6px);
-  color: white;
-  padding: 5px 12px;
-  border-radius: var(--radius-md);
+  right: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  z-index: 2;
+}
+
+.stage-plate {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  padding: 5px 10px;
+  border-radius: var(--radius-row);
+  background: var(--stage-plate);
+  color: var(--stage-ink);
   font-size: 12px;
   font-weight: 600;
-  letter-spacing: 0.01em;
+  overflow: hidden;
+}
+
+/* The name span inside .stage-plate, .stage-thumb-label and .stage-focus-label —
+   the flex ITEM, which is where text-overflow has to live. Emitted at FIVE sites
+   in CallStage.tsx (both plates, both thumb labels, and the focused-view label
+   as of M6 T12). */
+.stage-name {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.stage-plate-mic {
+  display: flex;
+  align-items: center;
+  color: var(--stage-muted);
+}
+
+.stage-plate-mic.is-muted {
+  color: var(--stage-danger);
+}
+
+/* 2e equalizer: bars 5→13px, 0.7s, staggered .12s */
+.stage-eq {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 13px;
+}
+
+/* height is load-bearing, not tidying. Without it the bars have no height source
+   outside the keyframes, and with animation-fill-mode: none bars 2 and 3 compute
+   height: auto → 0 for their whole 0.12s/0.24s delay window: measured on a
+   detached copy of this markup, ["5px","0px","0px"] at t≈0, still ["6.9px","0px",
+   "0px"] at 120ms, so board 2e's three bars pop in one at a time every time
+   speaking starts. `height: 5px` was chosen over animation-fill-mode: backwards
+   because it makes the resting height a property of the bar rather than of the
+   animation — it survives M6's prefers-reduced-motion sweep, which (as of M6 T6)
+   sets `animation: none` on this selector from base.css. background is
+   --stage-online for the reason at .stage-live-dot. */
+.stage-eq span {
+  width: 2.5px;
+  height: 5px;
+  border-radius: 1px;
+  background: var(--stage-online);
+  animation: stage-eq-bar 0.7s ease-in-out infinite;
+}
+
+.stage-eq span:nth-child(2) {
+  animation-delay: 0.12s;
+}
+
+.stage-eq span:nth-child(3) {
+  animation-delay: 0.24s;
+}
+
+@keyframes stage-eq-bar {
+  0%, 100% { height: 5px; }
+  50% { height: 13px; }
+}
+
+/* M6 T12: a flex item of .stage-tile-footer, no longer an absolute box of its
+   own. flex-shrink: 0 is the half that makes the fix a fix — the plate is what
+   must give way, because it has an ellipsis and this two-word chip does not. */
+.stage-state-chip {
+  flex-shrink: 0;
+  padding: 4px 8px;
+  border-radius: 7px;
+  background: var(--stage-plate);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--stage-muted);
+}
+
+/* left is a permanent lane, not a 10px inset — the same remedy Ruling T4-a applied
+   to the identical collision at thumb scale. .stage-volume-btn sits at an 8px inset
+   with z-index 3, above this badge's z-index 2, so at the old 10px the two boxes
+   overlapped by 637px² — 21% of the badge, measured at 1440px wide: the MonitorUp
+   glyph and the first letters of «Демонстрация». opacity: 0 does NOT remove an
+   element from hit-testing, so elementFromPoint at the badge's left edge returned
+   .stage-volume-btn even at rest, and .stage-tile:hover reveals the chip on exactly
+   the tile a user hovers to reach the focus button. 40px = the chip's 8px inset +
+   its 28px + a 4px gap; the ≤768px block below widens the lane to match the 40px
+   touch-floor chip. */
+.stage-share-badge {
+  position: absolute;
+  top: 10px;
+  left: 40px;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  border-radius: 7px;
+  background: var(--stage-accent);
+  color: var(--white);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
   z-index: 2;
 }
 
-/* ── Mic Activity ── */
-.video-tile.speaking {
-  border-color: rgba(34, 197, 94, 0.8);
-  box-shadow: 0 0 0 2px rgba(34, 197, 94, 0.45);
-}
-
-.mic-btn-wrap {
-  position: relative;
-  border-radius: 50%;
+/* ── Hover chips on tiles ── */
+.stage-focus-btn,
+.stage-volume-btn {
+  position: absolute;
+  top: 8px;
   display: flex;
   align-items: center;
   justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: none;
+  border-radius: 7px;
+  background: var(--stage-plate);
+  color: var(--stage-ink);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity var(--transition), background var(--transition);
+  z-index: 3;
 }
 
-.mic-btn-wrap::before {
-  content: '';
+.stage-volume-btn {
+  left: 8px;
+}
+
+.stage-focus-btn {
+  right: 44px;
+}
+
+/* Mobile floor + touch visibility (decision 22). Placed before the :hover rules
+   for grouping only. The M3 plan claimed the reverse order would trip
+   no-descending-specificity — counterfactual-checked under this stylelint
+   config, it does not: the rule buckets by @media context, so a top-level
+   :hover rule and a rule inside @media are never compared. (It does fire for a
+   plain `.x:hover` → `.x` pair — verified — so the rule itself is live here.)
+   The declarations do not overlap either, so the order is style, not cascade. */
+@media (width <= 768px) {
+  .stage-focus-btn,
+  .stage-volume-btn {
+    width: 40px;
+    height: 40px;
+    opacity: 1;
+  }
+
+  /* Kept in the same block because the rule above is the cause: growing the chip
+     to the 40px touch floor widens the lane the badge has to clear. 52px = the
+     chip's 8px inset + its 40px + a 4px gap. Measured at 420px before any fix
+     existed: 931 of the badge's 3013.5px² covered — 30.9%.
+     This block used to claim "desktop is untouched: there the chip rests at
+     opacity 0". That was false twice over — opacity 0 still hit-tests, and
+     .stage-tile:hover reveals the chip — and the base rule now carries a 40px
+     lane of its own; see the comment there for the desktop measurement. */
+  .stage-share-badge {
+    left: 52px;
+  }
+}
+
+.stage-focus-btn:hover,
+.stage-volume-btn:hover {
+  background: var(--stage-accent);
+}
+
+.stage-tile:hover .stage-focus-btn,
+.stage-tile:hover .stage-volume-btn {
+  opacity: 1;
+}
+
+/* ── Connection quality (bars persistent top-right; tooltip is a system popover) ── */
+.stage-conn {
   position: absolute;
-  inset: 0;
-  border-radius: 50%;
-  background: rgba(34, 197, 94, calc(var(--mic-level, 0) * 0.55));
-  transform: scale(calc(1 + var(--mic-level, 0) * 0.55));
-  transition: transform 0.08s ease, background 0.08s ease;
-  pointer-events: none;
-}
-
-.mic-badge {
-  position: absolute;
-  bottom: 10px;
-  right: 10px;
-  width: 26px;
-  height: 26px;
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 12px;
-  z-index: 2;
-}
-
-.mic-badge--idle {
-  background: rgba(15, 17, 23, 0.65);
-  color: rgba(255, 255, 255, 0.6);
-}
-
-.mic-badge--muted {
-  background: rgba(239, 68, 68, 0.92);
-  color: white;
-}
-
-.mic-badge--speaking {
-  background: rgba(34, 197, 94, 0.92);
-  color: white;
-  animation: mic-badge-pulse 1s ease-in-out infinite;
-}
-
-@keyframes mic-badge-pulse {
-  0%, 100% { transform: scale(1); }
-  50% { transform: scale(1.15); }
-}
-
-.conn-indicator {
-  position: absolute;
-  bottom: 10px;
-  right: 44px; /* слева от круглого mic-badge (26px @ right:10px) */
-  z-index: 2;
+  top: 8px;
+  right: 8px;
   display: inline-flex;
   align-items: flex-end;
   gap: 2px;
-  height: 14px;
-  padding: 2px 4px;
-  border-radius: 4px;
-  background: rgba(0, 0, 0, 0.45);
+  height: 28px;
+  padding: 0 7px;
+  border-radius: 7px;
+  background: var(--stage-plate);
+  cursor: help;
+  z-index: 3;
 }
-.thumbnail-tile .conn-indicator {
-  bottom: 4px;
-  right: 24px; /* слева от уменьшенного mic-badge (16px @ right:4px) */
-  height: 10px;
-  padding: 1px 3px;
-  gap: 1px;
-}
-.thumbnail-tile .conn-bar { width: 2px; }
-.thumbnail-tile .conn-bar--1 { height: 3px; }
-.thumbnail-tile .conn-bar--2 { height: 6px; }
-.thumbnail-tile .conn-bar--3 { height: 9px; }
-.conn-indicator .conn-bar {
+
+.stage-conn-bar {
   width: 3px;
+  margin-bottom: 7px;
   border-radius: 1px;
-  background: currentColor;
+  background: currentcolor;
   opacity: 0.3;
 }
-.conn-bar--1 { height: 5px; }
-.conn-bar--2 { height: 9px; }
-.conn-bar--3 { height: 13px; }
-.conn-indicator--good { color: #43b581; }
-.conn-indicator--good .conn-bar { opacity: 1; }
-.conn-indicator--medium { color: #faa61a; }
-.conn-indicator--medium .conn-bar--1,
-.conn-indicator--medium .conn-bar--2 { opacity: 1; }
-.conn-indicator--poor { color: #f04747; }
-.conn-indicator--poor .conn-bar--1 { opacity: 1; }
-.conn-indicator--unknown { color: #99aab5; }
-.conn-indicator { cursor: help; }
 
-/* ── Custom connection-quality tooltip (portal to body, fixed → не режется overflow плитки) ── */
-.conn-tooltip {
+.stage-conn-bar:nth-child(1) { height: 5px; }
+.stage-conn-bar:nth-child(2) { height: 9px; }
+.stage-conn-bar:nth-child(3) { height: 13px; }
+
+/* --stage-online: the bars live on a tile, which is dark in both themes. The
+   .stage-tip rules below keep --online on purpose — that popover portals to body
+   and paints --canvas, so it IS theme-adaptive. */
+.stage-conn.is-good { color: var(--stage-online); }
+.stage-conn.is-medium { color: var(--warning); }
+.stage-conn.is-poor { color: var(--stage-danger); }
+.stage-conn.is-unknown { color: var(--muted-2); }
+.stage-conn.is-good .stage-conn-bar { opacity: 1; }
+
+.stage-conn.is-medium .stage-conn-bar:nth-child(1),
+.stage-conn.is-medium .stage-conn-bar:nth-child(2) {
+  opacity: 1;
+}
+
+.stage-conn.is-poor .stage-conn-bar:nth-child(1) {
+  opacity: 1;
+}
+
+/* Tooltip portals to body — theme-adaptive popover surface, not stage-dark */
+.stage-tip {
   position: fixed;
   transform: translate(-50%, -100%);
-  z-index: 1200;
+  z-index: var(--z-tooltip);
   min-width: 168px;
   padding: 10px 12px;
-  background: var(--bg-elevated);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-md);
-  box-shadow: var(--shadow-lg);
-  color: var(--text-primary);
+  background: var(--canvas);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  box-shadow: var(--shadow-menu);
+  color: var(--ink);
   pointer-events: none;
-  animation: conn-tooltip-in 0.12s ease-out;
+  animation: stage-tip-in 0.12s var(--ease-out);
 }
-@keyframes conn-tooltip-in {
-  from { opacity: 0; transform: translate(-50%, calc(-100% + 4px)); }
-  to   { opacity: 1; transform: translate(-50%, -100%); }
+
+@keyframes stage-tip-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, calc(-100% + 4px));
+  }
+
+  to {
+    opacity: 1;
+    transform: translate(-50%, -100%);
+  }
 }
-.conn-tooltip__head {
+
+.stage-tip-head {
   display: flex;
   align-items: center;
   gap: 7px;
 }
-.conn-tooltip__dot {
+
+.stage-tip-dot {
   width: 8px;
   height: 8px;
   border-radius: 50%;
   flex-shrink: 0;
-  background: currentColor;
-  box-shadow: 0 0 6px currentColor;
+  background: currentcolor;
 }
-.conn-tooltip__title {
+
+.stage-tip-title {
   font-size: 13px;
   font-weight: 600;
-  color: var(--text-primary);
+  color: var(--ink);
   white-space: nowrap;
 }
-.conn-tooltip__rows {
+
+.stage-tip-rows {
   margin-top: 8px;
   padding-top: 8px;
-  border-top: 1px solid var(--border-subtle);
+  border-top: 1px solid var(--line);
   display: flex;
   flex-direction: column;
   gap: 4px;
 }
-.conn-tooltip__row {
+
+.stage-tip-row {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
   gap: 16px;
 }
-.conn-tooltip__key {
+
+.stage-tip-key {
   font-size: 12px;
-  color: var(--text-secondary);
+  color: var(--muted);
 }
-.conn-tooltip__val {
+
+.stage-tip-val {
   font-size: 12px;
   font-weight: 600;
-  color: var(--text-primary);
+  color: var(--ink);
   font-variant-numeric: tabular-nums;
 }
-.conn-tooltip__arrow {
+
+.stage-tip-arrow {
   position: absolute;
   bottom: -5px;
   left: 50%;
   transform: translateX(-50%) rotate(45deg);
   width: 10px;
   height: 10px;
-  background: var(--bg-elevated);
-  border-right: 1px solid var(--border-subtle);
-  border-bottom: 1px solid var(--border-subtle);
+  background: var(--canvas);
+  border-right: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
 }
-/* Цвет точки/акцента по уровню сигнала */
-.conn-tooltip--good { color: #43b581; }
-.conn-tooltip--medium { color: #faa61a; }
-.conn-tooltip--poor { color: #f04747; }
-.conn-tooltip--unknown { color: #99aab5; }
 
-/* ── Controls ── */
-/* position + z-index needed: <video> GPU layers block pointer events on
-   sibling elements without their own compositing layer in Electron */
-.call-controls {
-  z-index: 1;
+.stage-tip.is-good { color: var(--online); }
+.stage-tip.is-medium { color: var(--warning); }
+.stage-tip.is-poor { color: var(--danger); }
+.stage-tip.is-unknown { color: var(--muted-2); }
+
+/* ── Share banner (someone is sharing, focus not open) ── */
+.stage-share-banner {
   display: flex;
-  justify-content: center;
-  gap: 12px;
-  padding: 16px;
-  background: var(--bg-primary);
-  border-top: 1px solid var(--border-subtle);
+  align-items: center;
+  gap: 10px;
+  padding: 10px 18px;
+  background: var(--stage-bar);
+  border-bottom: 1px solid var(--stage-line);
+  color: var(--stage-ink);
+  flex-shrink: 0;
 }
 
-.control-btn {
-  width: 48px;
-  height: 48px;
-  border-radius: var(--radius-full);
-  border: 1.5px solid var(--border-color);
-  background: var(--bg-primary);
-  color: var(--text-primary);
+.stage-share-banner-text {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.stage-share-banner-btn {
+  flex-shrink: 0;
+  height: 32px;
+  padding: 0 14px;
+  border: none;
+  border-radius: var(--radius-row);
+  background: var(--stage-accent);
+  color: var(--white);
+  font-size: 13px;
+  font-weight: 600;
   cursor: pointer;
-  font-size: 18px;
+  transition: background var(--transition);
+}
+
+.stage-share-banner-btn:hover {
+  background: var(--stage-accent-hover);
+}
+
+.stage-share-banner-dismiss {
+  flex-shrink: 0;
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: all var(--transition);
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--stage-muted);
+  cursor: pointer;
+  transition: background var(--transition), color var(--transition);
 }
 
-.control-btn:hover {
-  transform: scale(1.08);
-  box-shadow: var(--shadow-md);
+/* Mobile ≥40px floor (decision 22) — before the :hover rule. */
+@media (width <= 768px) {
+  .stage-share-banner-dismiss {
+    width: 40px;
+    height: 40px;
+  }
 }
 
-.control-btn.active {
-  background: var(--red-500);
-  border-color: var(--red-500);
-  color: white;
+.stage-share-banner-dismiss:hover {
+  background: var(--stage-chip);
+  color: var(--stage-ink);
 }
 
-.control-btn.end-call {
-  background: var(--red-500);
-  border-color: var(--red-500);
-  color: white;
-  width: 56px;
-  height: 56px;
-  font-size: 20px;
+.stage-watch-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  background: var(--stage-plate);
+  color: var(--stage-muted);
+  z-index: 1;
 }
 
-.control-btn.end-call:hover {
-  background: var(--red-600);
-  border-color: var(--red-600);
-  transform: scale(1.12);
-  box-shadow: 0 4px 14px rgba(239, 68, 68, 0.35);
+.stage-watch-btn {
+  height: 28px;
+  padding: 0 12px;
+  border: none;
+  border-radius: 7px;
+  background: var(--stage-accent);
+  color: var(--white);
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
 }
 
-.control-btn.screen-sharing-active {
-  background: var(--brand-500, #6366f1);
-  border-color: var(--brand-500, #6366f1);
-  color: white;
+/* ── Control bar: three labeled 46px toggles · divider · danger «Выйти» pill ──
+   z-index needed: <video> GPU layers block pointer events on siblings without
+   their own compositing layer in Electron. (One comment block on purpose —
+   two adjacent comments trip comment-empty-line-before.) */
+.stage-controls {
+  z-index: 1;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 10px;
+  width: max-content;
+  max-width: calc(100% - 36px);
+  margin: 0 auto 14px;
+  padding: 10px;
+  background: var(--stage-bar);
+  border: 1px solid var(--stage-line);
+  border-radius: var(--radius-bar);
+  flex-shrink: 0;
 }
 
-.control-btn:disabled {
+.stage-ctl {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+
+.stage-ctl-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 46px;
+  height: 46px;
+  padding: 0;
+  border: none;
+  border-radius: 14px;
+  background: var(--stage-toggle);
+  color: var(--stage-ink);
+  cursor: pointer;
+  transition: background var(--transition);
+}
+
+.stage-ctl-btn:hover {
+  background: var(--stage-chip);
+}
+
+.stage-ctl-btn.is-off {
+  background: var(--danger);
+  color: var(--white);
+}
+
+.stage-ctl-btn.is-on {
+  background: var(--stage-accent);
+  color: var(--white);
+}
+
+.stage-ctl-btn:disabled {
   opacity: 0.4;
   cursor: not-allowed;
   pointer-events: none;
 }
 
-/* ── Local video — screen capture (no mirror) ── */
-.video-tile video.local-video-screen {
-  transform: none;
-}
-
-/* ── Screen share badge ── */
-.screen-share-badge {
-  position: absolute;
-  top: 10px;
-  right: 10px;
-  background: rgba(99, 102, 241, 0.85);
-  backdrop-filter: blur(6px);
-  color: white;
-  padding: 4px 10px;
-  border-radius: var(--radius-md);
-  font-size: 11px;
+.stage-ctl-label {
+  font-size: 10.5px;
   font-weight: 600;
-  z-index: 2;
-  letter-spacing: 0.02em;
+  color: var(--stage-muted);
 }
 
-/* ── Screen Source Picker Modal ── */
-.screen-picker-backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: 1100;
-  background: rgba(0, 0, 0, 0.65);
+.stage-ctl-divider {
+  width: 1px;
+  height: 40px;
+  align-self: center;
+  background: var(--stage-line);
+}
+
+/* M6 T15, from manual QA: the label moved OUT of this button and into a
+   sibling `.stage-ctl-label`, so the bar's four controls now share one shape —
+   icon-only button, caption beneath. What changed here is geometry only: the
+   auto-width pill (`padding: 0 18px`, `gap: 8px`, its own type scale) became a
+   46px square matching `.stage-ctl-btn`, which with `--radius-pill` renders as
+   a circle. The circle is deliberate — it keeps hang-up distinguishable from
+   the three rounded-square toggles now that the text no longer does that job.
+   Colours are untouched. */
+.stage-leave-btn {
   display: flex;
   align-items: center;
   justify-content: center;
-}
-
-.screen-picker-modal {
-  background: var(--bg-primary);
-  border-radius: var(--radius-lg);
-  border: 1px solid var(--border-subtle);
-  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.5);
-  width: min(780px, 92vw);
-  max-height: 75vh;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-}
-
-.screen-picker-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 16px 20px;
-  border-bottom: 1px solid var(--border-subtle);
-  font-size: 15px;
-  font-weight: 600;
-  color: var(--text-primary);
-}
-
-.screen-picker-close {
-  background: none;
+  width: 46px;
+  height: 46px;
+  padding: 0;
   border: none;
-  color: var(--text-secondary);
+  border-radius: var(--radius-pill);
+  background: var(--danger);
+  color: var(--white);
   cursor: pointer;
-  font-size: 16px;
-  padding: 4px 8px;
-  border-radius: var(--radius-sm);
-  transition: background var(--transition), color var(--transition);
+  transition: filter var(--transition);
 }
 
-.screen-picker-close:hover {
-  background: var(--bg-secondary);
-  color: var(--text-primary);
+.stage-leave-btn:hover {
+  filter: brightness(1.08);
 }
 
-.screen-picker-section {
-  padding: 16px 20px 8px;
-  overflow-y: auto;
+/* ── Mobile: back button appears; grid single-column ≤640 ── */
+@media (width <= 768px) {
+  .stage-back-btn {
+    display: flex;
+  }
 }
 
-.screen-picker-section-label {
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.07em;
-  text-transform: uppercase;
-  color: var(--text-secondary);
-  margin-bottom: 10px;
+@media (width <= 640px) {
+  .stage-grid,
+  .stage-grid.is-many {
+    grid-template-columns: 1fr;
+  }
 }
 
-.screen-picker-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
-  gap: 10px;
-  padding-bottom: 10px;
-}
-
-.screen-picker-item {
-  background: var(--bg-secondary);
-  border: 1.5px solid var(--border-color);
-  border-radius: var(--radius-md);
-  cursor: pointer;
-  padding: 8px;
+/* ── Call body / video-area wrappers. Purely structural: neither paints a
+   background, the .call-stage root paints --stage for both. ── */
+.call-body {
+  flex: 1;
   display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 6px;
-  transition: border-color var(--transition), box-shadow var(--transition), background var(--transition);
-  text-align: center;
-}
-
-.screen-picker-item:hover {
-  border-color: var(--brand-500, #6366f1);
-  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.25);
-  background: var(--bg-base);
-}
-
-.screen-picker-thumb {
-  width: 100%;
-  aspect-ratio: 16 / 9;
-  object-fit: cover;
-  border-radius: var(--radius-sm);
-  background: #000;
-}
-
-.screen-picker-app-icon {
-  width: 48px;
-  height: 48px;
-  object-fit: contain;
-  border-radius: var(--radius-sm);
-}
-
-.screen-picker-name {
-  font-size: 11px;
-  color: var(--text-secondary);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: 100%;
-  font-weight: 500;
-}
-
-/* ── Screen Quality Picker Modal ── */
-.screen-quality-modal {
-  background: var(--bg-primary);
-  border-radius: var(--radius-lg);
-  border: 1px solid var(--border-subtle);
-  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.5);
-  width: min(360px, 92vw);
-  display: flex;
-  flex-direction: column;
   overflow: hidden;
 }
 
-.screen-quality-list {
-  display: flex;
-  flex-direction: column;
-  padding: 12px;
-  gap: 8px;
-}
-
-.screen-quality-item {
-  background: var(--bg-secondary);
-  border: 1.5px solid var(--border-color);
-  border-radius: var(--radius-md);
-  cursor: pointer;
-  padding: 14px 16px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  transition: border-color var(--transition), box-shadow var(--transition), background var(--transition);
-}
-
-.screen-quality-item:hover {
-  border-color: var(--brand-500, #6366f1);
-  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.25);
-  background: var(--bg-base);
-}
-
-.screen-quality-label {
-  font-size: 15px;
-  font-weight: 700;
-  color: var(--text-primary);
-}
-
-.screen-quality-desc {
-  font-size: 12px;
-  color: var(--text-secondary);
-}
-
-/* ── Header right side ── */
-.group-call-header-right {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.header-screen-share-indicator {
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--brand-400, #818cf8);
-  background: rgba(99, 102, 241, 0.12);
-  padding: 4px 10px;
-  border-radius: var(--radius-sm);
-  animation: pulse-indicator 2s ease-in-out infinite;
-}
-
-@keyframes pulse-indicator {
-  0%, 100% { opacity: 1; }
-  50%       { opacity: 0.65; }
-}
-
-/* ── Call video area wrapper ── */
 .call-video-area {
   flex: 1;
   display: flex;
@@ -592,69 +815,8 @@
   min-width: 0;
 }
 
-/* ── Screen share banner ── */
-.screen-share-banner {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 10px 18px;
-  background: rgba(99, 102, 241, 0.1);
-  border-bottom: 1px solid rgba(99, 102, 241, 0.25);
-  flex-shrink: 0;
-}
-
-.screen-share-banner-icon {
-  font-size: 16px;
-  flex-shrink: 0;
-}
-
-.screen-share-banner-text {
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--text-primary);
-  flex: 1;
-  min-width: 0;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.screen-share-banner-btn {
-  background: var(--brand-500, #6366f1);
-  color: white;
-  border: none;
-  border-radius: var(--radius-md);
-  padding: 5px 14px;
-  font-size: 13px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: background var(--transition);
-  flex-shrink: 0;
-}
-
-.screen-share-banner-btn:hover {
-  background: var(--brand-600, #4f46e5);
-}
-
-.screen-share-banner-dismiss {
-  background: none;
-  border: none;
-  color: var(--text-secondary);
-  font-size: 14px;
-  cursor: pointer;
-  padding: 4px 6px;
-  border-radius: var(--radius-sm);
-  flex-shrink: 0;
-  transition: background var(--transition), color var(--transition);
-}
-
-.screen-share-banner-dismiss:hover {
-  background: var(--bg-secondary);
-  color: var(--text-primary);
-}
-
-/* ── Focused screen-share view ── */
-.screen-share-view {
+/* ── Focused / screen-share view ── */
+.stage-focus {
   flex: 1;
   display: flex;
   flex-direction: column;
@@ -662,180 +824,237 @@
   min-height: 0;
 }
 
-.screen-share-main {
+.stage-focus-main {
   flex: 1;
   position: relative;
-  background: #000;
-  overflow: hidden;
-  min-height: 0;
   display: flex;
   align-items: center;
   justify-content: center;
+  min-height: 0;
+  background: var(--stage);
+  overflow: hidden;
 }
 
-.screen-share-main-video {
+.stage-focus-video {
   width: 100%;
   height: 100%;
   object-fit: contain;
   display: block;
 }
 
-/* Controls shown on hover over main video */
-.screen-share-main-controls {
+/* max-width + overflow are M6 T12: the label had neither, so a long focused
+   name grew the box past .stage-focus-main and was hard-clipped by that
+   element's overflow: hidden — no ellipsis, no indication text was missing.
+   Same remedy as .stage-plate: cap the container, and let the .stage-name span
+   inside it (added at the emission site) carry the ellipsis. 28px = the 14px
+   inset doubled, so the label can never touch the opposite edge. */
+.stage-focus-label {
+  position: absolute;
+  bottom: 14px;
+  left: 14px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  max-width: calc(100% - 28px);
+  overflow: hidden;
+  padding: 5px 10px;
+  border-radius: var(--radius-row);
+  background: var(--stage-plate);
+  color: var(--stage-ink);
+  font-size: 12px;
+  font-weight: 600;
+  z-index: 5;
+}
+
+/* flex-shrink: 0 for the same reason .stage-state-chip carries it — the name is
+   what must give way, because it has an ellipsis and this badge does not. It is
+   NOT redundant, though it is currently invisible: measured at 900/300/200px the
+   badge holds 99.3px and never squashes, but only because «Демонстрация» /
+   «Sharing» are single words, so the badge's default min-width: auto already
+   floors it at its own min-content width. That is incidental to the strings, and
+   M6 T12 is what made it matter — capping .stage-focus-label put its children
+   under shrink pressure for the first time. A two-word label would have wrapped
+   here with nothing to catch it. */
+.stage-focus-badge {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: var(--radius-chip);
+  background: var(--stage-accent);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.stage-focus-controls {
   position: absolute;
   top: 12px;
   right: 12px;
   display: flex;
   gap: 8px;
   opacity: 0;
-  transition: opacity 0.2s ease;
+  transition: opacity var(--transition);
   z-index: 10;
 }
 
-.screen-share-main:hover .screen-share-main-controls {
+/* Touch visibility (decision 22) — kept next to the base rule it overrides and
+   before the :hover rule, the same placement the .stage-fullscreen-btn, tile-chip
+   and .stage-share-banner-dismiss blocks above use. A coarse pointer never produces
+   the :hover below, so without this both «Вернуться к сетке» and the focus
+   fullscreen button are invisible on touch: measured at 390×844, computed opacity 0
+   on .stage-focus-controls with both buttons already at opacity 1 themselves.
+   The opacity override belongs on this element because this is the element that
+   carries opacity; the 40px floor belongs on the button and is set below.
+   Re-verified for THIS block rather than assumed from the ones above: a copy of
+   this file with both new blocks moved after their :hover rules lints to the same
+   0 problems, while a positive control (the same override written WITHOUT the
+   @media wrapper, after .stage-focus-ctrl-btn:hover) does fire
+   no-descending-specificity. So the ordering here is grouping, not a lint
+   requirement — the rule buckets by at-rule context. */
+@media (width <= 768px) {
+  .stage-focus-controls {
+    opacity: 1;
+  }
+}
+
+.stage-focus-main:hover .stage-focus-controls,
+.stage-focus-main:fullscreen:hover .stage-focus-controls {
   opacity: 1;
 }
 
-/* Also keep controls visible in fullscreen */
-.screen-share-main:fullscreen .screen-share-main-controls {
-  opacity: 0;
-}
-
-.screen-share-main:fullscreen:hover .screen-share-main-controls {
-  opacity: 1;
-}
-
-.screen-share-ctrl-btn {
-  background: rgba(15, 17, 23, 0.75);
-  backdrop-filter: blur(6px);
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  color: white;
-  border-radius: var(--radius-md);
-  width: 36px;
-  height: 36px;
-  font-size: 16px;
-  cursor: pointer;
+.stage-focus-ctrl-btn {
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: background var(--transition), transform var(--transition);
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 1px solid var(--stage-line);
+  border-radius: var(--radius-row);
+  background: var(--stage-plate);
+  color: var(--stage-ink);
+  cursor: pointer;
+  transition: background var(--transition);
 }
 
-.screen-share-ctrl-btn:hover {
-  background: rgba(99, 102, 241, 0.75);
-  transform: scale(1.1);
+/* Mobile ≥40px floor (decision 22) — before the :hover rule, and it MUST come
+   after the 36px base rule above: at equal specificity (0,1,0) the later rule wins,
+   so folding this into the opacity block higher up would lose to that 36px.
+   Measured pre-fix at 390×844: both buttons 36×36. */
+@media (width <= 768px) {
+  .stage-focus-ctrl-btn {
+    width: 40px;
+    height: 40px;
+  }
 }
 
-.screen-share-main-label {
-  position: absolute;
-  bottom: 14px;
-  left: 14px;
-  background: rgba(15, 17, 23, 0.72);
-  backdrop-filter: blur(6px);
-  color: white;
-  padding: 6px 14px;
-  border-radius: var(--radius-md);
-  font-size: 13px;
-  font-weight: 600;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  z-index: 5;
+.stage-focus-ctrl-btn:hover {
+  background: var(--stage-accent);
 }
 
-.screen-share-badge-sm {
-  font-size: 11px;
-  font-weight: 600;
-  background: rgba(99, 102, 241, 0.85);
-  padding: 2px 8px;
-  border-radius: var(--radius-sm);
-  letter-spacing: 0.02em;
-}
-
-/* Fullscreen: hide the author label so the shared screen is unobstructed. Uses
-   the .is-fullscreen class (tracked via isFullscreen state) so it also works in
-   Electron, where the DOM :fullscreen pseudo-class isn't set by setFullScreen. */
-.screen-share-main.is-fullscreen .screen-share-main-label {
+/* Uses the .is-fullscreen class, not :fullscreen, so it also fires on the
+   Electron path where setFullScreen never sets the DOM pseudo-class. Bound to
+   fullscreenTarget === 'focus' (decision 24), so whole-stage fullscreen leaves
+   the label up. */
+.stage-focus-main.is-fullscreen .stage-focus-label {
   display: none;
 }
 
-/* Fullscreen: video fills the container */
-.screen-share-main:fullscreen {
+.stage-focus-main:fullscreen {
   width: 100vw;
   height: 100vh;
 }
 
-.screen-share-main:fullscreen .screen-share-main-video {
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
-}
+/* ── Thumbnail strip ──
+   M6 T12, decision 8: the strip SHRINKS with the stage instead of holding a
+   fixed 110px. Measured on the pre-fix tree at 1440×900 (channel-body 773px,
+   probe-t12-thumbs.js), with the stage set to each height the split handle can
+   actually produce — it clamps to 20–80% at AppPage.tsx:144:
 
-/* ── Thumbnail strip ── */
-.screen-share-thumbnails {
-  height: 110px;
+                             .stage-focus   .stage-focus-main    thumbs
+     stage 20% (155px)             4px       0px →   0px     110px → 17px
+     stage 55% (425px)           274px     164px → 205px     110px → 68px
+     stage 80% (618px)           467px     357px → 357px     110px → 110px
+
+   i.e. at the default split the strip ate 110 of 274px, and the focused video
+   gained 25% back. The percentage resolves against .stage-focus (a flex item
+   with a definite height), NOT against --call-stage-height, so the 20–80% drag
+   range is untouched by construction.
+
+   `min(110px, 25%)` is not an arbitrary ratio: 110px IS 25% of 440px, so the
+   strip keeps its full size whenever .stage-focus is at least 440px tall and
+   never takes more than a quarter of it below that. The rejected alternative —
+   `height: max(var(--call-stage-height, 55%), 75%)` — would have collapsed the
+   effective drag range to 75–80% inside a focus view.
+
+   DISCLOSED, and deliberately not fixed here: at the 20% clamp this rule does
+   NOT save the thumbnails. 17px of strip minus 16px of vertical padding is a
+   ~1px tile, so where the user used to see thumbnails and no video they now see
+   neither. A floor (`max(56px, …)`) cannot help: .stage-focus is 4px there in
+   total, and a floored strip would simply overflow it. The cause is upstream and
+   predates this rule — a fixed 56px topbar plus a ~95px control bar is 151px of
+   chrome against a 155px stage, so the focused view has nothing to divide. Do
+   not read this rule as "thumbnails survive at every stage height"; it shrinks
+   the strip proportionally wherever .stage-focus has room for one at all.
+
+   .stage-thumb's fixed `width: calc(94px * 16 / 9)` became wrong the moment the
+   strip could shrink (a 52px-tall tile would still have been 167px wide), so it
+   is expressed as the aspect ratio it always encoded — byte-equivalent at rest,
+   correct at every other height. */
+.stage-thumbs {
+  height: min(110px, 25%);
   display: flex;
+  align-items: stretch;
   gap: 8px;
   padding: 8px 12px;
-  overflow-x: auto;
-  overflow-y: hidden;
-  background: var(--bg-primary);
-  border-top: 1px solid var(--border-subtle);
-  align-items: stretch;
+  overflow: auto hidden; /* shorthand — the longhand pair trips declaration-block-no-redundant-longhand-properties */
+  border-top: 1px solid var(--stage-line);
   flex-shrink: 0;
   scrollbar-width: thin;
 }
 
-.screen-share-thumbnails::-webkit-scrollbar {
+.stage-thumbs::-webkit-scrollbar {
   height: 4px;
 }
 
-.screen-share-thumbnails::-webkit-scrollbar-track {
+.stage-thumbs::-webkit-scrollbar-track {
   background: transparent;
 }
 
-.screen-share-thumbnails::-webkit-scrollbar-thumb {
-  background: var(--border-color);
+.stage-thumbs::-webkit-scrollbar-thumb {
+  background: var(--stage-toggle);
   border-radius: 2px;
 }
 
-.thumbnail-tile {
+.stage-thumb {
   position: relative;
-  width: calc(94px * 16 / 9);
   height: 100%;
+  width: auto;
+  aspect-ratio: 16 / 9;
   flex-shrink: 0;
-  border-radius: var(--radius-md);
+  border-radius: 10px;
+  background: var(--stage-tile);
   overflow: hidden;
-  border: 1.5px solid var(--border-subtle);
   cursor: pointer;
-  background: var(--bg-secondary);
-  transition: border-color var(--transition), box-shadow var(--transition);
+  transition: box-shadow var(--transition);
 }
 
-.thumbnail-tile:hover {
-  border-color: var(--brand-400, #818cf8);
-  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.25);
+.stage-thumb:hover {
+  box-shadow: 0 0 0 2px var(--stage-toggle);
 }
 
-.thumbnail-tile--focused {
-  border-color: var(--brand-500, #6366f1);
-  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.4);
+.stage-thumb.is-focused {
+  box-shadow: 0 0 0 2px var(--stage-accent);
 }
 
-.thumbnail-tile.speaking {
-  border-color: rgba(34, 197, 94, 0.85);
-  box-shadow: 0 0 0 2px rgba(34, 197, 94, 0.45);
+/* --speak-level is JS-injected (invisible to importFrom) — fallback required. */
+.stage-thumb.is-speaking {
+  box-shadow: 0 0 0 calc(2px + var(--speak-level, 0) * 4px) var(--speak-ring);
 }
 
-.thumbnail-tile .mic-badge {
-  width: 16px;
-  height: 16px;
-  font-size: 8px;
-  bottom: 4px;
-  right: 4px;
-}
-
-.thumbnail-tile video {
+.stage-thumb video {
   position: absolute;
   inset: 0;
   width: 100%;
@@ -843,144 +1062,110 @@
   object-fit: cover;
 }
 
-.thumbnail-tile video.local-video {
+.stage-thumb video.is-mirrored {
   transform: scaleX(-1);
 }
 
-.thumbnail-placeholder {
+/* A shared screen must never be mirrored, even in the local thumb. */
+.stage-thumb video.is-screen {
+  transform: none;
+}
+
+.stage-thumb-avatar {
   position: absolute;
   inset: 0;
+  margin: auto;
+  width: 32px;
+  height: 32px;
+  border-radius: 11px;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 24px;
-  opacity: 0.35;
+  font-size: 13px;
+  object-fit: cover;
 }
 
-.thumbnail-badge {
+.stage-thumb-badge {
   position: absolute;
   top: 4px;
   right: 4px;
-  background: rgba(99, 102, 241, 0.85);
-  color: white;
-  font-size: 10px;
-  padding: 2px 5px;
-  border-radius: var(--radius-sm);
+  display: flex;
+  padding: 3px 5px;
+  border-radius: var(--radius-chip);
+  background: var(--stage-accent);
+  color: var(--white);
   z-index: 2;
 }
 
-.watch-share-overlay {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  background: rgba(15, 17, 23, 0.55);
-  z-index: 1;
-}
-
-.watch-share-icon {
-  font-size: 22px;
-  opacity: 0.8;
-}
-
-.watch-share-btn {
-  background: rgba(99, 102, 241, 0.9);
-  color: white;
-  border: none;
-  border-radius: var(--radius-md);
-  padding: 4px 12px;
-  font-size: 11px;
-  font-weight: 600;
-  cursor: pointer;
-}
-
-.watch-share-btn:hover {
-  background: rgba(99, 102, 241, 1);
-}
-
-.thumbnail-label {
+/* Same shape as .stage-plate and the same fix: text-overflow moved to the .stage-name
+   flex item. Measured before, at thumb scale: a 1568px span box inside a 157px
+   label, spilling it by 1436.5px with no ellipsis. */
+.stage-thumb-label {
   position: absolute;
   bottom: 4px;
   left: 5px;
   right: 5px;
-  background: rgba(15, 17, 23, 0.65);
-  color: white;
-  font-size: 10px;
-  font-weight: 600;
-  padding: 2px 6px;
-  border-radius: 4px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  z-index: 2;
   display: flex;
   align-items: center;
   gap: 4px;
+  min-width: 0;
+  padding: 2px 6px;
+  border-radius: var(--radius-chip);
+  background: var(--stage-plate);
+  color: var(--stage-ink);
+  font-size: 10px;
+  font-weight: 600;
+  overflow: hidden;
+  z-index: 2;
 }
 
-/* ── Focus button on remote video tiles in grid ── */
-.video-tile .focus-btn {
-  position: absolute;
-  top: 8px;
-  right: 8px;
-  background: rgba(15, 17, 23, 0.72);
-  backdrop-filter: blur(4px);
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  color: white;
-  border-radius: var(--radius-sm);
-  width: 28px;
-  height: 28px;
-  font-size: 14px;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  opacity: 0;
-  transition: opacity 0.15s ease, background var(--transition);
-  z-index: 3;
-}
-
-.video-tile:hover .focus-btn {
+/* Thumb-scale chip overrides. The extra .stage-thumbs ancestor is specificity
+   ballast, and unlike T3's @media case the claim holds here — nothing is inside
+   an at-rule, so no-descending-specificity really does compare these pairs.
+   Counterfactual, run under the real config: drop the ancestor and the rule
+   fires 5× (16 → 20 problems) — `.stage-thumb .stage-volume-btn` (0,2,0) vs the
+   earlier `.stage-tile:hover .stage-volume-btn` (0,3,0), `.stage-thumb
+   .stage-conn-bar` (0,2,0) vs `.stage-conn.is-good .stage-conn-bar` (0,3,0),
+   and the three :nth-child bars vs `.stage-conn.is-medium
+   .stage-conn-bar:nth-child(1)` (0,4,0). One ancestor is not enough for the bar
+   base rule, though: at (0,3,0) it still loses to that (0,4,0) is-medium rule,
+   so it carries a .call-stage prefix as well — measured, not guessed.
+   opacity is load-bearing, not tidying: the base `.stage-volume-btn` is
+   opacity:0 revealed only by `.stage-tile:hover`, and a thumb is not a tile —
+   without this the chip would be permanently invisible in the strip, a
+   regression against the pre-task `.volume-btn` (measured opacity 1).
+   These also deliberately re-shrink the chips below the mobile 40px floor —
+   decision 22's disclosed thumb-scale exemption. */
+.stage-thumbs .stage-thumb .stage-volume-btn {
+  width: 20px;
+  height: 20px;
+  top: 4px;
+  left: 4px;
   opacity: 1;
 }
 
-.video-tile .focus-btn:hover {
-  background: rgba(99, 102, 241, 0.8);
-}
-
-/* ── Per-participant volume control ── */
-.volume-btn {
-  position: absolute;
-  top: 8px;
-  left: 8px;
-  background: rgba(15, 17, 23, 0.72);
-  backdrop-filter: blur(4px);
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  color: white;
-  border-radius: var(--radius-sm);
-  width: 28px;
-  height: 28px;
-  font-size: 16px;
-  line-height: 1;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 3;
-  transition: background var(--transition);
-}
-
-.volume-btn:hover {
-  background: rgba(99, 102, 241, 0.8);
-}
-
-.thumbnail-tile .volume-btn {
-  width: 18px;
-  height: 18px;
+.stage-thumbs .stage-thumb .stage-conn {
   top: 4px;
-  left: 4px;
-  font-size: 11px;
+  right: 4px;
+  height: 20px;
+  padding: 0 5px;
 }
+
+/* Ruling T4-a. At thumb scale the connection chip above lands on exactly the
+   badge's top/right: 4px, and .stage-conn's base rule outranks it (z-index 3
+   vs 2), so on a sharing participant the badge sat behind a translucent
+   --stage-plate chip as an illegible smear and could not be hit-tested.
+   Measured before: both rects at x 849.3, 20px wide, 320 of 320px² shared.
+   28px = the chip's 20px + a 4px gap + the 4px inset. */
+.stage-thumbs .stage-thumb .stage-thumb-badge {
+  right: 28px;
+}
+
+.call-stage .stage-thumbs .stage-thumb .stage-conn-bar {
+  width: 2px;
+  margin-bottom: 4px;
+}
+
+.stage-thumbs .stage-thumb .stage-conn-bar:nth-child(1) { height: 3px; }
+.stage-thumbs .stage-thumb .stage-conn-bar:nth-child(2) { height: 6px; }
+.stage-thumbs .stage-thumb .stage-conn-bar:nth-child(3) { height: 9px; }

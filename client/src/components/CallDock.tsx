@@ -1,3 +1,4 @@
+import { Mic, MicOff, PhoneOff, Video, VideoOff } from 'lucide-react';
 import { useCallStore } from '@/stores/callStore';
 import { useServerStore } from '@/stores/serverStore';
 import { useT } from '@/i18n';
@@ -36,27 +37,27 @@ export function CallDock({ onGoToCall }: CallDockProps) {
       <div className="call-dock-actions">
         <button
           type="button"
-          className={`call-dock-btn${isMuted ? ' off' : ''}`}
+          className={`panel-icon-btn${isMuted ? ' is-off' : ''}`}
           onClick={() => useCallStore.getState().toggleMute()}
           title={isMuted ? t('call.micOn') : t('call.micOff')}
         >
-          {isMuted ? '🔇' : '🎤'}
+          {isMuted ? <MicOff size={16} strokeWidth={1.8} /> : <Mic size={16} strokeWidth={1.8} />}
         </button>
         <button
           type="button"
-          className={`call-dock-btn${isVideoOff ? ' off' : ''}`}
+          className={`panel-icon-btn${isVideoOff ? ' is-off' : ''}`}
           onClick={() => useCallStore.getState().toggleVideo()}
           title={isVideoOff ? t('call.cameraOn') : t('call.cameraOff')}
         >
-          📷
+          {isVideoOff ? <VideoOff size={16} strokeWidth={1.8} /> : <Video size={16} strokeWidth={1.8} />}
         </button>
         <button
           type="button"
-          className="call-dock-btn danger"
+          className="panel-icon-btn is-danger"
           onClick={() => useCallStore.getState().leave()}
           title={t('call.leaveCall')}
         >
-          📴
+          <PhoneOff size={16} strokeWidth={1.8} />
         </button>
       </div>
     </div>

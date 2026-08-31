@@ -1,238 +1,139 @@
 .server-list {
-  width: 72px;
-  min-width: 72px;
-  background: var(--bg-secondary);
+  width: 76px;
+  min-width: 76px;
+  background: var(--rail);
   display: flex;
   flex-direction: column;
   align-items: center;
-  padding: 14px 0;
-  gap: 6px;
+  padding: 12px 0 14px;
+  gap: 8px;
   overflow-y: auto;
-  border-right: 1px solid var(--border-subtle);
 }
 
 .server-icon {
-  width: 48px;
-  height: 48px;
-  border-radius: var(--radius-full);
-  background: var(--bg-primary);
-  color: var(--text-secondary);
+  width: 46px;
+  height: 46px;
+  min-height: 46px;
+  border-radius: 14px;
+  background: var(--rail-item);
+  color: var(--rail-muted);
   display: flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  transition: all var(--transition);
+  position: relative;
   font-size: 17px;
   font-weight: 700;
-  position: relative;
-  box-shadow: var(--shadow-sm);
-  overflow: hidden;
+  transition: background var(--transition), color var(--transition);
 }
 
+.server-icon-symbol {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Active indicator bar: 4×30, white, sticks out left of the tile. */
 .server-icon::before {
   content: '';
   position: absolute;
-  left: -16px;
+  left: -13px;
+  top: 50%;
+  translate: 0 -50%;
   width: 4px;
   height: 0;
-  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
-  background: var(--brand-color);
-  transition: height 0.25s var(--ease-out);
+  border-radius: 0 4px 4px 0;
+  background: var(--white);
+  transition: height 0.2s var(--ease-out);
 }
 
 .server-icon:hover::before {
   height: 20px;
 }
 
-.server-icon.active::before {
-  height: 36px;
+.server-icon.is-active::before {
+  height: 30px;
 }
 
 .server-icon:hover {
-  border-radius: var(--radius-lg);
-  background: var(--brand-color);
-  color: var(--text-inverse);
-  transform: translateY(-1px);
-  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.25);
+  background: var(--rail-item-hover);
+  color: var(--rail-ink);
 }
 
-.server-icon.active {
-  border-radius: var(--radius-lg);
-  background: var(--brand-color);
-  color: var(--text-inverse);
-  box-shadow: 0 4px 14px rgba(99, 102, 241, 0.3);
+.server-icon.is-active {
+  background: var(--accent);
+  color: var(--white);
+  box-shadow: 0 0 0 3px var(--rail-line);
 }
 
-.server-icon.home {
-  background: var(--bg-primary);
-  color: var(--brand-color);
+/* ── The three rail variants are compound ON PURPOSE. Do not "simplify". ──
+   `.server-icon.server-icon-home` / `-add` / `-search` repeat the block class
+   deliberately. Collapsing each to a bare `.server-icon-home` reads like a
+   cleanup and is a BEHAVIOUR CHANGE: it drops the rule from (0,2,0) to (0,1,0)
+   and loses two ties this file depends on. Both were measured (M6 T10,
+   protocol-level :hover on scratch tiles — tools/probe-t10-cascade.js):
+
+   1. `.server-icon.server-icon-add:hover` below declares only `background` and
+      `filter`, NO `color`. The hovered "+" gets its colour from
+      `.server-icon.server-icon-add` (0,2,0), which currently outranks
+      `.server-icon:hover` (0,2,0, earlier in the file) by source order. At
+      (0,1,0) `.server-icon:hover` wins on specificity instead and the glyph
+      flips --rail-create-ink -> --rail-ink.
+   2. At <=768px, `.server-icon.is-active .server-icon-symbol` and
+      `.server-icon.server-icon-home .server-icon-symbol` are BOTH (0,3,0) and
+      home wins only because it comes later. The home tile does carry
+      `is-active` whenever no server is selected (ServerList.tsx:45), which is
+      the mobile boot state, so at (0,2,0) the home tile's symbol inverts into
+      the generic active-server tile.
+
+   Collapsing also ADDS three `no-descending-specificity` errors (8 -> 11).
+   The single-segment `.home` / `.add` / `.search` names are gone, which is what
+   the rename was for; the compound keeps specificity and source order
+   byte-identical. `UserList.css:54` collapsed its compound safely only because
+   no bare `.user-avatar` rule existed there — `.server-icon` has both a base
+   rule and a `:hover`. */
+.server-icon.server-icon-home {
+  color: var(--rail-ink);
 }
 
-.server-icon.home:hover,
-.server-icon.home.active {
-  background: var(--brand-color);
-  color: var(--text-inverse);
+.server-icon.server-icon-home.is-active {
+  background: var(--accent);
+  color: var(--white);
 }
 
-.server-icon.add {
-  background: var(--bg-primary);
-  color: var(--green-color);
-  font-size: 22px;
-  font-weight: 300;
-}
-
-.server-icon.search {
-  background: var(--bg-primary);
-  color: var(--blue-color);
-}
-
-.server-icon.search:hover {
-  background: var(--blue-color);
-  color: white;
-  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.25);
-}
-
-/* ── Server Search Modal ── */
-.search-bar {
-  display: flex;
-  gap: 8px;
-  margin-bottom: 16px;
-}
-
-.search-bar input {
-  flex: 1;
-  padding: 10px 14px;
-  border: 1.5px solid var(--border-color);
-  border-radius: var(--radius-md);
-  background: var(--bg-base);
-  color: var(--text-primary);
-  font-size: 14px;
-  outline: none;
-}
-
-.search-bar input:focus {
-  border-color: var(--brand-color);
-  box-shadow: 0 0 0 3px var(--brand-subtle);
-}
-
-.search-bar button {
-  padding: 10px 18px;
-  border: none;
-  border-radius: var(--radius-md);
-  background: var(--brand-color);
-  color: white;
-  font-size: 13px;
-  font-weight: 600;
-  cursor: pointer;
-}
-
-.search-bar button:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.search-results {
+/* Bottom group: create + search, pinned, separated by a hairline. */
+.rail-bottom {
+  margin-top: auto;
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  max-height: 300px;
-  overflow-y: auto;
-}
-
-.search-result-item {
-  display: flex;
   align-items: center;
-  justify-content: space-between;
-  padding: 10px 14px;
-  background: var(--bg-secondary);
-  border-radius: var(--radius-md);
+  gap: 8px;
+  width: 46px;
+  padding-top: 8px;
+  border-top: 1px solid var(--rail-line);
 }
 
-.search-result-item span {
-  font-size: 14px;
-  font-weight: 500;
-  color: var(--text-primary);
+/* Compound on purpose — tie (1) at the top of this file. The `color` below is
+   what `.server-icon:hover` takes over if this rule drops to (0,1,0), because
+   `.server-icon.server-icon-add:hover` declares no `color` of its own. */
+.server-icon.server-icon-add {
+  background: var(--rail-create-bg);
+  color: var(--rail-create-ink);
 }
 
-.search-result-item button {
-  padding: 6px 16px;
-  border: none;
-  border-radius: var(--radius-sm);
-  background: var(--green-color);
-  color: white;
-  font-size: 12px;
-  font-weight: 600;
-  cursor: pointer;
+.server-icon.server-icon-add:hover {
+  background: var(--rail-create-bg);
+  filter: brightness(1.2);
 }
 
-.search-result-item button:hover {
-  background: var(--green-600);
+.server-icon.server-icon-search {
+  background: var(--rail-item);
+  color: var(--rail-muted);
 }
 
-.search-empty {
-  text-align: center;
-  color: var(--text-muted);
-  font-size: 14px;
-  padding: 24px 0;
-}
-
-/* ── Explore modal close + divider ── */
-.explore-server-modal {
-  position: relative;
-}
-
-.explore-server-modal h2 {
-  padding-right: 40px;
-}
-
-.explore-server-close {
-  position: absolute;
-  top: 16px;
-  right: 16px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 32px;
-  height: 32px;
-  padding: 0;
-  border: 1.5px solid var(--border-color);
-  border-radius: var(--radius-md);
-  background: none;
-  color: var(--text-muted);
-  font-size: 16px;
-  line-height: 1;
-  cursor: pointer;
-  transition: all var(--transition);
-}
-
-.explore-server-close:hover {
-  background: var(--bg-hover);
-  color: var(--text-primary);
-  border-color: var(--text-muted);
-}
-
-.explore-server-divider {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin: 20px 0;
-  color: var(--text-muted);
-  font-size: 12px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-}
-
-.explore-server-divider::before,
-.explore-server-divider::after {
-  content: '';
-  flex: 1;
-  height: 1px;
-  background: linear-gradient(to right, transparent, var(--border-color));
-}
-
-.explore-server-divider::after {
-  background: linear-gradient(to left, transparent, var(--border-color));
+.server-icon.server-icon-search:hover {
+  background: var(--rail-item-hover);
+  color: var(--rail-ink);
 }
 
 .server-icon img {
@@ -243,11 +144,11 @@
 }
 
 .server-divider {
-  width: 32px;
-  height: 2px;
-  background: var(--border-color);
-  border-radius: var(--radius-full);
-  margin: 2px 0;
+  width: 30px;
+  height: 1px;
+  min-height: 1px;
+  background: var(--rail-line);
+  margin: 3px 0;
 }
 
 .server-icon-name {
@@ -258,8 +159,26 @@
   display: none;
 }
 
-/* ── Mobile Server List ── */
-@media (max-width: 768px) {
+/* ── Mobile Server List ──
+   `background` and `color` are overridden here ON PURPOSE, and the omission was
+   a real defect found in manual QA at M6 T15.
+
+   At desktop this is a 76px RAIL: `--rail` is a near-black in BOTH themes
+   (#171B29 light, #0A0C12 dark) and `--rail-muted`/`--rail-ink` are the pale
+   inks that go on it. Under decision 23 the same element becomes a FULL-SCREEN
+   LIST — and it kept the rail's dark fill while the rows it now contains switched
+   to page inks: `.server-list-mobile-header` paints `--ink` on its own `--canvas`,
+   and `.server-icon-name` below paints `--ink` with no background of its own. In
+   the light theme that is #1x-dark text on a #171B29 fill — the server names were
+   unreadable. Dark theme looked correct only because `--rail` and `--canvas` are
+   both near-black there, which is exactly why a dark-only check would have passed
+   it.
+
+   `color` moves with the background for the same reason: `.server-icon-symbol`
+   declares a `--panel` fill but no ink, so the initials inherited `--rail-muted`
+   (#C9CFDE) — pale grey on a pale panel. The is-active / home / add / search
+   symbol rules below all set their own colour and are unaffected. */
+@media (width <= 768px) {
   .server-list {
     width: 100vw;
     min-width: 100vw;
@@ -268,6 +187,7 @@
     padding: 0;
     gap: 0;
     overflow-y: auto;
+    background: var(--canvas);
   }
 
   .server-list-mobile-header {
@@ -276,19 +196,31 @@
     padding: 20px 20px 12px;
     font-size: 18px;
     font-weight: 700;
-    color: var(--text-primary);
-    border-bottom: 1px solid var(--border-subtle);
-    background: var(--bg-primary);
+    color: var(--ink);
+    border-bottom: 1px solid var(--line);
+    background: var(--canvas);
     position: sticky;
     top: 0;
     z-index: 10;
   }
 
+  .rail-bottom {
+    margin-top: 0;
+    width: 100%;
+    padding-top: 0;
+    border-top: 0;
+    gap: 0;
+    align-items: stretch;
+  }
+
+  /* `--rail-line` is white-at-14%, built to sit on the dark rail; on the light
+     `--canvas` fill above it is invisible. `--line` is the page hairline. */
   .server-divider {
     width: 100%;
     height: 1px;
     border-radius: 0;
     margin: 4px 0;
+    background: var(--line);
   }
 
   .server-icon {
@@ -299,7 +231,8 @@
     padding: 0 20px;
     gap: 14px;
     box-shadow: none;
-    border-bottom: 1px solid var(--border-subtle);
+    border-bottom: 1px solid var(--line);
+    color: var(--ink);
   }
 
   .server-icon::before {
@@ -310,22 +243,31 @@
     border-radius: 0;
     transform: none;
     box-shadow: none;
-    background: var(--bg-hover);
-    color: var(--text-primary);
+    background: var(--canvas-2);
+    color: var(--ink);
   }
 
-  .server-icon.active {
+  .server-icon.is-active {
     border-radius: 0;
     box-shadow: none;
-    border-left: 3px solid var(--brand-color);
+    border-left: 3px solid var(--accent);
   }
 
+  /* `border-radius` is +1px, DISCLOSED (M6 T13, decision 13). It was
+     var(--radius-lg) = 12px, a legacy alias; the canonical scale is
+     6/9/10/11/13/14/16/18/999 and has no 12px step, so both square-tile
+     surfaces in this media block take --radius-tile = 13px. MEASURED at the
+     element at 760px wide, where this block applies: 12px -> 13px, both themes.
+     (At >= 769px neither rule matches — the desktop reads are 0px for the
+     symbol and 14px for the img, inherited from `.server-icon`.) The other site
+     is `.server-icon img` at the foot of this block; the third is
+     `.auth-card::before`. */
   .server-icon-symbol {
     width: 40px;
     height: 40px;
     min-width: 40px;
-    border-radius: var(--radius-lg);
-    background: var(--bg-secondary);
+    border-radius: var(--radius-tile);
+    background: var(--panel);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -333,42 +275,66 @@
     font-weight: 700;
   }
 
-  .server-icon.active .server-icon-symbol {
-    background: var(--brand-color);
-    color: var(--text-inverse);
+  .server-icon.is-active .server-icon-symbol {
+    background: var(--accent);
+    color: var(--white);
   }
 
   .server-icon-name {
     display: block;
     font-size: 15px;
     font-weight: 500;
-    color: var(--text-primary);
+    color: var(--ink);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
   }
 
-  .server-icon.home .server-icon-symbol {
-    background: var(--bg-primary);
-    color: var(--brand-color);
+  /* The ACTIVE row still takes `background: var(--accent)` from the base
+     `.server-icon.is-active` rule — the mobile override above resets only
+     radius, shadow and border-left — so the row's own `color` is `--white`.
+     But `.server-icon-name` declares `--ink` on itself, which beats an
+     inherited value at any specificity, leaving dark ink on an indigo fill.
+     MEASURED at the rendered element, 760px: light **2.93:1**, dark
+     **3.61:1**, against AA's 4.5:1.
+
+     Found by the M6 final review AFTER manual QA fixed the surrounding rows —
+     same defect species as that fix (a `--rail`-era assumption meeting page
+     ink), one row over, and pre-existing rather than introduced by it.
+     (0,3,0), placed after the (0,1,0) rule it corrects. */
+  .server-icon.is-active .server-icon-name {
+    color: var(--white);
   }
 
-  .server-icon.add .server-icon-symbol {
-    background: var(--green-50);
-    color: var(--green-color);
+  /* Compound on purpose — tie (2) at the top of this file. This rule and
+     `.server-icon.is-active .server-icon-symbol` above are both (0,3,0) and
+     this one wins only by coming later; the home tile carries `is-active`
+     whenever no server is selected. Dropping the block class here inverts the
+     home tile's symbol in this band. */
+  .server-icon.server-icon-home .server-icon-symbol {
+    background: var(--canvas);
+    color: var(--accent);
+  }
+
+  .server-icon.server-icon-add .server-icon-symbol {
+    background: var(--online-soft);
+    color: var(--online);
     font-size: 22px;
   }
 
-  .server-icon.search .server-icon-symbol {
-    background: var(--brand-50);
-    color: var(--brand-color);
+  .server-icon.server-icon-search .server-icon-symbol {
+    background: var(--accent-soft);
+    color: var(--accent);
     font-size: 16px;
   }
 
+  /* Second of decision 13's three +1px sites — see `.server-icon-symbol` above.
+     It must keep matching that rule's radius: the two paint the same 40px tile,
+     one for the initials fallback and one for an uploaded icon. */
   .server-icon img {
     width: 40px;
     height: 40px;
     min-width: 40px;
-    border-radius: var(--radius-lg);
+    border-radius: var(--radius-tile);
   }
 }

@@ -28,6 +28,7 @@ interface CallState {
   callServerId: string | null;
   callServerName: string | null;
   status: CallStatus;
+  startedAt: number | null;
   isMuted: boolean;
   isVideoOff: boolean;
   isMicAvailable: boolean;
@@ -77,6 +78,7 @@ const idle = () => ({
   callServerId: null,
   callServerName: null,
   status: 'idle' as CallStatus,
+  startedAt: null,
   isMuted: false,
   isVideoOff: true,
   isMicAvailable: true,
@@ -127,6 +129,7 @@ export const useCallStore = create<CallState>((set, get) => ({
     const micAvailable = groupCallService.isMicrophoneAvailable;
     set({
       status: 'connected',
+      startedAt: Date.now(),
       callChannelId: opts.channelId,
       callChannelName: opts.channelName,
       callServerId: opts.serverId,

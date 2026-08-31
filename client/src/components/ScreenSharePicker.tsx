@@ -1,8 +1,10 @@
+import { X } from 'lucide-react';
 import { SCREEN_QUALITY_PRESETS } from '@/services/groupCall';
 import type { ScreenQuality, ScreenQualityPreset } from '@/services/groupCall';
 import type { DesktopCapturerSource } from '@/types/electron';
 import { useT } from '@/i18n';
-import './CallStage.css';
+import { useEscapeDismiss } from '@/hooks/useModalFocus';
+import './ScreenSharePicker.css';
 
 // ─── Screen Source Picker Modal ──────────────────────────────────────────────
 
@@ -17,12 +19,20 @@ export function ScreenSourcePicker({ sources, onSelect, onCancel }: ScreenSource
   const screens = sources.filter((s) => s.id.startsWith('screen:'));
   const windows = sources.filter((s) => s.id.startsWith('window:'));
 
+  // Escape — через стек поверхностей (M6 T11, шаг 4). `blocking: true`, потому
+  // что `.screen-picker-backdrop` — настоящая блокирующая поверхность и уже
+  // сегодня глушит ⌘K через свой класс в селекторе isBlockingOverlayOpen();
+  // без этого флага гейт бы не изменился, но стек описывал бы её неверно.
+  useEscapeDismiss(true, onCancel, true);
+
   return (
     <div className="screen-picker-backdrop" onClick={onCancel}>
       <div className="screen-picker-modal" onClick={(e) => e.stopPropagation()}>
         <div className="screen-picker-header">
           <span>{t('call.selectScreen')}</span>
-          <button className="screen-picker-close" onClick={onCancel}>✕</button>
+          <button className="screen-picker-close" onClick={onCancel}>
+            <X size={16} strokeWidth={1.8} />
+          </button>
         </div>
 
         {screens.length > 0 && (
@@ -70,12 +80,21 @@ interface ScreenQualityPickerProps {
 export function ScreenQualityPicker({ onSelect, onCancel }: ScreenQualityPickerProps) {
   const t = useT();
   const entries = Object.entries(SCREEN_QUALITY_PRESETS) as [ScreenQuality, ScreenQualityPreset][];
+
+  // Escape — через стек поверхностей (M6 T11, шаг 4). `blocking: true`, потому
+  // что `.screen-picker-backdrop` — настоящая блокирующая поверхность и уже
+  // сегодня глушит ⌘K через свой класс в селекторе isBlockingOverlayOpen();
+  // без этого флага гейт бы не изменился, но стек описывал бы её неверно.
+  useEscapeDismiss(true, onCancel, true);
+
   return (
     <div className="screen-picker-backdrop" onClick={onCancel}>
       <div className="screen-quality-modal" onClick={(e) => e.stopPropagation()}>
         <div className="screen-picker-header">
           <span>{t('call.selectQuality')}</span>
-          <button className="screen-picker-close" onClick={onCancel}>✕</button>
+          <button className="screen-picker-close" onClick={onCancel}>
+            <X size={16} strokeWidth={1.8} />
+          </button>
         </div>
         <div className="screen-quality-list">
           {entries.map(([key, preset]) => (

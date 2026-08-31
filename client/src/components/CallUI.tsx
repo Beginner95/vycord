@@ -1,55 +1,13 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { Mic, MicOff, Phone, PhoneOff, Video, VideoOff } from 'lucide-react';
 import { useAuthStore } from '@/stores/authStore';
 import { callService } from '@/services/call';
 import { audioService } from '@/services/audio';
 import { wsService } from '@/services/websocket';
 import { useT } from '@/i18n';
+import { useMicLevel } from '@/hooks/useMicLevel';
+import { SPEAKING_THRESHOLD } from '@/utils/callStage';
 import './CallUI.css';
-
-function useMicLevel(stream: MediaStream | null, isMuted: boolean): number {
-  const [level, setLevel] = useState(0);
-  const rafRef = useRef(0);
-  const ctxRef = useRef<AudioContext | null>(null);
-  // Tracked as an explicit dependency below because the remote stream is a
-  // single object reused and mutated in place as tracks arrive (audio and
-  // video ontrack fire separately) — the object reference alone doesn't
-  // change when it gains an audio track later, so recomputing this count on
-  // every render is what lets the effect re-run.
-  const audioTrackCount = stream?.getAudioTracks().length ?? 0;
-
-  useEffect(() => {
-    // createMediaStreamSource throws InvalidStateError on a stream with no
-    // audio track yet — wait until one is actually present.
-    if (!stream || isMuted || audioTrackCount === 0) {
-      setLevel(0);
-      return;
-    }
-
-    const ctx = new AudioContext();
-    const analyser = ctx.createAnalyser();
-    analyser.fftSize = 256;
-    const source = ctx.createMediaStreamSource(stream);
-    source.connect(analyser);
-    ctxRef.current = ctx;
-
-    const data = new Uint8Array(analyser.frequencyBinCount);
-    const tick = () => {
-      analyser.getByteFrequencyData(data);
-      const avg = data.reduce((a, b) => a + b, 0) / data.length;
-      setLevel(avg / 128); // 0–1, normalised
-      rafRef.current = requestAnimationFrame(tick);
-    };
-    rafRef.current = requestAnimationFrame(tick);
-
-    return () => {
-      cancelAnimationFrame(rafRef.current);
-      source.disconnect();
-      ctx.close();
-    };
-  }, [stream, isMuted, audioTrackCount]);
-
-  return level;
-}
 
 export function CallUI() {
   const t = useT();
@@ -204,17 +162,29 @@ export function CallUI() {
     <>
       {/* Incoming Call Modal */}
       {incomingCall && (
-        <div className="call-overlay incoming">
-          <div className="call-modal">
-            <div className="call-avatar incoming-avatar">📞</div>
-            <h2>{t('call.incomingCall')}</h2>
-            <p>{t('call.userCalling')}</p>
-            <div className="call-actions">
-              <button className="call-btn reject" onClick={handleRejectCall}>
-                ✕
+        <div className="p2p-overlay is-incoming">
+          <div className="p2p-modal">
+            <div className="p2p-modal-tile">
+              <Phone size={28} strokeWidth={1.8} />
+            </div>
+            <h2 className="p2p-modal-title">{t('call.incomingCall')}</h2>
+            <p className="p2p-modal-sub">{t('call.userCalling')}</p>
+            <div className="p2p-actions">
+              <button
+                className="p2p-reject-btn"
+                onClick={handleRejectCall}
+                aria-label={t('call.rejectCall')}
+                title={t('call.rejectCall')}
+              >
+                <PhoneOff size={20} strokeWidth={1.8} />
               </button>
-              <button className="call-btn accept" onClick={handleAcceptCall}>
-                ✓
+              <button
+                className="p2p-accept-btn"
+                onClick={handleAcceptCall}
+                aria-label={t('call.acceptCall')}
+                title={t('call.acceptCall')}
+              >
+                <Phone size={20} strokeWidth={1.8} />
               </button>
             </div>
           </div>
@@ -223,64 +193,73 @@ export function CallUI() {
 
       {/* Active Call Overlay */}
       {activeCall && (
-        <div className="call-overlay active">
-          <div className="call-videos">
-            <div className={`remote-video ${remoteMicLevel > 0.05 ? 'speaking' : ''}`}>
+        <div className="p2p-overlay is-active">
+          <div className="p2p-videos">
+            <div
+              className={`p2p-remote${remoteMicLevel > SPEAKING_THRESHOLD ? ' is-speaking' : ''}`}
+              style={{ '--speak-level': Math.min(1, remoteMicLevel) } as React.CSSProperties}
+            >
               <video
                 ref={remoteVideoRef}
                 autoPlay
                 playsInline
               />
-              <div className="call-timer">
-                <CallTimer />
+              <div className="p2p-timer">
+                <span className="p2p-timer-dot" />
+                {t('call.live')} <CallTimer />
               </div>
               {remoteStream && (
-                <div className={`mic-badge ${remoteMicMuted ? 'mic-badge--muted' : remoteMicLevel > 0.05 ? 'mic-badge--speaking' : 'mic-badge--idle'}`}>
-                  {remoteMicMuted ? '🔇' : '🎤'}
+                <div className="p2p-plate">
+                  {remoteMicMuted
+                    ? <span className="p2p-plate-mic is-muted"><MicOff size={12} strokeWidth={1.8} /></span>
+                    : <span className="p2p-plate-mic"><Mic size={12} strokeWidth={1.8} /></span>}
                 </div>
               )}
             </div>
-            <div className={`local-video ${micLevel > 0.05 ? 'speaking' : ''}`}>
+            <div
+              className={`p2p-local${micLevel > SPEAKING_THRESHOLD ? ' is-speaking' : ''}`}
+              style={{ '--speak-level': Math.min(1, micLevel) } as React.CSSProperties}
+            >
               <video
                 ref={localVideoRef}
                 autoPlay
                 playsInline
                 muted
               />
-              <div className={`mic-badge ${isMuted ? 'mic-badge--muted' : micLevel > 0.05 ? 'mic-badge--speaking' : 'mic-badge--idle'}`}>
-                {isMuted ? '🔇' : '🎤'}
-              </div>
               {user && (
-                <div className="local-video-label">
+                <div className="p2p-local-label">
                   {user.username} {t('call.youSuffix')}
                 </div>
               )}
             </div>
           </div>
 
-          <div className="call-controls">
-            <div
-              className="mic-btn-wrap"
-              style={{ '--mic-level': micLevel } as React.CSSProperties}
-            >
+          <div className="p2p-controls">
+            <div className="p2p-ctl">
               <button
-                className={`control-btn ${isMuted ? 'active' : ''}`}
+                className={`p2p-ctl-btn${isMuted ? ' is-off' : ''}`}
                 onClick={handleToggleMute}
                 disabled={!isMicAvailable}
                 title={!isMicAvailable ? t('call.micUnavailable') : isMuted ? t('call.micOn') : t('call.micOff')}
               >
-                {!isMicAvailable ? '🚫' : isMuted ? '🔇' : '🎤'}
+                {isMuted ? <MicOff size={16} strokeWidth={1.8} /> : <Mic size={16} strokeWidth={1.8} />}
               </button>
+              <span className="p2p-ctl-label">{t('call.ctlMic')}</span>
             </div>
-            <button
-              className={`control-btn ${isVideoOff ? 'active' : ''}`}
-              onClick={handleToggleVideo}
-              title={isVideoOff ? t('call.cameraOn') : t('call.cameraOff')}
-            >
-              {isVideoOff ? '📷' : '🎥'}
-            </button>
-            <button className="control-btn end-call" onClick={handleEndCall} title={t('call.endCall')}>
-              📞
+            <div className="p2p-ctl">
+              <button
+                className={`p2p-ctl-btn${isVideoOff ? ' is-off' : ''}`}
+                onClick={handleToggleVideo}
+                title={isVideoOff ? t('call.cameraOn') : t('call.cameraOff')}
+              >
+                {isVideoOff ? <VideoOff size={16} strokeWidth={1.8} /> : <Video size={16} strokeWidth={1.8} />}
+              </button>
+              <span className="p2p-ctl-label">{t('call.ctlCamera')}</span>
+            </div>
+            <div className="p2p-ctl-divider" />
+            <button className="p2p-leave-btn" onClick={handleEndCall} title={t('call.endCall')}>
+              <PhoneOff size={16} strokeWidth={1.8} />
+              {t('call.leaveLabel')}
             </button>
           </div>
         </div>

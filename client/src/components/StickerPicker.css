@@ -1,0 +1,78 @@
+/* Sticker picker popover — same canvas-bg popover shell as EmojiPicker.css,
+   with a 3-column grid of larger cells. Anchors to `.composer-root`. */
+.sticker-picker {
+  position: absolute;
+  right: 12px;
+  bottom: calc(100% + 8px);
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  width: 324px;
+  max-height: 320px;
+  overflow: hidden;
+  background: var(--canvas);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  box-shadow: var(--shadow-popover);
+  animation: fade-in 0.12s var(--ease-out);
+}
+
+.sticker-picker-grid {
+  display: grid;
+  flex: 1;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  padding: 10px;
+  overflow-y: auto;
+}
+
+.sticker-picker-cell {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 96px;
+  height: 96px;
+  padding: 4px;
+  background: none;
+  border: none;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: background var(--transition);
+}
+
+.sticker-picker-cell:hover {
+  background: var(--canvas-2);
+}
+
+.sticker-picker-cell img {
+  width: 100%;
+  height: auto;
+  object-fit: contain;
+  border-radius: 7px;
+}
+
+.sticker-picker-empty {
+  grid-column: 1 / -1;
+  padding: 20px 10px;
+  font-size: 13px;
+  color: var(--muted-2);
+  text-align: center;
+}
+
+.sticker-picker-manage-btn {
+  display: block;
+  width: 100%;
+  padding: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--accent-text);
+  background: var(--canvas);
+  border: none;
+  border-top: 1px solid var(--line);
+  cursor: pointer;
+  transition: background var(--transition);
+}
+
+.sticker-picker-manage-btn:hover {
+  background: var(--canvas-2);
+}

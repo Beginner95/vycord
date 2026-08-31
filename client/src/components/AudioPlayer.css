@@ -1,0 +1,62 @@
+/* Inline audio player. Unspecced surface: extrapolated from the message row
+   (board 2b) card idiom — --panel fill, --line-strong hairline,
+   --radius-card — with the composer's accent-filled round action button
+   (board 1c column C) for transport. */
+.audio-player {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: 420px;
+  padding: 8px 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-card);
+  background: var(--panel);
+}
+
+.audio-play-btn {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: var(--accent);
+  color: var(--white);
+  cursor: pointer;
+  transition: background var(--transition);
+}
+
+.audio-play-btn:hover {
+  background: var(--accent-hover);
+}
+
+.audio-body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.audio-name {
+  overflow: hidden;
+  color: var(--ink);
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.audio-seek {
+  width: 100%;
+  accent-color: var(--accent);
+}
+
+.audio-time {
+  flex: none;
+  color: var(--muted-2);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}

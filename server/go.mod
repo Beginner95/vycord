@@ -17,6 +17,7 @@ require (
 	github.com/redis/go-redis/v9 v9.5.1
 	github.com/stretchr/testify v1.11.1
 	golang.org/x/crypto v0.48.0
+	golang.org/x/image v0.31.0
 )
 
 require (

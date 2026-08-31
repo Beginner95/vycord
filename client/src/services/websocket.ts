@@ -4,16 +4,37 @@ import { computeBackoffDelay } from '@/services/backoff';
 
 const WS_URL = import.meta.env.VITE_WS_URL || 'ws://localhost:8080';
 
+/**
+ * Сколько соединение должно прожить, чтобы попытка засчиталась успешной и
+ * backoff обнулился. Handshake при вытеснении всегда успешен (сервер отвечает
+ * 101 и только потом рвёт сокет), поэтому сброс счётчика по `onopen` держал
+ * задержку на минимуме вечно: две сессии одного пользователя выбивали друг
+ * друга по два раза в секунду сутки напролёт.
+ */
+const MIN_HEALTHY_CONNECTION_MS = 10_000;
+
 class WebSocketService {
   private ws: WebSocket | null = null;
   private reconnectTimer: number | null = null;
   // Consecutive failed attempts since the last successful open — grows the
-  // backoff ceiling computeBackoffDelay draws from, reset to 0 on 'open'.
+  // backoff ceiling computeBackoffDelay draws from, reset to 0 in handleClose
+  // once the connection has proven itself healthy (see MIN_HEALTHY_CONNECTION_MS).
   private reconnectAttempt = 0;
+  // Момент последнего успешного `open`; null — соединение ни разу не открылось.
+  private openedAt: number | null = null;
   private listeners: Map<string, Set<(payload: unknown) => void>> = new Map();
   private token: string | null = null;
   private isConnected = false;
   private pendingMessages: string[] = [];
+  /**
+   * Канал, который пользователь сейчас смотрит. Хранится здесь, потому что на
+   * сервере это состояние живёт в `ws.Client.CurrentChannelID` — то есть
+   * привязано к конкретному соединению и обнуляется вместе с ним. Реконнект
+   * создаёт в хабе новый Client, `SendToChannel` перестаёт находить получателя,
+   * и realtime-доставка сообщений молча умирает до перезагрузки страницы.
+   * Поэтому канал переотправляется на каждом `open` (см. resendJoinChannel).
+   */
+  private currentChannelId: string | null = null;
 
   connect(token: string): Promise<void> {
     if (this.isConnected) {
@@ -48,10 +69,13 @@ class WebSocketService {
 
       this.ws.onopen = () => {
         this.isConnected = true;
-        this.reconnectAttempt = 0;
+        this.openedAt = Date.now();
         this.ws?.addEventListener('message', this.handleMessage);
         this.ws?.addEventListener('close', this.handleClose);
         this.ws?.addEventListener('error', this.handleError);
+        // Первым делом — заново объявить просматриваемый канал: у нового
+        // соединения серверный Client создан с пустым CurrentChannelID.
+        this.resendJoinChannel();
         // Flush messages queued before the connection was ready
         const pending = this.pendingMessages.splice(0);
         for (const data of pending) {
@@ -82,6 +106,37 @@ class WebSocketService {
   disconnect(): void {
     this.cleanup();
     this.reconnectAttempt = 0;
+    this.openedAt = null;
+    this.currentChannelId = null;
+  }
+
+  /**
+   * Сообщает серверу, какой канал пользователь сейчас смотрит: от этого
+   * зависит адресная доставка chat_message/message_update/message_delete
+   * (hub.SendToChannel). null — «ни в каком канале».
+   *
+   * Единственный способ отправить join_channel: канал запоминается и
+   * переотправляется после каждого реконнекта.
+   */
+  joinChannel(channelId: string | null): void {
+    this.currentChannelId = channelId;
+    // Намеренно не через send(): буферизовать join_channel незачем и вредно —
+    // на ещё не открытом сокете канал объявит resendJoinChannel, а очередь
+    // добавила бы к нему дубль.
+    if (this.ws?.readyState === WebSocket.OPEN) {
+      this.ws.send(JSON.stringify({
+        type: 'join_channel',
+        payload: { channel_id: channelId ?? '' },
+      }));
+    }
+  }
+
+  private resendJoinChannel(): void {
+    if (!this.currentChannelId || this.ws?.readyState !== WebSocket.OPEN) return;
+    this.ws.send(JSON.stringify({
+      type: 'join_channel',
+      payload: { channel_id: this.currentChannelId },
+    }));
   }
 
   /**
@@ -126,6 +181,12 @@ class WebSocketService {
 
   private handleClose = (): void => {
     this.isConnected = false;
+    // Успешной считается не открывшаяся, а прожившая попытка — иначе счётчик
+    // обнуляется вытеснением и backoff никогда не растёт.
+    if (this.openedAt !== null && Date.now() - this.openedAt >= MIN_HEALTHY_CONNECTION_MS) {
+      this.reconnectAttempt = 0;
+    }
+    this.openedAt = null;
     this.scheduleReconnect(() => {
       if (this.token) {
         this.connect(this.token).catch((err) => logger.error('WebSocket reconnect failed:', err, { module: 'ws' }));

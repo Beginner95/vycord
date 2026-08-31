@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { X, ZoomIn } from 'lucide-react';
 import { apiErrorText } from '@/services/api';
 import { t, useT } from '@/i18n';
 import './AvatarCropModal.css';
@@ -167,9 +168,26 @@ export function AvatarCropModal({ file, title, onCancel, onUpload }: AvatarCropM
   };
 
   return (
-    <div className="avatar-crop-overlay" onClick={saving ? undefined : onCancel}>
-      <div className="avatar-crop-modal" onClick={(e) => e.stopPropagation()}>
-        <h3>{title ?? t('settings.cropAvatarTitle')}</h3>
+    <div className="modal-overlay" onClick={saving ? undefined : onCancel}>
+      <div className="modal avatar-crop-modal" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-header">
+          <h2 className="modal-title">{title ?? t('settings.cropAvatarTitle')}</h2>
+          <button
+            type="button"
+            className="modal-close-btn"
+            title={t('common.cancel')}
+            aria-label={t('common.cancel')}
+            // Третий путь отмены — и он обязан быть таким же инертным во время
+            // сохранения, как оверлей выше и «Отмена» в .modal-actions: иначе
+            // клик по крестику размонтирует модалку, а начатый upload доедет
+            // и всё равно поменяет аватар. disabled здесь не годится —
+            // у .modal-close-btn нет :disabled-правила, и :hover продолжал бы
+            // совпадать, то есть кнопка выглядела бы живой, будучи мёртвой.
+            onClick={saving ? undefined : onCancel}
+          >
+            <X size={16} strokeWidth={1.8} />
+          </button>
+        </div>
 
         <canvas
           ref={canvasRef}
@@ -184,13 +202,22 @@ export function AvatarCropModal({ file, title, onCancel, onUpload }: AvatarCropM
         />
 
         <div className="avatar-crop-zoom">
-          <span>🔍</span>
+          <span className="avatar-crop-zoom-icon">
+            <ZoomIn size={16} strokeWidth={1.8} />
+          </span>
           <input
             type="range"
+            className="slider-input"
+            aria-label={t('settings.cropZoom')}
             min={MIN_ZOOM}
             max={MAX_ZOOM}
             step={0.05}
             value={zoom}
+            // --slider-fill красит пройденную часть дорожки в primitives.css;
+            // значение JS-инъекционное, поэтому в CSS оно всегда с fallback.
+            style={{
+              '--slider-fill': `${Math.round(((zoom - MIN_ZOOM) / (MAX_ZOOM - MIN_ZOOM)) * 100)}%`,
+            } as React.CSSProperties}
             onChange={handleZoomSlider}
             disabled={!img}
           />
@@ -198,13 +225,13 @@ export function AvatarCropModal({ file, title, onCancel, onUpload }: AvatarCropM
 
         {error && <p className="avatar-crop-error">{error}</p>}
 
-        <div className="avatar-crop-actions">
-          <button type="button" className="avatar-crop-btn" onClick={onCancel} disabled={saving}>
+        <div className="modal-actions">
+          <button type="button" className="btn btn-secondary" onClick={onCancel} disabled={saving}>
             {t('common.cancel')}
           </button>
           <button
             type="button"
-            className="avatar-crop-btn primary"
+            className="btn btn-primary"
             onClick={handleSaveClick}
             disabled={!img || saving}
           >

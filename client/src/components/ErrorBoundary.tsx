@@ -1,5 +1,7 @@
 import { useState } from 'react';
 import * as Sentry from '@sentry/react';
+import { AlertTriangle, Check } from 'lucide-react';
+import { useT } from '@/i18n';
 import './ErrorBoundary.css';
 
 interface CrashFallbackProps {
@@ -7,6 +9,7 @@ interface CrashFallbackProps {
 }
 
 function CrashFallback({ eventId }: CrashFallbackProps) {
+  const t = useT();
   const [comment, setComment] = useState('');
   const [submitted, setSubmitted] = useState(false);
 
@@ -36,32 +39,42 @@ function CrashFallback({ eventId }: CrashFallbackProps) {
   return (
     <div className="error-boundary-overlay">
       <div className="error-boundary-card">
-        <div className="error-boundary-icon">⚠️</div>
-        <h1>Что-то пошло не так</h1>
-        <p>Мы уже знаем об этой ошибке. Попробуйте перезагрузить приложение.</p>
-        <button className="error-boundary-reload-btn" onClick={handleReload}>
-          Перезагрузить
+        <div className="error-boundary-tile">
+          <AlertTriangle size={28} strokeWidth={1.8} />
+        </div>
+        <h1 className="error-boundary-title">{t('crash.title')}</h1>
+        <p className="error-boundary-body">{t('crash.body')}</p>
+        <button className="error-boundary-reload-btn btn btn-primary" onClick={handleReload}>
+          {t('crash.reload')}
         </button>
         <div className="error-boundary-event-row">
-          <span>ID: {eventId}</span>
-          <button className="error-boundary-copy-btn" onClick={handleCopyId}>
-            Скопировать
+          <span className="kbd">{t('crash.eventId', { id: eventId })}</span>
+          <button className="error-boundary-copy-btn btn btn-ghost" onClick={handleCopyId}>
+            {t('crash.copyId')}
           </button>
         </div>
         <details className="error-boundary-feedback">
-          <summary>Что вы делали, когда это произошло?</summary>
+          <summary>{t('crash.feedbackSummary')}</summary>
           <textarea
+            className="error-boundary-feedback-input input"
             value={comment}
             onChange={(e) => setComment(e.target.value)}
-            placeholder="Необязательно, но очень помогает разобраться"
+            placeholder={t('crash.feedbackPlaceholder')}
             disabled={submitted}
           />
           <button
-            className="error-boundary-feedback-submit"
+            className="error-boundary-feedback-submit btn btn-secondary"
             onClick={handleSubmitFeedback}
             disabled={submitted || !comment.trim()}
           >
-            {submitted ? 'Спасибо, отправлено ✓' : 'Отправить'}
+            {submitted ? (
+              <>
+                <Check size={14} strokeWidth={1.8} />
+                {t('crash.feedbackSent')}
+              </>
+            ) : (
+              t('crash.feedbackSend')
+            )}
           </button>
         </details>
       </div>

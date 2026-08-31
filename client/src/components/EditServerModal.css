@@ -1,3 +1,17 @@
+/* ── Edit-server modal: the server-icon block ──────────────────────────────
+   Everything else in this modal is now primitives: `.modal-header` /
+   `.modal-title` / `.modal-close-btn` for the header, `.modal .form-group` for
+   the fields, `.modal-actions` + `.btn` roles for the footer.
+
+   The preview matches the rail tile exactly — 46px, 14px radius (ServerList.css
+   `.server-icon`, lines 13-17) — so the modal shows the icon at the size it is
+   actually seen at. 14px is a literal here for the same reason it is one there:
+   the radius scale in tokens.css has --radius-tile at 13px and --radius-composer
+   at 14px, and neither name describes a rail tile.
+
+   The two actions are `.btn` role consumers; the hand-rolled
+   `.edit-server-icon-btn` recipe and its bare single-segment `.danger` modifier
+   are deleted (M4 T8). */
 .edit-server-icon-block {
   display: flex;
   align-items: center;
@@ -6,52 +20,26 @@
 }
 
 .edit-server-icon-preview {
-  width: 72px;
-  height: 72px;
-  min-width: 72px;
-  border-radius: var(--radius-full);
-  object-fit: cover;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 24px;
+  width: 46px;
+  height: 46px;
+  min-width: 46px;
+  border-radius: 14px;
+  background: var(--accent);
+  color: var(--white);
+  font-size: 17px;
   font-weight: 700;
-  background: linear-gradient(135deg, var(--brand-300), var(--brand-500));
-  color: var(--text-inverse);
+  object-fit: cover;
 }
 
+/* align-items: flex-start is load-bearing, not decoration: `.btn` is
+   `inline-flex`, and in a column flex container the default `stretch` would
+   blow both buttons out to the full remaining width of the icon block. */
 .edit-server-icon-actions {
   display: flex;
   flex-direction: column;
+  align-items: flex-start;
   gap: 8px;
-}
-
-.edit-server-icon-btn {
-  padding: 7px 14px;
-  border: 1.5px solid var(--border-color);
-  border-radius: var(--radius-md);
-  background: var(--bg-primary);
-  color: var(--text-primary);
-  font-size: 13px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: all var(--transition);
-}
-
-.edit-server-icon-btn:hover:not(:disabled) {
-  background: var(--bg-hover);
-}
-
-.edit-server-icon-btn.danger {
-  color: var(--red-500);
-  border-color: var(--red-500);
-}
-
-.edit-server-icon-btn.danger:hover:not(:disabled) {
-  background: var(--red-50);
-}
-
-.edit-server-icon-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
 }

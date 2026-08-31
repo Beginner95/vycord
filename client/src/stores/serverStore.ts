@@ -3,12 +3,14 @@ import type { Server, Channel, MemberWithUser, PermissionSet } from '@/types';
 
 interface ServerState {
   servers: Server[];
+  serversLoaded: boolean;
   currentServer: Server | null;
   channels: Channel[];
   currentChannel: Channel | null;
   members: MemberWithUser[];
   permissions: Map<string, PermissionSet>;
   setServers: (servers: Server[]) => void;
+  setServersLoaded: (loaded: boolean) => void;
   setCurrentServer: (server: Server | null) => void;
   setChannels: (channels: Channel[]) => void;
   setCurrentChannel: (channel: Channel | null) => void;
@@ -24,6 +26,7 @@ interface ServerState {
 
 export const useServerStore = create<ServerState>((set) => ({
   servers: [],
+  serversLoaded: false,
   currentServer: null,
   channels: [],
   currentChannel: null,
@@ -31,6 +34,7 @@ export const useServerStore = create<ServerState>((set) => ({
   permissions: new Map<string, PermissionSet>(),
 
   setServers: (servers) => set({ servers }),
+  setServersLoaded: (loaded) => set({ serversLoaded: loaded }),
   setCurrentServer: (server) => set({ currentServer: server }),
   setChannels: (channels) => set({ channels }),
   setCurrentChannel: (channel) => set({ currentChannel: channel }),

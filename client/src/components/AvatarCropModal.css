@@ -1,41 +1,38 @@
-.avatar-crop-overlay {
-  position: fixed;
-  inset: 0;
-  z-index: 2100;
-  background: rgba(15, 17, 23, 0.65);
-  backdrop-filter: blur(8px);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  animation: fadeIn 0.2s var(--ease-out);
-}
+/* ── Avatar / server-icon crop modal (M4 T9 rewrite) ──────────────────────
+   The shell is primitives: `.modal-overlay` (scrim + blur + fade-in) and
+   `.modal avatar-crop-modal` (canvas surface, 16px radius, modal-in). The
+   header is `.modal-header` / `.modal-title` / `.modal-close-btn`, the actions
+   are `.modal-actions` + `.btn btn-secondary` / `.btn btn-primary`, and the
+   zoom control is the `.slider-input` primitive. The `avatar-crop-btn` family
+   is deleted — it was the last bare single-segment `.primary` emitter in the
+   tree (AvatarCropModal.tsx:207, out of reach of T8's `.modal-actions
+   button.primary` deletion because it is not a `.modal-actions` descendant).
 
+   Layout stays block, not flex: `.modal-header` and `.modal-actions` already
+   supply their own margins, and the canvas is centred with `margin: 0 auto`.
+   `max-width` must stay >= 368px — the canvas is a fixed 320px plus `.modal`'s
+   24px padding on each side. Component CSS is injected after the base layer,
+   so this 0,1,0 rule wins the tie against `.modal` (CONSTRAINTS §9).
+
+   The overlay no longer sets z-index: 2100. Both call sites are covered by the
+   stacking-context fact measured in M4 T7 (probe-settings-shell) and reused in
+   Settings.tsx: ProfileSettings renders this overlay as a DESCENDANT of the
+   settings overlay's z-1000 stacking context, so it paints above it;
+   EditServerModal renders it as a LATER SIBLING of its own z-1000 overlay, so
+   it wins on source order. */
 .avatar-crop-modal {
-  background: var(--bg-primary);
-  border-radius: var(--radius-xl);
-  width: 92%;
-  max-width: 420px;
-  box-shadow: var(--shadow-xl);
-  border: 1px solid var(--border-subtle);
-  animation: scaleIn 0.25s var(--ease-out);
-  padding: 24px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 18px;
-}
-
-.avatar-crop-modal h3 {
-  font-size: 16px;
-  font-weight: 700;
-  color: var(--text-primary);
-  margin: 0;
-  align-self: flex-start;
+  width: 90%;
+  max-width: 380px;
 }
 
 .avatar-crop-canvas {
-  border-radius: var(--radius-lg);
-  background: var(--bg-secondary);
+  display: block;
+  width: 320px;
+  height: 320px;
+  margin: 0 auto;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--canvas-2);
   cursor: grab;
   touch-action: none;
 }
@@ -48,60 +45,29 @@
   display: flex;
   align-items: center;
   gap: 10px;
-  width: 100%;
+  margin-top: 16px;
 }
 
-.avatar-crop-zoom input[type="range"] {
+.avatar-crop-zoom-icon {
+  display: flex;
+  flex-shrink: 0;
+  color: var(--muted-2);
+}
+
+/* `.slider-input` is a fixed 150px in primitives (the settings rows it was
+   drawn for); here it fills the row next to the zoom icon. */
+.avatar-crop-zoom .slider-input {
   flex: 1;
-  accent-color: var(--brand-color);
+  width: auto;
 }
 
 .avatar-crop-error {
-  width: 100%;
-  font-size: 12px;
-  color: var(--yellow-500);
-  background: var(--yellow-50);
-  padding: 8px 14px;
-  border-radius: var(--radius-md);
-  margin: 0;
+  margin-top: 14px;
+  padding: 8px 12px;
+  border-radius: var(--radius-row);
+  background: var(--danger-soft);
+  color: var(--danger-text);
+  font-size: 12.5px;
   font-weight: 500;
-  border: 1px solid rgba(245, 158, 11, 0.15);
-}
-
-.avatar-crop-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 10px;
-  width: 100%;
-}
-
-.avatar-crop-btn {
-  padding: 9px 18px;
-  border-radius: var(--radius-md);
-  font-size: 13px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all var(--transition);
-  border: 1.5px solid var(--border-color);
-  background: var(--bg-primary);
-  color: var(--text-primary);
-}
-
-.avatar-crop-btn:hover {
-  background: var(--bg-hover);
-}
-
-.avatar-crop-btn.primary {
-  border-color: var(--brand-color);
-  background: var(--brand-color);
-  color: var(--text-inverse);
-}
-
-.avatar-crop-btn.primary:hover {
-  filter: brightness(1.05);
-}
-
-.avatar-crop-btn:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
+  line-height: 1.45;
 }

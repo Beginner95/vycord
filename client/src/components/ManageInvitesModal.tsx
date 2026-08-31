@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react';
+import { Check, Copy, Trash2, X } from 'lucide-react';
 import type { Invite } from '@/types';
 import { apiService, apiErrorText } from '@/services/api';
 import { useT } from '@/i18n';
+import { inviteExpiry } from '@/utils/inviteExpiry';
 import './ManageInvitesModal.css';
 
 interface ManageInvitesModalProps {
@@ -62,38 +64,51 @@ export function ManageInvitesModal({ serverId, onClose }: ManageInvitesModalProp
     }
   };
 
+  // Срок жизни ссылки считается из expires_at сервера через общий inviteExpiry —
+  // тот же util, что и у инвайт-карточки в списке участников (spec §5 M1).
+  const expiryText = (expiresAt?: string) => {
+    const exp = inviteExpiry(expiresAt);
+    return exp.kind === 'never'
+      ? t('server.inviteCard.noExpiry')
+      : t('server.inviteCard.expiresDays', { days: String(exp.days) });
+  };
+
   return (
     <div className="modal-overlay">
-      <div className="modal manage-invites-modal" onClick={(e) => e.stopPropagation()}>
-        <h2>{t('server.invites.title')}</h2>
-        <button
-          type="button"
-          className="manage-invites-close"
-          title={t('common.close')}
-          aria-label={t('common.close')}
-          onClick={onClose}
-        >
-          ✕
-        </button>
+      <div className="modal" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-header">
+          <h2 className="modal-title">{t('server.invites.title')}</h2>
+          <button
+            type="button"
+            className="modal-close-btn"
+            title={t('common.close')}
+            aria-label={t('common.close')}
+            onClick={onClose}
+          >
+            <X size={16} strokeWidth={1.8} />
+          </button>
+        </div>
         {error && <p className="modal-error">{error}</p>}
         {loading ? (
-          <p>{t('common.loading')}</p>
+          <p className="invites-empty">{t('common.loading')}</p>
         ) : invites.length === 0 ? (
-          <p className="search-empty">{t('server.invites.empty')}</p>
+          <p className="invites-empty">{t('server.invites.empty')}</p>
         ) : (
-          <ul className="channel-access-list">
+          <ul className="invites-list">
             {invites.map((invite) => (
-              <li key={invite.code} className="channel-access-row">
-                <div className="channel-access-info">
-                  <span className="channel-access-code">{invite.code}</span>
-                  <span className="channel-access-uses">
+              <li key={invite.code} className="invites-row">
+                <div className="invites-row-main">
+                  <span className="invites-code">{invite.code}</span>
+                  <span className="invites-meta">
                     {t('server.invites.usesCount', { count: String(invite.uses) })}
+                    {' · '}
+                    {expiryText(invite.expires_at)}
                   </span>
                 </div>
-                <div className="channel-access-actions">
+                <div className="invites-actions">
                   <button
                     type="button"
-                    className={copiedCode === invite.code ? 'copied' : ''}
+                    className="panel-icon-btn"
                     title={
                       copiedCode === invite.code
                         ? t('server.invites.copied')
@@ -103,27 +118,27 @@ export function ManageInvitesModal({ serverId, onClose }: ManageInvitesModalProp
                     onClick={() => handleCopy(invite.code)}
                   >
                     {copiedCode === invite.code ? (
-                      <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                      <Check size={15} strokeWidth={1.8} />
                     ) : (
-                      <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                      <Copy size={15} strokeWidth={1.8} />
                     )}
                   </button>
                   <button
                     type="button"
-                    className="danger"
+                    className="panel-icon-btn is-danger"
                     title={t('server.invites.revoke')}
                     aria-label={t('server.invites.revoke')}
                     onClick={() => handleRevoke(invite.code)}
                   >
-                    <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+                    <Trash2 size={15} strokeWidth={1.8} />
                   </button>
                 </div>
               </li>
             ))}
           </ul>
         )}
-        <div className="modal-actions manage-invites-actions">
-          <button type="button" className="primary" onClick={handleCreate} disabled={creating}>
+        <div className="modal-actions">
+          <button type="button" className="btn btn-primary" onClick={handleCreate} disabled={creating}>
             {creating ? t('common.saving') : t('server.invites.create')}
           </button>
         </div>

@@ -1,0 +1,458 @@
+/* ═══ Single left-aligned message metaphor — board 1c column C ═══ */
+.msg-row {
+  position: relative;
+  display: grid;
+  grid-template-columns: 42px 1fr;
+  gap: 0 12px;
+  padding: 5px 8px;
+  border-radius: 10px;
+}
+
+.msg-row.is-continuation {
+  padding: 3px 8px;
+}
+
+/* Own rows mirror to the right: POSITION is the ownership cue, and it carries
+   on its own. The tint (--own-msg-bg), the 2px accent bar and the accent
+   author name that used to say "yours" are all gone — a second, colour-only
+   signal on top of the side of the screen the row sits on is redundant, and it
+   was the half that failed for anyone reading in monochrome anyway. The
+   neutral "You" chip stays as the non-positional signal.
+   The row mirrors through grid PLACEMENT, not DOM order: markup order is still
+   gutter-then-content, so assistive-tech reading order is untouched. */
+.msg-row.is-own {
+  grid-template-columns: 1fr 42px;
+}
+
+.msg-row:hover {
+  background: var(--canvas-2);
+}
+
+.msg-gutter {
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-end;
+}
+
+/* Column 2 and the mirrored hug — the avatar keeps the same 12px gap to the
+   content it had on the left. */
+.msg-row.is-own .msg-gutter {
+  grid-row: 1;
+  grid-column: 2;
+  justify-content: flex-start;
+}
+
+.msg-avatar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  font-size: 15px;
+  border-radius: 13px;
+  object-fit: cover;
+}
+
+.msg-gutter-time {
+  padding-top: 3px;
+  font-size: 10.5px;
+  font-weight: 500;
+  color: var(--faint);
+  opacity: 0;
+}
+
+.msg-row:hover .msg-gutter-time {
+  opacity: 1;
+}
+
+.msg-content {
+  min-width: 0;
+}
+
+/* A column flex rather than `justify-self: end` on the grid item: the header,
+   the body, the attachment grid and the delivery chip all have to travel right
+   together, and one rule on the container beats four on its children.
+   `align-items: flex-end` moves each child as a BLOCK and leaves the text
+   inside it left-aligned — right-aligned prose has a ragged left edge and
+   reads badly; WhatsApp moves the bubble, not the words.
+   The BOX stays full width, and each child is capped separately below. Capping
+   the box instead was measured wrong twice over: it sized an own image by
+   `max-height × aspect-ratio` (510px for a 3:2 photo, 227px for a portrait)
+   and, once that was pinned, still held media to 82% where an incoming copy of
+   the same photo got the full column — 270px against 330px at a 420px width. */
+.msg-row.is-own .msg-content {
+  display: flex;
+  grid-row: 1;
+  grid-column: 1;
+  flex-direction: column;
+  align-items: flex-end;
+}
+
+/* Media, sized exactly as it is on an incoming row at every width: `width`
+   restores the 560px the base rule states as a max (shrink-to-fit would ignore
+   it), `max-width: 100%` hands the full column back on a shell too narrow for
+   560. Covers file cards too, which would otherwise hug their filename. */
+.msg-row.is-own .message-attachments {
+  width: 560px;
+  max-width: 100%;
+}
+
+.msg-header {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 1px;
+}
+
+/* The mirror image of the left row's header: name nearest the avatar, time
+   outermost. Reversing the flex direction rather than reordering the markup
+   keeps the name first for a screen reader. */
+.msg-row.is-own .msg-header {
+  flex-direction: row-reverse;
+}
+
+.msg-author {
+  font-size: 13.5px;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.msg-own-chip {
+  padding: 2px 6px;
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--muted-2);
+  background: var(--own-chip-bg);
+  border-radius: 5px;
+}
+
+.msg-time {
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--faint);
+}
+
+.msg-body {
+  font-size: 14px;
+  line-height: 1.55;
+  color: var(--ink);
+  overflow-wrap: break-word;
+  white-space: pre-wrap;
+}
+
+/* The cap belongs to the TEXT. 560px is `.message-attachments`' own max-width
+   (MessageAttachments.css), so a text row and a media row stop at one shared
+   right-hand column instead of two 20px apart; 82% keeps a visible left margin
+   at every width, which is what makes the mirror read as a mirror rather than
+   as a full-width row that happens to have its avatar on the other side. */
+.msg-row.is-own .msg-body {
+  max-width: min(560px, 82%);
+}
+
+/* The global reset zeroes ul/ol padding — markdown lists need it back. */
+.msg-body ol,
+.msg-body ul {
+  margin: 4px 0;
+  padding-left: 1.4em;
+}
+
+/* Inline mentions inside a rendered body. MessageRow is their sole emitter, so
+   they live here rather than in ChatArea.css — a component must not depend on
+   its parent's stylesheet. Named msg-* because the mention- namespace belongs
+   to MentionDropdown.css (one namespace, one owner file). */
+.msg-mention {
+  padding: 0 2px;
+  font-weight: 500;
+  color: var(--accent-text);
+  background: var(--accent-soft);
+  border-radius: 4px;
+}
+
+.msg-mention-self {
+  font-weight: 600;
+  background: var(--accent-border);
+}
+
+/* --danger-text, NOT --danger. This is real TEXT on its own --accent-soft over
+   the chat canvas. --accent-soft is translucent, so the ground is composited
+   arithmetically from browser-resolved values rather than read as a pixel (no
+   DOM API returns a composited pixel); on that ground --danger computes 4.22:1
+   in dark and 3.53:1 in light, both below WCAG 1.4.3's 4.5:1, and --danger-text
+   computes 8.76:1 dark / 5.22:1 light. --danger itself stays theme-invariant (it is a
+   FILL token — see the comment beside it in tokens.css), so a foreground
+   needing contrast has to move. M6 T3, human ruling 2026-08-30; deliberate,
+   disclosed colour change. No hover rule on this selector, so nothing
+   collapses. */
+.msg-mention-everyone {
+  font-weight: 600;
+  color: var(--danger-text);
+  background: var(--accent-soft);
+}
+
+.msg-quote-block {
+  display: block;
+  padding-left: 10px;
+  color: var(--muted);
+  border-left: 3px solid var(--line-strong);
+}
+
+.msg-sticker {
+  max-width: 160px;
+  max-height: 160px;
+  border-radius: 12px;
+}
+
+/* Optimistic-send states (Task 11). Opacity is scoped to the row's gutter
+   and content — not `.msg-row` itself — because `.msg-row` is what the
+   `msg-in` enter animation below animates `opacity` on. Putting a declared
+   0.75 on the same element the animation targets means the two fight: the
+   animated value wins while it runs, the declared 0.75 reapplies the instant
+   it ends, then reconciling removes the class and pops to 1 — two visible
+   snaps per send. Scoping the dim to the row's children leaves `.msg-row`'s
+   opacity untouched by delivery state, so the entrance animation is never in
+   competition with it (see task-11 report, Correction 2). */
+.msg-row.is-sending .msg-gutter,
+.msg-row.is-sending .msg-content,
+.msg-row.is-failed .msg-gutter,
+.msg-row.is-failed .msg-content {
+  opacity: 0.75;
+}
+
+.msg-delivery {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 2px;
+  padding: 2px 6px;
+  border-radius: 6px;
+  font-size: 10.5px;
+  font-weight: 600;
+}
+
+.msg-delivery.is-sending {
+  background: var(--canvas-2);
+  color: var(--muted-2);
+}
+
+.msg-delivery.is-failed {
+  border: none;
+  background: var(--danger-soft);
+  color: var(--danger-text);
+  cursor: pointer;
+}
+
+/* ═══ Hover action popover — top −14 / right 10, 120ms fade ═══ */
+.msg-actions {
+  position: absolute;
+  top: -14px;
+  right: 10px;
+  z-index: 5;
+  display: flex;
+  gap: 2px;
+  padding: 3px;
+  background: var(--canvas);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  box-shadow: var(--shadow-popover);
+  opacity: 0;
+  transition: opacity 0.12s var(--ease-out);
+  pointer-events: none;
+}
+
+/* Touch has no :hover — never leave the quote/edit/delete actions unreachable
+   (the M1 dark+touch join pill lesson). Declared *before* the hover-enable
+   rule below so specificity ascends down the file, which is the house style
+   here. (Honest note: this was originally justified as avoiding a
+   `no-descending-specificity` error, but two independent counterfactual runs
+   under stylelint 17.14.1 + config-standard show the rule does NOT fire for
+   this pair across the @media boundary — the ordering is a readability
+   convention, not a lint requirement.)
+
+   M6 T8 step 4 splits what used to be one unbounded `(hover: none)` block into
+   REACHABILITY (this block, still unbounded) and LAYOUT (the bounded block
+   below, which is where `position: static` / `grid-column: 2` moved to).
+
+   The brief asked for a width bound on the whole block. That would have been a
+   regression, not a fix: `.msg-actions` is `opacity: 0; pointer-events: none`
+   at base and is revealed only by `:hover`/`:focus-within`, so bounding the
+   reveal at any width leaves quote/edit/delete UNREACHABLE on a hover-incapable
+   pointer above it — the exact hole this block was written to prevent. What
+   actually leaks onto a wide touch screen is the stacked action ROW (the brief's
+   own words), which is the layout half. So the reveal stays unbounded and only
+   the layout moves. */
+@media (hover: none) {
+  .msg-actions {
+    opacity: 0.9;
+    pointer-events: auto;
+  }
+}
+
+/* Layout half — a narrow-screen affordance. At >= 900px the floating popover
+   has room, so a hover-incapable wide screen keeps the popover and loses only
+   the stacked row. `< 900px` matches the shell's panel model exactly — same
+   comparison, same numeral, so a fractional width like 899.5 cannot land in the
+   shell's mobile model while this block sits it out — and adds no boundary.
+   `grid-column: 2` pulls the popover out of the 42px avatar-gutter track
+   (col 1) it would otherwise land in once `position: static` makes it a real
+   grid item.
+
+   `.msg-action-btn` sizing answers to TWO different numbers and only one of
+   them is an accessibility rule: 28×28 at base already CLEARS WCAG 2.5.8
+   (Target Size, Minimum) at 24×24, so this is a shortfall against the design
+   board's >= 40px TOUCH floor, not an accessibility violation. It is therefore
+   raised only where the board's floor applies — a touch pointer on a
+   narrow screen — and 28×28 remains conformant everywhere else. */
+@media (hover: none) and (width < 900px) {
+  .msg-actions {
+    position: static;
+    grid-column: 2;
+    justify-self: start;
+    margin-top: 4px;
+  }
+
+  /* On an own row, column 2 is the avatar track — the stacked action row has
+     to go to column 1 and sit at its right edge, under the content it acts on.
+     (0,3,0) beats the (0,1,0) above regardless of source order. */
+  .msg-row.is-own .msg-actions {
+    grid-column: 1;
+    justify-self: end;
+  }
+
+  /* (0,2,0). The base `.msg-action-btn` 28×28 rule is (0,1,0) but is declared
+     LATER in this file, so an equal-specificity copy here would lose on source
+     order — the failure mode ruling C forbids. Scoping to the parent makes the
+     override win outright, wherever either rule sits. */
+  .msg-actions .msg-action-btn {
+    width: 40px;
+    height: 40px;
+  }
+}
+
+.msg-row:hover .msg-actions,
+.msg-row:focus-within .msg-actions {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* Mirrored row, mirrored popover. `right: 10px` on an own row would float the
+   quote/edit/delete chip over the avatar that now lives on that side. */
+.msg-row.is-own .msg-actions {
+  right: auto;
+  left: 10px;
+}
+
+.msg-action-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  color: var(--muted);
+  background: transparent;
+  border: none;
+  border-radius: 7px;
+  cursor: pointer;
+}
+
+.msg-action-btn:hover {
+  color: var(--ink);
+  background: var(--canvas-2);
+}
+
+.msg-action-btn.is-danger:hover {
+  color: var(--danger-text);
+  background: var(--danger-soft);
+}
+
+/* ═══ Motion — enter 220ms, jump flash 2.2s (board 2b) ═══ */
+@keyframes msg-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes msg-jump-flash {
+  0%,
+  40% {
+    background: var(--accent-soft);
+  }
+
+  100% {
+    background: transparent;
+  }
+}
+
+.msg-row.is-entering {
+  animation: msg-in 0.22s var(--ease-out);
+}
+
+.msg-row.is-highlight {
+  animation: msg-jump-flash 2.2s var(--ease-out);
+}
+
+/* M6 T12 added a second jump-flash whose end frame was --own-msg-bg, because
+   msg-jump-flash lands on `background: transparent` and that stripped an own
+   row's tint for the 2.2s the animation ran. With the tint gone, an own row
+   rests on transparent like every other row, so the shared keyframe now lands
+   where it should and the own-row variant has no reason to exist. */
+
+/* ═══ Inline editor ═══ */
+.msg-edit {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+/* The editor is the one child that must fill the box rather than hug its
+   draft: fit-content sizes a textarea to its DEFAULT intrinsic width (184px
+   measured), a third of the editor a non-own row gets. */
+.msg-row.is-own .msg-edit {
+  align-self: stretch;
+}
+
+.msg-edit-input {
+  width: 100%;
+  max-height: 40vh;
+  padding: 8px 10px;
+  overflow-y: auto;
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.55;
+  color: var(--ink);
+  background: var(--canvas);
+  border: 1.5px solid var(--accent);
+  border-radius: 10px;
+  outline: none;
+  box-shadow: var(--focus-ring);
+  resize: none;
+}
+
+/* ═══ Mobile (board 1f) ═══ */
+@media (width <= 768px) {
+  .msg-row {
+    grid-template-columns: 36px 1fr;
+    gap: 0 10px;
+    padding: 4px 6px;
+  }
+
+  /* The mirrored track has to narrow with the avatar. `.msg-row.is-own` is
+     (0,2,0) and declared far earlier, so it outranks the (0,1,0) rule above
+     and would hold 42px here without this. */
+  .msg-row.is-own {
+    grid-template-columns: 1fr 36px;
+  }
+
+  .msg-avatar {
+    width: 32px;
+    height: 32px;
+    border-radius: 11px;
+  }
+}

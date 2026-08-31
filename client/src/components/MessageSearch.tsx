@@ -1,7 +1,10 @@
-import { useState, useEffect, useRef, type ReactNode } from 'react';
+import { useState, useEffect, useRef } from 'react';
+import { Search, SearchX, X } from 'lucide-react';
 import { apiService, apiErrorText } from '@/services/api';
 import type { Channel, MessageWithAuthor, MessageSearchResponse } from '@/types';
 import { useT, useTp, useDateFormat } from '@/i18n';
+import { Avatar } from '@/components/Avatar';
+import { snippetAround, splitMatches } from '@/utils/searchSnippet';
 import './MessageSearch.css';
 
 const MIN_QUERY_LEN = 2;
@@ -10,6 +13,7 @@ const DEBOUNCE_MS = 300;
 
 interface MessageSearchProps {
   channel: Channel;
+  initialQuery?: string;
   onJumpToMessage: (messageId: string) => void;
   onClose: () => void;
 }
@@ -24,41 +28,18 @@ function formatResultDate(
   return `${day}, ${time}`;
 }
 
-// Обрезает длинный текст окном вокруг первого совпадения.
-function snippetAround(content: string, query: string, radius = 80): string {
-  if (content.length <= radius * 2) return content;
-  const idx = content.toLowerCase().indexOf(query.toLowerCase());
-  if (idx === -1) return `${content.slice(0, radius * 2)}…`;
-  const start = Math.max(0, idx - radius);
-  const end = Math.min(content.length, idx + query.length + radius);
-  return `${start > 0 ? '…' : ''}${content.slice(start, end)}${end < content.length ? '…' : ''}`;
-}
-
-function highlightMatches(text: string, query: string): ReactNode[] {
-  const lower = text.toLowerCase();
-  const q = query.toLowerCase();
-  const parts: ReactNode[] = [];
-  let pos = 0;
-  let key = 0;
-  for (;;) {
-    const idx = lower.indexOf(q, pos);
-    if (idx === -1) break;
-    if (idx > pos) parts.push(text.slice(pos, idx));
-    parts.push(<mark key={key++}>{text.slice(idx, idx + q.length)}</mark>);
-    pos = idx + q.length;
-  }
-  if (pos < text.length) parts.push(text.slice(pos));
-  return parts;
-}
-
-export function MessageSearch({ channel, onJumpToMessage, onClose }: MessageSearchProps) {
+export function MessageSearch({ channel, initialQuery = '', onJumpToMessage, onClose }: MessageSearchProps) {
   const t = useT();
   const tp = useTp();
   const fmt = useDateFormat();
-  const [query, setQuery] = useState('');
+  const [query, setQuery] = useState(initialQuery);
   const [results, setResults] = useState<MessageWithAuthor[]>([]);
   const [total, setTotal] = useState(0);
-  const [loading, setLoading] = useState(false);
+  // Seeded mount (palette's show-all handoff) commits with a query that will
+  // certainly fire the search effect below — initialising loading from that
+  // fact avoids a one-frame flash of the empty-results tile before the effect
+  // (which runs post-commit) sets loading itself.
+  const [loading, setLoading] = useState(initialQuery.trim().length >= MIN_QUERY_LEN);
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [searched, setSearched] = useState(false);
@@ -119,10 +100,11 @@ export function MessageSearch({ channel, onJumpToMessage, onClose }: MessageSear
     <aside className="message-search" aria-label={t('chat.searchMessages')}>
       <div className="message-search-header">
         <div className="message-search-input-wrap">
-          <svg className="message-search-input-icon" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          <Search size={17} strokeWidth={1.8} className="message-search-input-icon" />
           <input
             ref={inputRef}
             type="text"
+            className="input message-search-field"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={(e) => {
@@ -136,12 +118,12 @@ export function MessageSearch({ channel, onJumpToMessage, onClose }: MessageSear
           />
           {query && (
             <button type="button" className="message-search-clear" aria-label={t('common.clear')} onClick={() => setQuery('')}>
-              <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+              <X size={14} strokeWidth={1.8} />
             </button>
           )}
         </div>
         <button type="button" className="message-search-close" aria-label={t('chat.closeSearch')} onClick={onClose}>
-          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          <X size={16} strokeWidth={1.8} />
         </button>
       </div>
 
@@ -152,7 +134,7 @@ export function MessageSearch({ channel, onJumpToMessage, onClose }: MessageSear
       <div className="message-search-body">
         {trimmed.length < MIN_QUERY_LEN ? (
           <div className="message-search-hint">
-            <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+            <Search size={22} strokeWidth={1.8} />
             <p>{tp('chat.minQueryLength', MIN_QUERY_LEN)}</p>
           </div>
         ) : loading ? (
@@ -164,8 +146,11 @@ export function MessageSearch({ channel, onJumpToMessage, onClose }: MessageSear
             <p>{error}</p>
           </div>
         ) : results.length === 0 ? (
-          <div className="message-search-hint">
-            <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="8" y1="11" x2="14" y2="11"/></svg>
+          <div className="message-search-empty">
+            <div className="message-search-empty-tile">
+              <SearchX size={22} strokeWidth={1.8} />
+            </div>
+            <h3 className="message-search-empty-title">{t('chat.nothingFoundTitle')}</h3>
             <p>{t('chat.nothingFound', { query: trimmed })}</p>
           </div>
         ) : (
@@ -177,16 +162,16 @@ export function MessageSearch({ channel, onJumpToMessage, onClose }: MessageSear
                 className="message-search-result"
                 onClick={() => onJumpToMessage(msg.id)}
               >
-                <div className="message-search-result-avatar">
-                  {msg.username.charAt(0).toUpperCase()}
-                </div>
+                <Avatar username={msg.username} className="message-search-result-avatar" />
                 <div className="message-search-result-main">
                   <div className="message-search-result-meta">
                     <span className="message-search-result-author">{msg.username}</span>
                     <span className="message-search-result-date">{formatResultDate(msg.created_at, fmt)}</span>
                   </div>
                   <p className="message-search-result-text">
-                    {highlightMatches(snippetAround(msg.content, trimmed), trimmed)}
+                    {splitMatches(snippetAround(msg.content, trimmed), trimmed).map((part, i) =>
+                      part.match ? <mark key={i}>{part.text}</mark> : <span key={i}>{part.text}</span>,
+                    )}
                   </p>
                 </div>
               </button>

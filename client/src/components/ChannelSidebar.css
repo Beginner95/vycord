@@ -1,33 +1,58 @@
 .channel-sidebar {
-  width: 260px;
-  min-width: 260px;
-  background: var(--bg-primary);
+  width: 252px;
+  min-width: 252px;
+  background: var(--panel);
   display: flex;
   flex-direction: column;
-  border-right: 1px solid var(--border-subtle);
+  border-right: 1px solid var(--panel-line);
 }
 
 .channel-header {
-  height: 56px;
-  padding: 0 20px;
+  height: 58px;
+  min-height: 58px;
+  padding: 0 16px;
   display: flex;
   align-items: center;
-  border-bottom: 1px solid var(--border-subtle);
+  gap: 6px;
+  border-bottom: 1px solid var(--panel-line);
 }
 
 .channel-header h2 {
-  font-size: 16px;
+  flex: 1;
+  min-width: 0;
+  font-size: var(--fs-heading);
   font-weight: 700;
-  color: var(--text-primary);
+  color: var(--ink);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
   letter-spacing: -0.01em;
 }
 
+.channel-header-menu {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--muted-2);
+  cursor: pointer;
+  transition: background var(--transition), color var(--transition);
+}
+
+.channel-header-menu:hover {
+  background: var(--row-hover);
+  color: var(--ink);
+}
+
 .no-server-message {
   padding: 32px 20px;
-  color: var(--text-muted);
+  color: var(--muted-2);
   font-size: 14px;
   text-align: center;
   line-height: 1.6;
@@ -35,7 +60,7 @@
 
 .channel-list {
   flex: 1;
-  padding: 12px 10px;
+  padding: 16px 10px;
   overflow-y: auto;
 }
 
@@ -43,12 +68,12 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 12px 8px 6px;
-  color: var(--text-muted);
-  font-size: 11px;
+  padding: 0 6px 6px;
+  color: var(--muted-2);
+  font-size: var(--fs-group);
   font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.05em;
+  letter-spacing: var(--ls-group);
 }
 
 .channel-category-add {
@@ -59,38 +84,35 @@
   height: 20px;
   padding: 0;
   border: none;
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-chip);
   background: transparent;
-  color: var(--text-muted);
-  font-size: 16px;
-  font-weight: 600;
-  line-height: 1;
+  color: var(--muted-2);
   cursor: pointer;
-  opacity: 1;
-  transition: all var(--transition);
+  transition: background var(--transition), color var(--transition);
 }
 
 .channel-category-add:hover {
-  background: var(--bg-hover);
-  color: var(--brand-color);
+  background: var(--row-hover);
+  color: var(--ink);
 }
 
-.channel-category-add:active {
-  transform: scale(0.92);
-}
-
-.channel {
-  padding: 7px 10px;
+.channel-row {
+  padding: 8px 10px;
   margin: 2px 0;
-  border-radius: var(--radius-sm);
-  color: var(--text-secondary);
+  border-radius: var(--radius-row);
+  color: var(--muted);
   cursor: pointer;
-  font-size: 14px;
+  font-size: var(--fs-label);
   font-weight: 500;
   display: flex;
   align-items: center;
   gap: 8px;
-  transition: all var(--transition);
+  transition: background var(--transition), color var(--transition);
+}
+
+.channel-row .channel-hash {
+  flex-shrink: 0;
+  color: var(--muted-2);
 }
 
 .channel-name {
@@ -102,7 +124,7 @@
 
 /* ── Join Voice Button ──
    Покой: приглушённая круглая иконка-кнопка (видна всегда, в т.ч. на тач).
-   Наведение на строку канала / фокус: раскрывается в зелёную пилюлю с подписью. */
+   Наведение на строку канала / фокус: раскрывается в акцентную пилюлю с подписью. */
 .channel-join-voice {
   flex-shrink: 0;
   display: flex;
@@ -113,9 +135,15 @@
   min-width: 24px;
   padding: 0 5px;
   border: none;
-  border-radius: 999px; /* не var(--radius-full): 50% на широкой пилюле даёт эллипс */
+
+  /* --radius-pill (999px), не 50%: на широкой пилюле 50% даёт эллипс.
+     Раньше здесь стоял литерал 999px с комментарием «не var(--radius-full)» —
+     но --radius-full и сам был 999px, так что отвергать стоило именно 50%, а не
+     токен. M6 T13 удалил все 47 легаси-алиасов; канонический эквивалент —
+     --radius-pill, те же 999px, значение не меняется. */
+  border-radius: var(--radius-pill);
   background: transparent;
-  color: var(--text-muted);
+  color: var(--muted-2);
   cursor: pointer;
   font-size: 12px;
   font-weight: 600;
@@ -138,58 +166,133 @@
   transition: max-width var(--transition), opacity var(--transition);
 }
 
-.channel:hover .channel-join-voice,
-.channel-join-voice:focus-visible {
-  opacity: 1;
-  gap: 6px;
-  padding: 0 10px 0 8px;
-  background: var(--green-500);
-  color: var(--text-inverse);
-}
+/* ── THE SEVEN RULES BELOW ARE ORDERED BY ASCENDING SPECIFICITY ON PURPOSE.
+   M6 T13 reordered them to clear this file's SIX `no-descending-specificity`
+   errors (the repo's last eight went to zero in that commit). Seven rules, six
+   errors — the counts differ and neither is a typo. Keep the order.
 
-.channel:hover .channel-join-voice .channel-join-voice-label,
-.channel-join-voice:focus-visible .channel-join-voice-label {
-  max-width: 110px;
-  opacity: 1;
-}
+   (0,2,0)  .channel-join-voice:active                       transform
+   (0,2,0)  .channel-join-voice:focus-visible                outline, box-shadow
+   (0,2,0)  [data-theme="dark"] .channel-join-voice          color, opacity
+   (0,2,0)/(0,3,0)  :focus-visible, .channel-row:hover …     the expanded pill
+   (0,3,0)  [data-theme="dark"] … :focus-visible             color, opacity
+   (0,3,0)/(0,4,0)  … .channel-join-voice-label              the label reveal
+   (0,4,0)  .channel-row:hover .channel-join-voice:hover     background
 
-.channel:hover .channel-join-voice:hover {
-  background: var(--green-600);
-}
+   MEASURED, not reasoned: every one of the six moves was applied singly, with a
+   full stylelint run after each (8→7→6→5→4→3→2→1→0 across all eight repo-wide
+   errors), and the rendered cascade was then re-read at protocol-level state —
+   rest / row:hover / row:hover+btn:hover / :focus-visible /
+   row:hover+:focus-visible / :active, in BOTH themes, at 1440 and 760 — and came
+   back byte-identical on all 168 probe keys in all four runs.
 
+   *** ONE OF THE MOVES FLIPS A REAL TIE — AND THE FLIP IS THE POINT.
+   READ THIS BEFORE REORDERING ANYTHING BACK. ***
+   Name the three rules D, P, DF, in shipped order:
+       D   [data-theme="dark"] .channel-join-voice              (0,2,0)  color, opacity
+       P   .channel-join-voice:focus-visible, .channel-row:hover …       color, opacity
+       DF  [data-theme="dark"] … :focus-visible                 (0,3,0)  color, opacity
+   D and P's FIRST member have the SAME specificity and both declare `color` and
+   `opacity`, so for a dark-theme, focus-visible, not-row-hovered button the one
+   that comes LAST wins. Moving D above P therefore hands that tie to P.
+   MEASURED, by deleting DF and reading that state under each order:
+       shipped order (D before P):   color rgb(255,255,255)  opacity 1
+       original order (P before D):  color rgb(154,162,180)  opacity 0.5
+   So **D-above-P is what makes the dark focus state read white/1 UNAIDED.**
+
+   CONSEQUENCE, and it is the opposite of what it looks like: **DF is now
+   REDUNDANT and safe to delete.** Every element DF matches also matches P's
+   first member; P precedes DF; and the two declare identical values for the only
+   two properties DF has. Measured three ways — shipped WITH DF, shipped WITHOUT
+   DF, and the original order without DF — the first two are byte-identical
+   (white/1) and only the third differs. The reorder REMOVED an order-dependency;
+   it did not create one.
+
+   DF becomes load-bearing again ONLY if P's `:focus-visible` member is narrowed
+   or removed, or if P stops declaring `color: var(--white)` / `opacity: 1`.
+   THAT is the invariant to protect: do not touch P's first selector or those two
+   declarations without re-measuring the dark focus state. */
 .channel-join-voice:active {
   transform: scale(0.96);
 }
 
 .channel-join-voice:focus-visible {
   outline: none;
-  box-shadow: 0 0 0 2px var(--bg-primary), 0 0 0 4px var(--green-500);
+  box-shadow: 0 0 0 2px var(--panel), 0 0 0 4px var(--accent);
 }
 
-/* В тёмной теме --text-muted почти сливается с фоном — иконка в покое тускнеет. */
+/* В тёмной теме --muted-2 почти сливается с фоном — иконка в покое тускнеет. */
 [data-theme="dark"] .channel-join-voice {
-  color: var(--text-secondary);
+  color: var(--muted);
   opacity: 0.5;
 }
 
-/* В тёмной теме белый текст на #22C55E читается плохо — берём тон темнее. */
-[data-theme="dark"] .channel:hover .channel-join-voice,
+.channel-join-voice:focus-visible,
+.channel-row:hover .channel-join-voice {
+  opacity: 1;
+  gap: 6px;
+  padding: 0 10px 0 8px;
+  background: var(--accent);
+  color: var(--white);
+}
+
+/* This is `DF` in the ordering note above, and since M6 T13's reorder it is
+   REDUNDANT: the rule directly above already gives every element this one
+   matches the same `color` and `opacity`. Kept because deleting a rule is a
+   change nobody asked for, not because anything depends on it. It regains its
+   job the moment the rule above stops covering dark `:focus-visible`. */
 [data-theme="dark"] .channel-join-voice:focus-visible {
-  background: var(--green-600);
+  color: var(--white);
+  opacity: 1;
 }
 
-[data-theme="dark"] .channel:hover .channel-join-voice:hover {
-  background: var(--green-500);
+.channel-join-voice:focus-visible .channel-join-voice-label,
+.channel-row:hover .channel-join-voice .channel-join-voice-label {
+  max-width: 110px;
+  opacity: 1;
 }
 
-/* Тач-устройства: hover'а нет, поэтому пилюля сразу раскрыта. */
-@media (hover: none) {
+.channel-row:hover .channel-join-voice:hover {
+  background: var(--accent-hover);
+}
+
+/* Тач-устройства: hover'а нет, поэтому пилюля сразу раскрыта.
+
+   M6 T8 step 4 bounds this at `width < 900px` — the shell's own comparison and
+   numeral, so no fractional width can put the shell in its mobile model while
+   this block sits it out — and adds no new boundary. Unlike MessageRow's
+   `.msg-actions`, which is `opacity: 0; pointer-events: none` at rest so
+   bounding its reveal would make actions UNREACHABLE, this pill's base state is
+   painted and clickable in BOTH themes, and the two themes differ. Measured at
+   1280×900 under touch emulation:
+
+     light  opacity 0.65 · color rgb(138,144,162) (--muted-2)
+     dark   opacity 0.50 · color rgb(154,162,180) (--muted)      ← `D`, the dark
+                                                                   REST rule
+     both   height 24px · min-width 24px  → clears WCAG 2.5.8's 24×24 minimum
+
+   `D` is `[data-theme="dark"] .channel-join-voice { color: var(--muted);
+   opacity: 0.5 }` — :225–228 as shipped, with its Russian comment at :224. It is
+   named by SELECTOR here as well as by line, because these three citations have
+   now gone stale twice: they read `:191–195` until M6 T13's fix round, by which
+   point :191 had drifted into the ordering note's own prose and pointed at
+   nothing. If the numbers below disagree with the file, trust the selector.
+
+   The dark figure is the weaker of the two, and `D`'s comment at :224 says
+   that value «почти сливается с фоном». So on a dark, wide, touch screen this
+   pill now rests permanently dim with no hover to brighten it. That is
+   accepted, not overlooked: it is reachable, it clears 2.5.8, and it is the
+   appearance dark DESKTOP has always shipped — bounding only stops a wide
+   screen borrowing the phone's accent-expanded treatment. If the dark rest
+   state is ever judged too quiet, fix it in `D` (:225–228) for every wide
+   screen, not by unbounding this block. */
+@media (hover: none) and (width < 900px) {
   .channel-join-voice {
     height: 28px;
     gap: 6px;
     padding: 0 10px 0 8px;
-    background: var(--green-500);
-    color: var(--text-inverse);
+    background: var(--accent);
+    color: var(--white);
     opacity: 1;
   }
 
@@ -198,169 +301,143 @@
     opacity: 1;
   }
 
-  /* перебиваем правило покоя тёмной темы — оно той же специфичности, но выше по файлу */
+  /* Перебивает правило покоя тёмной темы: оно (0,2,0), а правило выше — (0,1,0),
+     медиазапрос специфичности не добавляет. Без этого пилюля на тач-устройствах
+     остаётся приглушённой поверх акцентного фона. */
   [data-theme="dark"] .channel-join-voice {
-    background: var(--green-600);
-    color: var(--text-inverse);
+    color: var(--white);
     opacity: 1;
   }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .channel-join-voice,
-  .channel-join-voice-label {
-    transition: none;
-  }
+/* M6 T6 reconciliation with base.css's reduced-motion policy.
 
+   The `transition: none` half that used to sit here is DELETED: it was
+   subsumed, and it was over-suppressing. base.css now narrows
+   `transition-property` globally, which already drops this pill's moving parts
+   (`max-width`, `gap`, `padding`, `transform`) while keeping its `background`,
+   `color` and `opacity` cross-fade. `transition: none` killed that fade too —
+   measured pre-task, `.channel-join-voice-label` computed
+   `transition-property: none`, so the label popped instead of fading.
+
+   The `:active` rule below is NOT subsumed and stays. It suppresses a STATIC
+   transform on a press state, not a transition or an animation, and base.css's
+   policy governs only the latter two — nothing there can reach a plain
+   `transform: scale(0.96)`. Without this rule the button would still visibly
+   shrink under the pointer for a user who asked for reduced motion. */
+@media (prefers-reduced-motion: reduce) {
   .channel-join-voice:active {
     transform: none;
   }
 }
 
-.channel.in-call {
-  box-shadow: inset 3px 0 0 var(--green-color, #23a55a);
+.channel-row:hover {
+  background: var(--row-hover);
+  color: var(--ink);
 }
 
-.channel::before {
-  content: '#';
-  font-size: 16px;
-  font-weight: 600;
-  opacity: 0.5;
-  flex-shrink: 0;
+.channel-row.is-active {
+  background: var(--canvas);
+  box-shadow: var(--shadow-row);
+  color: var(--ink);
+  font-weight: 700;
 }
 
-.channel:hover {
-  background: var(--bg-hover);
-  color: var(--text-primary);
+.channel-row.is-active .channel-hash {
+  color: var(--accent);
 }
 
-.channel.active {
-  background: var(--bg-active);
-  color: var(--brand-600);
-  font-weight: 600;
+/* Board 2d: dark active nav uses accent-soft, not canvas. */
+[data-theme="dark"] .channel-row.is-active {
+  background: var(--accent-soft);
+  box-shadow: none;
 }
 
-.channel.active::before {
-  opacity: 1;
-  color: var(--brand-color);
-}
-
-/* ── User Panel ── */
+/* ── User Panel (footer) ── */
 .user-panel {
-  height: 64px;
-  padding: 0 12px;
-  background: var(--bg-secondary);
-  border-top: 1px solid var(--border-subtle);
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-
-.user-info {
+  padding: 10px;
+  background: var(--panel-footer);
+  border-top: 1px solid var(--panel-line);
   display: flex;
   align-items: center;
   gap: 10px;
 }
 
-.user-avatar.small {
-  width: 36px;
-  height: 36px;
-  min-width: 36px;
-  border-radius: var(--radius-full);
-  background: linear-gradient(135deg, var(--brand-300), var(--brand-500));
+.user-panel .user-avatar-wrap {
+  --presence-ring: var(--panel-footer);
+}
+
+.user-avatar-small {
+  width: 34px;
+  height: 34px;
+  min-width: 34px;
+  border-radius: 12px;
   display: flex;
   align-items: center;
   justify-content: center;
   font-size: 14px;
-  font-weight: 700;
-  color: var(--text-inverse);
-  position: relative;
+  overflow: hidden;
   object-fit: cover;
 }
 
-.user-avatar.small::after {
-  content: '';
-  position: absolute;
-  bottom: -1px;
-  right: -1px;
-  width: 11px;
-  height: 11px;
-  border-radius: var(--radius-full);
-  background: var(--green-color);
-  border: 2.5px solid var(--bg-secondary);
-}
-
 .user-details {
+  flex: 1;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   gap: 1px;
-  min-width: 0;
 }
 
 .user-tag {
   font-size: 13px;
-  font-weight: 600;
-  color: var(--text-primary);
+  font-weight: 700;
+  color: var(--ink);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
 .user-status-text {
-  font-size: 11px;
-  color: var(--text-muted);
-  display: flex;
-  align-items: center;
-  gap: 5px;
-}
-
-.nc-badge {
-  background: var(--green-50);
-  color: var(--green-600);
-  font-size: 9px;
-  padding: 1px 5px;
-  border-radius: var(--radius-sm);
-  font-weight: 700;
-  letter-spacing: 0.03em;
-  border: 1px solid rgba(34, 197, 94, 0.2);
+  font-size: var(--fs-caption);
+  font-weight: 500;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .user-actions {
   display: flex;
-  gap: 4px;
+  gap: 6px;
 }
 
-.settings-btn,
-.logout-btn {
-  background: none;
-  border: none;
-  color: var(--text-muted);
-  cursor: pointer;
-  font-size: 15px;
-  padding: 6px;
-  border-radius: var(--radius-sm);
-  transition: all var(--transition);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.settings-btn:hover {
-  background: var(--bg-hover);
-  color: var(--text-primary);
-}
-
-.logout-btn:hover {
-  background: var(--red-50);
-  color: var(--red-500);
-}
-
-/* ── Mobile Back Button (hidden on desktop) ── */
+/* ── Mobile Back Button (hidden on desktop) ──
+   M6 T8: the VISUAL half is hoisted here out of the `width <= 768px` block
+   below, which now owns nothing for this button. The single-panel model runs
+   to 899px since T7, so the shell (AppPage.css) turns the button on for that
+   whole range with one `display` flip; duplicating these ten declarations
+   there instead would be the worse trade. Nothing paints at >= 900px — the
+   rule still resolves to `display: none` — so this is a no-op on desktop. */
 .mobile-back-btn {
   display: none;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  padding: 6px;
+  color: var(--muted);
+  background: none;
+  border: none;
+  border-radius: var(--radius-chip);
+  cursor: pointer;
+  transition: all var(--transition);
 }
 
-@media (max-width: 768px) {
+.mobile-back-btn:hover {
+  color: var(--ink);
+  background: var(--canvas-2);
+}
+
+@media (width <= 768px) {
   .channel-sidebar {
     width: 100vw;
     min-width: 100vw;
@@ -370,90 +447,142 @@
     gap: 10px;
   }
 
-  .mobile-back-btn {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background: none;
-    border: none;
-    color: var(--text-secondary);
-    cursor: pointer;
-    padding: 6px;
-    border-radius: var(--radius-sm);
-    transition: all var(--transition);
-    flex-shrink: 0;
-  }
-
-  .mobile-back-btn:hover {
-    background: var(--bg-hover);
-    color: var(--text-primary);
-  }
-
-  .channel {
+  .channel-row {
     padding: 12px 14px;
     font-size: 15px;
   }
 
   .user-panel {
-    height: 72px;
-    padding: 0 16px;
-    padding-bottom: env(safe-area-inset-bottom, 0px);
+    padding: 12px 16px;
+    padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 12px);
   }
 }
 
-/* ── Voice Participants ── */
-.voice-count {
-  margin-left: 4px;
-  font-size: 12px;
-  font-weight: 600;
-  opacity: 0.6;
-}
-
-.voice-participant-list {
+/* ── Voice card (channel with an active voice session) ── */
+.voice-card {
+  margin: 2px 0;
+  padding: 8px 10px;
+  border-radius: var(--radius-row);
+  background: var(--accent-soft);
+  border: 1px solid var(--accent-border);
   display: flex;
   flex-direction: column;
-  padding: 2px 0 6px 30px;
-  gap: 2px;
+  gap: 8px;
+}
+
+.voice-card.is-current {
+  box-shadow: var(--shadow-row);
+}
+
+.voice-card-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+
+.voice-card-icon {
+  flex-shrink: 0;
+  color: var(--accent);
+}
+
+.voice-card-name {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--fs-label);
+  font-weight: 700;
+  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.voice-card-count {
+  flex-shrink: 0;
+  font-size: var(--fs-caption);
+  font-weight: 600;
+  color: var(--accent-text);
+}
+
+.voice-card-participants {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding-left: 25px;
 }
 
 .voice-participant {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 4px 8px;
-  border-radius: var(--radius-sm);
   cursor: pointer;
-  transition: all var(--transition);
-}
-
-.voice-participant:hover {
-  background: var(--bg-hover);
 }
 
 .voice-participant-avatar {
   width: 20px;
   height: 20px;
   min-width: 20px;
-  border-radius: var(--radius-full);
-  background: linear-gradient(135deg, var(--brand-300), var(--brand-500));
+  border-radius: 10px;
   display: flex;
   align-items: center;
   justify-content: center;
   font-size: 10px;
-  font-weight: 700;
-  color: var(--text-inverse);
+  overflow: hidden;
   object-fit: cover;
 }
 
 .voice-participant-name {
-  font-size: 13px;
-  color: var(--text-secondary);
+  flex: 1;
+  min-width: 0;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--muted);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
 .voice-participant.is-self .voice-participant-name {
-  color: var(--brand-600);
+  color: var(--ink);
   font-weight: 700;
+}
+
+.voice-participant-mic {
+  flex-shrink: 0;
+  color: var(--online);
+}
+
+/* --danger-text, NOT --danger. This icon sits on .voice-card's --accent-soft
+   over the sidebar's --panel. --accent-soft is translucent in dark, so the
+   ground is composited arithmetically from browser-resolved values rather than
+   read as a pixel (no DOM API returns a composited pixel); on that ground
+   --danger computes 3.92:1 in dark and 3.53:1 in light, --danger-text 8.15:1
+   dark / 5.22:1 light. --danger itself stays theme-invariant (it is a FILL token —
+   see the comment beside it in tokens.css), so a foreground that needs contrast
+   on dark ground has to move rather than wait for an override that is never
+   coming. M6 T3, human ruling 2026-08-30; deliberate, disclosed colour change.
+   No hover rule on this selector, so nothing collapses — unlike
+   .settings-nav-logout, which keeps --danger for exactly that reason.
+   (Note: as a 14px icon this is non-text content, so the applicable threshold is
+   WCAG 1.4.11's 3:1, which 3.92:1 already met. It is moved because 1.4.3's
+   4.5:1 is the gate this milestone measures against and the move is free.) */
+.voice-participant-mic.is-off {
+  color: var(--danger-text);
+}
+
+.voice-card-join {
+  width: 100%;
+  height: 32px;
+  border: none;
+  border-radius: 8px;
+  background: var(--accent);
+  color: var(--white);
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background var(--transition);
+}
+
+.voice-card-join:hover {
+  background: var(--accent-hover);
 }

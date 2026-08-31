@@ -1,0 +1,107 @@
+/* Pending-upload chips above the composer. Unspecced surface: extrapolated
+   from the composer column (board 1c column C) — the chip is the composer's
+   own --panel card with the same --radius-card and --line-strong hairline as
+   the quote-float block that occupies the same slot. */
+.attach-tray {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 8px 0 0;
+}
+
+.attach-chip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 260px;
+  padding: 6px 8px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-card);
+  background: var(--panel);
+}
+
+.attach-chip.is-uploading {
+  border-color: var(--accent-border);
+}
+
+.attach-chip.is-done {
+  border-color: var(--line-strong);
+}
+
+.attach-chip.is-error {
+  border-color: var(--danger);
+  background: var(--danger-soft);
+}
+
+.attach-chip-preview,
+.attach-chip-icon {
+  flex: none;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-chip);
+  background: var(--canvas-2);
+  object-fit: cover;
+}
+
+.attach-chip-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.attach-chip-name {
+  overflow: hidden;
+  color: var(--ink);
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.attach-chip-meta {
+  color: var(--muted-2);
+  font-size: 11px;
+}
+
+.attach-chip.is-error .attach-chip-meta {
+  color: var(--danger-text);
+}
+
+/* --track-bg, not the --bg-hover alias the M5 brief's table mapped: this is the
+   progress TRACK, and board 1d gives tracks their own token
+   ("slider / level-meter track"). See task-5-report.md. (--bg-hover no longer
+   exists — M6 T13 deleted all 47 legacy aliases — so the choice this comment
+   defends is now the only one available.) */
+.attach-chip-progress {
+  height: 3px;
+  overflow: hidden;
+  border-radius: var(--radius-pill);
+  background: var(--track-bg);
+}
+
+.attach-chip-progress-bar {
+  height: 100%;
+  background: var(--accent);
+  transition: width 120ms linear;
+}
+
+.attach-chip-btn {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-chip);
+  background: none;
+  color: var(--muted-2);
+  cursor: pointer;
+  transition: background var(--transition), color var(--transition);
+}
+
+.attach-chip-btn:hover {
+  background: var(--canvas-2);
+  color: var(--ink);
+}
