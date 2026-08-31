@@ -80,6 +80,24 @@ var (
 	// ErrStickerWithAttachments — стикер прислан вместе с вложениями. Стикер
 	// самостоятелен: с ним не бывает ни текста, ни файлов.
 	ErrStickerWithAttachments = errors.New("sticker message cannot contain attachments")
+
+	// ErrOTPNotFound — репозиторный сентинел: живого кода нет. Наружу не
+	// выходит, юзкейс переводит его в ErrOTPInvalid.
+	ErrOTPNotFound = errors.New("otp code not found")
+	// ErrOTPInvalid — единый ответ на все причины отказа при проверке кода:
+	// пользователя нет, кода нет, код истёк, код уже погашен, код не совпал.
+	// Умышленно один на всё — как ErrInviteNotFound выше, чтобы ответ не
+	// подсказывал, в чём именно дело.
+	ErrOTPInvalid = errors.New("invalid or expired code")
+	// ErrOTPAttemptsExceeded — исчерпан лимит попыток, код сожжён целиком.
+	// Отдельно от ErrOTPInvalid: клиенту надо сказать «запросите новый», а
+	// не «попробуйте ещё раз».
+	ErrOTPAttemptsExceeded = errors.New("too many invalid attempts")
+	// ErrEmailNotVerified — вход по паролю в аккаунт с неподтверждённой почтой.
+	ErrEmailNotVerified = errors.New("email is not verified")
+	// ErrMailSendFailed — письмо не ушло. Код при этом уже сохранён и
+	// остаётся валидным: повторный запрос сработает.
+	ErrMailSendFailed = errors.New("failed to send email")
 )
 
 var (

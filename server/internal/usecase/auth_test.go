@@ -64,6 +64,15 @@ func (m *MockUserRepository) UpdateLastVisited(id uuid.UUID, serverID, channelID
 	return args.Error(0)
 }
 
+func (m *MockUserRepository) MarkEmailVerified(id uuid.UUID, at time.Time) error {
+	return m.Called(id, at).Error(0)
+}
+
+func (m *MockUserRepository) DeleteUnverifiedBefore(t time.Time) (int64, error) {
+	args := m.Called(t)
+	return args.Get(0).(int64), args.Error(1)
+}
+
 type MockRefreshTokenRepository struct {
 	mock.Mock
 }
