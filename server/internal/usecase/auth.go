@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 	"golang.org/x/crypto/bcrypt"
 
@@ -23,20 +22,14 @@ import (
 const refreshGraceWindow = 30 * time.Second
 
 type authUseCase struct {
-	userRepo          domain.UserRepository
-	refreshRepo       domain.RefreshTokenRepository
-	jwtSecret         string
-	jwtExpiration     time.Duration
-	refreshExpiration time.Duration
+	*tokenIssuer
+	userRepo domain.UserRepository
 }
 
 func NewAuthUseCase(userRepo domain.UserRepository, refreshRepo domain.RefreshTokenRepository, jwtSecret string, jwtExpiration, refreshExpiration time.Duration) domain.AuthUseCase {
 	return &authUseCase{
-		userRepo:          userRepo,
-		refreshRepo:       refreshRepo,
-		jwtSecret:         jwtSecret,
-		jwtExpiration:     jwtExpiration,
-		refreshExpiration: refreshExpiration,
+		tokenIssuer: newTokenIssuer(refreshRepo, jwtSecret, jwtExpiration, refreshExpiration),
+		userRepo:    userRepo,
 	}
 }
 
@@ -71,14 +64,9 @@ func (uc *authUseCase) Register(username, email, password string) (*domain.User,
 		return nil, "", "", fmt.Errorf("failed to create user: %w", err)
 	}
 
-	accessToken, err := uc.generateAccessToken(user)
+	accessToken, refreshToken, err := uc.issuePair(user)
 	if err != nil {
-		return nil, "", "", fmt.Errorf("failed to generate token: %w", err)
-	}
-
-	refreshToken, _, err := uc.issueRefreshToken(user.ID, uuid.New())
-	if err != nil {
-		return nil, "", "", fmt.Errorf("failed to issue refresh token: %w", err)
+		return nil, "", "", err
 	}
 
 	user.Password = ""
@@ -95,14 +83,9 @@ func (uc *authUseCase) Login(email, password string) (*domain.User, string, stri
 		return nil, "", "", domain.ErrInvalidCredentials
 	}
 
-	accessToken, err := uc.generateAccessToken(user)
+	accessToken, refreshToken, err := uc.issuePair(user)
 	if err != nil {
-		return nil, "", "", fmt.Errorf("failed to generate token: %w", err)
-	}
-
-	refreshToken, _, err := uc.issueRefreshToken(user.ID, uuid.New())
-	if err != nil {
-		return nil, "", "", fmt.Errorf("failed to issue refresh token: %w", err)
+		return nil, "", "", err
 	}
 
 	user.Password = ""
@@ -233,39 +216,4 @@ func (uc *authUseCase) Logout(refreshToken string) error {
 		return fmt.Errorf("failed to look up refresh token: %w", err)
 	}
 	return uc.refreshRepo.RevokeFamily(stored.FamilyID)
-}
-
-func (uc *authUseCase) issueRefreshToken(userID, familyID uuid.UUID) (string, *domain.RefreshToken, error) {
-	token, err := authtoken.GenerateRefreshToken()
-	if err != nil {
-		return "", nil, err
-	}
-
-	now := time.Now()
-	record := &domain.RefreshToken{
-		ID:        uuid.New(),
-		UserID:    userID,
-		FamilyID:  familyID,
-		TokenHash: authtoken.HashRefreshToken(token),
-		CreatedAt: now,
-		ExpiresAt: now.Add(uc.refreshExpiration),
-	}
-
-	if err := uc.refreshRepo.Create(record); err != nil {
-		return "", nil, err
-	}
-
-	return token, record, nil
-}
-
-func (uc *authUseCase) generateAccessToken(user *domain.User) (string, error) {
-	claims := jwt.MapClaims{
-		"user_id":  user.ID.String(),
-		"username": user.Username,
-		"exp":      time.Now().Add(uc.jwtExpiration).Unix(),
-		"iat":      time.Now().Unix(),
-	}
-
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	return token.SignedString([]byte(uc.jwtSecret))
 }
