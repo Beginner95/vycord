@@ -202,19 +202,19 @@ export function AppPage() {
   useEffect(() => {
     // Listen for incoming messages via WebSocket
     const unsubscribe = wsService.on('chat_message', (payload) => {
-      const msg = payload as Record<string, unknown>;
+      const msg = payload as Message;
       if (currentChannel && msg.channel_id === currentChannel.id) {
         // Own messages are added optimistically via HTTP response in ChatArea — skip to avoid duplicates
         if (user && msg.user_id === user.id) return;
-        const fullMsg: Message = {
-          id: msg.id as string,
-          channel_id: msg.channel_id as string,
-          user_id: msg.user_id as string,
-          content: msg.content as string,
-          created_at: msg.created_at as string,
-          updated_at: (msg.updated_at as string) || (msg.created_at as string),
-        };
-        useMessageStore.getState().addMessage(fullMsg);
+        // Spread, don't re-pick fields: the broadcast carries the same
+        // domain.Message the REST read does — attachments (already signed
+        // server-side) and sticker included. Rebuilding the object by hand
+        // dropped them, so an incoming image or sticker stayed invisible
+        // until a reload refetched the message over HTTP.
+        useMessageStore.getState().addMessage({
+          ...msg,
+          updated_at: msg.updated_at || msg.created_at,
+        });
       }
     });
 
