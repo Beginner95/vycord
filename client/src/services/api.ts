@@ -31,6 +31,10 @@ export class ApiError extends Error {
     message: string,
     readonly code?: string,
     readonly status?: number,
+    // details — сырое тело ответа. Нужно там, где кода мало: у неверного
+    // OTP в теле приходит attempts_left, и экран показывает, сколько
+    // попыток осталось до сжигания кода.
+    readonly details?: Record<string, unknown>,
   ) {
     super(message);
     this.name = 'ApiError';
@@ -250,12 +254,12 @@ class ApiService {
       } else {
         useAuthStore.getState().logout();
       }
-      throw new ApiError(body.error || 'Unauthorized', body.code, 401);
+      throw new ApiError(body.error || 'Unauthorized', body.code, 401, body);
     }
 
     if (!response.ok) {
       const body = await response.json().catch(() => ({ error: response.statusText }));
-      throw new ApiError(body.error || `HTTP ${response.status}`, body.code, response.status);
+      throw new ApiError(body.error || `HTTP ${response.status}`, body.code, response.status, body);
     }
 
     // Handle 204 No Content
@@ -309,10 +313,40 @@ class ApiService {
   }
 
   // Auth
+  // register больше НЕ открывает сессию: сервер отвечает 202 и шлёт код на
+  // почту. Токены выдаёт только verifyRegistrationCode.
   async register(username: string, email: string, password: string) {
-    return this.request<{ access_token: string; refresh_token: string; user: User }>('/api/v1/auth/register', {
+    return this.request<{ status: string; user: User }>('/api/v1/auth/register', {
       method: 'POST',
       body: JSON.stringify({ username, email, password }),
+    });
+  }
+
+  async resendRegistrationCode(email: string) {
+    return this.request<{ status: string }>('/api/v1/auth/register/resend', {
+      method: 'POST',
+      body: JSON.stringify({ email }),
+    });
+  }
+
+  async verifyRegistrationCode(email: string, code: string) {
+    return this.request<{ access_token: string; refresh_token: string; user: User }>('/api/v1/auth/register/verify', {
+      method: 'POST',
+      body: JSON.stringify({ email, code }),
+    });
+  }
+
+  async requestLoginCode(email: string) {
+    return this.request<{ status: string }>('/api/v1/auth/otp/request', {
+      method: 'POST',
+      body: JSON.stringify({ email }),
+    });
+  }
+
+  async verifyLoginCode(email: string, code: string) {
+    return this.request<{ access_token: string; refresh_token: string; user: User }>('/api/v1/auth/otp/verify', {
+      method: 'POST',
+      body: JSON.stringify({ email, code }),
     });
   }
 

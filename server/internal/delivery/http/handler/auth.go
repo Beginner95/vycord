@@ -62,23 +62,35 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	user, accessToken, refreshToken, err := h.authUseCase.Register(req.Username, req.Email, req.Password)
+	user, err := h.authUseCase.Register(req.Username, req.Email, req.Password)
 	if err != nil {
+		// Отказ по лимиту приходит и сюда: регистрация на брошенный
+		// неподтверждённый адрес запрашивает код и упирается в тот же
+		// кулдаун. Без этой ветки рутинный «слишком часто» уходил бы
+		// в default и отдавался как 500 с ERROR в логах.
+		var throttled *domain.OTPThrottledError
+		if errors.As(err, &throttled) {
+			writeOTPThrottled(w, throttled)
+			return
+		}
 		switch {
 		case errors.Is(err, domain.ErrEmailTaken):
 			h.sendError(w, http.StatusConflict, httperr.CodeEmailTaken, err.Error())
 		case errors.Is(err, domain.ErrUsernameTaken):
 			h.sendError(w, http.StatusConflict, httperr.CodeUsernameTaken, err.Error())
+		case errors.Is(err, domain.ErrMailSendFailed):
+			h.sendError(w, http.StatusBadGateway, httperr.CodeMailSendFailed, "failed to send the code, try again")
 		default:
-			h.sendError(w, http.StatusConflict, httperr.CodeInternalError, err.Error())
+			h.log.Error("register failed", "request_id", middleware.RequestIDFromContext(r.Context()), "error", err)
+			h.sendError(w, http.StatusInternalServerError, httperr.CodeInternalError, "failed to register")
 		}
 		return
 	}
 
-	h.sendJSON(w, http.StatusCreated, map[string]interface{}{
-		"access_token":  accessToken,
-		"refresh_token": refreshToken,
-		"user":          user,
+	// 202 и никаких токенов: сессия открывается только после ввода кода.
+	h.sendJSON(w, http.StatusAccepted, map[string]interface{}{
+		"status": "otp_sent",
+		"user":   user,
 	})
 }
 
@@ -107,9 +119,14 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 
 	user, accessToken, refreshToken, err := h.authUseCase.Login(req.Email, req.Password)
 	if err != nil {
-		if errors.Is(err, domain.ErrInvalidCredentials) {
+		switch {
+		case errors.Is(err, domain.ErrInvalidCredentials):
 			h.sendError(w, http.StatusUnauthorized, httperr.CodeInvalidCredentials, err.Error())
-		} else {
+		case errors.Is(err, domain.ErrEmailNotVerified):
+			// 403, не 401: креды верны, но вход закрыт до подтверждения
+			// почты. Код здесь не отправляется — см. комментарий в usecase.
+			h.sendError(w, http.StatusForbidden, httperr.CodeEmailNotVerified, err.Error())
+		default:
 			h.sendError(w, http.StatusUnauthorized, httperr.CodeInternalError, err.Error())
 		}
 		return

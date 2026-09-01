@@ -36,6 +36,16 @@ const (
 	CodeUsernameTaken       = "username_taken"
 	CodeInvalidCredentials  = "invalid_credentials"
 
+	// OTP-коды на почту
+	CodeOTPRequired         = "otp_code_required"
+	CodeInvalidOTPFormat    = "invalid_otp_format"
+	CodeOTPInvalid          = "invalid_otp"
+	CodeOTPAttemptsExceeded = "otp_attempts_exceeded"
+	CodeOTPCooldown         = "otp_cooldown"
+	CodeOTPRateLimited      = "otp_rate_limited"
+	CodeEmailNotVerified    = "email_not_verified"
+	CodeMailSendFailed      = "mail_send_failed"
+
 	// Аутентификация (middleware)
 	CodeMissingAuthHeader = "missing_auth_header"
 	CodeInvalidAuthHeader = "invalid_auth_header"

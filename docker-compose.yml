@@ -29,6 +29,14 @@ services:
       timeout: 5s
       retries: 5
 
+  mailhog:
+    image: mailhog/mailhog:latest
+    container_name: vycord_mailhog
+    ports:
+      - "1025:1025"   # SMTP, сюда смотрит SMTP_HOST/SMTP_PORT приложения
+      - "8025:8025"   # веб-интерфейс: письма с кодами читаются глазами
+    restart: unless-stopped
+
   client:
     build:
       context: ./client

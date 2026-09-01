@@ -8,6 +8,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
+	"golang.org/x/crypto/bcrypt"
 
 	"github.com/vycord/server/internal/domain"
 	"github.com/vycord/server/internal/usecase"
@@ -64,6 +66,15 @@ func (m *MockUserRepository) UpdateLastVisited(id uuid.UUID, serverID, channelID
 	return args.Error(0)
 }
 
+func (m *MockUserRepository) MarkEmailVerified(id uuid.UUID, at time.Time) error {
+	return m.Called(id, at).Error(0)
+}
+
+func (m *MockUserRepository) DeleteUnverifiedBefore(t time.Time) (int64, error) {
+	args := m.Called(t)
+	return args.Get(0).(int64), args.Error(1)
+}
+
 type MockRefreshTokenRepository struct {
 	mock.Mock
 }
@@ -99,8 +110,105 @@ func (m *MockRefreshTokenRepository) RevokeFamily(familyID uuid.UUID) error {
 	return args.Error(0)
 }
 
+type MockOTPSender struct{ mock.Mock }
+
+func (m *MockOTPSender) RequestCode(email string, p domain.OTPPurpose) error {
+	return m.Called(email, p).Error(0)
+}
+
 func newAuthUseCase(userRepo *MockUserRepository, refreshRepo *MockRefreshTokenRepository) domain.AuthUseCase {
-	return usecase.NewAuthUseCase(userRepo, refreshRepo, "test-secret", 24*time.Hour, 30*24*time.Hour)
+	return usecase.NewAuthUseCase(userRepo, refreshRepo, new(MockOTPSender), "test-secret", 24*time.Hour, 30*24*time.Hour)
+}
+
+func TestRegisterCreatesUnverifiedAndSendsCode(t *testing.T) {
+	userRepo := new(MockUserRepository)
+	refreshRepo := new(MockRefreshTokenRepository)
+	sender := new(MockOTPSender)
+	userRepo.On("GetByEmail", "new@e.com").Return(nil, errors.New("not found"))
+	userRepo.On("GetByUsername", "newbie").Return(nil, errors.New("not found"))
+	userRepo.On("Create", mock.Anything).Return(nil)
+	sender.On("RequestCode", "new@e.com", domain.OTPPurposeRegistration).Return(nil)
+
+	uc := usecase.NewAuthUseCase(userRepo, refreshRepo, sender, "s", time.Minute, time.Hour)
+	user, err := uc.Register("newbie", "new@e.com", "password123")
+
+	require.NoError(t, err)
+	assert.Nil(t, user.EmailVerifiedAt, "новый пользователь неподтверждён")
+	sender.AssertCalled(t, "RequestCode", "new@e.com", domain.OTPPurposeRegistration)
+	refreshRepo.AssertNotCalled(t, "Create", mock.Anything)
+}
+
+// Повторная регистрация на брошенный неподтверждённый адрес перезаписывает
+// её и шлёт новый код. Без этой ветки человек, потерявший письмо, застревал
+// бы навсегда: 409 при повторной регистрации и 403 при входе.
+func TestRegisterOverwritesUnverifiedAccount(t *testing.T) {
+	userRepo := new(MockUserRepository)
+	refreshRepo := new(MockRefreshTokenRepository)
+	sender := new(MockOTPSender)
+	existing := &domain.User{ID: uuid.New(), Username: "old", Email: "same@e.com"}
+	userRepo.On("GetByEmail", "same@e.com").Return(existing, nil)
+	// Ruling-проверка перед перезаписью: новое имя никем не занято.
+	userRepo.On("GetByUsername", "newname").Return(nil, errors.New("not found"))
+	userRepo.On("Update", existing.ID, mock.Anything).Return(nil)
+	sender.On("RequestCode", "same@e.com", domain.OTPPurposeRegistration).Return(nil)
+
+	uc := usecase.NewAuthUseCase(userRepo, refreshRepo, sender, "s", time.Minute, time.Hour)
+	_, err := uc.Register("newname", "same@e.com", "password123")
+
+	require.NoError(t, err)
+	userRepo.AssertCalled(t, "Update", existing.ID, mock.Anything)
+	userRepo.AssertNotCalled(t, "Create", mock.Anything)
+}
+
+func TestRegisterRejectsVerifiedEmail(t *testing.T) {
+	userRepo := new(MockUserRepository)
+	refreshRepo := new(MockRefreshTokenRepository)
+	sender := new(MockOTPSender)
+	at := time.Now()
+	userRepo.On("GetByEmail", "taken@e.com").Return(&domain.User{ID: uuid.New(), EmailVerifiedAt: &at}, nil)
+
+	uc := usecase.NewAuthUseCase(userRepo, refreshRepo, sender, "s", time.Minute, time.Hour)
+	_, err := uc.Register("someone", "taken@e.com", "password123")
+
+	assert.ErrorIs(t, err, domain.ErrEmailTaken)
+}
+
+// Перезапись брошенной регистрации меняет username, но не проверяет его
+// уникальность выше по стеку — единственная защита от гонки с чужим именем
+// стоит здесь. Без неё Update долетает до UNIQUE-констрейнта в Postgres и
+// падает наружу необработанным 500 вместо честного 409 username_taken.
+func TestRegisterOverwriteRejectsUsernameTakenByOther(t *testing.T) {
+	userRepo := new(MockUserRepository)
+	refreshRepo := new(MockRefreshTokenRepository)
+	sender := new(MockOTPSender)
+	existing := &domain.User{ID: uuid.New(), Username: "old", Email: "same@e.com"}
+	otherUser := &domain.User{ID: uuid.New(), Username: "newname", Email: "other@e.com"}
+	userRepo.On("GetByEmail", "same@e.com").Return(existing, nil)
+	userRepo.On("GetByUsername", "newname").Return(otherUser, nil)
+
+	uc := usecase.NewAuthUseCase(userRepo, refreshRepo, sender, "s", time.Minute, time.Hour)
+	_, err := uc.Register("newname", "same@e.com", "password123")
+
+	assert.ErrorIs(t, err, domain.ErrUsernameTaken)
+	userRepo.AssertNotCalled(t, "Update", mock.Anything, mock.Anything)
+}
+
+func TestLoginRejectsUnverified(t *testing.T) {
+	userRepo := new(MockUserRepository)
+	refreshRepo := new(MockRefreshTokenRepository)
+	sender := new(MockOTPSender)
+	hashed, _ := bcrypt.GenerateFromPassword([]byte("password123"), bcrypt.DefaultCost)
+	userRepo.On("GetByEmail", "u@e.com").Return(&domain.User{
+		ID: uuid.New(), Email: "u@e.com", Password: string(hashed),
+	}, nil)
+
+	uc := usecase.NewAuthUseCase(userRepo, refreshRepo, sender, "s", time.Minute, time.Hour)
+	_, _, _, err := uc.Login("u@e.com", "password123")
+
+	assert.ErrorIs(t, err, domain.ErrEmailNotVerified)
+	// Письмо на этом шаге не отправляется: иначе логин стал бы бесплатным
+	// спам-вектором на любой чужой адрес.
+	sender.AssertNotCalled(t, "RequestCode", mock.Anything, mock.Anything)
 }
 
 func TestRegister_UserAlreadyExistsWithEmail(t *testing.T) {
@@ -108,15 +216,16 @@ func TestRegister_UserAlreadyExistsWithEmail(t *testing.T) {
 	refreshRepo := new(MockRefreshTokenRepository)
 	authUseCase := newAuthUseCase(mockRepo, refreshRepo)
 
-	mockRepo.On("GetByEmail", "test@example.com").Return(&domain.User{}, nil)
+	// Подтверждённая почта — это настоящий занятый адрес, а не брошенная
+	// регистрация: перезаписи здесь быть не должно.
+	at := time.Now()
+	mockRepo.On("GetByEmail", "test@example.com").Return(&domain.User{EmailVerifiedAt: &at}, nil)
 
-	user, accessToken, refreshToken, err := authUseCase.Register("testuser", "test@example.com", "password123")
+	user, err := authUseCase.Register("testuser", "test@example.com", "password123")
 
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "user with this email already exists")
 	assert.Nil(t, user)
-	assert.Empty(t, accessToken)
-	assert.Empty(t, refreshToken)
 	mockRepo.AssertExpectations(t)
 }
 
@@ -128,37 +237,35 @@ func TestRegister_UserAlreadyExistsByUsername(t *testing.T) {
 	mockRepo.On("GetByEmail", "test@example.com").Return((*domain.User)(nil), errors.New("user not found"))
 	mockRepo.On("GetByUsername", "testuser").Return(&domain.User{}, nil)
 
-	user, accessToken, refreshToken, err := authUseCase.Register("testuser", "test@example.com", "password123")
+	user, err := authUseCase.Register("testuser", "test@example.com", "password123")
 
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "user with this username already exists")
 	assert.Nil(t, user)
-	assert.Empty(t, accessToken)
-	assert.Empty(t, refreshToken)
 	mockRepo.AssertExpectations(t)
 }
 
 func TestRegister_Success(t *testing.T) {
 	mockRepo := new(MockUserRepository)
 	refreshRepo := new(MockRefreshTokenRepository)
-	authUseCase := newAuthUseCase(mockRepo, refreshRepo)
+	sender := new(MockOTPSender)
+	authUseCase := usecase.NewAuthUseCase(mockRepo, refreshRepo, sender, "test-secret", 24*time.Hour, 30*24*time.Hour)
 
 	mockRepo.On("GetByEmail", "test@example.com").Return((*domain.User)(nil), errors.New("user not found"))
 	mockRepo.On("GetByUsername", "testuser").Return((*domain.User)(nil), errors.New("user not found"))
 	mockRepo.On("Create", mock.MatchedBy(func(u *domain.User) bool {
 		return u.Username == "testuser" && u.Email == "test@example.com"
 	})).Return(nil)
-	refreshRepo.On("Create", mock.AnythingOfType("*domain.RefreshToken")).Return(nil)
+	sender.On("RequestCode", "test@example.com", domain.OTPPurposeRegistration).Return(nil)
 
-	user, accessToken, refreshToken, err := authUseCase.Register("testuser", "test@example.com", "password123")
+	user, err := authUseCase.Register("testuser", "test@example.com", "password123")
 
 	assert.NoError(t, err)
 	assert.NotNil(t, user)
 	assert.Empty(t, user.Password)
-	assert.NotEmpty(t, accessToken)
-	assert.NotEmpty(t, refreshToken)
 	mockRepo.AssertExpectations(t)
-	refreshRepo.AssertExpectations(t)
+	sender.AssertExpectations(t)
+	refreshRepo.AssertNotCalled(t, "Create", mock.Anything)
 }
 
 func TestLogin_InvalidCredentials(t *testing.T) {
@@ -504,4 +611,29 @@ func TestLogout_RepoError_DoesNotReturnInvalidTokenError(t *testing.T) {
 	assert.Error(t, err)
 	assert.False(t, errors.Is(err, domain.ErrRefreshTokenInvalid), "an infra error must not be reported as an invalid token")
 	refreshRepo.AssertExpectations(t)
+}
+
+// Регрессия: перезапись брошенной регистрации ограничена по частоте только
+// кулдауном отправки кода, поэтому Update обязан стоять ПОСЛЕ RequestCode.
+// При обратном порядке любой, кто знает чужой неподтверждённый адрес, в цикле
+// переписывал бы жертве username и хеш пароля: отказ по лимиту приходил бы
+// уже после того, как перезапись состоялась.
+func TestRegisterThrottledDoesNotOverwritePendingRegistration(t *testing.T) {
+	userRepo := new(MockUserRepository)
+	refreshRepo := new(MockRefreshTokenRepository)
+	sender := new(MockOTPSender)
+	victim := &domain.User{ID: uuid.New(), Username: "victim", Email: "victim@e.com"}
+	userRepo.On("GetByEmail", "victim@e.com").Return(victim, nil)
+	userRepo.On("GetByUsername", "attacker").Return(nil, errors.New("not found"))
+	sender.On("RequestCode", "victim@e.com", domain.OTPPurposeRegistration).
+		Return(&domain.OTPThrottledError{RetryAfter: 42 * time.Second})
+
+	uc := usecase.NewAuthUseCase(userRepo, refreshRepo, sender, "s", time.Minute, time.Hour)
+	user, err := uc.Register("attacker", "victim@e.com", "attackerpass")
+
+	var throttled *domain.OTPThrottledError
+	require.True(t, errors.As(err, &throttled), "отказ по лимиту должен доезжать до вызывающего")
+	assert.Nil(t, user)
+	userRepo.AssertNotCalled(t, "Update", mock.Anything, mock.Anything)
+	userRepo.AssertNotCalled(t, "Create", mock.Anything)
 }

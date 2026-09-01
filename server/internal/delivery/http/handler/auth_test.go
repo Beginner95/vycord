@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/vycord/server/internal/domain"
 )
@@ -109,5 +110,85 @@ func TestAuthHandler_Logout_MalformedBody_StillReturns204(t *testing.T) {
 
 	if rec.Code != http.StatusNoContent {
 		t.Fatalf("expected 204, got %d", rec.Code)
+	}
+}
+
+func TestAuthHandler_Login_EmailNotVerified_Returns403(t *testing.T) {
+	// Верные креды, но почта не подтверждена: должно быть 403 с
+	// machine-readable кодом email_not_verified, а не 401 internal_error —
+	// иначе клиент не сможет отличить этот случай от неверного пароля.
+	log := slog.New(slog.NewTextHandler(&bytes.Buffer{}, nil))
+	mockUC := new(mockAuthUseCase)
+	mockUC.On("Login", "u@e.com", "password123").Return(nil, "", "", domain.ErrEmailNotVerified)
+
+	h := NewAuthHandler(mockUC, log)
+
+	body := strings.NewReader(`{"email":"u@e.com","password":"password123"}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", body)
+	rec := httptest.NewRecorder()
+
+	h.Login(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "email_not_verified") {
+		t.Fatalf("expected machine-readable code in body, got: %s", rec.Body.String())
+	}
+}
+
+// Регистрация на брошенный неподтверждённый адрес запрашивает код и упирается
+// в тот же кулдаун, что и /otp/request. Это рутинный 429, а не сбой сервера:
+// без явной ветки OTPThrottledError проваливался в default и отдавался как
+// 500 с ERROR в логах.
+func TestAuthHandler_Register_Throttled_Returns429WithRetryAfter(t *testing.T) {
+	log := slog.New(slog.NewTextHandler(&bytes.Buffer{}, nil))
+	mockUC := new(mockAuthUseCase)
+	mockUC.On("Register", "newname", "same@e.com", "password123").
+		Return(nil, &domain.OTPThrottledError{RetryAfter: 45 * time.Second})
+
+	h := NewAuthHandler(mockUC, log)
+
+	body := strings.NewReader(`{"username":"newname","email":"same@e.com","password":"password123"}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/register", body)
+	rec := httptest.NewRecorder()
+
+	h.Register(rec, req)
+
+	if rec.Code != http.StatusTooManyRequests {
+		t.Fatalf("expected 429, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if got := rec.Header().Get("Retry-After"); got != "45" {
+		t.Fatalf("expected Retry-After: 45, got %q", got)
+	}
+	if !strings.Contains(rec.Body.String(), "otp_cooldown") {
+		t.Fatalf("expected otp_cooldown code, got: %s", rec.Body.String())
+	}
+}
+
+// Часовой потолок отличается от кулдауна кодом ошибки — клиент показывает
+// разные тексты, и Register не должен схлопывать их в один.
+func TestAuthHandler_Register_HourlyLimit_ReturnsRateLimitedCode(t *testing.T) {
+	log := slog.New(slog.NewTextHandler(&bytes.Buffer{}, nil))
+	mockUC := new(mockAuthUseCase)
+	mockUC.On("Register", "newname", "same@e.com", "password123").
+		Return(nil, &domain.OTPThrottledError{RetryAfter: time.Hour, Hourly: true})
+
+	h := NewAuthHandler(mockUC, log)
+
+	body := strings.NewReader(`{"username":"newname","email":"same@e.com","password":"password123"}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/register", body)
+	rec := httptest.NewRecorder()
+
+	h.Register(rec, req)
+
+	if rec.Code != http.StatusTooManyRequests {
+		t.Fatalf("expected 429, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if got := rec.Header().Get("Retry-After"); got != "3600" {
+		t.Fatalf("expected Retry-After: 3600, got %q", got)
+	}
+	if !strings.Contains(rec.Body.String(), "otp_rate_limited") {
+		t.Fatalf("expected otp_rate_limited code, got: %s", rec.Body.String())
 	}
 }

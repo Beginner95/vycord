@@ -56,7 +56,7 @@ func (r *userRepository) GetByID(id uuid.UUID) (*domain.User, error) {
 
 	query := `
 		SELECT id, username, email, password_hash, avatar_url, status,
-		       last_server_id, last_channel_id, created_at, updated_at
+		       last_server_id, last_channel_id, created_at, updated_at, email_verified_at
 		FROM users
 		WHERE id = $1
 	`
@@ -73,6 +73,7 @@ func (r *userRepository) GetByID(id uuid.UUID) (*domain.User, error) {
 		&user.LastChannelID,
 		&user.CreatedAt,
 		&user.UpdatedAt,
+		&user.EmailVerifiedAt,
 	)
 
 	if err == sql.ErrNoRows {
@@ -90,7 +91,7 @@ func (r *userRepository) GetByEmail(email string) (*domain.User, error) {
 	defer cancel()
 
 	query := `
-		SELECT id, username, email, password_hash, avatar_url, status, created_at, updated_at
+		SELECT id, username, email, password_hash, avatar_url, status, created_at, updated_at, email_verified_at
 		FROM users
 		WHERE email = $1
 	`
@@ -105,6 +106,7 @@ func (r *userRepository) GetByEmail(email string) (*domain.User, error) {
 		&user.Status,
 		&user.CreatedAt,
 		&user.UpdatedAt,
+		&user.EmailVerifiedAt,
 	)
 
 	if err == sql.ErrNoRows {
@@ -122,7 +124,7 @@ func (r *userRepository) GetByUsername(username string) (*domain.User, error) {
 	defer cancel()
 
 	query := `
-		SELECT id, username, email, password_hash, avatar_url, status, created_at, updated_at
+		SELECT id, username, email, password_hash, avatar_url, status, created_at, updated_at, email_verified_at
 		FROM users
 		WHERE username = $1
 	`
@@ -137,6 +139,7 @@ func (r *userRepository) GetByUsername(username string) (*domain.User, error) {
 		&user.Status,
 		&user.CreatedAt,
 		&user.UpdatedAt,
+		&user.EmailVerifiedAt,
 	)
 
 	if err == sql.ErrNoRows {
@@ -157,6 +160,8 @@ var allowedUpdateColumns = map[string]string{
 	"avatar_url":      "avatar_url",
 	"last_server_id":  "last_server_id",
 	"last_channel_id": "last_channel_id",
+	"username":        "username",
+	"password":        "password_hash",
 }
 
 func (r *userRepository) Update(id uuid.UUID, updates map[string]interface{}) error {
@@ -253,4 +258,28 @@ func (r *userRepository) UpdateLastVisited(id uuid.UUID, serverID, channelID *uu
 		return fmt.Errorf("failed to update last visited: %w", err)
 	}
 	return nil
+}
+
+func (r *userRepository) MarkEmailVerified(id uuid.UUID, at time.Time) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	_, err := r.db.Exec(ctx,
+		`UPDATE users SET email_verified_at = $1, updated_at = $1 WHERE id = $2`, at, id)
+	if err != nil {
+		return fmt.Errorf("failed to mark email verified: %w", err)
+	}
+	return nil
+}
+
+func (r *userRepository) DeleteUnverifiedBefore(t time.Time) (int64, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	tag, err := r.db.Exec(ctx,
+		`DELETE FROM users WHERE email_verified_at IS NULL AND created_at < $1`, t)
+	if err != nil {
+		return 0, fmt.Errorf("failed to delete unverified users: %w", err)
+	}
+	return tag.RowsAffected(), nil
 }

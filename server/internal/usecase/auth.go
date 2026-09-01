@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 	"golang.org/x/crypto/bcrypt"
 
@@ -23,37 +22,76 @@ import (
 const refreshGraceWindow = 30 * time.Second
 
 type authUseCase struct {
-	userRepo          domain.UserRepository
-	refreshRepo       domain.RefreshTokenRepository
-	jwtSecret         string
-	jwtExpiration     time.Duration
-	refreshExpiration time.Duration
+	*tokenIssuer
+	userRepo  domain.UserRepository
+	otpSender domain.OTPSender
 }
 
-func NewAuthUseCase(userRepo domain.UserRepository, refreshRepo domain.RefreshTokenRepository, jwtSecret string, jwtExpiration, refreshExpiration time.Duration) domain.AuthUseCase {
+func NewAuthUseCase(userRepo domain.UserRepository, refreshRepo domain.RefreshTokenRepository, otpSender domain.OTPSender, jwtSecret string, jwtExpiration, refreshExpiration time.Duration) domain.AuthUseCase {
 	return &authUseCase{
-		userRepo:          userRepo,
-		refreshRepo:       refreshRepo,
-		jwtSecret:         jwtSecret,
-		jwtExpiration:     jwtExpiration,
-		refreshExpiration: refreshExpiration,
+		tokenIssuer: newTokenIssuer(refreshRepo, jwtSecret, jwtExpiration, refreshExpiration),
+		userRepo:    userRepo,
+		otpSender:   otpSender,
 	}
 }
 
-func (uc *authUseCase) Register(username, email, password string) (*domain.User, string, string, error) {
-	_, err := uc.userRepo.GetByEmail(email)
-	if err == nil {
-		return nil, "", "", domain.ErrEmailTaken
-	}
-
-	_, err = uc.userRepo.GetByUsername(username)
-	if err == nil {
-		return nil, "", "", domain.ErrUsernameTaken
-	}
-
+func (uc *authUseCase) Register(username, email, password string) (*domain.User, error) {
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	if err != nil {
-		return nil, "", "", fmt.Errorf("failed to hash password: %w", err)
+		return nil, fmt.Errorf("failed to hash password: %w", err)
+	}
+
+	// Занятый адрес — не всегда отказ. Если аккаунт по нему так и не
+	// подтверждён, регистрация принадлежит никому: перезаписываем её и шлём
+	// новый код. Иначе потерявший письмо человек застревает навсегда —
+	// зарегистрироваться нельзя (409), войти нечем (403).
+	if existing, err := uc.userRepo.GetByEmail(email); err == nil {
+		if existing.EmailVerifiedAt != nil {
+			return nil, domain.ErrEmailTaken
+		}
+
+		// Перезапись меняет username на новый — если он уже занят ДРУГИМ
+		// пользователем, это надо поймать здесь, а не отдать Update на откуп
+		// UNIQUE-констрейнту в Postgres: иначе гонка с чужим именем всплывёт
+		// необработанным 500 вместо честного 409 username_taken. Совпадение
+		// с текущим владельцем (existing.ID) — не конфликт: это тот же
+		// человек, повторно регистрирующийся под тем же именем.
+		if other, err := uc.userRepo.GetByUsername(username); err == nil && other.ID != existing.ID {
+			return nil, domain.ErrUsernameTaken
+		}
+
+		// Код запрашивается ДО перезаписи, и это единственное, что вообще
+		// ограничивает перезапись по частоте: кулдаун и часовой потолок
+		// живут внутри RequestCode. При обратном порядке (сначала Update,
+		// потом RequestCode) любой, кто знает чужой неподтверждённый адрес,
+		// переписывал бы жертве username и хеш пароля в цикле — отказ по
+		// лимиту приходил бы уже после того, как перезапись состоялась.
+		//
+		// Порядок безопасен: RequestCode читает пользователя заново и
+		// использует из него только ID, Email и EmailVerifiedAt, а код
+		// считается по (секрет, user ID, purpose) — ни username, ни пароль
+		// в него не входят, так что выпущенный код одинаково годится и для
+		// старого, и для нового состояния строки. Если Update следом
+		// упадёт, у человека на руках останется рабочий код к неизменённой
+		// регистрации — состояние не хуже исходного.
+		if err := uc.otpSender.RequestCode(email, domain.OTPPurposeRegistration); err != nil {
+			return nil, err
+		}
+
+		updates := map[string]interface{}{
+			"username": username,
+			"password": string(hashedPassword),
+		}
+		if err := uc.userRepo.Update(existing.ID, updates); err != nil {
+			return nil, fmt.Errorf("failed to reset pending registration: %w", err)
+		}
+		existing.Username = username
+		existing.Password = ""
+		return existing, nil
+	}
+
+	if _, err := uc.userRepo.GetByUsername(username); err == nil {
+		return nil, domain.ErrUsernameTaken
 	}
 
 	now := time.Now()
@@ -68,21 +106,17 @@ func (uc *authUseCase) Register(username, email, password string) (*domain.User,
 	}
 
 	if err := uc.userRepo.Create(user); err != nil {
-		return nil, "", "", fmt.Errorf("failed to create user: %w", err)
+		return nil, fmt.Errorf("failed to create user: %w", err)
 	}
 
-	accessToken, err := uc.generateAccessToken(user)
-	if err != nil {
-		return nil, "", "", fmt.Errorf("failed to generate token: %w", err)
-	}
-
-	refreshToken, _, err := uc.issueRefreshToken(user.ID, uuid.New())
-	if err != nil {
-		return nil, "", "", fmt.Errorf("failed to issue refresh token: %w", err)
+	// Ошибку отправки возвращаем как есть: пользователь уже создан
+	// неподтверждённым, и повторный запрос кода сработает.
+	if err := uc.otpSender.RequestCode(email, domain.OTPPurposeRegistration); err != nil {
+		return nil, err
 	}
 
 	user.Password = ""
-	return user, accessToken, refreshToken, nil
+	return user, nil
 }
 
 func (uc *authUseCase) Login(email, password string) (*domain.User, string, string, error) {
@@ -95,14 +129,16 @@ func (uc *authUseCase) Login(email, password string) (*domain.User, string, stri
 		return nil, "", "", domain.ErrInvalidCredentials
 	}
 
-	accessToken, err := uc.generateAccessToken(user)
-	if err != nil {
-		return nil, "", "", fmt.Errorf("failed to generate token: %w", err)
+	// Неподтверждённая почта закрывает вход по паролю. Код отсюда НЕ
+	// отправляется: иначе форма логина позволяла бы слать письма на любой
+	// чужой адрес без ограничений. Код запрашивает клиент отдельной кнопкой.
+	if user.EmailVerifiedAt == nil {
+		return nil, "", "", domain.ErrEmailNotVerified
 	}
 
-	refreshToken, _, err := uc.issueRefreshToken(user.ID, uuid.New())
+	accessToken, refreshToken, err := uc.issuePair(user)
 	if err != nil {
-		return nil, "", "", fmt.Errorf("failed to issue refresh token: %w", err)
+		return nil, "", "", err
 	}
 
 	user.Password = ""
@@ -233,39 +269,4 @@ func (uc *authUseCase) Logout(refreshToken string) error {
 		return fmt.Errorf("failed to look up refresh token: %w", err)
 	}
 	return uc.refreshRepo.RevokeFamily(stored.FamilyID)
-}
-
-func (uc *authUseCase) issueRefreshToken(userID, familyID uuid.UUID) (string, *domain.RefreshToken, error) {
-	token, err := authtoken.GenerateRefreshToken()
-	if err != nil {
-		return "", nil, err
-	}
-
-	now := time.Now()
-	record := &domain.RefreshToken{
-		ID:        uuid.New(),
-		UserID:    userID,
-		FamilyID:  familyID,
-		TokenHash: authtoken.HashRefreshToken(token),
-		CreatedAt: now,
-		ExpiresAt: now.Add(uc.refreshExpiration),
-	}
-
-	if err := uc.refreshRepo.Create(record); err != nil {
-		return "", nil, err
-	}
-
-	return token, record, nil
-}
-
-func (uc *authUseCase) generateAccessToken(user *domain.User) (string, error) {
-	claims := jwt.MapClaims{
-		"user_id":  user.ID.String(),
-		"username": user.Username,
-		"exp":      time.Now().Add(uc.jwtExpiration).Unix(),
-		"iat":      time.Now().Unix(),
-	}
-
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	return token.SignedString([]byte(uc.jwtSecret))
 }
