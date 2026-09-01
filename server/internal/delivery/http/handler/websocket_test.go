@@ -24,10 +24,10 @@ import (
 
 type mockAuthUseCase struct{ mock.Mock }
 
-func (m *mockAuthUseCase) Register(username, email, password string) (*domain.User, string, string, error) {
+func (m *mockAuthUseCase) Register(username, email, password string) (*domain.User, error) {
 	args := m.Called(username, email, password)
 	u, _ := args.Get(0).(*domain.User)
-	return u, args.String(1), args.String(2), args.Error(3)
+	return u, args.Error(1)
 }
 func (m *mockAuthUseCase) Login(email, password string) (*domain.User, string, string, error) {
 	args := m.Called(email, password)

@@ -22,6 +22,7 @@ import (
 	"github.com/vycord/server/pkg/attachlink"
 	"github.com/vycord/server/pkg/filestorage"
 	"github.com/vycord/server/pkg/logger"
+	"github.com/vycord/server/pkg/mailer"
 )
 
 func main() {
@@ -82,6 +83,7 @@ func main() {
 	refreshTokenRepo := postgres.NewRefreshTokenRepository(db)
 	attachmentRepo := postgres.NewAttachmentRepository(db)
 	planRepo := postgres.NewPlanRepository(db)
+	otpRepo := postgres.NewOTPRepository(db)
 
 	// Initialize file storage
 	storage, err := filestorage.NewLocal(cfg.UploadDir, "/uploads")
@@ -91,7 +93,31 @@ func main() {
 	}
 
 	// Initialize usecases
-	authUseCase := usecase.NewAuthUseCase(userRepo, refreshTokenRepo, cfg.JWTSecret, cfg.JWTExpiration, cfg.RefreshTokenExpiration)
+	appMailer := mailer.NewSMTP(mailer.Config{
+		Host:     cfg.SMTPHost,
+		Port:     cfg.SMTPPort,
+		Username: cfg.SMTPUsername,
+		Password: cfg.SMTPPassword,
+		From:     cfg.SMTPFrom,
+		FromName: cfg.SMTPFromName,
+	})
+
+	// otpUseCase создаётся раньше authUseCase: Register в authUseCase
+	// отправляет код регистрации через узкий срез domain.OTPSender.
+	otpUseCase := usecase.NewOTPUseCase(
+		userRepo, otpRepo, appMailer, refreshTokenRepo,
+		cfg.JWTSecret, cfg.JWTExpiration, cfg.RefreshTokenExpiration,
+		usecase.OTPPolicy{
+			Secret:         cfg.OTPSecret,
+			TTL:            cfg.OTPTTL,
+			MaxAttempts:    cfg.OTPMaxAttempts,
+			ResendCooldown: cfg.OTPResendCooldown,
+			MaxPerHour:     cfg.OTPMaxPerHour,
+		},
+		log,
+	)
+
+	authUseCase := usecase.NewAuthUseCase(userRepo, refreshTokenRepo, otpUseCase, cfg.JWTSecret, cfg.JWTExpiration, cfg.RefreshTokenExpiration)
 	userUseCase := usecase.NewUserUseCase(userRepo, storage)
 	permissionUseCase := usecase.NewPermissionUseCase(serverRepo, roleRepo)
 	inviteUseCase := usecase.NewInviteUseCase(inviteRepo, serverRepo, permissionUseCase)
@@ -142,6 +168,7 @@ func main() {
 
 	// Initialize handlers
 	authHandler := handler.NewAuthHandler(authUseCase, log)
+	otpHandler := handler.NewOTPHandler(otpUseCase, log)
 	userHandler := handler.NewUserHandler(userUseCase, hub, log)
 	serverHandler := handler.NewServerHandler(serverUseCase, inviteUseCase, hub, log)
 	inviteHandler := handler.NewInviteHandler(inviteUseCase, log)
@@ -173,6 +200,10 @@ func main() {
 	router.HandleFunc("POST /api/v1/auth/refresh", authHandler.Refresh)
 	router.HandleFunc("POST /api/v1/auth/logout", authHandler.Logout)
 	router.HandleFunc("GET /api/v1/auth/me", authMid.RequireAuth(userHandler.GetMe))
+	router.HandleFunc("POST /api/v1/auth/register/resend", otpHandler.RequestRegistrationCode)
+	router.HandleFunc("POST /api/v1/auth/register/verify", otpHandler.VerifyRegistration)
+	router.HandleFunc("POST /api/v1/auth/otp/request", otpHandler.RequestLoginCode)
+	router.HandleFunc("POST /api/v1/auth/otp/verify", otpHandler.VerifyLogin)
 
 	// User routes
 	router.HandleFunc("GET /api/v1/users/online", authMid.RequireAuth(onlineUsersHandler.GetOnlineUsers))

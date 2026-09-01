@@ -62,23 +62,26 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	user, accessToken, refreshToken, err := h.authUseCase.Register(req.Username, req.Email, req.Password)
+	user, err := h.authUseCase.Register(req.Username, req.Email, req.Password)
 	if err != nil {
 		switch {
 		case errors.Is(err, domain.ErrEmailTaken):
 			h.sendError(w, http.StatusConflict, httperr.CodeEmailTaken, err.Error())
 		case errors.Is(err, domain.ErrUsernameTaken):
 			h.sendError(w, http.StatusConflict, httperr.CodeUsernameTaken, err.Error())
+		case errors.Is(err, domain.ErrMailSendFailed):
+			h.sendError(w, http.StatusBadGateway, httperr.CodeMailSendFailed, "failed to send the code, try again")
 		default:
-			h.sendError(w, http.StatusConflict, httperr.CodeInternalError, err.Error())
+			h.log.Error("register failed", "request_id", middleware.RequestIDFromContext(r.Context()), "error", err)
+			h.sendError(w, http.StatusInternalServerError, httperr.CodeInternalError, "failed to register")
 		}
 		return
 	}
 
-	h.sendJSON(w, http.StatusCreated, map[string]interface{}{
-		"access_token":  accessToken,
-		"refresh_token": refreshToken,
-		"user":          user,
+	// 202 и никаких токенов: сессия открывается только после ввода кода.
+	h.sendJSON(w, http.StatusAccepted, map[string]interface{}{
+		"status": "otp_sent",
+		"user":   user,
 	})
 }
 
