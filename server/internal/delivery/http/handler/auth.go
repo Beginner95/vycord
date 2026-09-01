@@ -110,9 +110,14 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 
 	user, accessToken, refreshToken, err := h.authUseCase.Login(req.Email, req.Password)
 	if err != nil {
-		if errors.Is(err, domain.ErrInvalidCredentials) {
+		switch {
+		case errors.Is(err, domain.ErrInvalidCredentials):
 			h.sendError(w, http.StatusUnauthorized, httperr.CodeInvalidCredentials, err.Error())
-		} else {
+		case errors.Is(err, domain.ErrEmailNotVerified):
+			// 403, не 401: креды верны, но вход закрыт до подтверждения
+			// почты. Код здесь не отправляется — см. комментарий в usecase.
+			h.sendError(w, http.StatusForbidden, httperr.CodeEmailNotVerified, err.Error())
+		default:
 			h.sendError(w, http.StatusUnauthorized, httperr.CodeInternalError, err.Error())
 		}
 		return
