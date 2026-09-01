@@ -49,6 +49,17 @@ func (e *OTPThrottledError) Error() string {
 	return "code was requested too recently"
 }
 
+// OTPAttemptError — неверный код с указанием, сколько попыток осталось до
+// сжигания. Оборачивает ErrOTPInvalid, поэтому errors.Is(err, ErrOTPInvalid)
+// продолжает работать, а хендлер дополнительно достаёт число через errors.As.
+type OTPAttemptError struct {
+	AttemptsLeft int
+}
+
+func (e *OTPAttemptError) Error() string { return ErrOTPInvalid.Error() }
+
+func (e *OTPAttemptError) Unwrap() error { return ErrOTPInvalid }
+
 type OTPRepository interface {
 	Create(c *OTPCode) error
 	// GetActive возвращает единственный живой код пары user+purpose:

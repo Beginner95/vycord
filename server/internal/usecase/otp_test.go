@@ -181,3 +181,137 @@ func TestRequestCodeMailFailureKeepsCode(t *testing.T) {
 	assert.ErrorIs(t, err, domain.ErrMailSendFailed)
 	otpRepo.AssertCalled(t, "Create", mock.Anything)
 }
+
+// activeCode собирает живой код с корректным HMAC для заданного code.
+// Хеш считается тем же способом, что и в юзкейсе, — иначе тест проверял бы
+// не поведение, а собственную арифметику.
+func activeCode(t *testing.T, user *domain.User, p domain.OTPPurpose, code string) *domain.OTPCode {
+	t.Helper()
+	return &domain.OTPCode{
+		ID:        uuid.New(),
+		UserID:    user.ID,
+		Purpose:   p,
+		CodeHash:  usecase.HashOTPCodeForTest(testPolicy().Secret, user.ID, p, code),
+		CreatedAt: time.Now().Add(-time.Minute),
+		ExpiresAt: time.Now().Add(4 * time.Minute),
+	}
+}
+
+func TestVerifyRegistrationMarksVerifiedAndIssuesTokens(t *testing.T) {
+	uc, userRepo, otpRepo, _, refreshRepo := newOTPUseCase(t)
+	user := unverifiedUser()
+	code := activeCode(t, user, domain.OTPPurposeRegistration, "0429")
+	userRepo.On("GetByEmail", user.Email).Return(user, nil)
+	otpRepo.On("GetActive", user.ID, domain.OTPPurposeRegistration).Return(code, nil)
+	otpRepo.On("Consume", code.ID, mock.Anything).Return(nil)
+	userRepo.On("MarkEmailVerified", user.ID, mock.Anything).Return(nil)
+	refreshRepo.On("Create", mock.Anything).Return(nil)
+
+	got, access, refresh, err := uc.VerifyCode(user.Email, "0429", domain.OTPPurposeRegistration)
+
+	require.NoError(t, err)
+	assert.NotEmpty(t, access)
+	assert.NotEmpty(t, refresh)
+	assert.Equal(t, user.ID, got.ID)
+	assert.Empty(t, got.Password, "хеш пароля не должен уезжать клиенту")
+	userRepo.AssertCalled(t, "MarkEmailVerified", user.ID, mock.Anything)
+}
+
+func TestVerifyLoginDoesNotTouchVerifiedAt(t *testing.T) {
+	uc, userRepo, otpRepo, _, refreshRepo := newOTPUseCase(t)
+	user := verifiedUser()
+	code := activeCode(t, user, domain.OTPPurposeLogin, "1234")
+	userRepo.On("GetByEmail", user.Email).Return(user, nil)
+	otpRepo.On("GetActive", user.ID, domain.OTPPurposeLogin).Return(code, nil)
+	otpRepo.On("Consume", code.ID, mock.Anything).Return(nil)
+	refreshRepo.On("Create", mock.Anything).Return(nil)
+
+	_, _, _, err := uc.VerifyCode(user.Email, "1234", domain.OTPPurposeLogin)
+
+	require.NoError(t, err)
+	userRepo.AssertNotCalled(t, "MarkEmailVerified", mock.Anything, mock.Anything)
+}
+
+func TestVerifyWrongCodeIncrementsAttempts(t *testing.T) {
+	uc, userRepo, otpRepo, _, _ := newOTPUseCase(t)
+	user := verifiedUser()
+	code := activeCode(t, user, domain.OTPPurposeLogin, "1234")
+	userRepo.On("GetByEmail", user.Email).Return(user, nil)
+	otpRepo.On("GetActive", user.ID, domain.OTPPurposeLogin).Return(code, nil)
+	otpRepo.On("IncrementAttempts", code.ID).Return(1, nil)
+
+	_, _, _, err := uc.VerifyCode(user.Email, "9999", domain.OTPPurposeLogin)
+
+	assert.ErrorIs(t, err, domain.ErrOTPInvalid)
+	var attemptErr *domain.OTPAttemptError
+	require.True(t, errors.As(err, &attemptErr))
+	assert.Equal(t, 2, attemptErr.AttemptsLeft)
+	otpRepo.AssertNotCalled(t, "Consume", mock.Anything, mock.Anything)
+}
+
+// Третья неверная попытка сжигает код целиком: следующий ввод, даже верный,
+// уже не сработает — нужен новый код.
+func TestVerifyExhaustedAttemptsBurnsCode(t *testing.T) {
+	uc, userRepo, otpRepo, _, _ := newOTPUseCase(t)
+	user := verifiedUser()
+	code := activeCode(t, user, domain.OTPPurposeLogin, "1234")
+	userRepo.On("GetByEmail", user.Email).Return(user, nil)
+	otpRepo.On("GetActive", user.ID, domain.OTPPurposeLogin).Return(code, nil)
+	otpRepo.On("IncrementAttempts", code.ID).Return(3, nil)
+	otpRepo.On("InvalidateActive", user.ID, domain.OTPPurposeLogin).Return(nil)
+
+	_, _, _, err := uc.VerifyCode(user.Email, "9999", domain.OTPPurposeLogin)
+
+	assert.ErrorIs(t, err, domain.ErrOTPAttemptsExceeded)
+	otpRepo.AssertCalled(t, "InvalidateActive", user.ID, domain.OTPPurposeLogin)
+}
+
+func TestVerifyExpiredCode(t *testing.T) {
+	uc, userRepo, otpRepo, _, _ := newOTPUseCase(t)
+	user := verifiedUser()
+	code := activeCode(t, user, domain.OTPPurposeLogin, "1234")
+	code.ExpiresAt = time.Now().Add(-time.Second)
+	userRepo.On("GetByEmail", user.Email).Return(user, nil)
+	otpRepo.On("GetActive", user.ID, domain.OTPPurposeLogin).Return(code, nil)
+
+	_, _, _, err := uc.VerifyCode(user.Email, "1234", domain.OTPPurposeLogin)
+
+	assert.ErrorIs(t, err, domain.ErrOTPInvalid)
+	otpRepo.AssertNotCalled(t, "IncrementAttempts", mock.Anything)
+}
+
+func TestVerifyNoActiveCode(t *testing.T) {
+	uc, userRepo, otpRepo, _, _ := newOTPUseCase(t)
+	user := verifiedUser()
+	userRepo.On("GetByEmail", user.Email).Return(user, nil)
+	otpRepo.On("GetActive", user.ID, domain.OTPPurposeLogin).Return(nil, domain.ErrOTPNotFound)
+
+	_, _, _, err := uc.VerifyCode(user.Email, "1234", domain.OTPPurposeLogin)
+
+	assert.ErrorIs(t, err, domain.ErrOTPInvalid)
+}
+
+func TestVerifyUnknownEmailLooksIdentical(t *testing.T) {
+	uc, userRepo, _, _, _ := newOTPUseCase(t)
+	userRepo.On("GetByEmail", "nobody@e.com").Return(nil, errors.New("user not found"))
+
+	_, _, _, err := uc.VerifyCode("nobody@e.com", "1234", domain.OTPPurposeLogin)
+
+	assert.ErrorIs(t, err, domain.ErrOTPInvalid)
+}
+
+// Гонка: код уже погашен параллельным запросом. Repository.Consume отвечает
+// ErrOTPNotFound, и вторая сессия не выдаётся.
+func TestVerifyLosesRaceOnConsume(t *testing.T) {
+	uc, userRepo, otpRepo, _, _ := newOTPUseCase(t)
+	user := verifiedUser()
+	code := activeCode(t, user, domain.OTPPurposeLogin, "1234")
+	userRepo.On("GetByEmail", user.Email).Return(user, nil)
+	otpRepo.On("GetActive", user.ID, domain.OTPPurposeLogin).Return(code, nil)
+	otpRepo.On("Consume", code.ID, mock.Anything).Return(domain.ErrOTPNotFound)
+
+	_, access, _, err := uc.VerifyCode(user.Email, "1234", domain.OTPPurposeLogin)
+
+	assert.ErrorIs(t, err, domain.ErrOTPInvalid)
+	assert.Empty(t, access)
+}

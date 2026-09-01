@@ -124,11 +124,68 @@ func (uc *otpUseCase) RequestCode(email string, p domain.OTPPurpose) error {
 	return nil
 }
 
-// VerifyCode пишется в следующей задаче (Task 7). Заглушка нужна, чтобы
-// otpUseCase удовлетворял domain.OTPUseCase уже сейчас — тестами не
-// покрывается.
 func (uc *otpUseCase) VerifyCode(email, code string, p domain.OTPPurpose) (*domain.User, string, string, error) {
-	return nil, "", "", errors.New("not implemented")
+	// Все ранние отказы отвечают одинаковым ErrOTPInvalid: нет пользователя,
+	// не тот purpose, нет живого кода, код истёк. Различать их в ответе
+	// значило бы подсказывать атакующему, на каком шаге он ошибся.
+	user, err := uc.userRepo.GetByEmail(email)
+	if err != nil || !purposeFits(user, p) {
+		return nil, "", "", domain.ErrOTPInvalid
+	}
+
+	stored, err := uc.otpRepo.GetActive(user.ID, p)
+	if err != nil {
+		if errors.Is(err, domain.ErrOTPNotFound) {
+			return nil, "", "", domain.ErrOTPInvalid
+		}
+		return nil, "", "", fmt.Errorf("failed to look up otp code: %w", err)
+	}
+
+	// Проверка срока идёт до инкремента попыток: истёкший код мёртв, и
+	// тратить на него попытки незачем.
+	if time.Now().After(stored.ExpiresAt) {
+		return nil, "", "", domain.ErrOTPInvalid
+	}
+
+	if !hmac.Equal(stored.CodeHash, hashOTPCode(uc.policy.Secret, user.ID, p, code)) {
+		attempts, err := uc.otpRepo.IncrementAttempts(stored.ID)
+		if err != nil {
+			return nil, "", "", fmt.Errorf("failed to increment otp attempts: %w", err)
+		}
+		if attempts >= uc.policy.MaxAttempts {
+			if err := uc.otpRepo.InvalidateActive(user.ID, p); err != nil {
+				return nil, "", "", fmt.Errorf("failed to burn otp code: %w", err)
+			}
+			return nil, "", "", domain.ErrOTPAttemptsExceeded
+		}
+		return nil, "", "", &domain.OTPAttemptError{AttemptsLeft: uc.policy.MaxAttempts - attempts}
+	}
+
+	now := time.Now()
+	// Consume — точка сериализации: при двух одновременных проверках с
+	// верным кодом строку задевает только один запрос, второй получает
+	// ErrOTPNotFound и уходит с отказом. Иначе выдались бы две сессии.
+	if err := uc.otpRepo.Consume(stored.ID, now); err != nil {
+		if errors.Is(err, domain.ErrOTPNotFound) {
+			return nil, "", "", domain.ErrOTPInvalid
+		}
+		return nil, "", "", fmt.Errorf("failed to consume otp code: %w", err)
+	}
+
+	if p == domain.OTPPurposeRegistration {
+		if err := uc.userRepo.MarkEmailVerified(user.ID, now); err != nil {
+			return nil, "", "", fmt.Errorf("failed to mark email verified: %w", err)
+		}
+		user.EmailVerifiedAt = &now
+	}
+
+	accessToken, refreshToken, err := uc.issuePair(user)
+	if err != nil {
+		return nil, "", "", err
+	}
+
+	user.Password = ""
+	return user, accessToken, refreshToken, nil
 }
 
 // purposeFits проверяет, что поток кодов соответствует состоянию аккаунта.
