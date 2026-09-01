@@ -3,7 +3,9 @@ package domain
 import "github.com/google/uuid"
 
 type AuthUseCase interface {
-	Register(username, email, password string) (*User, string, string, error)
+	// Register создаёт пользователя с неподтверждённой почтой и отправляет
+	// код. Токены НЕ выдаются: сессия открывается только после ввода кода.
+	Register(username, email, password string) (*User, error)
 	Login(email, password string) (*User, string, string, error)
 	ValidateToken(tokenString string) (*User, error)
 	// Refresh обменивает валидный неиспользованный refresh-токен на новую
