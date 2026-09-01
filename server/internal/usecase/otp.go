@@ -147,11 +147,34 @@ func (uc *otpUseCase) VerifyCode(email, code string, p domain.OTPPurpose) (*doma
 		return nil, "", "", domain.ErrOTPInvalid
 	}
 
-	if !hmac.Equal(stored.CodeHash, hashOTPCode(uc.policy.Secret, user.ID, p, code)) {
-		attempts, err := uc.otpRepo.IncrementAttempts(stored.ID)
-		if err != nil {
-			return nil, "", "", fmt.Errorf("failed to increment otp attempts: %w", err)
+	// Попытка расходуется ДО сравнения кода, и расходуется атомарно —
+	// проверка остатка и инкремент живут в одном UPDATE репозитория.
+	// Обратный порядок (сравнить, потом посчитать) ограничивал бы число
+	// принимаемых догадок параллелизмом запросов, а не MaxAttempts: N
+	// одновременных verify успевали бы прочитать attempts=0 через GetActive
+	// и проверить N разных кодов, прежде чем хоть один инкремент дошёл до
+	// БД. Для purpose=login это прямой перебор пароля-заменителя.
+	//
+	// Верная догадка тоже тратит слот — это безвредно: код тут же гасится
+	// Consume и второй попытки по нему всё равно не будет.
+	attempts, err := uc.otpRepo.IncrementAttempts(stored.ID, uc.policy.MaxAttempts)
+	if err != nil {
+		if errors.Is(err, domain.ErrOTPNotFound) {
+			// Строку не задели: попытки исчерпаны, либо код погашен или
+			// аннулирован параллельным запросом. Код мёртв в любом случае —
+			// дожигаем его и отказываем, не глядя на введённые цифры.
+			// Это же покрывает случай, когда предыдущий запрос исчерпал
+			// лимит, но упал на InvalidateActive: состояние попыток
+			// перепроверяется на каждом вызове, а не один раз.
+			if err := uc.otpRepo.InvalidateActive(user.ID, p); err != nil {
+				return nil, "", "", fmt.Errorf("failed to burn otp code: %w", err)
+			}
+			return nil, "", "", domain.ErrOTPAttemptsExceeded
 		}
+		return nil, "", "", fmt.Errorf("failed to increment otp attempts: %w", err)
+	}
+
+	if !hmac.Equal(stored.CodeHash, hashOTPCode(uc.policy.Secret, user.ID, p, code)) {
 		if attempts >= uc.policy.MaxAttempts {
 			if err := uc.otpRepo.InvalidateActive(user.ID, p); err != nil {
 				return nil, "", "", fmt.Errorf("failed to burn otp code: %w", err)

@@ -22,8 +22,8 @@ func (m *MockOTPRepository) GetActive(userID uuid.UUID, p domain.OTPPurpose) (*d
 	return args.Get(0).(*domain.OTPCode), args.Error(1)
 }
 
-func (m *MockOTPRepository) IncrementAttempts(id uuid.UUID) (int, error) {
-	args := m.Called(id)
+func (m *MockOTPRepository) IncrementAttempts(id uuid.UUID, maxAttempts int) (int, error) {
+	args := m.Called(id, maxAttempts)
 	return args.Int(0), args.Error(1)
 }
 

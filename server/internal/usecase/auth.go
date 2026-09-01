@@ -60,6 +60,24 @@ func (uc *authUseCase) Register(username, email, password string) (*domain.User,
 			return nil, domain.ErrUsernameTaken
 		}
 
+		// Код запрашивается ДО перезаписи, и это единственное, что вообще
+		// ограничивает перезапись по частоте: кулдаун и часовой потолок
+		// живут внутри RequestCode. При обратном порядке (сначала Update,
+		// потом RequestCode) любой, кто знает чужой неподтверждённый адрес,
+		// переписывал бы жертве username и хеш пароля в цикле — отказ по
+		// лимиту приходил бы уже после того, как перезапись состоялась.
+		//
+		// Порядок безопасен: RequestCode читает пользователя заново и
+		// использует из него только ID, Email и EmailVerifiedAt, а код
+		// считается по (секрет, user ID, purpose) — ни username, ни пароль
+		// в него не входят, так что выпущенный код одинаково годится и для
+		// старого, и для нового состояния строки. Если Update следом
+		// упадёт, у человека на руках останется рабочий код к неизменённой
+		// регистрации — состояние не хуже исходного.
+		if err := uc.otpSender.RequestCode(email, domain.OTPPurposeRegistration); err != nil {
+			return nil, err
+		}
+
 		updates := map[string]interface{}{
 			"username": username,
 			"password": string(hashedPassword),
@@ -69,9 +87,6 @@ func (uc *authUseCase) Register(username, email, password string) (*domain.User,
 		}
 		existing.Username = username
 		existing.Password = ""
-		if err := uc.otpSender.RequestCode(email, domain.OTPPurposeRegistration); err != nil {
-			return nil, err
-		}
 		return existing, nil
 	}
 

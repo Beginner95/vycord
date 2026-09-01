@@ -64,6 +64,15 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 
 	user, err := h.authUseCase.Register(req.Username, req.Email, req.Password)
 	if err != nil {
+		// Отказ по лимиту приходит и сюда: регистрация на брошенный
+		// неподтверждённый адрес запрашивает код и упирается в тот же
+		// кулдаун. Без этой ветки рутинный «слишком часто» уходил бы
+		// в default и отдавался как 500 с ERROR в логах.
+		var throttled *domain.OTPThrottledError
+		if errors.As(err, &throttled) {
+			writeOTPThrottled(w, throttled)
+			return
+		}
 		switch {
 		case errors.Is(err, domain.ErrEmailTaken):
 			h.sendError(w, http.StatusConflict, httperr.CodeEmailTaken, err.Error())

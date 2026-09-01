@@ -612,3 +612,28 @@ func TestLogout_RepoError_DoesNotReturnInvalidTokenError(t *testing.T) {
 	assert.False(t, errors.Is(err, domain.ErrRefreshTokenInvalid), "an infra error must not be reported as an invalid token")
 	refreshRepo.AssertExpectations(t)
 }
+
+// Регрессия: перезапись брошенной регистрации ограничена по частоте только
+// кулдауном отправки кода, поэтому Update обязан стоять ПОСЛЕ RequestCode.
+// При обратном порядке любой, кто знает чужой неподтверждённый адрес, в цикле
+// переписывал бы жертве username и хеш пароля: отказ по лимиту приходил бы
+// уже после того, как перезапись состоялась.
+func TestRegisterThrottledDoesNotOverwritePendingRegistration(t *testing.T) {
+	userRepo := new(MockUserRepository)
+	refreshRepo := new(MockRefreshTokenRepository)
+	sender := new(MockOTPSender)
+	victim := &domain.User{ID: uuid.New(), Username: "victim", Email: "victim@e.com"}
+	userRepo.On("GetByEmail", "victim@e.com").Return(victim, nil)
+	userRepo.On("GetByUsername", "attacker").Return(nil, errors.New("not found"))
+	sender.On("RequestCode", "victim@e.com", domain.OTPPurposeRegistration).
+		Return(&domain.OTPThrottledError{RetryAfter: 42 * time.Second})
+
+	uc := usecase.NewAuthUseCase(userRepo, refreshRepo, sender, "s", time.Minute, time.Hour)
+	user, err := uc.Register("attacker", "victim@e.com", "attackerpass")
+
+	var throttled *domain.OTPThrottledError
+	require.True(t, errors.As(err, &throttled), "отказ по лимиту должен доезжать до вызывающего")
+	assert.Nil(t, user)
+	userRepo.AssertNotCalled(t, "Update", mock.Anything, mock.Anything)
+	userRepo.AssertNotCalled(t, "Create", mock.Anything)
+}

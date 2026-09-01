@@ -203,6 +203,7 @@ func TestVerifyRegistrationMarksVerifiedAndIssuesTokens(t *testing.T) {
 	code := activeCode(t, user, domain.OTPPurposeRegistration, "0429")
 	userRepo.On("GetByEmail", user.Email).Return(user, nil)
 	otpRepo.On("GetActive", user.ID, domain.OTPPurposeRegistration).Return(code, nil)
+	otpRepo.On("IncrementAttempts", code.ID, 3).Return(1, nil)
 	otpRepo.On("Consume", code.ID, mock.Anything).Return(nil)
 	userRepo.On("MarkEmailVerified", user.ID, mock.Anything).Return(nil)
 	refreshRepo.On("Create", mock.Anything).Return(nil)
@@ -223,6 +224,7 @@ func TestVerifyLoginDoesNotTouchVerifiedAt(t *testing.T) {
 	code := activeCode(t, user, domain.OTPPurposeLogin, "1234")
 	userRepo.On("GetByEmail", user.Email).Return(user, nil)
 	otpRepo.On("GetActive", user.ID, domain.OTPPurposeLogin).Return(code, nil)
+	otpRepo.On("IncrementAttempts", code.ID, 3).Return(1, nil)
 	otpRepo.On("Consume", code.ID, mock.Anything).Return(nil)
 	refreshRepo.On("Create", mock.Anything).Return(nil)
 
@@ -238,7 +240,7 @@ func TestVerifyWrongCodeIncrementsAttempts(t *testing.T) {
 	code := activeCode(t, user, domain.OTPPurposeLogin, "1234")
 	userRepo.On("GetByEmail", user.Email).Return(user, nil)
 	otpRepo.On("GetActive", user.ID, domain.OTPPurposeLogin).Return(code, nil)
-	otpRepo.On("IncrementAttempts", code.ID).Return(1, nil)
+	otpRepo.On("IncrementAttempts", code.ID, 3).Return(1, nil)
 
 	_, _, _, err := uc.VerifyCode(user.Email, "9999", domain.OTPPurposeLogin)
 
@@ -257,7 +259,7 @@ func TestVerifyExhaustedAttemptsBurnsCode(t *testing.T) {
 	code := activeCode(t, user, domain.OTPPurposeLogin, "1234")
 	userRepo.On("GetByEmail", user.Email).Return(user, nil)
 	otpRepo.On("GetActive", user.ID, domain.OTPPurposeLogin).Return(code, nil)
-	otpRepo.On("IncrementAttempts", code.ID).Return(3, nil)
+	otpRepo.On("IncrementAttempts", code.ID, 3).Return(3, nil)
 	otpRepo.On("InvalidateActive", user.ID, domain.OTPPurposeLogin).Return(nil)
 
 	_, _, _, err := uc.VerifyCode(user.Email, "9999", domain.OTPPurposeLogin)
@@ -277,7 +279,7 @@ func TestVerifyExpiredCode(t *testing.T) {
 	_, _, _, err := uc.VerifyCode(user.Email, "1234", domain.OTPPurposeLogin)
 
 	assert.ErrorIs(t, err, domain.ErrOTPInvalid)
-	otpRepo.AssertNotCalled(t, "IncrementAttempts", mock.Anything)
+	otpRepo.AssertNotCalled(t, "IncrementAttempts", mock.Anything, mock.Anything)
 }
 
 func TestVerifyNoActiveCode(t *testing.T) {
@@ -308,10 +310,63 @@ func TestVerifyLosesRaceOnConsume(t *testing.T) {
 	code := activeCode(t, user, domain.OTPPurposeLogin, "1234")
 	userRepo.On("GetByEmail", user.Email).Return(user, nil)
 	otpRepo.On("GetActive", user.ID, domain.OTPPurposeLogin).Return(code, nil)
+	otpRepo.On("IncrementAttempts", code.ID, 3).Return(1, nil)
 	otpRepo.On("Consume", code.ID, mock.Anything).Return(domain.ErrOTPNotFound)
 
 	_, access, _, err := uc.VerifyCode(user.Email, "1234", domain.OTPPurposeLogin)
 
 	assert.ErrorIs(t, err, domain.ErrOTPInvalid)
 	assert.Empty(t, access)
+}
+
+// Регрессия на обход лимита попыток параллельными запросами. Проверка
+// остатка и расход слота — один атомарный UPDATE, и он идёт ДО сравнения
+// кода. Когда слотов не осталось, репозиторий не задевает строку и отвечает
+// ErrOTPNotFound — и тогда даже ЗАВЕДОМО ВЕРНЫЙ код не открывает сессию.
+// Прежний порядок (сравнить, потом посчитать) этот тест провалил бы:
+// hmac.Equal сошёлся бы раньше, чем кто-либо посмотрел на счётчик.
+func TestVerifyCorrectCodeRejectedWhenAttemptBudgetSpent(t *testing.T) {
+	uc, userRepo, otpRepo, _, refreshRepo := newOTPUseCase(t)
+	user := verifiedUser()
+	code := activeCode(t, user, domain.OTPPurposeLogin, "1234")
+	userRepo.On("GetByEmail", user.Email).Return(user, nil)
+	otpRepo.On("GetActive", user.ID, domain.OTPPurposeLogin).Return(code, nil)
+	otpRepo.On("IncrementAttempts", code.ID, 3).Return(0, domain.ErrOTPNotFound)
+	otpRepo.On("InvalidateActive", user.ID, domain.OTPPurposeLogin).Return(nil)
+	// Consume и выдача токенов замоканы намеренно: при неверном порядке
+	// (сравнение раньше расхода попытки) юзкейс дошёл бы до них и выдал
+	// сессию — тест обязан упасть на утверждениях, а не на панике мока.
+	otpRepo.On("Consume", code.ID, mock.Anything).Return(nil)
+	refreshRepo.On("Create", mock.Anything).Return(nil)
+
+	got, access, refresh, err := uc.VerifyCode(user.Email, "1234", domain.OTPPurposeLogin)
+
+	assert.ErrorIs(t, err, domain.ErrOTPAttemptsExceeded)
+	assert.Nil(t, got)
+	assert.Empty(t, access)
+	assert.Empty(t, refresh)
+	otpRepo.AssertNotCalled(t, "Consume", mock.Anything, mock.Anything)
+	// Код дожигается и здесь: предыдущий запрос мог исчерпать лимит, но
+	// упасть на InvalidateActive и оставить строку живой.
+	otpRepo.AssertCalled(t, "InvalidateActive", user.ID, domain.OTPPurposeLogin)
+}
+
+// Слот тратится на каждой проверке, включая успешную: это и есть
+// доказательство порядка «сначала посчитать, потом сравнивать». Лимит
+// передаётся в репозиторий, чтобы условие attempts < max стояло в WHERE.
+func TestVerifySpendsAttemptBeforeComparing(t *testing.T) {
+	uc, userRepo, otpRepo, _, refreshRepo := newOTPUseCase(t)
+	user := verifiedUser()
+	code := activeCode(t, user, domain.OTPPurposeLogin, "1234")
+	userRepo.On("GetByEmail", user.Email).Return(user, nil)
+	otpRepo.On("GetActive", user.ID, domain.OTPPurposeLogin).Return(code, nil)
+	otpRepo.On("IncrementAttempts", code.ID, 3).Return(1, nil)
+	otpRepo.On("Consume", code.ID, mock.Anything).Return(nil)
+	refreshRepo.On("Create", mock.Anything).Return(nil)
+
+	_, access, _, err := uc.VerifyCode(user.Email, "1234", domain.OTPPurposeLogin)
+
+	require.NoError(t, err)
+	assert.NotEmpty(t, access)
+	otpRepo.AssertCalled(t, "IncrementAttempts", code.ID, testPolicy().MaxAttempts)
 }

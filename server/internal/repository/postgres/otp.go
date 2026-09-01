@@ -63,17 +63,26 @@ func (r *otpRepository) GetActive(userID uuid.UUID, p domain.OTPPurpose) (*domai
 	return c, nil
 }
 
-// IncrementAttempts — один UPDATE ... RETURNING, а не чтение с последующей
-// записью: две параллельные неверные попытки обязаны израсходовать два слота,
-// иначе лимит обходится гонкой.
-func (r *otpRepository) IncrementAttempts(id uuid.UUID) (int, error) {
+// IncrementAttempts — проверка остатка и расход слота одним UPDATE, а не
+// чтением с последующей записью: условие attempts < $2 живёт в самом WHERE,
+// поэтому из N параллельных попыток строку успевают задеть ровно maxAttempts
+// штук, сколько бы запросов ни пришло одновременно. Условия по consumed_at и
+// invalidated_at здесь не лишние: мёртвый код не должен тратить слоты и, что
+// важнее, не должен отвечать «попытка засчитана» после того, как параллельный
+// запрос его погасил.
+func (r *otpRepository) IncrementAttempts(id uuid.UUID, maxAttempts int) (int, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
 	var attempts int
 	err := r.db.QueryRow(ctx,
-		`UPDATE otp_codes SET attempts = attempts + 1 WHERE id = $1 RETURNING attempts`, id,
+		`UPDATE otp_codes SET attempts = attempts + 1
+		 WHERE id = $1 AND attempts < $2 AND consumed_at IS NULL AND invalidated_at IS NULL
+		 RETURNING attempts`, id, maxAttempts,
 	).Scan(&attempts)
+	// Ноль строк здесь означает не «нет такой строки», а «попыток не
+	// осталось либо код уже мёртв». Юзкейс различает это по сентинелу и
+	// отвечает ErrOTPAttemptsExceeded, как и в Consume.
 	if errors.Is(err, pgx.ErrNoRows) {
 		return 0, domain.ErrOTPNotFound
 	}

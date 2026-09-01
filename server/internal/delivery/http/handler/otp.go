@@ -109,12 +109,7 @@ func (h *OTPHandler) verify(w http.ResponseWriter, r *http.Request, p domain.OTP
 func (h *OTPHandler) writeOTPError(w http.ResponseWriter, r *http.Request, err error) {
 	var throttled *domain.OTPThrottledError
 	if errors.As(err, &throttled) {
-		w.Header().Set("Retry-After", strconv.Itoa(int(throttled.RetryAfter.Seconds())))
-		code := httperr.CodeOTPCooldown
-		if throttled.Hourly {
-			code = httperr.CodeOTPRateLimited
-		}
-		httperr.Write(w, http.StatusTooManyRequests, code, "too many requests, try again later")
+		writeOTPThrottled(w, throttled)
 		return
 	}
 
@@ -142,4 +137,18 @@ func (h *OTPHandler) writeOTPError(w http.ResponseWriter, r *http.Request, err e
 		h.log.Error("otp request failed", "request_id", middleware.RequestIDFromContext(r.Context()), "error", err)
 		httperr.Write(w, http.StatusInternalServerError, httperr.CodeInternalError, "internal error")
 	}
+}
+
+// writeOTPThrottled — единственное место, формирующее ответ на отказ по
+// лимиту OTP. Вынесено из writeOTPError, потому что тот же отказ приходит и
+// через AuthHandler.Register: перезапись брошенной регистрации проходит через
+// тот же кулдаун. Дублировать подбор кода и Retry-After в двух хендлерах
+// значило бы получить два расходящихся ответа на одну доменную ошибку.
+func writeOTPThrottled(w http.ResponseWriter, throttled *domain.OTPThrottledError) {
+	w.Header().Set("Retry-After", strconv.Itoa(int(throttled.RetryAfter.Seconds())))
+	code := httperr.CodeOTPCooldown
+	if throttled.Hourly {
+		code = httperr.CodeOTPRateLimited
+	}
+	httperr.Write(w, http.StatusTooManyRequests, code, "too many requests, try again later")
 }
