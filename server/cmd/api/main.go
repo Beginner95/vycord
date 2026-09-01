@@ -166,6 +166,9 @@ func main() {
 	janitor := attachments.NewJanitor(attachmentRepo, storage, log)
 	go janitor.Run(bgCtx)
 
+	// Уборка истёкших кодов и брошенных регистраций.
+	go usecase.NewOTPCleaner(otpRepo, userRepo, cfg.UnverifiedUserTTL, log).Run(bgCtx, time.Hour)
+
 	// Initialize handlers
 	authHandler := handler.NewAuthHandler(authUseCase, log)
 	otpHandler := handler.NewOTPHandler(otpUseCase, log)
