@@ -41,6 +41,11 @@ export const en: Dictionary = {
     creatingAccount: 'Creating account...',
     continueButton: 'Continue',
     passwordMinLength: 'Password must be at least {{min}} characters',
+    enterCode: 'Enter the code',
+    codeSentTo: 'We sent a code to {{email}}',
+    resendCode: 'Send the code again',
+    resendIn: 'Resend in {{seconds}}s',
+    changeEmail: 'Change email',
   },
   chat: {
     quote: 'Quote',

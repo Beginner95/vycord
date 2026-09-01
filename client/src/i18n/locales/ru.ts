@@ -40,6 +40,11 @@ export const ru = {
     creatingAccount: 'Создание аккаунта...',
     continueButton: 'Продолжить',
     passwordMinLength: 'Пароль должен быть не короче {{min}} символов',
+    enterCode: 'Введите код',
+    codeSentTo: 'Мы отправили код на {{email}}',
+    resendCode: 'Отправить код ещё раз',
+    resendIn: 'Отправить повторно через {{seconds}} с',
+    changeEmail: 'Изменить email',
   },
   chat: {
     quote: 'Цитата',
