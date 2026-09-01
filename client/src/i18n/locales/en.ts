@@ -531,5 +531,13 @@ export const en: Dictionary = {
     storage_quota_exceeded: 'Storage quota exceeded',
     attachment_link_expired: 'The file link has expired',
     invalid_attachment_id: 'Invalid attachment id',
+    otp_code_required: 'Enter the code from the email',
+    invalid_otp_format: 'The code is 4 digits',
+    invalid_otp: 'Invalid or expired code',
+    otp_attempts_exceeded: 'Too many attempts. Request a new code',
+    otp_cooldown: 'A code was already sent. Please wait a bit',
+    otp_rate_limited: 'Too many code requests. Try again later',
+    email_not_verified: 'Email is not verified',
+    mail_send_failed: 'Failed to send the email. Please try again',
   },
 };

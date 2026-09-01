@@ -542,6 +542,14 @@ export const ru = {
     storage_quota_exceeded: 'Закончилось место в хранилище',
     attachment_link_expired: 'Ссылка на файл устарела',
     invalid_attachment_id: 'Некорректный идентификатор вложения',
+    otp_code_required: 'Введите код из письма',
+    invalid_otp_format: 'Код состоит из 4 цифр',
+    invalid_otp: 'Неверный или устаревший код',
+    otp_attempts_exceeded: 'Слишком много попыток. Запросите новый код',
+    otp_cooldown: 'Код уже отправлен. Подождите немного',
+    otp_rate_limited: 'Слишком много запросов кода. Попробуйте позже',
+    email_not_verified: 'Почта не подтверждена',
+    mail_send_failed: 'Не удалось отправить письмо. Попробуйте ещё раз',
   },
 };
 
