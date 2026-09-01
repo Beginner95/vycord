@@ -270,6 +270,19 @@
   border-radius: 18px;
 }
 
+.chat-empty-art {
+  display: block;
+  width: min(280px, 100%);
+  height: auto;
+}
+
+/* Welcome variant only (servers-exist-no-channel-selected, board 2a) — the
+   other two `.chat-empty-card` variants (quiet channel, no servers) keep the
+   hairline; this one sits directly on the canvas instead. */
+.chat-empty-card-welcome {
+  border-color: transparent;
+}
+
 .chat-empty-tiles {
   display: flex;
   flex-shrink: 0;
