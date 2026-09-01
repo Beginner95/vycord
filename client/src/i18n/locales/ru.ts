@@ -45,6 +45,11 @@ export const ru = {
     resendCode: 'Отправить код ещё раз',
     resendIn: 'Отправить повторно через {{seconds}} с',
     changeEmail: 'Изменить email',
+    loginWithCode: 'Войти по коду с почты',
+    sendCode: 'Отправить код',
+    backToPassword: 'Войти по паролю',
+    emailNotVerifiedTitle: 'Подтвердите почту',
+    emailNotVerifiedHint: 'Этот аккаунт ещё не подтверждён. Отправим код на вашу почту.',
   },
   chat: {
     quote: 'Цитата',

@@ -46,6 +46,11 @@ export const en: Dictionary = {
     resendCode: 'Send the code again',
     resendIn: 'Resend in {{seconds}}s',
     changeEmail: 'Change email',
+    loginWithCode: 'Sign in with an email code',
+    sendCode: 'Send code',
+    backToPassword: 'Sign in with password',
+    emailNotVerifiedTitle: 'Confirm your email',
+    emailNotVerifiedHint: 'This account is not confirmed yet. We will send a code to your email.',
   },
   chat: {
     quote: 'Quote',
