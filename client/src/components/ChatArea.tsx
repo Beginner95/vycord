@@ -28,15 +28,16 @@ import { useAttachmentUpload } from '@/hooks/useAttachmentUpload';
 import type { Attachment, Channel, User } from '@/types';
 import type { Sticker } from '@/types';
 import { useT, useTp, useDateFormat, isSameCalendarDay } from '@/i18n';
+import wolvesArt from '@/assets/images/sitting-and-wolf-far-away.webp';
 import './ChatArea.css';
 
 // Shared card recipe for the three ChatArea empty states (board 2a): quiet
 // channel, no servers, servers-exist-but-no-channel-selected. `tile` is the
-// 56px icon tile (or the no-servers 3-tile strip) — omitted for the plain
-// "pick a channel" variant.
-function ChatEmptyCard({ tile, title, body, action }: { tile?: ReactNode; title: string; body: string; action?: ReactNode }) {
+// 56px icon tile, the no-servers 3-tile strip, or the wolves illustration on
+// the servers-exist-no-channel-selected variant.
+function ChatEmptyCard({ tile, title, body, action, className }: { tile?: ReactNode; title: string; body: string; action?: ReactNode; className?: string }) {
   return (
-    <div className="chat-empty-card">
+    <div className={className ? `chat-empty-card ${className}` : 'chat-empty-card'}>
       {tile}
       <h2 className="chat-empty-title">{title}</h2>
       <p className="chat-empty-body">{body}</p>
@@ -607,7 +608,12 @@ logger.error('Failed to jump to message:', err, { module: 'chat' });
             }
           />
         ) : (
-          <ChatEmptyCard title={t('chat.welcomeTitle')} body={t('chat.welcomeSubtitle')} />
+          <ChatEmptyCard
+            className="chat-empty-card-welcome"
+            tile={<img className="chat-empty-art" src={wolvesArt} alt="" />}
+            title={t('chat.welcomeTitle')}
+            body={t('chat.welcomeSubtitle')}
+          />
         )}
       </main>
     );
