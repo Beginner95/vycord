@@ -3,11 +3,13 @@ package postgres
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/vycord/server/internal/domain"
 )
@@ -25,8 +27,8 @@ func (r *userRepository) Create(user *domain.User) error {
 	defer cancel()
 
 	query := `
-		INSERT INTO users (id, username, email, password_hash, avatar_url, status, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		INSERT INTO users (id, username, email, password_hash, avatar_url, status, created_at, updated_at, email_verified_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 		RETURNING id
 	`
 
@@ -41,9 +43,25 @@ func (r *userRepository) Create(user *domain.User) error {
 		user.Status,
 		user.CreatedAt,
 		user.UpdatedAt,
+		user.EmailVerifiedAt,
 	).Scan(&user.ID)
 
 	if err != nil {
+		// users_username_key — единственное ограничение, реально достижимое
+		// через этот путь: identifier-first уже проверяет GetByUsername и
+		// сериализует одноимённые email через Consume до Create (см.
+		// otpUseCase.VerifyCode), так что users_email_key сюда не долетает.
+		// Проверяем его тоже — задаром и без нового обработчика в handler'е,
+		// раз ErrEmailTaken уже существует как сентинел.
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+			if strings.Contains(pgErr.ConstraintName, "username") {
+				return domain.ErrUsernameTaken
+			}
+			if strings.Contains(pgErr.ConstraintName, "email") {
+				return domain.ErrEmailTaken
+			}
+		}
 		return fmt.Errorf("failed to create user: %w", err)
 	}
 

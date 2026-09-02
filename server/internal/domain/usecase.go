@@ -2,10 +2,10 @@ package domain
 
 import "github.com/google/uuid"
 
+// AuthUseCase — вход существующих аккаунтов паролем и обслуживание сессии.
+// Register здесь больше нет: аккаунты создаются только через
+// OTPUseCase.VerifyCode (identifier-first-флоу, см. otp.go).
 type AuthUseCase interface {
-	// Register создаёт пользователя с неподтверждённой почтой и отправляет
-	// код. Токены НЕ выдаются: сессия открывается только после ввода кода.
-	Register(username, email, password string) (*User, error)
 	Login(email, password string) (*User, string, string, error)
 	ValidateToken(tokenString string) (*User, error)
 	// Refresh обменивает валидный неиспользованный refresh-токен на новую
@@ -17,22 +17,21 @@ type AuthUseCase interface {
 	Logout(refreshToken string) error
 }
 
+// OTPUseCase — единственный вход identifier-first-флоу: один и тот же код
+// для входа и регистрации, ветвление происходит внутри VerifyCode после
+// подтверждения владения почтой, не раньше.
 type OTPUseCase interface {
-	// RequestCode выпускает и отправляет код на почту. Возвращает nil, не
-	// отправляя письма, если пользователя нет или он не подходит под
-	// purpose: ответ API не должен зависеть от существования аккаунта.
-	// Отказ по лимиту приходит как *OTPThrottledError.
-	RequestCode(email string, p OTPPurpose) error
-	// VerifyCode проверяет код и при успехе открывает сессию. Для
-	// purpose=registration дополнительно проставляет email_verified_at.
-	VerifyCode(email, code string, p OTPPurpose) (*User, string, string, error)
-}
-
-// OTPSender — узкий срез OTPUseCase для authUseCase: регистрации нужна
-// только отправка кода, а не проверка. Узкий порт вместо целого юзкейса
-// не даёт зависимости разрастись.
-type OTPSender interface {
-	RequestCode(email string, p OTPPurpose) error
+	// RequestCode выпускает и отправляет код на email ВСЕГДА, вне
+	// зависимости от того, существует ли аккаунт — ответ не должен
+	// сообщать о существовании email. Отказ по лимиту — *OTPThrottledError.
+	RequestCode(email string) error
+	// VerifyCode проверяет код. Если email принадлежит существующему
+	// пользователю — логинит его, подтверждая почту при первом успешном
+	// входе. Если email новый: username == "" → ErrUsernameRequired без
+	// расхода кода; username занят другим пользователем → ErrUsernameTaken
+	// без расхода кода; иначе — создаёт пользователя, сразу подтверждённого,
+	// и логинит.
+	VerifyCode(email, code, username string) (*User, string, string, error)
 }
 
 type UserUseCase interface {

@@ -21,102 +21,20 @@ import (
 // а не настройка: конфигурации/env-переменной сознательно нет.
 const refreshGraceWindow = 30 * time.Second
 
+// authUseCase обслуживает вход существующих аккаунтов паролем и сессию.
+// Создание аккаунтов сюда не входит — это делает otpUseCase.VerifyCode
+// (identifier-first-флоу, см. otp.go): единственный способ завести
+// пользователя — доказать владение почтой одноразовым кодом.
 type authUseCase struct {
 	*tokenIssuer
-	userRepo  domain.UserRepository
-	otpSender domain.OTPSender
+	userRepo domain.UserRepository
 }
 
-func NewAuthUseCase(userRepo domain.UserRepository, refreshRepo domain.RefreshTokenRepository, otpSender domain.OTPSender, jwtSecret string, jwtExpiration, refreshExpiration time.Duration) domain.AuthUseCase {
+func NewAuthUseCase(userRepo domain.UserRepository, refreshRepo domain.RefreshTokenRepository, jwtSecret string, jwtExpiration, refreshExpiration time.Duration) domain.AuthUseCase {
 	return &authUseCase{
 		tokenIssuer: newTokenIssuer(refreshRepo, jwtSecret, jwtExpiration, refreshExpiration),
 		userRepo:    userRepo,
-		otpSender:   otpSender,
 	}
-}
-
-func (uc *authUseCase) Register(username, email, password string) (*domain.User, error) {
-	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
-	if err != nil {
-		return nil, fmt.Errorf("failed to hash password: %w", err)
-	}
-
-	// Занятый адрес — не всегда отказ. Если аккаунт по нему так и не
-	// подтверждён, регистрация принадлежит никому: перезаписываем её и шлём
-	// новый код. Иначе потерявший письмо человек застревает навсегда —
-	// зарегистрироваться нельзя (409), войти нечем (403).
-	if existing, err := uc.userRepo.GetByEmail(email); err == nil {
-		if existing.EmailVerifiedAt != nil {
-			return nil, domain.ErrEmailTaken
-		}
-
-		// Перезапись меняет username на новый — если он уже занят ДРУГИМ
-		// пользователем, это надо поймать здесь, а не отдать Update на откуп
-		// UNIQUE-констрейнту в Postgres: иначе гонка с чужим именем всплывёт
-		// необработанным 500 вместо честного 409 username_taken. Совпадение
-		// с текущим владельцем (existing.ID) — не конфликт: это тот же
-		// человек, повторно регистрирующийся под тем же именем.
-		if other, err := uc.userRepo.GetByUsername(username); err == nil && other.ID != existing.ID {
-			return nil, domain.ErrUsernameTaken
-		}
-
-		// Код запрашивается ДО перезаписи, и это единственное, что вообще
-		// ограничивает перезапись по частоте: кулдаун и часовой потолок
-		// живут внутри RequestCode. При обратном порядке (сначала Update,
-		// потом RequestCode) любой, кто знает чужой неподтверждённый адрес,
-		// переписывал бы жертве username и хеш пароля в цикле — отказ по
-		// лимиту приходил бы уже после того, как перезапись состоялась.
-		//
-		// Порядок безопасен: RequestCode читает пользователя заново и
-		// использует из него только ID, Email и EmailVerifiedAt, а код
-		// считается по (секрет, user ID, purpose) — ни username, ни пароль
-		// в него не входят, так что выпущенный код одинаково годится и для
-		// старого, и для нового состояния строки. Если Update следом
-		// упадёт, у человека на руках останется рабочий код к неизменённой
-		// регистрации — состояние не хуже исходного.
-		if err := uc.otpSender.RequestCode(email, domain.OTPPurposeRegistration); err != nil {
-			return nil, err
-		}
-
-		updates := map[string]interface{}{
-			"username": username,
-			"password": string(hashedPassword),
-		}
-		if err := uc.userRepo.Update(existing.ID, updates); err != nil {
-			return nil, fmt.Errorf("failed to reset pending registration: %w", err)
-		}
-		existing.Username = username
-		existing.Password = ""
-		return existing, nil
-	}
-
-	if _, err := uc.userRepo.GetByUsername(username); err == nil {
-		return nil, domain.ErrUsernameTaken
-	}
-
-	now := time.Now()
-	user := &domain.User{
-		ID:        uuid.New(),
-		Username:  username,
-		Email:     email,
-		Password:  string(hashedPassword),
-		Status:    domain.StatusOffline,
-		CreatedAt: now,
-		UpdatedAt: now,
-	}
-
-	if err := uc.userRepo.Create(user); err != nil {
-		return nil, fmt.Errorf("failed to create user: %w", err)
-	}
-
-	// Ошибку отправки возвращаем как есть: пользователь уже создан
-	// неподтверждённым, и повторный запрос кода сработает.
-	if err := uc.otpSender.RequestCode(email, domain.OTPPurposeRegistration); err != nil {
-		return nil, err
-	}
-
-	user.Password = ""
-	return user, nil
 }
 
 func (uc *authUseCase) Login(email, password string) (*domain.User, string, string, error) {
@@ -131,7 +49,8 @@ func (uc *authUseCase) Login(email, password string) (*domain.User, string, stri
 
 	// Неподтверждённая почта закрывает вход по паролю. Код отсюда НЕ
 	// отправляется: иначе форма логина позволяла бы слать письма на любой
-	// чужой адрес без ограничений. Код запрашивает клиент отдельной кнопкой.
+	// чужой адрес без ограничений. Код запрашивает клиент отдельной кнопкой
+	// через /otp/request.
 	if user.EmailVerifiedAt == nil {
 		return nil, "", "", domain.ErrEmailNotVerified
 	}

@@ -31,27 +31,15 @@ type otpRequestBody struct {
 }
 
 type otpVerifyBody struct {
-	Email string `json:"email"`
-	Code  string `json:"code"`
+	Email    string `json:"email"`
+	Code     string `json:"code"`
+	Username string `json:"username"`
 }
 
-func (h *OTPHandler) RequestRegistrationCode(w http.ResponseWriter, r *http.Request) {
-	h.requestCode(w, r, domain.OTPPurposeRegistration)
-}
-
-func (h *OTPHandler) RequestLoginCode(w http.ResponseWriter, r *http.Request) {
-	h.requestCode(w, r, domain.OTPPurposeLogin)
-}
-
-func (h *OTPHandler) VerifyRegistration(w http.ResponseWriter, r *http.Request) {
-	h.verify(w, r, domain.OTPPurposeRegistration, http.StatusCreated)
-}
-
-func (h *OTPHandler) VerifyLogin(w http.ResponseWriter, r *http.Request) {
-	h.verify(w, r, domain.OTPPurposeLogin, http.StatusOK)
-}
-
-func (h *OTPHandler) requestCode(w http.ResponseWriter, r *http.Request, p domain.OTPPurpose) {
+// RequestCode выпускает и отправляет код. Ответ ВСЕГДА одинаковый —
+// 202 otp_sent — вне зависимости от того, существует ли email: это и есть
+// смысл identifier-first, ответ API не должен палить существование аккаунта.
+func (h *OTPHandler) RequestCode(w http.ResponseWriter, r *http.Request) {
 	var req otpRequestBody
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		httperr.Write(w, http.StatusBadRequest, httperr.CodeInvalidBody, "invalid request body")
@@ -62,19 +50,20 @@ func (h *OTPHandler) requestCode(w http.ResponseWriter, r *http.Request, p domai
 		return
 	}
 
-	if err := h.otpUseCase.RequestCode(req.Email, p); err != nil {
+	if err := h.otpUseCase.RequestCode(req.Email); err != nil {
 		h.writeOTPError(w, r, err)
 		return
 	}
 
-	// 202, а не 200: письмо отправлено, но подтверждение ещё впереди.
-	// Тело одинаково и для существующего, и для неизвестного адреса.
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusAccepted)
 	json.NewEncoder(w).Encode(map[string]string{"status": "otp_sent"})
 }
 
-func (h *OTPHandler) verify(w http.ResponseWriter, r *http.Request, p domain.OTPPurpose, successStatus int) {
+// Verify проверяет код. Три исхода: токены (вход или только что созданный
+// аккаунт), {"status":"username_required"} (email новый, нужен ещё один
+// вызов с тем же code и заполненным username), либо ошибка.
+func (h *OTPHandler) Verify(w http.ResponseWriter, r *http.Request) {
 	var req otpVerifyBody
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		httperr.Write(w, http.StatusBadRequest, httperr.CodeInvalidBody, "invalid request body")
@@ -88,15 +77,25 @@ func (h *OTPHandler) verify(w http.ResponseWriter, r *http.Request, p domain.OTP
 		httperr.Write(w, http.StatusBadRequest, httperr.CodeInvalidOTPFormat, "code must be 4 digits")
 		return
 	}
+	if req.Username != "" && !usernameRegex.MatchString(req.Username) {
+		httperr.Write(w, http.StatusBadRequest, httperr.CodeInvalidUsername, "username must be 3-30 characters, alphanumeric, underscore or hyphen only")
+		return
+	}
 
-	user, accessToken, refreshToken, err := h.otpUseCase.VerifyCode(req.Email, req.Code, p)
+	user, accessToken, refreshToken, err := h.otpUseCase.VerifyCode(req.Email, req.Code, req.Username)
 	if err != nil {
+		if errors.Is(err, domain.ErrUsernameRequired) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			json.NewEncoder(w).Encode(map[string]string{"status": "username_required"})
+			return
+		}
 		h.writeOTPError(w, r, err)
 		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(successStatus)
+	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"access_token":  accessToken,
 		"refresh_token": refreshToken,
@@ -130,6 +129,8 @@ func (h *OTPHandler) writeOTPError(w http.ResponseWriter, r *http.Request, err e
 		httperr.Write(w, http.StatusUnauthorized, httperr.CodeOTPAttemptsExceeded, "too many invalid attempts, request a new code")
 	case errors.Is(err, domain.ErrOTPInvalid):
 		httperr.Write(w, http.StatusUnauthorized, httperr.CodeOTPInvalid, "invalid or expired code")
+	case errors.Is(err, domain.ErrUsernameTaken):
+		httperr.Write(w, http.StatusConflict, httperr.CodeUsernameTaken, "username is taken")
 	case errors.Is(err, domain.ErrMailSendFailed):
 		httperr.Write(w, http.StatusBadGateway, httperr.CodeMailSendFailed, "failed to send the code, try again")
 	default:
@@ -140,10 +141,7 @@ func (h *OTPHandler) writeOTPError(w http.ResponseWriter, r *http.Request, err e
 }
 
 // writeOTPThrottled — единственное место, формирующее ответ на отказ по
-// лимиту OTP. Вынесено из writeOTPError, потому что тот же отказ приходит и
-// через AuthHandler.Register: перезапись брошенной регистрации проходит через
-// тот же кулдаун. Дублировать подбор кода и Retry-After в двух хендлерах
-// значило бы получить два расходящихся ответа на одну доменную ошибку.
+// лимиту OTP.
 func writeOTPThrottled(w http.ResponseWriter, throttled *domain.OTPThrottledError) {
 	w.Header().Set("Retry-After", strconv.Itoa(int(throttled.RetryAfter.Seconds())))
 	code := httperr.CodeOTPCooldown
