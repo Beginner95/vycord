@@ -102,8 +102,6 @@ func main() {
 		FromName: cfg.SMTPFromName,
 	})
 
-	// otpUseCase создаётся раньше authUseCase: Register в authUseCase
-	// отправляет код регистрации через узкий срез domain.OTPSender.
 	otpUseCase := usecase.NewOTPUseCase(
 		userRepo, otpRepo, appMailer, refreshTokenRepo,
 		cfg.JWTSecret, cfg.JWTExpiration, cfg.RefreshTokenExpiration,
@@ -117,7 +115,10 @@ func main() {
 		log,
 	)
 
-	authUseCase := usecase.NewAuthUseCase(userRepo, refreshTokenRepo, otpUseCase, cfg.JWTSecret, cfg.JWTExpiration, cfg.RefreshTokenExpiration)
+	// authUseCase больше не зависит от otpUseCase: Register уехал в
+	// otpUseCase.VerifyCode, а Login/Refresh/Logout никогда не отправляли
+	// код напрямую.
+	authUseCase := usecase.NewAuthUseCase(userRepo, refreshTokenRepo, cfg.JWTSecret, cfg.JWTExpiration, cfg.RefreshTokenExpiration)
 	userUseCase := usecase.NewUserUseCase(userRepo, storage)
 	permissionUseCase := usecase.NewPermissionUseCase(serverRepo, roleRepo)
 	inviteUseCase := usecase.NewInviteUseCase(inviteRepo, serverRepo, permissionUseCase)
@@ -197,16 +198,15 @@ func main() {
 		_, _ = w.Write([]byte(`{"status":"ok"}`))
 	})
 
-	// Auth routes
-	router.HandleFunc("POST /api/v1/auth/register", authHandler.Register)
+	// Auth routes. /auth/register* is gone — otp/request + otp/verify cover
+	// both login and registration (identifier-first, see
+	// docs/superpowers/specs/2026-09-02-identifier-first-otp-design.md).
 	router.HandleFunc("POST /api/v1/auth/login", authHandler.Login)
 	router.HandleFunc("POST /api/v1/auth/refresh", authHandler.Refresh)
 	router.HandleFunc("POST /api/v1/auth/logout", authHandler.Logout)
 	router.HandleFunc("GET /api/v1/auth/me", authMid.RequireAuth(userHandler.GetMe))
-	router.HandleFunc("POST /api/v1/auth/register/resend", otpHandler.RequestRegistrationCode)
-	router.HandleFunc("POST /api/v1/auth/register/verify", otpHandler.VerifyRegistration)
-	router.HandleFunc("POST /api/v1/auth/otp/request", otpHandler.RequestLoginCode)
-	router.HandleFunc("POST /api/v1/auth/otp/verify", otpHandler.VerifyLogin)
+	router.HandleFunc("POST /api/v1/auth/otp/request", otpHandler.RequestCode)
+	router.HandleFunc("POST /api/v1/auth/otp/verify", otpHandler.Verify)
 
 	// User routes
 	router.HandleFunc("GET /api/v1/users/online", authMid.RequireAuth(onlineUsersHandler.GetOnlineUsers))
