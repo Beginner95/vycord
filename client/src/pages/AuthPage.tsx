@@ -69,12 +69,26 @@ export function AuthPage() {
       await completeLogin(data);
     } catch (err) {
       if (err instanceof ApiError && err.code === 'otp_attempts_exceeded') {
+        // Код сожжён окончательно — держать пользователя на шаге username
+        // (или code) смысла нет, он будет биться о мёртвый код бесконечно.
+        // Единственный выход — запросить новый код заново.
         setCode('');
+        setUsername('');
+        setError('');
+        setStep('email');
+        return;
       }
       setError(apiErrorText(err, t));
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleBackToEmailFromUsername = () => {
+    setStep('email');
+    setCode('');
+    setUsername('');
+    setError('');
   };
 
   const handleCodeComplete = (submitted: string) => {
@@ -226,6 +240,14 @@ export function AuthPage() {
               {loading ? t('auth.creatingAccount') : t('auth.continueButton')}
             </button>
           </form>
+
+          <button
+            type="button"
+            className="auth-link-button"
+            onClick={handleBackToEmailFromUsername}
+          >
+            {t('auth.changeEmail')}
+          </button>
         </div>
       </div>
     );
