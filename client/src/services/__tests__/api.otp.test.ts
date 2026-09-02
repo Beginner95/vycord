@@ -11,35 +11,7 @@ describe('apiService OTP', () => {
     vi.restoreAllMocks();
   });
 
-  it('register() возвращает otp_sent и не выдаёт токенов', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
-      ok: true,
-      status: 202,
-      json: () => Promise.resolve({ status: 'otp_sent', user }),
-    }));
-
-    const data = await apiService.register('test', 't@example.com', 'password123');
-
-    expect(data.status).toBe('otp_sent');
-    expect((data as Record<string, unknown>).access_token).toBeUndefined();
-  });
-
-  it('verifyRegistrationCode() бьёт в /register/verify и отдаёт токены', async () => {
-    const fetchMock = vi.fn().mockResolvedValue({
-      ok: true,
-      status: 201,
-      json: () => Promise.resolve({ access_token: 'a', refresh_token: 'r', user }),
-    });
-    vi.stubGlobal('fetch', fetchMock);
-
-    const data = await apiService.verifyRegistrationCode('t@example.com', '0429');
-
-    expect(fetchMock.mock.calls[0][0]).toContain('/api/v1/auth/register/verify');
-    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({ email: 't@example.com', code: '0429' });
-    expect(data.access_token).toBe('a');
-  });
-
-  it('requestLoginCode() бьёт в /otp/request', async () => {
+  it('requestOtp() бьёт в /otp/request', async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
       status: 202,
@@ -47,9 +19,52 @@ describe('apiService OTP', () => {
     });
     vi.stubGlobal('fetch', fetchMock);
 
-    await apiService.requestLoginCode('t@example.com');
+    await apiService.requestOtp('t@example.com');
 
     expect(fetchMock.mock.calls[0][0]).toContain('/api/v1/auth/otp/request');
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({ email: 't@example.com' });
+  });
+
+  it('verifyOtp() без username отправляет только email и code', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve({ access_token: 'a', refresh_token: 'r', user }),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const data = await apiService.verifyOtp('t@example.com', '0429');
+
+    expect(fetchMock.mock.calls[0][0]).toContain('/api/v1/auth/otp/verify');
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({ email: 't@example.com', code: '0429' });
+    expect('access_token' in data && data.access_token).toBe('a');
+  });
+
+  it('verifyOtp() с username включает его в тело', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve({ access_token: 'a', refresh_token: 'r', user }),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await apiService.verifyOtp('new@example.com', '0429', 'newbie');
+
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({
+      email: 'new@example.com', code: '0429', username: 'newbie',
+    });
+  });
+
+  it('verifyOtp() на новый email без username возвращает username_required', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve({ status: 'username_required' }),
+    }));
+
+    const data = await apiService.verifyOtp('new@example.com', '0429');
+
+    expect('status' in data && data.status).toBe('username_required');
   });
 
   // attempts_left приходит в теле 401 и нужен интерфейсу, чтобы показать
@@ -63,7 +78,7 @@ describe('apiService OTP', () => {
     }));
 
     try {
-      await apiService.verifyLoginCode('t@example.com', '9999');
+      await apiService.verifyOtp('t@example.com', '9999');
       expect.unreachable('ожидалась ошибка');
     } catch (err) {
       expect(err).toBeInstanceOf(ApiError);
@@ -73,6 +88,19 @@ describe('apiService OTP', () => {
     }
   });
 
+  it('занятый username доносит username_taken', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: false,
+      status: 409,
+      json: () => Promise.resolve({ error: 'username is taken', code: 'username_taken' }),
+    }));
+
+    await expect(apiService.verifyOtp('new@example.com', '0429', 'taken')).rejects.toMatchObject({
+      code: 'username_taken',
+      status: 409,
+    });
+  });
+
   it('кулдаун доносит otp_cooldown', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
       ok: false,
@@ -80,7 +108,7 @@ describe('apiService OTP', () => {
       json: () => Promise.resolve({ error: 'too many requests', code: 'otp_cooldown' }),
     }));
 
-    await expect(apiService.resendRegistrationCode('t@example.com')).rejects.toMatchObject({
+    await expect(apiService.requestOtp('t@example.com')).rejects.toMatchObject({
       code: 'otp_cooldown',
       status: 429,
     });

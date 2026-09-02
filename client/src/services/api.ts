@@ -41,6 +41,10 @@ export class ApiError extends Error {
   }
 }
 
+export type OtpVerifyResponse =
+  | { access_token: string; refresh_token: string; user: User }
+  | { status: 'username_required' };
+
 /**
  * Текст ошибки API для показа пользователю.
  *
@@ -313,40 +317,23 @@ class ApiService {
   }
 
   // Auth
-  // register больше НЕ открывает сессию: сервер отвечает 202 и шлёт код на
-  // почту. Токены выдаёт только verifyRegistrationCode.
-  async register(username: string, email: string, password: string) {
-    return this.request<{ status: string; user: User }>('/api/v1/auth/register', {
-      method: 'POST',
-      body: JSON.stringify({ username, email, password }),
-    });
-  }
-
-  async resendRegistrationCode(email: string) {
-    return this.request<{ status: string }>('/api/v1/auth/register/resend', {
-      method: 'POST',
-      body: JSON.stringify({ email }),
-    });
-  }
-
-  async verifyRegistrationCode(email: string, code: string) {
-    return this.request<{ access_token: string; refresh_token: string; user: User }>('/api/v1/auth/register/verify', {
-      method: 'POST',
-      body: JSON.stringify({ email, code }),
-    });
-  }
-
-  async requestLoginCode(email: string) {
+  // identifier-first: один и тот же код для входа и регистрации. Ответ
+  // одинаков вне зависимости от того, существует ли email — сервер не
+  // должен палить существование аккаунта.
+  async requestOtp(email: string) {
     return this.request<{ status: string }>('/api/v1/auth/otp/request', {
       method: 'POST',
       body: JSON.stringify({ email }),
     });
   }
 
-  async verifyLoginCode(email: string, code: string) {
-    return this.request<{ access_token: string; refresh_token: string; user: User }>('/api/v1/auth/otp/verify', {
+  // Ответ либо токены (вход или только что созданный аккаунт), либо
+  // {status: 'username_required'} — email новый, нужен ещё один вызов с тем
+  // же code и заполненным username.
+  async verifyOtp(email: string, code: string, username?: string) {
+    return this.request<OtpVerifyResponse>('/api/v1/auth/otp/verify', {
       method: 'POST',
-      body: JSON.stringify({ email, code }),
+      body: JSON.stringify(username ? { email, code, username } : { email, code }),
     });
   }
 
