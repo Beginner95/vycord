@@ -93,6 +93,10 @@ var (
 	// Отдельно от ErrOTPInvalid: клиенту надо сказать «запросите новый», а
 	// не «попробуйте ещё раз».
 	ErrOTPAttemptsExceeded = errors.New("too many invalid attempts")
+	// ErrUsernameRequired — код верный, но email ещё не принадлежит
+	// пользователю: identifier-first требует username, чтобы завершить
+	// создание аккаунта. Не отказ (код не расходуется) — следующий шаг.
+	ErrUsernameRequired = errors.New("username required to finish registration")
 	// ErrEmailNotVerified — вход по паролю в аккаунт с неподтверждённой почтой.
 	ErrEmailNotVerified = errors.New("email is not verified")
 	// ErrMailSendFailed — письмо не ушло. Код при этом уже сохранён и
