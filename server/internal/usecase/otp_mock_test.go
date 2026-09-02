@@ -14,8 +14,8 @@ func (m *MockOTPRepository) Create(c *domain.OTPCode) error {
 	return m.Called(c).Error(0)
 }
 
-func (m *MockOTPRepository) GetActive(userID uuid.UUID, p domain.OTPPurpose) (*domain.OTPCode, error) {
-	args := m.Called(userID, p)
+func (m *MockOTPRepository) GetActive(email string) (*domain.OTPCode, error) {
+	args := m.Called(email)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
@@ -31,17 +31,17 @@ func (m *MockOTPRepository) Consume(id uuid.UUID, at time.Time) error {
 	return m.Called(id, at).Error(0)
 }
 
-func (m *MockOTPRepository) InvalidateActive(userID uuid.UUID, p domain.OTPPurpose) error {
-	return m.Called(userID, p).Error(0)
+func (m *MockOTPRepository) InvalidateActive(email string) error {
+	return m.Called(email).Error(0)
 }
 
-func (m *MockOTPRepository) CountIssuedSince(userID uuid.UUID, p domain.OTPPurpose, since time.Time) (int, error) {
-	args := m.Called(userID, p, since)
+func (m *MockOTPRepository) CountIssuedSince(email string, since time.Time) (int, error) {
+	args := m.Called(email, since)
 	return args.Int(0), args.Error(1)
 }
 
-func (m *MockOTPRepository) LastIssuedAt(userID uuid.UUID, p domain.OTPPurpose) (*time.Time, error) {
-	args := m.Called(userID, p)
+func (m *MockOTPRepository) LastIssuedAt(email string) (*time.Time, error) {
+	args := m.Called(email)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
