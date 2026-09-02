@@ -367,6 +367,85 @@ func TestVerifyNewEmailConcurrentRaceOnlyOneCreates(t *testing.T) {
 	userRepo.AssertNotCalled(t, "Create", mock.Anything)
 }
 
+// Гонка на username между ДВУМЯ РАЗНЫМИ новыми email: оба проходят
+// GetByUsername до Create (race window), Consume у каждого свой (разные
+// OTP-записи) — оба успевают дойти до Create. Репозиторий у проигравшего
+// ловит нарушение уникальности username и должен вернуть
+// domain.ErrUsernameTaken; usecase обязан пробросить этот сентинел как
+// есть, не оборачивая его в fmt.Errorf, иначе errors.Is в handler'е не
+// сработает и ответ станет 500 вместо чистого 409.
+func TestVerifyNewEmailUsernameRaceReturnsUsernameTakenUnwrapped(t *testing.T) {
+	uc, userRepo, otpRepo, _, _ := newOTPUseCase(t)
+	email := "second@e.com"
+	code := activeCode(t, email, domain.OTPPurposeRegistration, "0429")
+	otpRepo.On("GetActive", email).Return(code, nil)
+	otpRepo.On("IncrementAttempts", code.ID, 3).Return(1, nil)
+	userRepo.On("GetByEmail", email).Return(nil, errors.New("user not found"))
+	userRepo.On("GetByUsername", "shared").Return(nil, errors.New("user not found"))
+	otpRepo.On("Consume", code.ID, mock.Anything).Return(nil)
+	// Симулируем проигрыш гонки в Postgres: репозиторий уже перевёл 23505 на
+	// users_username_key в domain.ErrUsernameTaken (см. userRepository.Create).
+	userRepo.On("Create", mock.Anything).Return(domain.ErrUsernameTaken)
+
+	got, access, refresh, err := uc.VerifyCode(email, "0429", "shared")
+
+	assert.ErrorIs(t, err, domain.ErrUsernameTaken)
+	assert.Nil(t, got)
+	assert.Empty(t, access)
+	assert.Empty(t, refresh)
+}
+
+// --- Нормализация email: identifier-first обязан видеть Foo@bar.com и
+// foo@bar.com как один и тот же адрес на каждом шаге, иначе регистр в
+// email заводит дубликат аккаунта. Мок реагирует только на ожидания,
+// заданные ТОЧНО в нижнем регистре — если бы normalize не случился (или
+// случился не в начале функции), вызовы ушли бы с сырым Test@Example.com,
+// не совпали бы ни с одним .On(...) и testify запаниковал бы на
+// неожиданном вызове, провалив тест. ---
+
+func TestRequestCodeNormalizesEmailCase(t *testing.T) {
+	uc, userRepo, otpRepo, mailer, _ := newOTPUseCase(t)
+	const normalized = "test@example.com"
+	var stored *domain.OTPCode
+	userRepo.On("GetByEmail", normalized).Return(nil, errors.New("user not found"))
+	otpRepo.On("LastIssuedAt", normalized).Return(nil, nil)
+	otpRepo.On("CountIssuedSince", normalized, mock.Anything).Return(0, nil)
+	otpRepo.On("InvalidateActive", normalized).Return(nil)
+	otpRepo.On("Create", mock.Anything).Run(func(args mock.Arguments) {
+		stored = args.Get(0).(*domain.OTPCode)
+	}).Return(nil)
+	mailer.On("Send", mock.Anything).Return(nil)
+
+	err := uc.RequestCode("  Test@Example.com  ")
+
+	require.NoError(t, err)
+	require.NotNil(t, stored)
+	assert.Equal(t, normalized, stored.Email)
+	require.Len(t, mailer.Sent, 1)
+	assert.Equal(t, normalized, mailer.Sent[0].To)
+}
+
+func TestVerifyCodeNormalizesEmailCase(t *testing.T) {
+	uc, userRepo, otpRepo, _, refreshRepo := newOTPUseCase(t)
+	const normalized = "test@example.com"
+	user := &domain.User{ID: uuid.New(), Username: "u", Email: normalized}
+	at := time.Now().Add(-time.Hour)
+	user.EmailVerifiedAt = &at
+	code := activeCode(t, normalized, domain.OTPPurposeLogin, "1234")
+	otpRepo.On("GetActive", normalized).Return(code, nil)
+	otpRepo.On("IncrementAttempts", code.ID, 3).Return(1, nil)
+	userRepo.On("GetByEmail", normalized).Return(user, nil)
+	otpRepo.On("Consume", code.ID, mock.Anything).Return(nil)
+	refreshRepo.On("Create", mock.Anything).Return(nil)
+
+	got, access, refresh, err := uc.VerifyCode("Test@Example.com", "1234", "")
+
+	require.NoError(t, err)
+	assert.NotEmpty(t, access)
+	assert.NotEmpty(t, refresh)
+	assert.Equal(t, user.ID, got.ID)
+}
+
 // --- VerifyCode: код неверный/истёкший/попытки исчерпаны — без изменений в поведении ---
 
 func TestVerifyWrongCodeIncrementsAttempts(t *testing.T) {

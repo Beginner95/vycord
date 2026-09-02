@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log/slog"
 	"math/big"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -59,6 +60,12 @@ func NewOTPUseCase(
 }
 
 func (uc *otpUseCase) RequestCode(email string) error {
+	// Нормализация ДО любого обращения к репозиторию/HMAC: без неё
+	// Foo@bar.com и foo@bar.com — два разных email с точки зрения БД
+	// (сравнение без LOWER()), и identifier-first тихо заводит вторую
+	// учётку на одном и том же почтовом ящике.
+	email = strings.ToLower(strings.TrimSpace(email))
+
 	now := time.Now()
 
 	// Ошибка здесь неотличима от «не найден» (см. userRepository.GetByEmail) —
@@ -133,6 +140,11 @@ func (uc *otpUseCase) RequestCode(email string) error {
 }
 
 func (uc *otpUseCase) VerifyCode(email, code, username string) (*domain.User, string, string, error) {
+	// См. комментарий в RequestCode — нормализация обязана произойти до
+	// первого использования email, иначе один и тот же ящик в разном
+	// регистре проходит мимо GetActive/GetByEmail как будто это два адреса.
+	email = strings.ToLower(strings.TrimSpace(email))
+
 	stored, err := uc.otpRepo.GetActive(email)
 	if err != nil {
 		if errors.Is(err, domain.ErrOTPNotFound) {
@@ -258,6 +270,14 @@ func (uc *otpUseCase) createVerifiedUser(email, username string, now time.Time) 
 		EmailVerifiedAt: &now,
 	}
 	if err := uc.userRepo.Create(user); err != nil {
+		// Гонка на username между двумя РАЗНЫМИ новыми email: оба проходят
+		// GetByUsername до Create (см. VerifyCode), проигравший ловит здесь
+		// нарушение уникальности username. Пробрасываем сентинел как есть —
+		// не оборачиваем — чтобы handler'ский errors.Is(err, ErrUsernameTaken)
+		// (уже маппится в 409) сработал; всё остальное по-прежнему 500.
+		if errors.Is(err, domain.ErrUsernameTaken) || errors.Is(err, domain.ErrEmailTaken) {
+			return nil, err
+		}
 		return nil, fmt.Errorf("failed to create user: %w", err)
 	}
 	return user, nil
