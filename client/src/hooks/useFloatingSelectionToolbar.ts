@@ -72,11 +72,16 @@ export function useFloatingSelectionToolbar({
     const handleKeyUp = () => show(getSelectionInfoRef.current());
 
     const hide = () => setState(null);
+    // `hide` on 'input' used to run synchronously, right on the container —
+    // the same element React's own controlled <textarea> reconciles for that
+    // very same event. Calling setState from it raced React's own commit of
+    // the onChange-driven value update, and lost
+    const hideAsync = () => setTimeout(hide, 0);
 
     const keyupTargetEl: Document | Element = keyupTarget === 'document' ? document : container;
 
     container.addEventListener('mouseup', handleMouseUp);
-    container.addEventListener('input', hide);
+    container.addEventListener('input', hideAsync);
     container.addEventListener('scroll', hide);
     keyupTargetEl.addEventListener('keyup', handleKeyUp);
     document.addEventListener('mousedown', hide);
@@ -84,7 +89,7 @@ export function useFloatingSelectionToolbar({
 
     return () => {
       container.removeEventListener('mouseup', handleMouseUp);
-      container.removeEventListener('input', hide);
+      container.removeEventListener('input', hideAsync);
       container.removeEventListener('scroll', hide);
       keyupTargetEl.removeEventListener('keyup', handleKeyUp);
       document.removeEventListener('mousedown', hide);
