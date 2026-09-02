@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 	"golang.org/x/crypto/bcrypt"
 
@@ -22,67 +21,20 @@ import (
 // а не настройка: конфигурации/env-переменной сознательно нет.
 const refreshGraceWindow = 30 * time.Second
 
+// authUseCase обслуживает вход существующих аккаунтов паролем и сессию.
+// Создание аккаунтов сюда не входит — это делает otpUseCase.VerifyCode
+// (identifier-first-флоу, см. otp.go): единственный способ завести
+// пользователя — доказать владение почтой одноразовым кодом.
 type authUseCase struct {
-	userRepo          domain.UserRepository
-	refreshRepo       domain.RefreshTokenRepository
-	jwtSecret         string
-	jwtExpiration     time.Duration
-	refreshExpiration time.Duration
+	*tokenIssuer
+	userRepo domain.UserRepository
 }
 
 func NewAuthUseCase(userRepo domain.UserRepository, refreshRepo domain.RefreshTokenRepository, jwtSecret string, jwtExpiration, refreshExpiration time.Duration) domain.AuthUseCase {
 	return &authUseCase{
-		userRepo:          userRepo,
-		refreshRepo:       refreshRepo,
-		jwtSecret:         jwtSecret,
-		jwtExpiration:     jwtExpiration,
-		refreshExpiration: refreshExpiration,
+		tokenIssuer: newTokenIssuer(refreshRepo, jwtSecret, jwtExpiration, refreshExpiration),
+		userRepo:    userRepo,
 	}
-}
-
-func (uc *authUseCase) Register(username, email, password string) (*domain.User, string, string, error) {
-	_, err := uc.userRepo.GetByEmail(email)
-	if err == nil {
-		return nil, "", "", domain.ErrEmailTaken
-	}
-
-	_, err = uc.userRepo.GetByUsername(username)
-	if err == nil {
-		return nil, "", "", domain.ErrUsernameTaken
-	}
-
-	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
-	if err != nil {
-		return nil, "", "", fmt.Errorf("failed to hash password: %w", err)
-	}
-
-	now := time.Now()
-	user := &domain.User{
-		ID:        uuid.New(),
-		Username:  username,
-		Email:     email,
-		Password:  string(hashedPassword),
-		Status:    domain.StatusOffline,
-		CreatedAt: now,
-		UpdatedAt: now,
-	}
-
-	if err := uc.userRepo.Create(user); err != nil {
-		return nil, "", "", fmt.Errorf("failed to create user: %w", err)
-	}
-
-	accessToken, err := uc.generateAccessToken(user)
-	if err != nil {
-		return nil, "", "", fmt.Errorf("failed to generate token: %w", err)
-	}
-
-	refreshToken, _, err := uc.issueRefreshToken(user.ID, uuid.New())
-	if err != nil {
-		return nil, "", "", fmt.Errorf("failed to issue refresh token: %w", err)
-	}
-
-	user.Password = ""
-	return user, accessToken, refreshToken, nil
 }
 
 func (uc *authUseCase) Login(email, password string) (*domain.User, string, string, error) {
@@ -95,14 +47,17 @@ func (uc *authUseCase) Login(email, password string) (*domain.User, string, stri
 		return nil, "", "", domain.ErrInvalidCredentials
 	}
 
-	accessToken, err := uc.generateAccessToken(user)
-	if err != nil {
-		return nil, "", "", fmt.Errorf("failed to generate token: %w", err)
+	// Неподтверждённая почта закрывает вход по паролю. Код отсюда НЕ
+	// отправляется: иначе форма логина позволяла бы слать письма на любой
+	// чужой адрес без ограничений. Код запрашивает клиент отдельной кнопкой
+	// через /otp/request.
+	if user.EmailVerifiedAt == nil {
+		return nil, "", "", domain.ErrEmailNotVerified
 	}
 
-	refreshToken, _, err := uc.issueRefreshToken(user.ID, uuid.New())
+	accessToken, refreshToken, err := uc.issuePair(user)
 	if err != nil {
-		return nil, "", "", fmt.Errorf("failed to issue refresh token: %w", err)
+		return nil, "", "", err
 	}
 
 	user.Password = ""
@@ -233,39 +188,4 @@ func (uc *authUseCase) Logout(refreshToken string) error {
 		return fmt.Errorf("failed to look up refresh token: %w", err)
 	}
 	return uc.refreshRepo.RevokeFamily(stored.FamilyID)
-}
-
-func (uc *authUseCase) issueRefreshToken(userID, familyID uuid.UUID) (string, *domain.RefreshToken, error) {
-	token, err := authtoken.GenerateRefreshToken()
-	if err != nil {
-		return "", nil, err
-	}
-
-	now := time.Now()
-	record := &domain.RefreshToken{
-		ID:        uuid.New(),
-		UserID:    userID,
-		FamilyID:  familyID,
-		TokenHash: authtoken.HashRefreshToken(token),
-		CreatedAt: now,
-		ExpiresAt: now.Add(uc.refreshExpiration),
-	}
-
-	if err := uc.refreshRepo.Create(record); err != nil {
-		return "", nil, err
-	}
-
-	return token, record, nil
-}
-
-func (uc *authUseCase) generateAccessToken(user *domain.User) (string, error) {
-	claims := jwt.MapClaims{
-		"user_id":  user.ID.String(),
-		"username": user.Username,
-		"exp":      time.Now().Add(uc.jwtExpiration).Unix(),
-		"iat":      time.Now().Unix(),
-	}
-
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	return token.SignedString([]byte(uc.jwtSecret))
 }

@@ -1,7 +1,6 @@
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { useAuthStore } from '@/stores/authStore';
-import { LoginPage } from '@/pages/LoginPage';
-import { RegisterPage } from '@/pages/RegisterPage';
+import { AuthPage } from '@/pages/AuthPage';
 import { AppPage } from '@/pages/AppPage';
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
@@ -21,18 +20,11 @@ export function AppRouter() {
         path="/login"
         element={
           <PublicRoute>
-            <LoginPage />
+            <AuthPage />
           </PublicRoute>
         }
       />
-      <Route
-        path="/register"
-        element={
-          <PublicRoute>
-            <RegisterPage />
-          </PublicRoute>
-        }
-      />
+      <Route path="/register" element={<Navigate to="/login" />} />
       <Route
         path="/app"
         element={

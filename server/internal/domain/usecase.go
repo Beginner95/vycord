@@ -2,8 +2,10 @@ package domain
 
 import "github.com/google/uuid"
 
+// AuthUseCase — вход существующих аккаунтов паролем и обслуживание сессии.
+// Register здесь больше нет: аккаунты создаются только через
+// OTPUseCase.VerifyCode (identifier-first-флоу, см. otp.go).
 type AuthUseCase interface {
-	Register(username, email, password string) (*User, string, string, error)
 	Login(email, password string) (*User, string, string, error)
 	ValidateToken(tokenString string) (*User, error)
 	// Refresh обменивает валидный неиспользованный refresh-токен на новую
@@ -13,6 +15,23 @@ type AuthUseCase interface {
 	// Logout отзывает всю сессию (family), к которой принадлежит
 	// refreshToken. Не ошибка, если токен уже не существует.
 	Logout(refreshToken string) error
+}
+
+// OTPUseCase — единственный вход identifier-first-флоу: один и тот же код
+// для входа и регистрации, ветвление происходит внутри VerifyCode после
+// подтверждения владения почтой, не раньше.
+type OTPUseCase interface {
+	// RequestCode выпускает и отправляет код на email ВСЕГДА, вне
+	// зависимости от того, существует ли аккаунт — ответ не должен
+	// сообщать о существовании email. Отказ по лимиту — *OTPThrottledError.
+	RequestCode(email string) error
+	// VerifyCode проверяет код. Если email принадлежит существующему
+	// пользователю — логинит его, подтверждая почту при первом успешном
+	// входе. Если email новый: username == "" → ErrUsernameRequired без
+	// расхода кода; username занят другим пользователем → ErrUsernameTaken
+	// без расхода кода; иначе — создаёт пользователя, сразу подтверждённого,
+	// и логинит.
+	VerifyCode(email, code, username string) (*User, string, string, error)
 }
 
 type UserUseCase interface {

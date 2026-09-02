@@ -34,7 +34,7 @@
   height: 6px;
   flex-shrink: 0;
   cursor: row-resize;
-  background: var(--canvas);
+  background: var(--split-handle);
 
   /* Без touch-action браузер уводит вертикальный свайп по разделителю в скролл
      и глушит драг ещё до первого pointermove. */

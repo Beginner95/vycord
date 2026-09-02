@@ -31,11 +31,19 @@ export class ApiError extends Error {
     message: string,
     readonly code?: string,
     readonly status?: number,
+    // details — сырое тело ответа. Нужно там, где кода мало: у неверного
+    // OTP в теле приходит attempts_left, и экран показывает, сколько
+    // попыток осталось до сжигания кода.
+    readonly details?: Record<string, unknown>,
   ) {
     super(message);
     this.name = 'ApiError';
   }
 }
+
+export type OtpVerifyResponse =
+  | { access_token: string; refresh_token: string; user: User }
+  | { status: 'username_required' };
 
 /**
  * Текст ошибки API для показа пользователю.
@@ -250,12 +258,12 @@ class ApiService {
       } else {
         useAuthStore.getState().logout();
       }
-      throw new ApiError(body.error || 'Unauthorized', body.code, 401);
+      throw new ApiError(body.error || 'Unauthorized', body.code, 401, body);
     }
 
     if (!response.ok) {
       const body = await response.json().catch(() => ({ error: response.statusText }));
-      throw new ApiError(body.error || `HTTP ${response.status}`, body.code, response.status);
+      throw new ApiError(body.error || `HTTP ${response.status}`, body.code, response.status, body);
     }
 
     // Handle 204 No Content
@@ -309,10 +317,23 @@ class ApiService {
   }
 
   // Auth
-  async register(username: string, email: string, password: string) {
-    return this.request<{ access_token: string; refresh_token: string; user: User }>('/api/v1/auth/register', {
+  // identifier-first: один и тот же код для входа и регистрации. Ответ
+  // одинаков вне зависимости от того, существует ли email — сервер не
+  // должен палить существование аккаунта.
+  async requestOtp(email: string) {
+    return this.request<{ status: string }>('/api/v1/auth/otp/request', {
       method: 'POST',
-      body: JSON.stringify({ username, email, password }),
+      body: JSON.stringify({ email }),
+    });
+  }
+
+  // Ответ либо токены (вход или только что созданный аккаунт), либо
+  // {status: 'username_required'} — email новый, нужен ещё один вызов с тем
+  // же code и заполненным username.
+  async verifyOtp(email: string, code: string, username?: string) {
+    return this.request<OtpVerifyResponse>('/api/v1/auth/otp/verify', {
+      method: 'POST',
+      body: JSON.stringify(username ? { email, code, username } : { email, code }),
     });
   }
 

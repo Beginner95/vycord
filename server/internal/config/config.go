@@ -46,12 +46,49 @@ type Config struct {
 	// дело дойдёт до проверки по плану. См. также client_max_body_size в
 	// nginx — тот же инвариант действует и для него.
 	MaxUploadBytes int64
+	// SMTP-транспорт для писем с OTP-кодами. SMTPHost и SMTPFrom
+	// обязательны: без них регистрация не работает вообще, и молчаливый
+	// старт с нерабочей почтой хуже, чем отказ подняться.
+	SMTPHost     string
+	SMTPPort     string
+	SMTPUsername string
+	SMTPPassword string
+	SMTPFrom     string
+	SMTPFromName string
+	// OTPSecret — ключ HMAC, которым хешируются коды в otp_codes.
+	// Отдельный от JWTSecret намеренно: ротация одного секрета не должна
+	// инвалидировать другую подсистему.
+	OTPSecret string
+	// OTPTTL и лимиты. 4-значный код держится не на своей энтропии
+	// (10 000 вариантов), а на этих ограничениях: 3 попытки на код и не
+	// более 5 кодов в час дают максимум 15 попыток в час на аккаунт.
+	// Увеличение любого из двух последних чисел прямо ухудшает стойкость.
+	OTPTTL            time.Duration
+	OTPMaxAttempts    int
+	OTPResendCooldown time.Duration
+	OTPMaxPerHour     int
+	// UnverifiedUserTTL — через сколько уборщик удаляет так и не
+	// подтверждённую регистрацию. Без этого брошенные записи навсегда
+	// удерживают username и email через UNIQUE-ограничения.
+	UnverifiedUserTTL time.Duration
 }
 
 func New() (*Config, error) {
 	jwtSecret := getEnv("JWT_SECRET", "")
 	if jwtSecret == "" {
 		return nil, fmt.Errorf("JWT_SECRET environment variable is required")
+	}
+	smtpHost := getEnv("SMTP_HOST", "")
+	if smtpHost == "" {
+		return nil, fmt.Errorf("SMTP_HOST environment variable is required")
+	}
+	smtpFrom := getEnv("SMTP_FROM", "")
+	if smtpFrom == "" {
+		return nil, fmt.Errorf("SMTP_FROM environment variable is required")
+	}
+	otpSecret := getEnv("OTP_SECRET", "")
+	if otpSecret == "" {
+		return nil, fmt.Errorf("OTP_SECRET environment variable is required")
 	}
 
 	cfg := &Config{
@@ -75,6 +112,18 @@ func New() (*Config, error) {
 		SFUInternalSecret:      getEnv("SFU_INTERNAL_SECRET", ""),
 		AttachmentLinkTTL:      parseDuration(getEnv("ATTACHMENT_LINK_TTL", "168h")),
 		MaxUploadBytes:         getEnvInt64("MAX_UPLOAD_BYTES", 30<<20),
+		SMTPHost:               smtpHost,
+		SMTPPort:               getEnv("SMTP_PORT", "587"),
+		SMTPUsername:           getEnv("SMTP_USERNAME", ""),
+		SMTPPassword:           getEnv("SMTP_PASSWORD", ""),
+		SMTPFrom:               smtpFrom,
+		SMTPFromName:           getEnv("SMTP_FROM_NAME", "VYCORD"),
+		OTPSecret:              otpSecret,
+		OTPTTL:                 parseDurationMin(getEnv("OTP_TTL", ""), 5*time.Minute, time.Minute),
+		OTPMaxAttempts:         getEnvIntMin("OTP_MAX_ATTEMPTS", 3, 1),
+		OTPResendCooldown:      parseDurationMin(getEnv("OTP_RESEND_COOLDOWN", ""), time.Minute, 5*time.Second),
+		OTPMaxPerHour:          getEnvIntMin("OTP_MAX_PER_HOUR", 5, 1),
+		UnverifiedUserTTL:      parseDurationMin(getEnv("UNVERIFIED_USER_TTL", ""), 168*time.Hour, time.Hour),
 	}
 
 	return cfg, nil
@@ -136,6 +185,32 @@ func parseDuration(s string) time.Duration {
 	d, err := time.ParseDuration(s)
 	if err != nil {
 		return 24 * time.Hour
+	}
+	return d
+}
+
+// getEnvIntMin читает целочисленный лимит, откатываясь к fallback и на
+// неразбираемом значении, и на значении ниже min. Ноль попыток или ноль
+// кодов в час превратили бы фичу в неработающую, а не в более строгую.
+func getEnvIntMin(key string, fallback, min int) int {
+	raw := os.Getenv(key)
+	if raw == "" {
+		return fallback
+	}
+	v, err := strconv.Atoi(raw)
+	if err != nil || v < min {
+		return fallback
+	}
+	return v
+}
+
+// parseDurationMin — как parseDuration, но с нижней границей. Отдельная
+// функция, а не правка parseDuration: у той свой контракт (откат на 24 часа),
+// на который завязаны остальные настройки.
+func parseDurationMin(s string, fallback, min time.Duration) time.Duration {
+	d, err := time.ParseDuration(s)
+	if err != nil || d < min {
+		return fallback
 	}
 	return d
 }

@@ -22,6 +22,7 @@ import (
 	"github.com/vycord/server/pkg/attachlink"
 	"github.com/vycord/server/pkg/filestorage"
 	"github.com/vycord/server/pkg/logger"
+	"github.com/vycord/server/pkg/mailer"
 )
 
 func main() {
@@ -82,6 +83,7 @@ func main() {
 	refreshTokenRepo := postgres.NewRefreshTokenRepository(db)
 	attachmentRepo := postgres.NewAttachmentRepository(db)
 	planRepo := postgres.NewPlanRepository(db)
+	otpRepo := postgres.NewOTPRepository(db)
 
 	// Initialize file storage
 	storage, err := filestorage.NewLocal(cfg.UploadDir, "/uploads")
@@ -91,6 +93,31 @@ func main() {
 	}
 
 	// Initialize usecases
+	appMailer := mailer.NewSMTP(mailer.Config{
+		Host:     cfg.SMTPHost,
+		Port:     cfg.SMTPPort,
+		Username: cfg.SMTPUsername,
+		Password: cfg.SMTPPassword,
+		From:     cfg.SMTPFrom,
+		FromName: cfg.SMTPFromName,
+	})
+
+	otpUseCase := usecase.NewOTPUseCase(
+		userRepo, otpRepo, appMailer, refreshTokenRepo,
+		cfg.JWTSecret, cfg.JWTExpiration, cfg.RefreshTokenExpiration,
+		usecase.OTPPolicy{
+			Secret:         cfg.OTPSecret,
+			TTL:            cfg.OTPTTL,
+			MaxAttempts:    cfg.OTPMaxAttempts,
+			ResendCooldown: cfg.OTPResendCooldown,
+			MaxPerHour:     cfg.OTPMaxPerHour,
+		},
+		log,
+	)
+
+	// authUseCase больше не зависит от otpUseCase: Register уехал в
+	// otpUseCase.VerifyCode, а Login/Refresh/Logout никогда не отправляли
+	// код напрямую.
 	authUseCase := usecase.NewAuthUseCase(userRepo, refreshTokenRepo, cfg.JWTSecret, cfg.JWTExpiration, cfg.RefreshTokenExpiration)
 	userUseCase := usecase.NewUserUseCase(userRepo, storage)
 	permissionUseCase := usecase.NewPermissionUseCase(serverRepo, roleRepo)
@@ -140,8 +167,12 @@ func main() {
 	janitor := attachments.NewJanitor(attachmentRepo, storage, log)
 	go janitor.Run(bgCtx)
 
+	// Уборка истёкших кодов и брошенных регистраций.
+	go usecase.NewOTPCleaner(otpRepo, userRepo, cfg.UnverifiedUserTTL, log).Run(bgCtx, time.Hour)
+
 	// Initialize handlers
 	authHandler := handler.NewAuthHandler(authUseCase, log)
+	otpHandler := handler.NewOTPHandler(otpUseCase, log)
 	userHandler := handler.NewUserHandler(userUseCase, hub, log)
 	serverHandler := handler.NewServerHandler(serverUseCase, inviteUseCase, hub, log)
 	inviteHandler := handler.NewInviteHandler(inviteUseCase, log)
@@ -167,12 +198,15 @@ func main() {
 		_, _ = w.Write([]byte(`{"status":"ok"}`))
 	})
 
-	// Auth routes
-	router.HandleFunc("POST /api/v1/auth/register", authHandler.Register)
+	// Auth routes. /auth/register* is gone — otp/request + otp/verify cover
+	// both login and registration (identifier-first, see
+	// docs/superpowers/specs/2026-09-02-identifier-first-otp-design.md).
 	router.HandleFunc("POST /api/v1/auth/login", authHandler.Login)
 	router.HandleFunc("POST /api/v1/auth/refresh", authHandler.Refresh)
 	router.HandleFunc("POST /api/v1/auth/logout", authHandler.Logout)
 	router.HandleFunc("GET /api/v1/auth/me", authMid.RequireAuth(userHandler.GetMe))
+	router.HandleFunc("POST /api/v1/auth/otp/request", otpHandler.RequestCode)
+	router.HandleFunc("POST /api/v1/auth/otp/verify", otpHandler.Verify)
 
 	// User routes
 	router.HandleFunc("GET /api/v1/users/online", authMid.RequireAuth(onlineUsersHandler.GetOnlineUsers))

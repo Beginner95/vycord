@@ -8,6 +8,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+	"golang.org/x/crypto/bcrypt"
 
 	"github.com/vycord/server/internal/domain"
 	"github.com/vycord/server/internal/usecase"
@@ -64,6 +65,15 @@ func (m *MockUserRepository) UpdateLastVisited(id uuid.UUID, serverID, channelID
 	return args.Error(0)
 }
 
+func (m *MockUserRepository) MarkEmailVerified(id uuid.UUID, at time.Time) error {
+	return m.Called(id, at).Error(0)
+}
+
+func (m *MockUserRepository) DeleteUnverifiedBefore(t time.Time) (int64, error) {
+	args := m.Called(t)
+	return args.Get(0).(int64), args.Error(1)
+}
+
 type MockRefreshTokenRepository struct {
 	mock.Mock
 }
@@ -103,62 +113,18 @@ func newAuthUseCase(userRepo *MockUserRepository, refreshRepo *MockRefreshTokenR
 	return usecase.NewAuthUseCase(userRepo, refreshRepo, "test-secret", 24*time.Hour, 30*24*time.Hour)
 }
 
-func TestRegister_UserAlreadyExistsWithEmail(t *testing.T) {
-	mockRepo := new(MockUserRepository)
+func TestLoginRejectsUnverified(t *testing.T) {
+	userRepo := new(MockUserRepository)
 	refreshRepo := new(MockRefreshTokenRepository)
-	authUseCase := newAuthUseCase(mockRepo, refreshRepo)
+	hashed, _ := bcrypt.GenerateFromPassword([]byte("password123"), bcrypt.DefaultCost)
+	userRepo.On("GetByEmail", "u@e.com").Return(&domain.User{
+		ID: uuid.New(), Email: "u@e.com", Password: string(hashed),
+	}, nil)
 
-	mockRepo.On("GetByEmail", "test@example.com").Return(&domain.User{}, nil)
+	uc := newAuthUseCase(userRepo, refreshRepo)
+	_, _, _, err := uc.Login("u@e.com", "password123")
 
-	user, accessToken, refreshToken, err := authUseCase.Register("testuser", "test@example.com", "password123")
-
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "user with this email already exists")
-	assert.Nil(t, user)
-	assert.Empty(t, accessToken)
-	assert.Empty(t, refreshToken)
-	mockRepo.AssertExpectations(t)
-}
-
-func TestRegister_UserAlreadyExistsByUsername(t *testing.T) {
-	mockRepo := new(MockUserRepository)
-	refreshRepo := new(MockRefreshTokenRepository)
-	authUseCase := newAuthUseCase(mockRepo, refreshRepo)
-
-	mockRepo.On("GetByEmail", "test@example.com").Return((*domain.User)(nil), errors.New("user not found"))
-	mockRepo.On("GetByUsername", "testuser").Return(&domain.User{}, nil)
-
-	user, accessToken, refreshToken, err := authUseCase.Register("testuser", "test@example.com", "password123")
-
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "user with this username already exists")
-	assert.Nil(t, user)
-	assert.Empty(t, accessToken)
-	assert.Empty(t, refreshToken)
-	mockRepo.AssertExpectations(t)
-}
-
-func TestRegister_Success(t *testing.T) {
-	mockRepo := new(MockUserRepository)
-	refreshRepo := new(MockRefreshTokenRepository)
-	authUseCase := newAuthUseCase(mockRepo, refreshRepo)
-
-	mockRepo.On("GetByEmail", "test@example.com").Return((*domain.User)(nil), errors.New("user not found"))
-	mockRepo.On("GetByUsername", "testuser").Return((*domain.User)(nil), errors.New("user not found"))
-	mockRepo.On("Create", mock.MatchedBy(func(u *domain.User) bool {
-		return u.Username == "testuser" && u.Email == "test@example.com"
-	})).Return(nil)
-	refreshRepo.On("Create", mock.AnythingOfType("*domain.RefreshToken")).Return(nil)
-
-	user, accessToken, refreshToken, err := authUseCase.Register("testuser", "test@example.com", "password123")
-
-	assert.NoError(t, err)
-	assert.NotNil(t, user)
-	assert.Empty(t, user.Password)
-	assert.NotEmpty(t, accessToken)
-	assert.NotEmpty(t, refreshToken)
-	mockRepo.AssertExpectations(t)
-	refreshRepo.AssertExpectations(t)
+	assert.ErrorIs(t, err, domain.ErrEmailNotVerified)
 }
 
 func TestLogin_InvalidCredentials(t *testing.T) {
@@ -265,9 +231,6 @@ func TestRefresh_ReusedRevokedToken_RevokesFamilyAndReturnsInvalid(t *testing.T)
 	refreshRepo.AssertExpectations(t)
 }
 
-// Ответ на предыдущий refresh не дошёл до клиента: он предъявляет тот же токен
-// снова через пару секунд. Это не кража — сессию жечь нельзя, надо просто
-// выдать новую пару ещё раз.
 func TestRefresh_ReuseWithinGraceWindow_RotatesAgainInsteadOfRevoking(t *testing.T) {
 	mockRepo := new(MockUserRepository)
 	refreshRepo := new(MockRefreshTokenRepository)
@@ -287,8 +250,6 @@ func TestRefresh_ReuseWithinGraceWindow_RotatesAgainInsteadOfRevoking(t *testing
 	}
 
 	refreshRepo.On("GetByHash", mock.AnythingOfType("[]uint8")).Return(stored, nil)
-	// Преемник жив (RevokedAt == nil) — family не гасили после ротации,
-	// значит grace-окно применимо.
 	refreshRepo.On("GetByID", replacedBy).Return(&domain.RefreshToken{
 		ID:        replacedBy,
 		UserID:    userID,
@@ -298,8 +259,6 @@ func TestRefresh_ReuseWithinGraceWindow_RotatesAgainInsteadOfRevoking(t *testing
 	mockRepo.On("GetByID", userID).Return(&domain.User{ID: userID, Username: "testuser"}, nil)
 	refreshRepo.On("Create", mock.AnythingOfType("*domain.RefreshToken")).Return(nil)
 	refreshRepo.On("MarkRotated", storedID, mock.AnythingOfType("uuid.UUID"), mock.AnythingOfType("time.Time")).Return(nil)
-	// RevokeFamily намеренно НЕ заявлен: вызов незаявленного метода уронит мок —
-	// именно так мы доказываем, что family не отзывается.
 
 	user, accessToken, newRefreshToken, err := authUseCase.Refresh("retried-refresh-token")
 
@@ -339,10 +298,6 @@ func TestRefresh_ReuseOutsideGraceWindow_StillRevokesFamily(t *testing.T) {
 	refreshRepo.AssertExpectations(t)
 }
 
-// Логаут гасит family через RevokeFamily, а тот трогает только строки с
-// revoked_at IS NULL — уже ротированный токен он не задевает. Предъявление
-// такого токена внутри grace-окна не должно воскрешать погашенную сессию:
-// признак того, что family погасили после ротации, — отозванный преемник.
 func TestRefresh_ReuseWithinGraceWindow_ButSuccessorAlreadyRevoked_StillRevokesFamily(t *testing.T) {
 	mockRepo := new(MockUserRepository)
 	refreshRepo := new(MockRefreshTokenRepository)
@@ -378,15 +333,10 @@ func TestRefresh_ReuseWithinGraceWindow_ButSuccessorAlreadyRevoked_StillRevokesF
 	assert.Empty(t, accessToken)
 	assert.Empty(t, newRefreshToken)
 	refreshRepo.AssertExpectations(t)
-	// Никакой новой пары в погашенной family: Create/MarkRotated не заявлены,
-	// и вызов любого из них уронил бы мок.
 	refreshRepo.AssertNotCalled(t, "Create", mock.Anything)
 	refreshRepo.AssertNotCalled(t, "MarkRotated", mock.Anything, mock.Anything, mock.Anything)
 }
 
-// Сбой похода в БД за преемником — это инфраструктурная ошибка, а не вердикт
-// «токен невалиден». Путать их нельзя: ровно из-за такой подмены (любой сбой
-// БД => 401 => логаут) и появилась эта фича, см. VYC-54.
 func TestRefresh_GraceWindowSuccessorLookupFails_PropagatesError(t *testing.T) {
 	mockRepo := new(MockUserRepository)
 	refreshRepo := new(MockRefreshTokenRepository)
@@ -414,12 +364,9 @@ func TestRefresh_GraceWindowSuccessorLookupFails_PropagatesError(t *testing.T) {
 	assert.Empty(t, accessToken)
 	assert.Empty(t, newRefreshToken)
 	refreshRepo.AssertExpectations(t)
-	// Сомнительный, но недоказанный случай не должен жечь сессию.
 	refreshRepo.AssertNotCalled(t, "RevokeFamily", mock.Anything)
 }
 
-// Токен, отозванный без преемника (Logout → RevokeFamily), под grace-окно
-// не подпадает даже будучи отозванным секунду назад.
 func TestRefresh_RevokedWithoutSuccessor_RevokesFamilyRegardlessOfAge(t *testing.T) {
 	mockRepo := new(MockUserRepository)
 	refreshRepo := new(MockRefreshTokenRepository)

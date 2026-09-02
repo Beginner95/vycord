@@ -29,59 +29,6 @@ func NewAuthHandler(authUseCase domain.AuthUseCase, log *slog.Logger) *AuthHandl
 	}
 }
 
-type RegisterRequest struct {
-	Username string `json:"username"`
-	Email    string `json:"email"`
-	Password string `json:"password"`
-}
-
-func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
-	var req RegisterRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		h.sendError(w, http.StatusBadRequest, httperr.CodeInvalidBody, "invalid request body")
-		return
-	}
-
-	if req.Username == "" || req.Email == "" || req.Password == "" {
-		h.sendError(w, http.StatusBadRequest, httperr.CodeSignupFieldsMissing, "username, email and password are required")
-		return
-	}
-
-	if !usernameRegex.MatchString(req.Username) {
-		h.sendError(w, http.StatusBadRequest, httperr.CodeInvalidUsername, "username must be 3-30 characters, alphanumeric, underscore or hyphen only")
-		return
-	}
-
-	if !emailRegex.MatchString(req.Email) {
-		h.sendError(w, http.StatusBadRequest, httperr.CodeInvalidEmail, "invalid email format")
-		return
-	}
-
-	if len(req.Password) < 8 {
-		h.sendError(w, http.StatusBadRequest, httperr.CodePasswordTooShort, "password must be at least 8 characters")
-		return
-	}
-
-	user, accessToken, refreshToken, err := h.authUseCase.Register(req.Username, req.Email, req.Password)
-	if err != nil {
-		switch {
-		case errors.Is(err, domain.ErrEmailTaken):
-			h.sendError(w, http.StatusConflict, httperr.CodeEmailTaken, err.Error())
-		case errors.Is(err, domain.ErrUsernameTaken):
-			h.sendError(w, http.StatusConflict, httperr.CodeUsernameTaken, err.Error())
-		default:
-			h.sendError(w, http.StatusConflict, httperr.CodeInternalError, err.Error())
-		}
-		return
-	}
-
-	h.sendJSON(w, http.StatusCreated, map[string]interface{}{
-		"access_token":  accessToken,
-		"refresh_token": refreshToken,
-		"user":          user,
-	})
-}
-
 type LoginRequest struct {
 	Email    string `json:"email"`
 	Password string `json:"password"`
@@ -107,9 +54,14 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 
 	user, accessToken, refreshToken, err := h.authUseCase.Login(req.Email, req.Password)
 	if err != nil {
-		if errors.Is(err, domain.ErrInvalidCredentials) {
+		switch {
+		case errors.Is(err, domain.ErrInvalidCredentials):
 			h.sendError(w, http.StatusUnauthorized, httperr.CodeInvalidCredentials, err.Error())
-		} else {
+		case errors.Is(err, domain.ErrEmailNotVerified):
+			// 403, не 401: креды верны, но вход закрыт до подтверждения
+			// почты. Код здесь не отправляется — см. комментарий в usecase.
+			h.sendError(w, http.StatusForbidden, httperr.CodeEmailNotVerified, err.Error())
+		default:
 			h.sendError(w, http.StatusUnauthorized, httperr.CodeInternalError, err.Error())
 		}
 		return

@@ -111,3 +111,27 @@ func TestAuthHandler_Logout_MalformedBody_StillReturns204(t *testing.T) {
 		t.Fatalf("expected 204, got %d", rec.Code)
 	}
 }
+
+func TestAuthHandler_Login_EmailNotVerified_Returns403(t *testing.T) {
+	// Верные креды, но почта не подтверждена: должно быть 403 с
+	// machine-readable кодом email_not_verified, а не 401 internal_error —
+	// иначе клиент не сможет отличить этот случай от неверного пароля.
+	log := slog.New(slog.NewTextHandler(&bytes.Buffer{}, nil))
+	mockUC := new(mockAuthUseCase)
+	mockUC.On("Login", "u@e.com", "password123").Return(nil, "", "", domain.ErrEmailNotVerified)
+
+	h := NewAuthHandler(mockUC, log)
+
+	body := strings.NewReader(`{"email":"u@e.com","password":"password123"}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", body)
+	rec := httptest.NewRecorder()
+
+	h.Login(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "email_not_verified") {
+		t.Fatalf("expected machine-readable code in body, got: %s", rec.Body.String())
+	}
+}

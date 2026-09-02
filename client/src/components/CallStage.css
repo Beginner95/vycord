@@ -760,12 +760,9 @@
 
 /* M6 T15, from manual QA: the label moved OUT of this button and into a
    sibling `.stage-ctl-label`, so the bar's four controls now share one shape —
-   icon-only button, caption beneath. What changed here is geometry only: the
-   auto-width pill (`padding: 0 18px`, `gap: 8px`, its own type scale) became a
-   46px square matching `.stage-ctl-btn`, which with `--radius-pill` renders as
-   a circle. The circle is deliberate — it keeps hang-up distinguishable from
-   the three rounded-square toggles now that the text no longer does that job.
-   Colours are untouched. */
+   icon-only button, caption beneath. Geometry: a 46px square matching
+   `.stage-ctl-btn` — same 14px radius (the original `--radius-pill` circle was
+   set aside on request). Colours are untouched. */
 .stage-leave-btn {
   display: flex;
   align-items: center;
@@ -774,7 +771,7 @@
   height: 46px;
   padding: 0;
   border: none;
-  border-radius: var(--radius-pill);
+  border-radius: 14px;
   background: var(--danger);
   color: var(--white);
   cursor: pointer;

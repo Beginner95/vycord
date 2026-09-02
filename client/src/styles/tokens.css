@@ -72,6 +72,7 @@
   --row-hover:       rgb(255 255 255 / 60%);
   --avatar-offline:  #E3E6EF;
   --white:           #FFF;
+  --split-handle: #131822;
   --chip-bg:  #F2F4F9; /* board 1d: modal close button, kbd chip */
   --track-bg: #E9ECF5; /* board 1d: slider / level-meter track */
   --hl-bg:  #FEF3C7; /* board 2c: search-match highlight (palette + deep panel) */

@@ -1,0 +1,30 @@
+.otp-code-input {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+}
+
+.otp-code-input-cell {
+  width: 56px;
+  height: 64px;
+  text-align: center;
+  font-size: 28px;
+  font-weight: 600;
+  border: 1.5px solid var(--line-strong);
+  border-radius: var(--radius-row);
+  background: var(--canvas-2);
+  color: var(--ink);
+  outline: none;
+  transition: border-color var(--transition), box-shadow var(--transition), background var(--transition);
+}
+
+.otp-code-input-cell:focus {
+  border-color: var(--accent);
+  background: var(--canvas);
+  box-shadow: var(--focus-ring);
+}
+
+.otp-code-input-cell:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
