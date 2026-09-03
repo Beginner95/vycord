@@ -110,6 +110,7 @@ const (
 	CodeSearchQueryLength     = "search_query_length"
 	CodeInvalidMention        = "invalid_mention"
 	CodeMentionEveryoneDenied = "mention_everyone_denied"
+	CodeCallMessageImmutable  = "call_message_immutable"
 
 	// Роли
 	CodeRoleNotFound       = "role_not_found"

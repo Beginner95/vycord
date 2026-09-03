@@ -80,9 +80,14 @@ export interface Message {
   channel_id: string;
   user_id: string;
   content: string;
+  /** 'call' rows are a system placard, not a chat message — see CallEventRow. */
+  kind: 'user' | 'call';
   attachments?: Attachment[];
   sticker_id?: string;
   sticker?: Sticker;
+  /** Present only when kind === 'call'. null while the call is ongoing. */
+  call_started_at?: string;
+  call_ended_at?: string | null;
   created_at: string;
   updated_at: string;
 }

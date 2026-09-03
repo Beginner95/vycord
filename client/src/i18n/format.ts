@@ -14,6 +14,29 @@ export const EN_MONTHS = [
   'July', 'August', 'September', 'October', 'November', 'December',
 ];
 
+/**
+ * "45 сек" / "12 мин" / "1 ч 20 мин" — abbreviated units, never declined
+ * (Russian "сек"/"мин"/"ч" don't take plural forms as abbreviations), so
+ * this doesn't go through plural.ts/the t() dictionary — same
+ * hardcoded-per-locale approach as RU_MONTHS_GENITIVE/EN_MONTHS above.
+ */
+export function formatCallDuration(totalSeconds: number, locale: Locale): string {
+  const seconds = Math.max(0, Math.floor(totalSeconds));
+  const minutes = Math.floor(seconds / 60);
+  if (minutes === 0) {
+    return locale === 'ru' ? `${seconds} сек` : `${seconds} sec`;
+  }
+  if (minutes < 60) {
+    return locale === 'ru' ? `${minutes} мин` : `${minutes} min`;
+  }
+  const hours = Math.floor(minutes / 60);
+  const remMinutes = minutes % 60;
+  if (remMinutes === 0) {
+    return locale === 'ru' ? `${hours} ч` : `${hours} hr`;
+  }
+  return locale === 'ru' ? `${hours} ч ${remMinutes} мин` : `${hours} hr ${remMinutes} min`;
+}
+
 export function isSameCalendarDay(a: Date, b: Date): boolean {
   return (
     a.getFullYear() === b.getFullYear() &&

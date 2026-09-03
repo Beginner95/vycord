@@ -72,6 +72,8 @@ export const en: Dictionary = {
     members: 'Members',
     stickerRemoved: 'Sticker removed',
     edited: ' (edited)',
+    callStarted: '{{name}} started a call',
+    callEnded: 'Call from {{name}} — {{duration}}',
     today: 'Today',
     yesterday: 'Yesterday',
     messagePlaceholder: 'Message #{{channel}}',

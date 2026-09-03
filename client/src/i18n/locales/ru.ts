@@ -71,6 +71,8 @@ export const ru = {
     members: 'Участники',
     stickerRemoved: 'Стикер удалён',
     edited: ' (изменено)',
+    callStarted: '{{name}} начал звонок',
+    callEnded: 'Звонок от {{name}} — {{duration}}',
     today: 'Сегодня',
     yesterday: 'Вчера',
     messagePlaceholder: 'Сообщение в #{{channel}}',
