@@ -18,6 +18,7 @@ import { isBlockingOverlayOpen } from '@/hooks/useModalFocus';
 import { usePaletteStore } from '@/stores/paletteStore';
 import { MessageSearch } from '@/components/MessageSearch';
 import { MessageRow } from '@/components/MessageRow';
+import { CallEventRow } from '@/components/CallEventRow';
 import { Composer, type ComposerHandle } from '@/components/Composer';
 import { FloatingQuoteButton } from '@/components/FloatingQuoteButton';
 import { DayDivider } from '@/components/DayDivider';
@@ -338,7 +339,13 @@ export function ChatArea({ channel, user, onMobileBack, onShowMembers, onJoinVoi
     const handleMessage = async (payload: unknown) => {
       const msg = payload as Record<string, unknown>;
       if (user && msg.user_id !== user.id) {
-        audioService.playMessage();
+        // Не звук на плашку звонка — тот же дух «тихости», что и у бейджа
+        // непрочитанного (spec «Тихость»), просто обнаруженный при
+        // интеграции: этот эффект — единственный источник звукового «пинга»
+        // на входящий chat_message. Кэш имени ниже всё равно нужен для
+        // CallEventRow (displayName для незнакомого автора), поэтому только
+        // звук пропускается, а не весь блок.
+        if (msg.kind !== 'call') audioService.playMessage();
         // Cache username if not already cached
         const uid = msg.user_id as string | undefined;
         const unresolvedIds = collectUnresolvedUserIds(
@@ -449,7 +456,7 @@ logger.error('Failed to jump to message:', err, { module: 'chat' });
     // them straight away — and, if the POST fails, the `failed` row still
     // knows its ids so `retrySend` can re-send exactly the same blobs.
     addMessage({
-      id: tempId, channel_id: channel.id, user_id: user.id,
+      id: tempId, channel_id: channel.id, user_id: user.id, kind: 'user',
       content, created_at: now, updated_at: now, deliveryState: 'sending',
       attachments,
     });
@@ -779,32 +786,36 @@ logger.error('Failed to jump to message:', err, { module: 'chat' });
                     <span className="unread-divider-line" />
                   </div>
                 )}
-                <MessageRow
-                  msg={msg}
-                  isOwn={isOwn}
-                  isContinuation={continuation}
-                  displayName={displayName}
-                  avatarUrl={avatarUrl}
-                  isEditing={editingId === msg.id}
-                  highlighted={highlightedId === msg.id}
-                  entered={enteredIds.has(msg.id)}
-                  members={members}
-                  currentUserId={user?.id}
-                  canMentionEveryone={canMentionEveryone}
-                  onStartEdit={() => setEditingId(msg.id)}
-                  onCancelEdit={() => setEditingId(null)}
-                  onSaveEdit={(content) => saveEdit(msg.id, content)}
-                  onDelete={() => setConfirmDeleteId(msg.id)}
-                  onQuote={() => insertQuoteIntoCompose(msg.content)}
-                  onRetry={() => retrySend(msg)}
-                  // Client-only row (never reached the server) — no API call,
-                  // no confirm modal, just drop it from the store.
-                  onDiscard={() => removeMessage(msg.id)}
-                  // pickLightboxMedia narrows the row-local index to the
-                  // image/video subset and returns null for a non-media
-                  // click (a pdf chip) — nothing to open fullscreen.
-                  onOpenAttachment={(index) => setLightbox(pickLightboxMedia(msg.attachments ?? [], index))}
-                />
+                {msg.kind === 'call' ? (
+                  <CallEventRow msg={msg} starterName={displayName} />
+                ) : (
+                  <MessageRow
+                    msg={msg}
+                    isOwn={isOwn}
+                    isContinuation={continuation}
+                    displayName={displayName}
+                    avatarUrl={avatarUrl}
+                    isEditing={editingId === msg.id}
+                    highlighted={highlightedId === msg.id}
+                    entered={enteredIds.has(msg.id)}
+                    members={members}
+                    currentUserId={user?.id}
+                    canMentionEveryone={canMentionEveryone}
+                    onStartEdit={() => setEditingId(msg.id)}
+                    onCancelEdit={() => setEditingId(null)}
+                    onSaveEdit={(content) => saveEdit(msg.id, content)}
+                    onDelete={() => setConfirmDeleteId(msg.id)}
+                    onQuote={() => insertQuoteIntoCompose(msg.content)}
+                    onRetry={() => retrySend(msg)}
+                    // Client-only row (never reached the server) — no API call,
+                    // no confirm modal, just drop it from the store.
+                    onDiscard={() => removeMessage(msg.id)}
+                    // pickLightboxMedia narrows the row-local index to the
+                    // image/video subset and returns null for a non-media
+                    // click (a pdf chip) — nothing to open fullscreen.
+                    onOpenAttachment={(index) => setLightbox(pickLightboxMedia(msg.attachments ?? [], index))}
+                  />
+                )}
               </Fragment>
             );
           })
