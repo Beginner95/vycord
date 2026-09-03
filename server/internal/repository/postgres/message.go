@@ -10,6 +10,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/vycord/server/internal/domain"
 )
@@ -57,6 +58,7 @@ func (r *messageRepository) GetByID(id uuid.UUID) (*domain.Message, error) {
 
 	query := `
 		SELECT m.id, m.channel_id, m.user_id, m.content, m.sticker_id,
+		       m.kind, m.call_started_at, m.call_ended_at,
 		       m.created_at, m.updated_at,
 		       s.id, s.name, s.image_url, s.server_id
 		FROM messages m
@@ -76,6 +78,9 @@ func (r *messageRepository) GetByID(id uuid.UUID) (*domain.Message, error) {
 		&msg.UserID,
 		&msg.Content,
 		&msgStickerID,
+		&msg.Kind,
+		&msg.CallStartedAt,
+		&msg.CallEndedAt,
 		&msg.CreatedAt,
 		&msg.UpdatedAt,
 		&sID,
@@ -112,6 +117,7 @@ func (r *messageRepository) GetByChannelID(channelID uuid.UUID, limit, offset in
 
 	query := `
 		SELECT m.id, m.channel_id, m.user_id, m.content, m.sticker_id,
+		       m.kind, m.call_started_at, m.call_ended_at,
 		       m.created_at, m.updated_at,
 		       s.id, s.name, s.image_url, s.server_id
 		FROM messages m
@@ -141,6 +147,9 @@ func (r *messageRepository) GetByChannelID(channelID uuid.UUID, limit, offset in
 			&msg.UserID,
 			&msg.Content,
 			&msgStickerID,
+			&msg.Kind,
+			&msg.CallStartedAt,
+			&msg.CallEndedAt,
 			&msg.CreatedAt,
 			&msg.UpdatedAt,
 			&sID,
@@ -172,6 +181,14 @@ func (r *messageRepository) GetByChannelID(channelID uuid.UUID, limit, offset in
 
 var allowedMessageColumns = map[string]string{
 	"content": "content",
+}
+
+// isUniqueCallViolation reports whether err is a violation of
+// idx_messages_active_call (021_call_messages) — the only unique constraint
+// CreateCall's INSERT can hit.
+func isUniqueCallViolation(err error) bool {
+	var pgErr *pgconn.PgError
+	return errors.As(err, &pgErr) && pgErr.Code == "23505"
 }
 
 func (r *messageRepository) Update(id uuid.UUID, updates map[string]interface{}) error {
@@ -227,16 +244,16 @@ func (r *messageRepository) Search(channelID uuid.UUID, query string, limit, off
 	pattern := "%" + escapeLike(query) + "%"
 
 	var total int
-	countQuery := `SELECT COUNT(*) FROM messages WHERE channel_id = $1 AND content ILIKE $2 ESCAPE '\'`
+	countQuery := `SELECT COUNT(*) FROM messages WHERE channel_id = $1 AND content ILIKE $2 ESCAPE '\' AND kind = 'user'`
 	if err := r.db.QueryRow(ctx, countQuery, channelID, pattern).Scan(&total); err != nil {
 		return nil, 0, fmt.Errorf("failed to count search results: %w", err)
 	}
 
 	searchQuery := `
-		SELECT m.id, m.channel_id, m.user_id, m.content, m.created_at, m.updated_at, u.username
+		SELECT m.id, m.channel_id, m.user_id, m.content, m.kind, m.created_at, m.updated_at, u.username
 		FROM messages m
 		JOIN users u ON u.id = m.user_id
-		WHERE m.channel_id = $1 AND m.content ILIKE $2 ESCAPE '\'
+		WHERE m.channel_id = $1 AND m.content ILIKE $2 ESCAPE '\' AND m.kind = 'user'
 		ORDER BY m.created_at DESC
 		LIMIT $3 OFFSET $4
 	`
@@ -254,6 +271,7 @@ func (r *messageRepository) Search(channelID uuid.UUID, query string, limit, off
 			&res.ChannelID,
 			&res.UserID,
 			&res.Content,
+			&res.Kind,
 			&res.CreatedAt,
 			&res.UpdatedAt,
 			&res.Username,
@@ -283,6 +301,7 @@ func (r *messageRepository) GetAround(channelID, messageID uuid.UUID, limit int)
 	query := `
 		(
 			SELECT m.id, m.channel_id, m.user_id, m.content, m.sticker_id,
+			       m.kind, m.call_started_at, m.call_ended_at,
 			       m.created_at, m.updated_at,
 			       s.id, s.name, s.image_url, s.server_id
 			FROM messages m
@@ -294,6 +313,7 @@ func (r *messageRepository) GetAround(channelID, messageID uuid.UUID, limit int)
 		UNION ALL
 		(
 			SELECT m.id, m.channel_id, m.user_id, m.content, m.sticker_id,
+			       m.kind, m.call_started_at, m.call_ended_at,
 			       m.created_at, m.updated_at,
 			       s.id, s.name, s.image_url, s.server_id
 			FROM messages m
@@ -323,6 +343,9 @@ func (r *messageRepository) GetAround(channelID, messageID uuid.UUID, limit int)
 			&msg.UserID,
 			&msg.Content,
 			&msgStickerID,
+			&msg.Kind,
+			&msg.CallStartedAt,
+			&msg.CallEndedAt,
 			&msg.CreatedAt,
 			&msg.UpdatedAt,
 			&sID,
@@ -352,6 +375,139 @@ func (r *messageRepository) GetAround(channelID, messageID uuid.UUID, limit int)
 	})
 
 	return messages, nil
+}
+
+// CreateCall inserts a kind='call' row using msg's ID/ChannelID/UserID/
+// CallStartedAt/CreatedAt/UpdatedAt (caller sets all of these — see
+// usecase.callSessionRecorder.CallStarted). ok is false, err is nil when
+// idx_messages_active_call is already held by another open call in the
+// channel — the caller's job is to no-op silently, not treat it as a
+// failure (spec «Идемпотентность вместо синхронизации»).
+func (r *messageRepository) CreateCall(msg *domain.Message) (bool, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	query := `
+		INSERT INTO messages (id, channel_id, user_id, content, kind, call_started_at, call_last_seen_at, created_at, updated_at)
+		VALUES ($1, $2, $3, '', 'call', $4, $4, $4, $4)
+	`
+	_, err := r.db.Exec(ctx, query, msg.ID, msg.ChannelID, msg.UserID, msg.CallStartedAt)
+	if err != nil {
+		if isUniqueCallViolation(err) {
+			return false, nil
+		}
+		return false, fmt.Errorf("failed to create call message: %w", err)
+	}
+	return true, nil
+}
+
+// EndCall closes channelID's open call (call_ended_at = now()) and returns
+// it. ok is false when there was nothing open to close (a concurrent close
+// already happened) — again a silent no-op for the caller, not an error.
+func (r *messageRepository) EndCall(channelID uuid.UUID) (*domain.Message, bool, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	query := `
+		UPDATE messages
+		SET call_ended_at = now()
+		WHERE channel_id = $1 AND kind = 'call' AND call_ended_at IS NULL
+		RETURNING id, channel_id, user_id, content, kind, call_started_at, call_ended_at, created_at, updated_at
+	`
+	msg := &domain.Message{}
+	err := r.db.QueryRow(ctx, query, channelID).Scan(
+		&msg.ID, &msg.ChannelID, &msg.UserID, &msg.Content, &msg.Kind,
+		&msg.CallStartedAt, &msg.CallEndedAt, &msg.CreatedAt, &msg.UpdatedAt,
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, false, nil
+	}
+	if err != nil {
+		return nil, false, fmt.Errorf("failed to end call: %w", err)
+	}
+	return msg, true, nil
+}
+
+// TouchCalls marks call_last_seen_at = now() for every open call whose
+// channel is in channelIDs — the presence worker's "the SFU still confirms
+// this one is live" per-tick signal. A nil-but-actually-empty channelIDs is
+// harmless here (ANY(NULL) matches nothing, same effective result as
+// ANY('{}')), unlike CloseCallsMissingFrom below.
+func (r *messageRepository) TouchCalls(channelIDs []uuid.UUID) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	_, err := r.db.Exec(ctx, `
+		UPDATE messages SET call_last_seen_at = now()
+		WHERE kind = 'call' AND call_ended_at IS NULL AND channel_id = ANY($1)
+	`, channelIDs)
+	if err != nil {
+		return fmt.Errorf("failed to touch active calls: %w", err)
+	}
+	return nil
+}
+
+// CloseCallsMissingFrom closes every open call whose channel is absent from
+// channelIDs (the SFU-confirmed live set) and started more than minAge ago —
+// the age guard exists because the client's voice_joined API call and its
+// SFU connection land almost simultaneously, and a tick landing in that gap
+// must not close a call of duration zero.
+//
+// channelIDs MUST be a non-nil slice, even when there are zero active
+// channels (build it with make([]uuid.UUID, 0, n), never `var channelIDs
+// []uuid.UUID`): pgx encodes a nil Go slice as SQL NULL, and
+// `channel_id <> ALL(NULL)` evaluates to NULL — matching NO rows — for
+// every row, which would silently disable the exact case ("SFU confirms
+// nothing is running anywhere") this query exists to handle. A non-nil
+// empty slice correctly encodes as `{}`, against which `<> ALL('{}')` is
+// true for every row, as intended.
+func (r *messageRepository) CloseCallsMissingFrom(channelIDs []uuid.UUID, minAge time.Duration) ([]*domain.Message, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	rows, err := r.db.Query(ctx, `
+		UPDATE messages
+		SET call_ended_at = COALESCE(call_last_seen_at, call_started_at)
+		WHERE kind = 'call' AND call_ended_at IS NULL
+		  AND channel_id <> ALL($1)
+		  AND call_started_at < now() - make_interval(secs => $2)
+		RETURNING id, channel_id, user_id, content, kind, call_started_at, call_ended_at, created_at, updated_at
+	`, channelIDs, minAge.Seconds())
+	if err != nil {
+		return nil, fmt.Errorf("failed to close missing calls: %w", err)
+	}
+	defer rows.Close()
+
+	var closed []*domain.Message
+	for rows.Next() {
+		msg := &domain.Message{}
+		if err := rows.Scan(
+			&msg.ID, &msg.ChannelID, &msg.UserID, &msg.Content, &msg.Kind,
+			&msg.CallStartedAt, &msg.CallEndedAt, &msg.CreatedAt, &msg.UpdatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("failed to scan closed call: %w", err)
+		}
+		closed = append(closed, msg)
+	}
+	return closed, nil
+}
+
+// CloseOrphanedCalls closes every still-open call unconditionally. Run once
+// at API startup (main.go), before the hub accepts connections — see
+// domain.MessageRepository's doc comment for why.
+func (r *messageRepository) CloseOrphanedCalls() error {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	_, err := r.db.Exec(ctx, `
+		UPDATE messages
+		SET call_ended_at = COALESCE(call_last_seen_at, call_started_at)
+		WHERE kind = 'call' AND call_ended_at IS NULL
+	`)
+	if err != nil {
+		return fmt.Errorf("failed to close orphaned calls: %w", err)
+	}
+	return nil
 }
 
 func (r *messageRepository) Delete(id uuid.UUID) error {
