@@ -28,6 +28,24 @@ describe('CallEventRow', () => {
     expect(screen.getByText('Звонок от Вася — 12 мин')).toBeTruthy();
   });
 
+  it('ended call with one other participant: "with X"', () => {
+    const msg = callMsg({
+      call_started_at: '2026-08-25T12:00:00Z',
+      call_ended_at: '2026-08-25T12:12:00Z',
+    });
+    render(<CallEventRow msg={msg} starterName="Вася" participantNames={['Петя']} />);
+    expect(screen.getByText('Звонок от Вася с участием Петя — 12 мин')).toBeTruthy();
+  });
+
+  it('ended call with two other participants: conjunction-joined', () => {
+    const msg = callMsg({
+      call_started_at: '2026-08-25T12:00:00Z',
+      call_ended_at: '2026-08-25T12:12:00Z',
+    });
+    render(<CallEventRow msg={msg} starterName="Вася" participantNames={['Петя', 'Ира']} />);
+    expect(screen.getByText('Звонок от Вася с участием Петя и Ира — 12 мин')).toBeTruthy();
+  });
+
   it('renders no edit/delete/quote affordances', () => {
     render(<CallEventRow msg={callMsg({})} starterName="Вася" />);
     expect(screen.queryByRole('button')).toBeNull();

@@ -88,6 +88,10 @@ export interface Message {
   /** Present only when kind === 'call'. null while the call is ongoing. */
   call_started_at?: string;
   call_ended_at?: string | null;
+  /** Every user who was ever in the call, starter included, join order.
+   * Only meaningful once call_ended_at is set — the active placard never
+   * shows a live-updating list (see CallEventRow). */
+  call_participant_ids?: string[];
   created_at: string;
   updated_at: string;
 }

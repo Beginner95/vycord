@@ -74,6 +74,7 @@ export const en: Dictionary = {
     edited: ' (edited)',
     callStarted: '{{name}} started a call',
     callEnded: 'Call from {{name}} — {{duration}}',
+    callEndedWithParticipants: 'Call from {{name}} with {{others}} — {{duration}}',
     today: 'Today',
     yesterday: 'Yesterday',
     messagePlaceholder: 'Message #{{channel}}',

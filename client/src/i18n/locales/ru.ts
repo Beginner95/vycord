@@ -73,6 +73,7 @@ export const ru = {
     edited: ' (изменено)',
     callStarted: '{{name}} начал звонок',
     callEnded: 'Звонок от {{name}} — {{duration}}',
+    callEndedWithParticipants: 'Звонок от {{name}} с участием {{others}} — {{duration}}',
     today: 'Сегодня',
     yesterday: 'Вчера',
     messagePlaceholder: 'Сообщение в #{{channel}}',
