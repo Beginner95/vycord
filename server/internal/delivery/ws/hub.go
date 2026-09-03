@@ -23,6 +23,12 @@ type Hub struct {
 	// broadcast to everyone). Injected from main.go after the usecase layer
 	// is constructed — this package has no DB/domain dependency itself.
 	voiceAudienceResolver func(channelID uuid.UUID) ([]uuid.UUID, error)
+	// callSessionRecorder, when set, is called on voice-presence transitions
+	// to persist "a call started/ended" as a chat message — see
+	// CallSessionRecorder's doc comment. Same locking discipline as
+	// voiceAudienceResolver: read under h.mu, CALLED outside it (it goes to
+	// the DB and calls back into the hub via SendToChannel).
+	callSessionRecorder CallSessionRecorder
 }
 
 type Message struct {
@@ -238,6 +244,29 @@ func (h *Hub) SetVoiceAudienceResolver(resolver func(channelID uuid.UUID) ([]uui
 	h.voiceAudienceResolver = resolver
 }
 
+// CallSessionRecorder is the DB-and-domain-aware half of call bookkeeping
+// (docs/superpowers/specs/2026-09-03-call-events-in-chat-design.md). Injected
+// from main.go after the usecase layer is built (SetCallSessionRecorder),
+// same pattern as SetVoiceAudienceResolver — this package still has no
+// DB/domain dependency itself, only this callback shape.
+//
+// Called only on TRANSITIONS (channel went empty→non-empty or the reverse),
+// never on every tick/join — see JoinVoiceChannel, LeaveVoiceChannel and
+// ReconcileVoicePresence below for exactly which condition triggers each.
+type CallSessionRecorder interface {
+	CallStarted(channelID, starterID uuid.UUID)
+	CallEnded(channelID uuid.UUID)
+}
+
+// SetCallSessionRecorder installs the recorder. nil (the zero value, as in
+// any Hub built by a bare NewHub) means calls simply aren't recorded — the
+// hub keeps working exactly as it does today.
+func (h *Hub) SetCallSessionRecorder(recorder CallSessionRecorder) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.callSessionRecorder = recorder
+}
+
 // BroadcastVoiceParticipants notifies clients about the current participant
 // list for a voice channel. When a voiceAudienceResolver is set and returns
 // a non-nil audience for channelID (a private channel), delivery is
@@ -401,7 +430,6 @@ func (h *Hub) IsCurrentClient(c *Client) bool {
 // participant list for channelID.
 func (h *Hub) JoinVoiceChannel(userID, channelID uuid.UUID) []uuid.UUID {
 	h.mu.Lock()
-	defer h.mu.Unlock()
 
 	if prevChannelID, ok := h.clientVoiceChannel[userID]; ok {
 		delete(h.voiceChannels[prevChannelID], userID)
@@ -410,13 +438,22 @@ func (h *Hub) JoinVoiceChannel(userID, channelID uuid.UUID) []uuid.UUID {
 		}
 	}
 
-	if h.voiceChannels[channelID] == nil {
+	wasEmpty := h.voiceChannels[channelID] == nil
+	if wasEmpty {
 		h.voiceChannels[channelID] = make(map[uuid.UUID]struct{})
 	}
 	h.voiceChannels[channelID][userID] = struct{}{}
 	h.clientVoiceChannel[userID] = channelID
 
-	return h.voiceParticipantsLocked(channelID)
+	participants := h.voiceParticipantsLocked(channelID)
+	recorder := h.callSessionRecorder
+	h.mu.Unlock()
+
+	if wasEmpty && recorder != nil {
+		recorder.CallStarted(channelID, userID)
+	}
+
+	return participants
 }
 
 // LeaveVoiceChannel removes userID from whatever voice channel it is
@@ -424,20 +461,30 @@ func (h *Hub) JoinVoiceChannel(userID, channelID uuid.UUID) []uuid.UUID {
 // safe to call repeatedly (e.g. voluntary leave followed by SFU teardown).
 func (h *Hub) LeaveVoiceChannel(userID uuid.UUID) (channelID uuid.UUID, participants []uuid.UUID, ok bool) {
 	h.mu.Lock()
-	defer h.mu.Unlock()
 
 	channelID, ok = h.clientVoiceChannel[userID]
 	if !ok {
+		h.mu.Unlock()
 		return uuid.Nil, nil, false
 	}
 
 	delete(h.clientVoiceChannel, userID)
 	delete(h.voiceChannels[channelID], userID)
+	channelEmptied := false
 	if len(h.voiceChannels[channelID]) == 0 {
 		delete(h.voiceChannels, channelID)
+		channelEmptied = true
 	}
 
-	return channelID, h.voiceParticipantsLocked(channelID), true
+	participants = h.voiceParticipantsLocked(channelID)
+	recorder := h.callSessionRecorder
+	h.mu.Unlock()
+
+	if channelEmptied && recorder != nil {
+		recorder.CallEnded(channelID)
+	}
+
+	return channelID, participants, true
 }
 
 // ReconcileVoicePresence replaces the hub's voice-presence view wholesale with
@@ -459,9 +506,10 @@ func (h *Hub) LeaveVoiceChannel(userID uuid.UUID) (channelID uuid.UUID, particip
 // bad reason", so it always trusts actual literally.
 func (h *Hub) ReconcileVoicePresence(actual map[uuid.UUID][]uuid.UUID) []uuid.UUID {
 	h.mu.Lock()
-	defer h.mu.Unlock()
 
 	var changed []uuid.UUID
+	var started []callStartedTransition
+	var ended []uuid.UUID
 	seen := make(map[uuid.UUID]bool, len(actual))
 
 	for channelID, userIDs := range actual {
@@ -473,8 +521,16 @@ func (h *Hub) ReconcileVoicePresence(actual map[uuid.UUID][]uuid.UUID) []uuid.UU
 		if voiceSetEqual(h.voiceChannels[channelID], desired) {
 			continue
 		}
+		_, existedBefore := h.voiceChannels[channelID]
 		h.voiceChannels[channelID] = desired
 		changed = append(changed, channelID)
+		if !existedBefore && len(userIDs) > 0 {
+			// Порядок в снапшоте SFU не гарантирован — берём первого просто
+			// как «кого-то, кто там точно есть» (design doc: случай редкий,
+			// цена ошибки — неверное имя в плашке звонка, который иначе не
+			// появился бы вообще).
+			started = append(started, callStartedTransition{channelID: channelID, starterID: userIDs[0]})
+		}
 	}
 
 	for channelID := range h.voiceChannels {
@@ -483,6 +539,7 @@ func (h *Hub) ReconcileVoicePresence(actual map[uuid.UUID][]uuid.UUID) []uuid.UU
 		}
 		delete(h.voiceChannels, channelID)
 		changed = append(changed, channelID)
+		ended = append(ended, channelID)
 	}
 
 	h.clientVoiceChannel = make(map[uuid.UUID]uuid.UUID, len(h.voiceChannels))
@@ -492,7 +549,27 @@ func (h *Hub) ReconcileVoicePresence(actual map[uuid.UUID][]uuid.UUID) []uuid.UU
 		}
 	}
 
+	recorder := h.callSessionRecorder
+	h.mu.Unlock()
+
+	if recorder != nil {
+		for _, t := range started {
+			recorder.CallStarted(t.channelID, t.starterID)
+		}
+		for _, channelID := range ended {
+			recorder.CallEnded(channelID)
+		}
+	}
+
 	return changed
+}
+
+// callStartedTransition pairs a channel that just went empty→non-empty under
+// ReconcileVoicePresence with the participant picked as its "starter" for
+// CallSessionRecorder.CallStarted.
+type callStartedTransition struct {
+	channelID uuid.UUID
+	starterID uuid.UUID
 }
 
 func voiceSetEqual(a, b map[uuid.UUID]struct{}) bool {

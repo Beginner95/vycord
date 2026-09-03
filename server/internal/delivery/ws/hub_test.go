@@ -323,6 +323,7 @@ func TestUnregisterStaleClientKeepsNewConnection(t *testing.T) {
 // broadcast fan-out.
 func TestHubConcurrentBroadcastAndChurnNoRace(t *testing.T) {
 	h := newTestHub()
+	h.SetCallSessionRecorder(&fakeCallRecorder{})
 	go h.Run()
 
 	stop := make(chan struct{})
@@ -572,4 +573,188 @@ func TestReconcileVoicePresence_PopulatesClientVoiceChannelIndex(t *testing.T) {
 	assert.True(t, ok, "a user added purely by reconciliation must still be leavable")
 	assert.Equal(t, channelID, gotChannelID)
 	assert.Empty(t, participants)
+}
+
+// --- VYC-87: CallSessionRecorder wiring ---
+
+type callStartedCall struct {
+	channelID uuid.UUID
+	starterID uuid.UUID
+}
+
+// fakeCallRecorder is a hand-rolled CallSessionRecorder double — no
+// testify/mock here (server CLAUDE.md: golangci-lint's typecheck can't
+// resolve mock.Mock in this toolchain, and this file must not become a new
+// red one).
+type fakeCallRecorder struct {
+	mu      sync.Mutex
+	started []callStartedCall
+	ended   []uuid.UUID
+	// onCall, when set, runs synchronously inside CallStarted/CallEnded —
+	// used by the lock-discipline test below to call back into the hub.
+	onCall func()
+}
+
+func (f *fakeCallRecorder) CallStarted(channelID, starterID uuid.UUID) {
+	f.mu.Lock()
+	f.started = append(f.started, callStartedCall{channelID, starterID})
+	f.mu.Unlock()
+	if f.onCall != nil {
+		f.onCall()
+	}
+}
+
+func (f *fakeCallRecorder) CallEnded(channelID uuid.UUID) {
+	f.mu.Lock()
+	f.ended = append(f.ended, channelID)
+	f.mu.Unlock()
+	if f.onCall != nil {
+		f.onCall()
+	}
+}
+
+func TestJoinVoiceChannel_FirstJoinCallsCallStarted(t *testing.T) {
+	h := newTestHub()
+	rec := &fakeCallRecorder{}
+	h.SetCallSessionRecorder(rec)
+	userID, channelID := uuid.New(), uuid.New()
+
+	h.JoinVoiceChannel(userID, channelID)
+
+	rec.mu.Lock()
+	defer rec.mu.Unlock()
+	assert.Equal(t, []callStartedCall{{channelID, userID}}, rec.started)
+}
+
+func TestJoinVoiceChannel_SecondJoinDoesNotCallCallStarted(t *testing.T) {
+	h := newTestHub()
+	rec := &fakeCallRecorder{}
+	h.SetCallSessionRecorder(rec)
+	channelID := uuid.New()
+
+	h.JoinVoiceChannel(uuid.New(), channelID)
+	h.JoinVoiceChannel(uuid.New(), channelID)
+
+	rec.mu.Lock()
+	defer rec.mu.Unlock()
+	assert.Len(t, rec.started, 1, "only the join that found an empty channel must call CallStarted")
+}
+
+func TestLeaveVoiceChannel_LastLeaveCallsCallEnded(t *testing.T) {
+	h := newTestHub()
+	rec := &fakeCallRecorder{}
+	h.SetCallSessionRecorder(rec)
+	userID, channelID := uuid.New(), uuid.New()
+	h.JoinVoiceChannel(userID, channelID)
+
+	h.LeaveVoiceChannel(userID)
+
+	rec.mu.Lock()
+	defer rec.mu.Unlock()
+	assert.Equal(t, []uuid.UUID{channelID}, rec.ended)
+}
+
+func TestLeaveVoiceChannel_NonLastLeaveDoesNotCallCallEnded(t *testing.T) {
+	h := newTestHub()
+	rec := &fakeCallRecorder{}
+	h.SetCallSessionRecorder(rec)
+	channelID := uuid.New()
+	userA, userB := uuid.New(), uuid.New()
+	h.JoinVoiceChannel(userA, channelID)
+	h.JoinVoiceChannel(userB, channelID)
+
+	h.LeaveVoiceChannel(userA)
+
+	rec.mu.Lock()
+	defer rec.mu.Unlock()
+	assert.Empty(t, rec.ended)
+}
+
+func TestReconcileVoicePresence_NewChannelCallsCallStartedWithFirstParticipant(t *testing.T) {
+	h := newTestHub()
+	rec := &fakeCallRecorder{}
+	h.SetCallSessionRecorder(rec)
+	channelID, userID := uuid.New(), uuid.New()
+
+	h.ReconcileVoicePresence(map[uuid.UUID][]uuid.UUID{channelID: {userID}})
+
+	rec.mu.Lock()
+	defer rec.mu.Unlock()
+	assert.Equal(t, []callStartedCall{{channelID, userID}}, rec.started)
+}
+
+func TestReconcileVoicePresence_DisappearedChannelCallsCallEnded(t *testing.T) {
+	h := newTestHub()
+	rec := &fakeCallRecorder{}
+	h.SetCallSessionRecorder(rec)
+	channelID := uuid.New()
+	h.JoinVoiceChannel(uuid.New(), channelID)
+
+	h.ReconcileVoicePresence(map[uuid.UUID][]uuid.UUID{})
+
+	rec.mu.Lock()
+	defer rec.mu.Unlock()
+	assert.Equal(t, []uuid.UUID{channelID}, rec.ended)
+}
+
+// TestReconcileVoicePresence_RosterChurnOnExistingChannelDoesNotCallRecorder:
+// a channel that already existed and merely gained/lost OTHER participants
+// must not re-fire CallStarted — it's the same call, still going.
+func TestReconcileVoicePresence_RosterChurnOnExistingChannelDoesNotCallRecorder(t *testing.T) {
+	h := newTestHub()
+	rec := &fakeCallRecorder{}
+	h.SetCallSessionRecorder(rec)
+	channelID, userA := uuid.New(), uuid.New()
+	h.JoinVoiceChannel(userA, channelID)
+	// JoinVoiceChannel above is itself a legitimate empty→non-empty
+	// transition and correctly fires CallStarted; reset the recorder so the
+	// assertions below isolate what ReconcileVoicePresence does with an
+	// already-existing channel, not this setup call.
+	rec.mu.Lock()
+	rec.started = nil
+	rec.ended = nil
+	rec.mu.Unlock()
+
+	h.ReconcileVoicePresence(map[uuid.UUID][]uuid.UUID{channelID: {userA, uuid.New()}})
+
+	rec.mu.Lock()
+	defer rec.mu.Unlock()
+	assert.Empty(t, rec.started)
+	assert.Empty(t, rec.ended)
+}
+
+func TestJoinLeaveVoiceChannel_NilRecorderIsSafe(t *testing.T) {
+	h := newTestHub()
+	userID, channelID := uuid.New(), uuid.New()
+
+	assert.NotPanics(t, func() {
+		h.JoinVoiceChannel(userID, channelID)
+		h.LeaveVoiceChannel(userID)
+	})
+}
+
+// TestCallSessionRecorder_CanCallBackIntoHubWithoutDeadlock is the lock-
+// discipline test the design doc calls for: CallStarted/CallEnded must run
+// with h.mu released, or a recorder that calls back into the hub — exactly
+// what the real usecase-layer recorder does, via hub.SendToChannel —
+// deadlocks the hub goroutine forever.
+func TestCallSessionRecorder_CanCallBackIntoHubWithoutDeadlock(t *testing.T) {
+	h := newTestHub()
+	userID, channelID := uuid.New(), uuid.New()
+	rec := &fakeCallRecorder{}
+	rec.onCall = func() { h.GetVoiceState() }
+	h.SetCallSessionRecorder(rec)
+
+	done := make(chan struct{})
+	go func() {
+		h.JoinVoiceChannel(userID, channelID)
+		h.LeaveVoiceChannel(userID)
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("JoinVoiceChannel/LeaveVoiceChannel deadlocked: recorder callback must run with h.mu released")
+	}
 }
