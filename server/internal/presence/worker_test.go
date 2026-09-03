@@ -292,3 +292,103 @@ func TestTick_MalformedIDAbortsWithoutTouchingState(t *testing.T) {
 		t.Fatalf("ReconcileVoicePresence called %d times, want 0 for an unparseable snapshot", reconciler.reconcileCalls)
 	}
 }
+
+// --- VYC-87: CallSweeper wiring ---
+
+// fakeSweeper is a minimal CallSweeper double.
+type fakeSweeper struct {
+	mu    sync.Mutex
+	calls [][]uuid.UUID
+}
+
+func (f *fakeSweeper) SweepCalls(activeChannelIDs []uuid.UUID) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.calls = append(f.calls, activeChannelIDs)
+}
+
+func (f *fakeSweeper) callCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return len(f.calls)
+}
+
+func (f *fakeSweeper) lastCall() []uuid.UUID {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.calls[len(f.calls)-1]
+}
+
+func TestTick_CallSweeperReceivesActiveChannelIDs(t *testing.T) {
+	channelID := uuid.New()
+	userID := uuid.New()
+	reconciler := newFakeReconciler(nil)
+	fetcher := &fakeFetcher{snapshot: map[string][]string{channelID.String(): {userID.String()}}}
+	sweeper := &fakeSweeper{}
+	var buf bytes.Buffer
+	w := NewWorker(fetcher, reconciler, newTestLogger(&buf))
+	w.SetCallSweeper(sweeper)
+
+	w.tick(context.Background())
+
+	if sweeper.callCount() != 1 {
+		t.Fatalf("SweepCalls called %d times, want 1", sweeper.callCount())
+	}
+	got := sweeper.lastCall()
+	if len(got) != 1 || got[0] != channelID {
+		t.Fatalf("SweepCalls activeChannelIDs = %v, want [%v]", got, channelID)
+	}
+}
+
+// TestTick_CallSweeperReceivesNonNilEmptySliceOnEmptySnapshot guards the pgx
+// NULL-vs-empty-array pitfall: activeChannelIDs must be a non-nil empty
+// slice, never nil.
+func TestTick_CallSweeperReceivesNonNilEmptySliceOnEmptySnapshot(t *testing.T) {
+	reconciler := newFakeReconciler(nil)
+	fetcher := &fakeFetcher{snapshot: map[string][]string{}}
+	sweeper := &fakeSweeper{}
+	var buf bytes.Buffer
+	w := NewWorker(fetcher, reconciler, newTestLogger(&buf))
+	w.SetCallSweeper(sweeper)
+
+	w.tick(context.Background())
+
+	if sweeper.callCount() != 1 {
+		t.Fatalf("SweepCalls called %d times, want 1", sweeper.callCount())
+	}
+	got := sweeper.lastCall()
+	if got == nil {
+		t.Fatal("activeChannelIDs must be a non-nil empty slice, not nil")
+	}
+	if len(got) != 0 {
+		t.Fatalf("activeChannelIDs = %v, want empty", got)
+	}
+}
+
+// TestTick_CallSweeperNotInvokedWhileEmptySnapshotUnconfirmed: the sweep
+// must not run on a tick the existing safety valve already skipped.
+func TestTick_CallSweeperNotInvokedWhileEmptySnapshotUnconfirmed(t *testing.T) {
+	channelID := uuid.New()
+	userID := uuid.New()
+	reconciler := newFakeReconciler(map[uuid.UUID][]uuid.UUID{channelID: {userID}})
+	fetcher := &fakeFetcher{snapshot: map[string][]string{}}
+	sweeper := &fakeSweeper{}
+	var buf bytes.Buffer
+	w := NewWorker(fetcher, reconciler, newTestLogger(&buf))
+	w.SetCallSweeper(sweeper)
+
+	w.tick(context.Background())
+
+	if sweeper.callCount() != 0 {
+		t.Fatalf("SweepCalls called %d times, want 0 while the empty-snapshot valve has not confirmed yet", sweeper.callCount())
+	}
+}
+
+func TestTick_NilCallSweeperIsSafe(t *testing.T) {
+	fetcher := &fakeFetcher{snapshot: map[string][]string{}}
+	reconciler := newFakeReconciler(nil)
+	var buf bytes.Buffer
+	w := NewWorker(fetcher, reconciler, newTestLogger(&buf))
+
+	w.tick(context.Background()) // must not panic
+}
