@@ -287,6 +287,8 @@ func (h *MessageHandler) writeUseCaseError(w http.ResponseWriter, r *http.Reques
 		h.sendError(w, http.StatusConflict, httperr.CodeAttachmentAlreadyAttached, "attachment is already attached to a message")
 	case errors.Is(err, domain.ErrForbidden):
 		h.sendError(w, http.StatusForbidden, httperr.CodeForbidden, "access denied")
+	case errors.Is(err, domain.ErrCallMessageImmutable):
+		h.sendError(w, http.StatusForbidden, httperr.CodeCallMessageImmutable, "call messages cannot be edited or deleted")
 	default:
 		h.log.Error("message request failed", "request_id", middleware.RequestIDFromContext(r.Context()), "error", err)
 		h.sendError(w, http.StatusInternalServerError, httperr.CodeInternalError, "internal server error")
