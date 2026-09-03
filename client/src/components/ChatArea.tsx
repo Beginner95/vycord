@@ -193,7 +193,7 @@ export function ChatArea({ channel, user, onMobileBack, onShowMembers, onJoinVoi
     const observer = new IntersectionObserver((entries) => {
       if (!entries.some((e) => e.isIntersecting)) return;
       const msgs = useMessageStore.getState().messages;
-      const last = [...msgs].reverse().find((m) => !m.deliveryState && m.channel_id === channel.id);
+      const last = [...msgs].reverse().find((m) => !m.deliveryState && m.channel_id === channel.id && m.kind !== 'call');
       if (last) useUnreadStore.getState().markRead(channel.id, last.id, last.created_at);
     }, { root, threshold: 0 });
     observer.observe(sentinel);
