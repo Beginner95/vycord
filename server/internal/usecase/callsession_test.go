@@ -33,6 +33,7 @@ func (f *fakeCallMessageRepo) CloseCallsMissingFrom(channelIDs []uuid.UUID, minA
 	return f.closeCallsMissingFn(channelIDs, minAge)
 }
 func (f *fakeCallMessageRepo) CloseOrphanedCalls() error { return nil }
+func (f *fakeCallMessageRepo) AddCallParticipant(uuid.UUID, uuid.UUID) error { return nil }
 
 func (f *fakeCallMessageRepo) Create(*domain.Message) error                   { return nil }
 func (f *fakeCallMessageRepo) GetByID(uuid.UUID) (*domain.Message, error)     { return nil, nil }
