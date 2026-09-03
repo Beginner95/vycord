@@ -46,6 +46,18 @@ type Reconciler interface {
 	BroadcastVoiceParticipants(channelID uuid.UUID, participants []uuid.UUID)
 }
 
+// CallSweeper is the presence worker's self-healing hook for call-message
+// rows (design doc "Самолечение в presence-воркере"). Unlike Reconciler,
+// which only tracks CURRENT hub.voiceChannels state, this operates on the
+// messages table directly — so it also recovers a row orphaned by a lost or
+// raced write that never produced a matching hub-state transition at all
+// (e.g. CallEnded somehow ran before CreateCall's row existed). nil (the
+// default) skips the sweep — the worker still does ordinary voice-presence
+// reconciliation without it.
+type CallSweeper interface {
+	SweepCalls(activeChannelIDs []uuid.UUID)
+}
+
 // Worker periodically reconciles voice presence. Construct with NewWorker and
 // start with Run in its own goroutine.
 type Worker struct {
@@ -59,6 +71,11 @@ type Worker struct {
 	// either condition stops holding. Only tick (single goroutine, via Run)
 	// touches this, so it needs no synchronization.
 	consecutiveEmptySuspicious int
+
+	// sweeper, when set, runs the call-message self-heal each tick — see
+	// CallSweeper's doc comment. Single-goroutine access via Run/tick, same
+	// as consecutiveEmptySuspicious below, so it needs no synchronization.
+	sweeper CallSweeper
 }
 
 func NewWorker(fetcher Fetcher, reconciler Reconciler, log *slog.Logger) *Worker {
@@ -68,6 +85,12 @@ func NewWorker(fetcher Fetcher, reconciler Reconciler, log *slog.Logger) *Worker
 		log:        log,
 		interval:   DefaultInterval,
 	}
+}
+
+// SetCallSweeper installs the self-healing hook. Optional — nil (the zero
+// value) simply skips the sweep.
+func (w *Worker) SetCallSweeper(s CallSweeper) {
+	w.sweeper = s
 }
 
 // Run ticks every w.interval until ctx is cancelled. Intended to be started as
@@ -136,6 +159,25 @@ func (w *Worker) tick(ctx context.Context) {
 	changed := w.reconciler.ReconcileVoicePresence(actual)
 	for _, channelID := range changed {
 		w.reconciler.BroadcastVoiceParticipants(channelID, actual[channelID])
+	}
+
+	// Самолечение call-плашек: работает поверх messages напрямую, независимо
+	// от переходов hub.voiceChannels выше — оно видит строку, осиротевшую в
+	// БД, даже когда в hub-состоянии для неё вообще нет соответствующего
+	// канала. По этой же причине не переиспользует `changed`/`ended` из
+	// ReconcileVoicePresence.
+	//
+	// activeChannelIDs строится через make(...), никогда как `var
+	// activeChannelIDs []uuid.UUID`: pgx кодирует nil-срез как SQL NULL, а
+	// `channel_id <> ALL(NULL)` не совпадёт ни с одной строкой — это тихо
+	// отключило бы подметание ровно в момент, когда снапшот пуст и
+	// предохранитель выше это подтвердил.
+	if w.sweeper != nil {
+		activeChannelIDs := make([]uuid.UUID, 0, len(actual))
+		for channelID := range actual {
+			activeChannelIDs = append(activeChannelIDs, channelID)
+		}
+		w.sweeper.SweepCalls(activeChannelIDs)
 	}
 }
 

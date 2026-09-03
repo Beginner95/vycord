@@ -118,6 +118,7 @@ func (uc *messageUseCase) CreateMessage(channelID, userID uuid.UUID, content str
 		ID:        uuid.New(),
 		ChannelID: channelID,
 		UserID:    userID,
+		Kind:      "user",
 		CreatedAt: now,
 		UpdatedAt: now,
 	}
@@ -295,6 +296,9 @@ func (uc *messageUseCase) UpdateMessage(channelID, messageID, userID uuid.UUID, 
 	if msg.ChannelID != channelID {
 		return nil, fmt.Errorf("message %s: %w", messageID, domain.ErrMessageNotFound)
 	}
+	if msg.Kind == "call" {
+		return nil, domain.ErrCallMessageImmutable
+	}
 	if msg.UserID != userID {
 		return nil, domain.ErrForbidden
 	}
@@ -331,6 +335,9 @@ func (uc *messageUseCase) DeleteMessage(channelID, messageID, userID uuid.UUID) 
 	}
 	if msg.ChannelID != channelID {
 		return fmt.Errorf("message %s: %w", messageID, domain.ErrMessageNotFound)
+	}
+	if msg.Kind == "call" {
+		return domain.ErrCallMessageImmutable
 	}
 	if msg.UserID != userID {
 		return domain.ErrForbidden

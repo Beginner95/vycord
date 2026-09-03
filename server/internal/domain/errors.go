@@ -107,4 +107,8 @@ var (
 var (
 	// ErrMessageEmpty — сообщение пустое.
 	ErrMessageEmpty = errors.New("message content is empty")
+	// ErrCallMessageImmutable — попытка отредактировать или удалить
+	// системную плашку звонка (kind='call') через API. UI не даёт на неё
+	// кнопок, но это не защита от прямого запроса.
+	ErrCallMessageImmutable = errors.New("call messages cannot be edited or deleted")
 )

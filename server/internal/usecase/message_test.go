@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -54,6 +55,34 @@ func (m *MockMessageRepository) Update(id uuid.UUID, updates map[string]interfac
 }
 func (m *MockMessageRepository) Delete(id uuid.UUID) error {
 	return m.Called(id).Error(0)
+}
+func (m *MockMessageRepository) CreateCall(msg *domain.Message) (bool, error) {
+	args := m.Called(msg)
+	return args.Bool(0), args.Error(1)
+}
+
+func (m *MockMessageRepository) EndCall(channelID uuid.UUID) (*domain.Message, bool, error) {
+	args := m.Called(channelID)
+	if args.Get(0) == nil {
+		return nil, args.Bool(1), args.Error(2)
+	}
+	return args.Get(0).(*domain.Message), args.Bool(1), args.Error(2)
+}
+
+func (m *MockMessageRepository) TouchCalls(channelIDs []uuid.UUID) error {
+	return m.Called(channelIDs).Error(0)
+}
+
+func (m *MockMessageRepository) CloseCallsMissingFrom(channelIDs []uuid.UUID, minAge time.Duration) ([]*domain.Message, error) {
+	args := m.Called(channelIDs, minAge)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]*domain.Message), args.Error(1)
+}
+
+func (m *MockMessageRepository) CloseOrphanedCalls() error {
+	return m.Called().Error(0)
 }
 
 type MockChannelRepository struct{ mock.Mock }
@@ -563,6 +592,45 @@ func TestDeleteMessage_WithoutSendPermission_Forbidden(t *testing.T) {
 
 	assert.ErrorIs(t, err, domain.ErrForbidden)
 	msgRepo.AssertNotCalled(t, "GetByID", mock.Anything)
+}
+
+func TestUpdateMessage_RejectsCallMessage(t *testing.T) {
+	channelID, serverID, userID, messageID := uuid.New(), uuid.New(), uuid.New(), uuid.New()
+
+	msgRepo := new(MockMessageRepository)
+	chRepo := new(MockChannelRepository)
+	srvRepo := new(MockServerRepository)
+	perms := permsWith(serverID, userID, domain.PermSendMessages)
+
+	chRepo.On("GetByID", channelID).Return(&domain.Channel{ID: channelID, ServerID: serverID}, nil)
+	existing := &domain.Message{ID: messageID, ChannelID: channelID, UserID: userID, Kind: "call"}
+	msgRepo.On("GetByID", messageID).Return(existing, nil)
+
+	uc := usecase.NewMessageUseCase(msgRepo, chRepo, srvRepo, &MockStickerRepository{}, perms, new(MockAttachmentRepository), new(MockStorage))
+	msg, err := uc.UpdateMessage(channelID, messageID, userID, "new")
+
+	assert.Nil(t, msg)
+	assert.ErrorIs(t, err, domain.ErrCallMessageImmutable)
+	msgRepo.AssertNotCalled(t, "Update", mock.Anything, mock.Anything)
+}
+
+func TestDeleteMessage_RejectsCallMessage(t *testing.T) {
+	channelID, serverID, userID, messageID := uuid.New(), uuid.New(), uuid.New(), uuid.New()
+
+	msgRepo := new(MockMessageRepository)
+	chRepo := new(MockChannelRepository)
+	srvRepo := new(MockServerRepository)
+	perms := permsWith(serverID, userID, domain.PermSendMessages)
+
+	chRepo.On("GetByID", channelID).Return(&domain.Channel{ID: channelID, ServerID: serverID}, nil)
+	existing := &domain.Message{ID: messageID, ChannelID: channelID, UserID: userID, Kind: "call"}
+	msgRepo.On("GetByID", messageID).Return(existing, nil)
+
+	uc := usecase.NewMessageUseCase(msgRepo, chRepo, srvRepo, &MockStickerRepository{}, perms, new(MockAttachmentRepository), new(MockStorage))
+	err := uc.DeleteMessage(channelID, messageID, userID)
+
+	assert.ErrorIs(t, err, domain.ErrCallMessageImmutable)
+	msgRepo.AssertNotCalled(t, "Delete", mock.Anything)
 }
 
 func TestCreateMessage_ValidUserMention_Success(t *testing.T) {

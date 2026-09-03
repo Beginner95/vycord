@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { useMessageStore, type ChatMessage } from '../messageStore';
 
 const m = (id: string, over: Partial<ChatMessage> = {}): ChatMessage => ({
-  id, channel_id: 'c', user_id: 'u', content: 'hi',
+  id, channel_id: 'c', user_id: 'u', content: 'hi', kind: 'user',
   created_at: '2026-08-25T12:00:00Z', updated_at: '2026-08-25T12:00:00Z', ...over,
 });
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isSameCalendarDay, resolveDayLabel, RU_MONTHS_GENITIVE, EN_MONTHS } from '@/i18n/format';
+import { isSameCalendarDay, resolveDayLabel, RU_MONTHS_GENITIVE, EN_MONTHS, formatCallDuration } from '@/i18n/format';
 
 const ruT = (key: string) => (key === 'chat.today' ? 'Сегодня' : 'Вчера');
 const enT = (key: string) => (key === 'chat.today' ? 'Today' : 'Yesterday');
@@ -51,5 +51,27 @@ describe('month dictionaries', () => {
   it('EN_MONTHS: 12 названий, февраль → «February»', () => {
     expect(EN_MONTHS).toHaveLength(12);
     expect(EN_MONTHS[1]).toBe('February');
+  });
+});
+
+describe('formatCallDuration', () => {
+  it('ru boundaries: 0 / 59s / 60s / 59m / 60m / 1h20m', () => {
+    expect(formatCallDuration(0, 'ru')).toBe('0 сек');
+    expect(formatCallDuration(59, 'ru')).toBe('59 сек');
+    expect(formatCallDuration(60, 'ru')).toBe('1 мин');
+    expect(formatCallDuration(3599, 'ru')).toBe('59 мин');
+    expect(formatCallDuration(3600, 'ru')).toBe('1 ч');
+    expect(formatCallDuration(4800, 'ru')).toBe('1 ч 20 мин');
+  });
+  it('en boundaries: same shape', () => {
+    expect(formatCallDuration(0, 'en')).toBe('0 sec');
+    expect(formatCallDuration(59, 'en')).toBe('59 sec');
+    expect(formatCallDuration(60, 'en')).toBe('1 min');
+    expect(formatCallDuration(3599, 'en')).toBe('59 min');
+    expect(formatCallDuration(3600, 'en')).toBe('1 hr');
+    expect(formatCallDuration(4800, 'en')).toBe('1 hr 20 min');
+  });
+  it('clamps negative input to 0', () => {
+    expect(formatCallDuration(-5, 'ru')).toBe('0 сек');
   });
 });

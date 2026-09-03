@@ -3,7 +3,7 @@ import { GROUP_WINDOW_MS, isContinuation } from './messageGroups';
 import type { Message } from '@/types';
 
 const msg = (over: Partial<Message>): Message => ({
-  id: '1', channel_id: 'c', user_id: 'u', content: 'hi',
+  id: '1', channel_id: 'c', user_id: 'u', content: 'hi', kind: 'user',
   created_at: '2026-08-25T12:00:00Z', updated_at: '2026-08-25T12:00:00Z', ...over,
 });
 
@@ -21,5 +21,10 @@ describe('isContinuation', () => {
     expect(isContinuation(
       msg({ created_at: '2026-08-25T23:58:00' }),   // local time, no Z — day boundary is local
       msg({ id: '2', created_at: '2026-08-26T00:01:00' })
+    )).toBe(false));
+  it('false when the previous message is a call event', () =>
+    expect(isContinuation(
+      msg({ kind: 'call' }),
+      msg({ id: '2', created_at: '2026-08-25T12:00:30Z' }),
     )).toBe(false));
 });

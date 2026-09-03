@@ -42,6 +42,8 @@ export const useUnreadStore = create<UnreadState>((set) => ({
  */
 export function firstUnreadId(mark: LastReadMark | undefined, messages: Message[]): string | null {
   if (!mark || messages.length === 0) return null;
-  const found = messages.find((m) => m.id !== mark.messageId && m.created_at > mark.ts);
+  const found = messages.find(
+    (m) => m.kind !== 'call' && m.id !== mark.messageId && m.created_at > mark.ts,
+  );
   return found ? found.id : null;
 }

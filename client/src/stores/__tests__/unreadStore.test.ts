@@ -2,8 +2,8 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { useUnreadStore, firstUnreadId } from '../unreadStore';
 import type { Message } from '@/types';
 
-const m = (id: string, ts: string): Message => ({
-  id, channel_id: 'c', user_id: 'u', content: 'x', created_at: ts, updated_at: ts,
+const m = (id: string, ts: string, kind: Message['kind'] = 'user'): Message => ({
+  id, channel_id: 'c', user_id: 'u', content: 'x', kind, created_at: ts, updated_at: ts,
 });
 
 beforeEach(() => {
@@ -32,6 +32,15 @@ describe('unreadStore', () => {
   });
   it('firstUnreadId: empty list → null', () => {
     expect(firstUnreadId({ messageId: 'a', ts: '2026-08-25T10:00:00Z' }, [])).toBeNull();
+  });
+  it('firstUnreadId: skips a call row, returns the next real message', () => {
+    const mark = { messageId: 'a', ts: '2026-08-25T10:00:00Z' };
+    const msgs = [
+      m('a', '2026-08-25T10:00:00Z'),
+      m('b', '2026-08-25T10:01:00Z', 'call'),
+      m('c', '2026-08-25T10:02:00Z'),
+    ];
+    expect(firstUnreadId(mark, msgs)).toBe('c');
   });
   it('markRead overwrites a corrupt localStorage payload', () => {
     // Переименован осознанно. Под прежним именем «survives a corrupt payload»
