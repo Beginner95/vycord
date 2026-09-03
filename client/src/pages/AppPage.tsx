@@ -204,8 +204,14 @@ export function AppPage() {
     const unsubscribe = wsService.on('chat_message', (payload) => {
       const msg = payload as Message;
       if (currentChannel && msg.channel_id === currentChannel.id) {
-        // Own messages are added optimistically via HTTP response in ChatArea — skip to avoid duplicates
-        if (user && msg.user_id === user.id) return;
+        // Own messages are added optimistically via HTTP response in ChatArea — skip to avoid duplicates.
+        // Call placards are the exception: the client never adds them optimistically
+        // (there's no client-initiated send for a call start), even when user_id is
+        // the current user because they're the one who started the call — so this
+        // guard must not swallow them, or the starter never sees their own call
+        // placard live (and the later message_update on call-end has nothing to
+        // update, since the row was never added).
+        if (user && msg.user_id === user.id && msg.kind !== 'call') return;
         // Spread, don't re-pick fields: the broadcast carries the same
         // domain.Message the REST read does — attachments (already signed
         // server-side) and sticker included. Rebuilding the object by hand
