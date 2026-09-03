@@ -140,6 +140,22 @@ func main() {
 	// Initialize hub for WebSocket connections
 	hub := ws.NewHub(log)
 	hub.SetVoiceAudienceResolver(serverUseCase.GetChannelAudience)
+
+	// VYC-87: a call in a channel drops a system message into that
+	// channel's chat. The recorder writes the DB and broadcasts itself — the
+	// hub calls IN here (no HTTP handler in this path to broadcast
+	// afterward), same locking discipline as SetVoiceAudienceResolver: read
+	// under h.mu, called outside it.
+	callRecorder := usecase.NewCallSessionRecorder(messageRepo, hub)
+	hub.SetCallSessionRecorder(callRecorder)
+
+	// Незакрытые с прошлого запуска закрываем ДО hub.Run(): клиентов ещё
+	// нет, рассылать некому — это и есть причина существования
+	// call_last_seen_at (design doc "Старт API").
+	if err := messageRepo.CloseOrphanedCalls(); err != nil {
+		log.Error("failed to close orphaned call messages at startup", "error", err)
+	}
+
 	go hub.Run()
 
 	// Общий контекст фоновых задач: его отмена останавливает и воркер
@@ -157,10 +173,11 @@ func main() {
 	if cfg.SFUInternalURL != "" && cfg.SFUInternalSecret != "" {
 		fetcher := presencepkg.NewHTTPFetcher(cfg.SFUInternalURL, cfg.SFUInternalSecret)
 		presenceWorker := presencepkg.NewWorker(fetcher, hub, log)
+		presenceWorker.SetCallSweeper(callRecorder)
 		go presenceWorker.Run(bgCtx)
 		log.Info("voice-presence reconciliation started", "sfu_url", cfg.SFUInternalURL, "interval", presencepkg.DefaultInterval)
 	} else {
-		log.Warn("SFU_INTERNAL_URL or SFU_INTERNAL_SECRET not set — voice-presence reconciliation disabled")
+		log.Warn("SFU_INTERNAL_URL or SFU_INTERNAL_SECRET not set — voice-presence reconciliation disabled (call messages still work via hub-driven join/leave, just without self-healing against a crashed client)")
 	}
 
 	// Уборщик брошенных (не привязанных к сообщению) и протухших вложений.
