@@ -74,6 +74,18 @@ func (m *MockUserRepository) DeleteUnverifiedBefore(t time.Time) (int64, error) 
 	return args.Get(0).(int64), args.Error(1)
 }
 
+func (m *MockUserRepository) UpdateLastSeen(id uuid.UUID, at time.Time) error {
+	return m.Called(id, at).Error(0)
+}
+
+func (m *MockUserRepository) GetLastSeenBatch(ids []uuid.UUID) (map[uuid.UUID]domain.LastSeenInfo, error) {
+	args := m.Called(ids)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(map[uuid.UUID]domain.LastSeenInfo), args.Error(1)
+}
+
 type MockRefreshTokenRepository struct {
 	mock.Mock
 }

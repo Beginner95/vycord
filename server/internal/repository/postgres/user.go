@@ -74,7 +74,8 @@ func (r *userRepository) GetByID(id uuid.UUID) (*domain.User, error) {
 
 	query := `
 		SELECT id, username, email, password_hash, avatar_url, status,
-		       last_server_id, last_channel_id, created_at, updated_at, email_verified_at
+		       last_server_id, last_channel_id, created_at, updated_at, email_verified_at,
+		       last_seen_at, show_last_seen
 		FROM users
 		WHERE id = $1
 	`
@@ -92,6 +93,8 @@ func (r *userRepository) GetByID(id uuid.UUID) (*domain.User, error) {
 		&user.CreatedAt,
 		&user.UpdatedAt,
 		&user.EmailVerifiedAt,
+		&user.LastSeenAt,
+		&user.ShowLastSeen,
 	)
 
 	if err == sql.ErrNoRows {
@@ -180,6 +183,7 @@ var allowedUpdateColumns = map[string]string{
 	"last_channel_id": "last_channel_id",
 	"username":        "username",
 	"password":        "password_hash",
+	"show_last_seen":  "show_last_seen",
 }
 
 func (r *userRepository) Update(id uuid.UUID, updates map[string]interface{}) error {
@@ -288,6 +292,45 @@ func (r *userRepository) MarkEmailVerified(id uuid.UUID, at time.Time) error {
 		return fmt.Errorf("failed to mark email verified: %w", err)
 	}
 	return nil
+}
+
+func (r *userRepository) UpdateLastSeen(id uuid.UUID, at time.Time) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	_, err := r.db.Exec(ctx,
+		`UPDATE users SET last_seen_at = $1, updated_at = $1 WHERE id = $2`, at, id)
+	if err != nil {
+		return fmt.Errorf("failed to update last seen: %w", err)
+	}
+	return nil
+}
+
+func (r *userRepository) GetLastSeenBatch(ids []uuid.UUID) (map[uuid.UUID]domain.LastSeenInfo, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	rows, err := r.db.Query(ctx, `
+		SELECT id,
+		       CASE WHEN show_last_seen THEN last_seen_at ELSE NULL END,
+		       show_last_seen
+		FROM users WHERE id = ANY($1)
+	`, ids)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get last seen batch: %w", err)
+	}
+	defer rows.Close()
+
+	result := make(map[uuid.UUID]domain.LastSeenInfo, len(ids))
+	for rows.Next() {
+		var id uuid.UUID
+		var info domain.LastSeenInfo
+		if err := rows.Scan(&id, &info.LastSeenAt, &info.Visible); err != nil {
+			return nil, fmt.Errorf("failed to scan last seen row: %w", err)
+		}
+		result[id] = info
+	}
+	return result, nil
 }
 
 func (r *userRepository) DeleteUnverifiedBefore(t time.Time) (int64, error) {
