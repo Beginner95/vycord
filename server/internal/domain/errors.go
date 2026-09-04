@@ -102,6 +102,9 @@ var (
 	// ErrMailSendFailed — письмо не ушло. Код при этом уже сохранён и
 	// остаётся валидным: повторный запрос сработает.
 	ErrMailSendFailed = errors.New("failed to send email")
+	// ErrLastSeenBatchTooLarge — запрошено больше 200 user_ids за один вызов
+	// GetLastSeenBatch.
+	ErrLastSeenBatchTooLarge = errors.New("too many user ids in last seen batch")
 )
 
 var (

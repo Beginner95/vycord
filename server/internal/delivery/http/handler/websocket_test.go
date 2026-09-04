@@ -80,6 +80,22 @@ func (m *mockUserUseCase) RemoveAvatar(id uuid.UUID) (*domain.User, error) {
 	return u, args.Error(1)
 }
 
+func (m *mockUserUseCase) UpdateLastSeen(id uuid.UUID, at time.Time) error {
+	return m.Called(id, at).Error(0)
+}
+
+func (m *mockUserUseCase) GetLastSeenBatch(ids []uuid.UUID) (map[uuid.UUID]domain.LastSeenInfo, error) {
+	args := m.Called(ids)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(map[uuid.UUID]domain.LastSeenInfo), args.Error(1)
+}
+
+func (m *mockUserUseCase) SetShowLastSeen(id uuid.UUID, show bool) error {
+	return m.Called(id, show).Error(0)
+}
+
 type mockCallUseCase struct{ mock.Mock }
 
 func (m *mockCallUseCase) StartCall(callerID, receiverID uuid.UUID) (*domain.Call, error) {
