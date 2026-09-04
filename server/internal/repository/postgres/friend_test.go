@@ -15,3 +15,8 @@ func TestNewFriendRepositorySignature(t *testing.T) {
 	var _ func(*pgxpool.Pool) domain.FriendRepository = postgres.NewFriendRepository
 	assert.True(t, true)
 }
+
+func TestNewBlockRepositorySignature(t *testing.T) {
+	var _ func(*pgxpool.Pool) domain.BlockRepository = postgres.NewBlockRepository
+	assert.True(t, true)
+}
