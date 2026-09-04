@@ -23,8 +23,16 @@ type Message struct {
 	// needs.
 	CallStartedAt *time.Time `json:"call_started_at,omitempty"`
 	CallEndedAt   *time.Time `json:"call_ended_at,omitempty"`
-	CreatedAt     time.Time  `json:"created_at"`
-	UpdatedAt     time.Time  `json:"updated_at"`
+	// CallParticipantIDs accumulates every user who was ever present in the
+	// call (VYC-88 — docs/superpowers/specs/2026-09-03-call-participants-design.md),
+	// starter included, in join order. Written to incrementally over the
+	// call's life (CreateCall seeds it with the starter; AddCallParticipant
+	// appends everyone else) but only meaningful to the client once
+	// CallEndedAt is set — the active placard ignores it by design (no
+	// live-updating participant list).
+	CallParticipantIDs []uuid.UUID `json:"call_participant_ids,omitempty"`
+	CreatedAt          time.Time   `json:"created_at"`
+	UpdatedAt          time.Time   `json:"updated_at"`
 }
 
 // MessageWithAuthor — сообщение с юзернеймом автора: результаты поиска
@@ -52,6 +60,12 @@ type MessageRepository interface {
 	// EndCall's bool reports whether there was an open call to close.
 	CreateCall(msg *Message) (bool, error)
 	EndCall(channelID uuid.UUID) (*Message, bool, error)
+
+	// AddCallParticipant adds userID to channelID's currently-open call, if
+	// any (VYC-88 spec). Idempotent no-op (nil error) when there is no open
+	// call in the channel — it may have closed between the hub reading its
+	// state and this call landing — or when userID is already recorded.
+	AddCallParticipant(channelID, userID uuid.UUID) error
 
 	// TouchCalls/CloseCallsMissingFrom are the presence worker's per-tick
 	// self-healing pass, independent of hub state (see presence.CallSweeper).

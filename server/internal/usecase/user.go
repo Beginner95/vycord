@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/vycord/server/internal/domain"
@@ -124,6 +125,36 @@ func (uc *userUseCase) RemoveAvatar(id uuid.UUID) (*domain.User, error) {
 	user.AvatarURL = nil
 	user.Password = ""
 	return user, nil
+}
+
+const maxLastSeenBatch = 200
+
+func (uc *userUseCase) UpdateLastSeen(id uuid.UUID, at time.Time) error {
+	if err := uc.userRepo.UpdateLastSeen(id, at); err != nil {
+		return fmt.Errorf("failed to update last seen: %w", err)
+	}
+	return nil
+}
+
+// GetLastSeenBatch only applies an abuse-prevention size cap; privacy is
+// already unwrapped by the repository (LastSeenInfo.Visible), so this layer
+// doesn't re-check it — the rule "visible=false ⇒ last_seen_at=nil" lives in
+// exactly one place.
+func (uc *userUseCase) GetLastSeenBatch(ids []uuid.UUID) (map[uuid.UUID]domain.LastSeenInfo, error) {
+	if len(ids) == 0 {
+		return map[uuid.UUID]domain.LastSeenInfo{}, nil
+	}
+	if len(ids) > maxLastSeenBatch {
+		return nil, domain.ErrLastSeenBatchTooLarge
+	}
+	return uc.userRepo.GetLastSeenBatch(ids)
+}
+
+func (uc *userUseCase) SetShowLastSeen(id uuid.UUID, show bool) error {
+	if err := uc.userRepo.Update(id, map[string]interface{}{"show_last_seen": show}); err != nil {
+		return fmt.Errorf("failed to update show_last_seen: %w", err)
+	}
+	return nil
 }
 
 func randomHex(n int) string {

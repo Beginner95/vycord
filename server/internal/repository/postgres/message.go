@@ -58,7 +58,7 @@ func (r *messageRepository) GetByID(id uuid.UUID) (*domain.Message, error) {
 
 	query := `
 		SELECT m.id, m.channel_id, m.user_id, m.content, m.sticker_id,
-		       m.kind, m.call_started_at, m.call_ended_at,
+		       m.kind, m.call_started_at, m.call_ended_at, m.call_participant_ids,
 		       m.created_at, m.updated_at,
 		       s.id, s.name, s.image_url, s.server_id
 		FROM messages m
@@ -81,6 +81,7 @@ func (r *messageRepository) GetByID(id uuid.UUID) (*domain.Message, error) {
 		&msg.Kind,
 		&msg.CallStartedAt,
 		&msg.CallEndedAt,
+		&msg.CallParticipantIDs,
 		&msg.CreatedAt,
 		&msg.UpdatedAt,
 		&sID,
@@ -117,7 +118,7 @@ func (r *messageRepository) GetByChannelID(channelID uuid.UUID, limit, offset in
 
 	query := `
 		SELECT m.id, m.channel_id, m.user_id, m.content, m.sticker_id,
-		       m.kind, m.call_started_at, m.call_ended_at,
+		       m.kind, m.call_started_at, m.call_ended_at, m.call_participant_ids,
 		       m.created_at, m.updated_at,
 		       s.id, s.name, s.image_url, s.server_id
 		FROM messages m
@@ -150,6 +151,7 @@ func (r *messageRepository) GetByChannelID(channelID uuid.UUID, limit, offset in
 			&msg.Kind,
 			&msg.CallStartedAt,
 			&msg.CallEndedAt,
+			&msg.CallParticipantIDs,
 			&msg.CreatedAt,
 			&msg.UpdatedAt,
 			&sID,
@@ -301,7 +303,7 @@ func (r *messageRepository) GetAround(channelID, messageID uuid.UUID, limit int)
 	query := `
 		(
 			SELECT m.id, m.channel_id, m.user_id, m.content, m.sticker_id,
-			       m.kind, m.call_started_at, m.call_ended_at,
+			       m.kind, m.call_started_at, m.call_ended_at, m.call_participant_ids,
 			       m.created_at, m.updated_at,
 			       s.id, s.name, s.image_url, s.server_id
 			FROM messages m
@@ -313,7 +315,7 @@ func (r *messageRepository) GetAround(channelID, messageID uuid.UUID, limit int)
 		UNION ALL
 		(
 			SELECT m.id, m.channel_id, m.user_id, m.content, m.sticker_id,
-			       m.kind, m.call_started_at, m.call_ended_at,
+			       m.kind, m.call_started_at, m.call_ended_at, m.call_participant_ids,
 			       m.created_at, m.updated_at,
 			       s.id, s.name, s.image_url, s.server_id
 			FROM messages m
@@ -346,6 +348,7 @@ func (r *messageRepository) GetAround(channelID, messageID uuid.UUID, limit int)
 			&msg.Kind,
 			&msg.CallStartedAt,
 			&msg.CallEndedAt,
+			&msg.CallParticipantIDs,
 			&msg.CreatedAt,
 			&msg.UpdatedAt,
 			&sID,
@@ -388,8 +391,8 @@ func (r *messageRepository) CreateCall(msg *domain.Message) (bool, error) {
 	defer cancel()
 
 	query := `
-		INSERT INTO messages (id, channel_id, user_id, content, kind, call_started_at, call_last_seen_at, created_at, updated_at)
-		VALUES ($1, $2, $3, '', 'call', $4, $4, $4, $4)
+		INSERT INTO messages (id, channel_id, user_id, content, kind, call_started_at, call_last_seen_at, call_participant_ids, created_at, updated_at)
+		VALUES ($1, $2, $3, '', 'call', $4, $4, ARRAY[$3::uuid], $4, $4)
 	`
 	_, err := r.db.Exec(ctx, query, msg.ID, msg.ChannelID, msg.UserID, msg.CallStartedAt)
 	if err != nil {
@@ -399,6 +402,53 @@ func (r *messageRepository) CreateCall(msg *domain.Message) (bool, error) {
 		return false, fmt.Errorf("failed to create call message: %w", err)
 	}
 	return true, nil
+}
+
+// AddCallParticipant adds userID to channelID's open call, if any.
+// Idempotent: 0 rows affected (nil error) when userID is already in
+// call_participant_ids. One atomic UPDATE per attempt, safe under
+// concurrent joins to the same row (Postgres serializes via the row lock).
+//
+// Retries a bounded number of times on zero rows affected: JoinVoiceChannel
+// calls CallStarted (which INSERTs the call row via CreateCall) for the
+// first joiner and ParticipantJoined (which calls this method) for every
+// later joiner, from independent unsynchronized goroutines — there is no
+// guarantee the first joiner's INSERT has committed by the time a
+// near-simultaneous second joiner's UPDATE runs. Without a retry, that
+// race silently and permanently drops the second joiner from the
+// finalized participant list (found in VYC-88 final review — the
+// presence-worker reconcile backstop cannot recover this case, since hub
+// state already reflects both users present by the next tick). A retry
+// that still finds zero rows after all attempts is the ordinary,
+// already-idempotent no-op case (channel closed in the meantime, or
+// userID already recorded) — same as before this fix.
+//
+// updated_at is deliberately not touched — same reasoning as EndCall not
+// touching it (VYC-87 spec): the client's "edited" indicator is
+// updated_at !== created_at, and a call message is written to many times
+// over its life without ever being user-edited.
+func (r *messageRepository) AddCallParticipant(channelID, userID uuid.UUID) error {
+	const maxAttempts = 3
+	const retryDelay = 100 * time.Millisecond
+
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		tag, err := r.db.Exec(ctx, `
+			UPDATE messages
+			SET call_participant_ids = array_append(call_participant_ids, $2)
+			WHERE channel_id = $1 AND kind = 'call' AND call_ended_at IS NULL
+			  AND NOT ($2 = ANY(call_participant_ids))
+		`, channelID, userID)
+		cancel()
+		if err != nil {
+			return fmt.Errorf("failed to add call participant: %w", err)
+		}
+		if tag.RowsAffected() > 0 || attempt == maxAttempts {
+			return nil
+		}
+		time.Sleep(retryDelay)
+	}
+	return nil
 }
 
 // EndCall closes channelID's open call (call_ended_at = now()) and returns
@@ -412,12 +462,12 @@ func (r *messageRepository) EndCall(channelID uuid.UUID) (*domain.Message, bool,
 		UPDATE messages
 		SET call_ended_at = now()
 		WHERE channel_id = $1 AND kind = 'call' AND call_ended_at IS NULL
-		RETURNING id, channel_id, user_id, content, kind, call_started_at, call_ended_at, created_at, updated_at
+		RETURNING id, channel_id, user_id, content, kind, call_started_at, call_ended_at, call_participant_ids, created_at, updated_at
 	`
 	msg := &domain.Message{}
 	err := r.db.QueryRow(ctx, query, channelID).Scan(
 		&msg.ID, &msg.ChannelID, &msg.UserID, &msg.Content, &msg.Kind,
-		&msg.CallStartedAt, &msg.CallEndedAt, &msg.CreatedAt, &msg.UpdatedAt,
+		&msg.CallStartedAt, &msg.CallEndedAt, &msg.CallParticipantIDs, &msg.CreatedAt, &msg.UpdatedAt,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, false, nil
@@ -471,7 +521,7 @@ func (r *messageRepository) CloseCallsMissingFrom(channelIDs []uuid.UUID, minAge
 		WHERE kind = 'call' AND call_ended_at IS NULL
 		  AND channel_id <> ALL($1)
 		  AND call_started_at < now() - make_interval(secs => $2)
-		RETURNING id, channel_id, user_id, content, kind, call_started_at, call_ended_at, created_at, updated_at
+		RETURNING id, channel_id, user_id, content, kind, call_started_at, call_ended_at, call_participant_ids, created_at, updated_at
 	`, channelIDs, minAge.Seconds())
 	if err != nil {
 		return nil, fmt.Errorf("failed to close missing calls: %w", err)
@@ -483,7 +533,7 @@ func (r *messageRepository) CloseCallsMissingFrom(channelIDs []uuid.UUID, minAge
 		msg := &domain.Message{}
 		if err := rows.Scan(
 			&msg.ID, &msg.ChannelID, &msg.UserID, &msg.Content, &msg.Kind,
-			&msg.CallStartedAt, &msg.CallEndedAt, &msg.CreatedAt, &msg.UpdatedAt,
+			&msg.CallStartedAt, &msg.CallEndedAt, &msg.CallParticipantIDs, &msg.CreatedAt, &msg.UpdatedAt,
 		); err != nil {
 			return nil, fmt.Errorf("failed to scan closed call: %w", err)
 		}

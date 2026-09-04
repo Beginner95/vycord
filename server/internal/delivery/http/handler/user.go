@@ -21,6 +21,12 @@ const (
 	maxAvatarRequestBytes = 3 << 20
 	// maxAvatarFileBytes is the spec limit on the actual avatar file content.
 	maxAvatarFileBytes = 2 << 20
+	// maxLastSeenBatchRequestBytes caps the raw body of POST
+	// /api/v1/users/last-seen — generous for a list of UUID strings (16KB is
+	// roughly 400+ UUIDs at ~38 bytes each including JSON quoting/commas),
+	// but stops an authenticated client from forcing a large allocation via
+	// json.Decode before the 200-item cap is even checked.
+	maxLastSeenBatchRequestBytes = 16 << 10
 )
 
 type UserHandler struct {
@@ -126,6 +132,68 @@ func (h *UserHandler) SearchUsers(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.sendJSON(w, http.StatusOK, users)
+}
+
+func (h *UserHandler) GetLastSeenBatch(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, maxLastSeenBatchRequestBytes)
+
+	var req struct {
+		UserIDs []string `json:"user_ids"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		h.sendError(w, http.StatusBadRequest, httperr.CodeInvalidBody, "invalid request body")
+		return
+	}
+	if len(req.UserIDs) == 0 {
+		h.sendError(w, http.StatusBadRequest, httperr.CodeInvalidBody, "user_ids required")
+		return
+	}
+	ids := make([]uuid.UUID, 0, len(req.UserIDs))
+	for _, s := range req.UserIDs {
+		id, err := uuid.Parse(s)
+		if err != nil {
+			h.sendError(w, http.StatusBadRequest, httperr.CodeInvalidUserID, "invalid user id in user_ids")
+			return
+		}
+		ids = append(ids, id)
+	}
+
+	result, err := h.userUseCase.GetLastSeenBatch(ids)
+	if err != nil {
+		if errors.Is(err, domain.ErrLastSeenBatchTooLarge) {
+			h.sendError(w, http.StatusBadRequest, httperr.CodeLastSeenBatchTooLarge, "too many user_ids")
+			return
+		}
+		h.log.Error("failed to get last seen batch", "request_id", middleware.RequestIDFromContext(r.Context()), "error", err)
+		h.sendError(w, http.StatusInternalServerError, httperr.CodeLastSeenFailed, "failed to get last seen")
+		return
+	}
+
+	resp := make(map[string]map[string]interface{}, len(result))
+	for id, info := range result {
+		resp[id.String()] = map[string]interface{}{
+			"last_seen_at": info.LastSeenAt,
+			"visible":      info.Visible,
+		}
+	}
+	h.sendJSON(w, http.StatusOK, resp)
+}
+
+func (h *UserHandler) UpdatePrivacy(w http.ResponseWriter, r *http.Request) {
+	userID := r.Context().Value("user_id").(uuid.UUID)
+	var req struct {
+		ShowLastSeen *bool `json:"show_last_seen"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.ShowLastSeen == nil {
+		h.sendError(w, http.StatusBadRequest, httperr.CodeInvalidBody, "invalid request body")
+		return
+	}
+	if err := h.userUseCase.SetShowLastSeen(userID, *req.ShowLastSeen); err != nil {
+		h.log.Error("failed to update privacy", "request_id", middleware.RequestIDFromContext(r.Context()), "error", err)
+		h.sendError(w, http.StatusInternalServerError, httperr.CodeLastSeenFailed, "failed to update privacy")
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // UploadAvatar accepts a multipart/form-data request with a single "avatar"

@@ -1,8 +1,8 @@
 {
   "name": "vycord",
   "private": true,
-  "version": "2.2.0",
-  "description": "Discord-like application with noise cancellation",
+  "version": "2.3.0",
+  "description": "Vy Cord application with noise cancellation",
   "author": "Vy Cord Team",
   "license": "MIT",
   "type": "module",

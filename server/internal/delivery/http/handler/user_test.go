@@ -3,6 +3,7 @@ package handler
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"log/slog"
@@ -11,6 +12,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/mock"
@@ -48,6 +50,36 @@ func TestUserHandler_UpdateLastVisited_LogsRequestIDOnError(t *testing.T) {
 	}
 	if !strings.Contains(buf.String(), "request_id="+headerID) {
 		t.Fatalf("expected error log to contain request_id=%s, got: %s", headerID, buf.String())
+	}
+}
+
+func TestUserHandler_GetUserByID_DoesNotLeakLastSeenAt(t *testing.T) {
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	hub := ws.NewHub(log)
+	mockUC := new(mockUserUseCase)
+	h := NewUserHandler(mockUC, hub, log)
+
+	userID := uuid.New()
+	seenAt := time.Date(2026, 9, 4, 10, 0, 0, 0, time.UTC)
+	user := &domain.User{
+		ID:           userID,
+		Username:     "alice",
+		LastSeenAt:   &seenAt,
+		ShowLastSeen: false,
+	}
+	mockUC.On("GetByID", userID).Return(user, nil)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/users/"+userID.String(), nil)
+	req.SetPathValue("id", userID.String())
+
+	rec := httptest.NewRecorder()
+	h.GetUserByID(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if strings.Contains(rec.Body.String(), "last_seen_at") {
+		t.Fatalf("expected response to NOT contain last_seen_at, got: %s", rec.Body.String())
 	}
 }
 
@@ -182,6 +214,130 @@ func TestUserHandler_RemoveAvatar_Success(t *testing.T) {
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	mockUC.AssertExpectations(t)
+}
+
+func TestUserHandler_GetLastSeenBatch_RejectsEmptyIDs(t *testing.T) {
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	hub := ws.NewHub(log)
+	mockUC := new(mockUserUseCase)
+	h := NewUserHandler(mockUC, hub, log)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/users/last-seen", strings.NewReader(`{"user_ids":[]}`))
+	rec := httptest.NewRecorder()
+	h.GetLastSeenBatch(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body.String())
+	}
+	mockUC.AssertNotCalled(t, "GetLastSeenBatch", mock.Anything)
+}
+
+func TestUserHandler_GetLastSeenBatch_RejectsInvalidUUID(t *testing.T) {
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	hub := ws.NewHub(log)
+	mockUC := new(mockUserUseCase)
+	h := NewUserHandler(mockUC, hub, log)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/users/last-seen", strings.NewReader(`{"user_ids":["not-a-uuid"]}`))
+	rec := httptest.NewRecorder()
+	h.GetLastSeenBatch(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestUserHandler_GetLastSeenBatch_ReturnsResultsByID(t *testing.T) {
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	hub := ws.NewHub(log)
+	mockUC := new(mockUserUseCase)
+	h := NewUserHandler(mockUC, hub, log)
+
+	visibleID := uuid.New()
+	hiddenID := uuid.New()
+	seenAt := time.Date(2026, 9, 4, 10, 0, 0, 0, time.UTC)
+	mockUC.On("GetLastSeenBatch", []uuid.UUID{visibleID, hiddenID}).Return(map[uuid.UUID]domain.LastSeenInfo{
+		visibleID: {LastSeenAt: &seenAt, Visible: true},
+		hiddenID:  {LastSeenAt: nil, Visible: false},
+	}, nil)
+
+	body := `{"user_ids":["` + visibleID.String() + `","` + hiddenID.String() + `"]}`
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/users/last-seen", strings.NewReader(body))
+	rec := httptest.NewRecorder()
+	h.GetLastSeenBatch(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var resp map[string]map[string]interface{}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("invalid JSON response: %v", err)
+	}
+	if resp[visibleID.String()]["visible"] != true {
+		t.Fatalf("expected visible=true for %s, got %v", visibleID, resp[visibleID.String()])
+	}
+	if resp[hiddenID.String()]["visible"] != false {
+		t.Fatalf("expected visible=false for %s, got %v", hiddenID, resp[hiddenID.String()])
+	}
+	if resp[hiddenID.String()]["last_seen_at"] != nil {
+		t.Fatalf("expected last_seen_at=nil for hidden user, got %v", resp[hiddenID.String()]["last_seen_at"])
+	}
+}
+
+func TestUserHandler_GetLastSeenBatch_TranslatesBatchTooLargeError(t *testing.T) {
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	hub := ws.NewHub(log)
+	mockUC := new(mockUserUseCase)
+	h := NewUserHandler(mockUC, hub, log)
+
+	id := uuid.New()
+	mockUC.On("GetLastSeenBatch", []uuid.UUID{id}).Return(nil, domain.ErrLastSeenBatchTooLarge)
+
+	body := `{"user_ids":["` + id.String() + `"]}`
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/users/last-seen", strings.NewReader(body))
+	rec := httptest.NewRecorder()
+	h.GetLastSeenBatch(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestUserHandler_UpdatePrivacy_RejectsMissingField(t *testing.T) {
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	hub := ws.NewHub(log)
+	mockUC := new(mockUserUseCase)
+	h := NewUserHandler(mockUC, hub, log)
+
+	req := httptest.NewRequest(http.MethodPatch, "/api/v1/users/me/privacy", strings.NewReader(`{}`))
+	req = req.WithContext(context.WithValue(req.Context(), "user_id", uuid.New()))
+	rec := httptest.NewRecorder()
+	h.UpdatePrivacy(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body.String())
+	}
+	mockUC.AssertNotCalled(t, "SetShowLastSeen", mock.Anything, mock.Anything)
+}
+
+func TestUserHandler_UpdatePrivacy_Success(t *testing.T) {
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	hub := ws.NewHub(log)
+	mockUC := new(mockUserUseCase)
+	h := NewUserHandler(mockUC, hub, log)
+
+	userID := uuid.New()
+	mockUC.On("SetShowLastSeen", userID, false).Return(nil)
+
+	req := httptest.NewRequest(http.MethodPatch, "/api/v1/users/me/privacy", strings.NewReader(`{"show_last_seen":false}`))
+	req = req.WithContext(context.WithValue(req.Context(), "user_id", userID))
+	rec := httptest.NewRecorder()
+	h.UpdatePrivacy(rec, req)
+
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("expected 204, got %d: %s", rec.Code, rec.Body.String())
 	}
 	mockUC.AssertExpectations(t)
 }

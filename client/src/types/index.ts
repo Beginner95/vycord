@@ -26,6 +26,7 @@ export interface User {
   status: UserStatus;
   created_at: string;
   updated_at: string;
+  show_last_seen: boolean;
 }
 
 export type UserStatus = 'online' | 'idle' | 'dnd' | 'offline';
@@ -88,6 +89,10 @@ export interface Message {
   /** Present only when kind === 'call'. null while the call is ongoing. */
   call_started_at?: string;
   call_ended_at?: string | null;
+  /** Every user who was ever in the call, starter included, join order.
+   * Only meaningful once call_ended_at is set — the active placard never
+   * shows a live-updating list (see CallEventRow). */
+  call_participant_ids?: string[];
   created_at: string;
   updated_at: string;
 }
@@ -140,6 +145,11 @@ export interface MemberWithUser {
   avatar_url?: string;
   roles: string[];
   joined_at: string;
+}
+
+export interface LastSeenInfo {
+  last_seen_at: string | null;
+  visible: boolean;
 }
 
 export interface AuthState {

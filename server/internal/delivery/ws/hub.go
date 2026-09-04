@@ -245,17 +245,20 @@ func (h *Hub) SetVoiceAudienceResolver(resolver func(channelID uuid.UUID) ([]uui
 }
 
 // CallSessionRecorder is the DB-and-domain-aware half of call bookkeeping
-// (docs/superpowers/specs/2026-09-03-call-events-in-chat-design.md). Injected
+// (docs/superpowers/specs/2026-09-03-call-events-in-chat-design.md,
+// docs/superpowers/specs/2026-09-03-call-participants-design.md). Injected
 // from main.go after the usecase layer is built (SetCallSessionRecorder),
 // same pattern as SetVoiceAudienceResolver — this package still has no
 // DB/domain dependency itself, only this callback shape.
 //
-// Called only on TRANSITIONS (channel went empty→non-empty or the reverse),
-// never on every tick/join — see JoinVoiceChannel, LeaveVoiceChannel and
+// CallStarted/CallEnded fire only on TRANSITIONS (channel went
+// empty→non-empty or the reverse). ParticipantJoined fires on every OTHER
+// join to an already-open call — see JoinVoiceChannel and
 // ReconcileVoicePresence below for exactly which condition triggers each.
 type CallSessionRecorder interface {
 	CallStarted(channelID, starterID uuid.UUID)
 	CallEnded(channelID uuid.UUID)
+	ParticipantJoined(channelID, userID uuid.UUID)
 }
 
 // SetCallSessionRecorder installs the recorder. nil (the zero value, as in
@@ -449,8 +452,12 @@ func (h *Hub) JoinVoiceChannel(userID, channelID uuid.UUID) []uuid.UUID {
 	recorder := h.callSessionRecorder
 	h.mu.Unlock()
 
-	if wasEmpty && recorder != nil {
-		recorder.CallStarted(channelID, userID)
+	if recorder != nil {
+		if wasEmpty {
+			recorder.CallStarted(channelID, userID)
+		} else {
+			recorder.ParticipantJoined(channelID, userID)
+		}
 	}
 
 	return participants
@@ -509,6 +516,7 @@ func (h *Hub) ReconcileVoicePresence(actual map[uuid.UUID][]uuid.UUID) []uuid.UU
 
 	var changed []uuid.UUID
 	var started []callStartedTransition
+	var joined []participantJoinedTransition
 	var ended []uuid.UUID
 	seen := make(map[uuid.UUID]bool, len(actual))
 
@@ -521,15 +529,31 @@ func (h *Hub) ReconcileVoicePresence(actual map[uuid.UUID][]uuid.UUID) []uuid.UU
 		if voiceSetEqual(h.voiceChannels[channelID], desired) {
 			continue
 		}
-		_, existedBefore := h.voiceChannels[channelID]
+		oldSet, existedBefore := h.voiceChannels[channelID]
+
+		// newlyAppeared preserves actual's slice order (desired is a map and
+		// has none) — same "who's first" convention CallStarted already
+		// relies on below.
+		var newlyAppeared []uuid.UUID
+		for _, id := range userIDs {
+			if _, wasThere := oldSet[id]; !wasThere {
+				newlyAppeared = append(newlyAppeared, id)
+			}
+		}
+
 		h.voiceChannels[channelID] = desired
 		changed = append(changed, channelID)
-		if !existedBefore && len(userIDs) > 0 {
-			// Порядок в снапшоте SFU не гарантирован — берём первого просто
-			// как «кого-то, кто там точно есть» (design doc: случай редкий,
-			// цена ошибки — неверное имя в плашке звонка, который иначе не
+
+		if !existedBefore && len(newlyAppeared) > 0 {
+			// Порядок в снапшоте SFU не гарантирован — первый просто как
+			// «кто-то, кто там точно есть» (design doc: случай редкий, цена
+			// ошибки — неверное имя в плашке звонка, который иначе не
 			// появился бы вообще).
-			started = append(started, callStartedTransition{channelID: channelID, starterID: userIDs[0]})
+			started = append(started, callStartedTransition{channelID: channelID, starterID: newlyAppeared[0]})
+			newlyAppeared = newlyAppeared[1:]
+		}
+		for _, id := range newlyAppeared {
+			joined = append(joined, participantJoinedTransition{channelID: channelID, userID: id})
 		}
 	}
 
@@ -556,6 +580,9 @@ func (h *Hub) ReconcileVoicePresence(actual map[uuid.UUID][]uuid.UUID) []uuid.UU
 		for _, t := range started {
 			recorder.CallStarted(t.channelID, t.starterID)
 		}
+		for _, t := range joined {
+			recorder.ParticipantJoined(t.channelID, t.userID)
+		}
 		for _, channelID := range ended {
 			recorder.CallEnded(channelID)
 		}
@@ -570,6 +597,16 @@ func (h *Hub) ReconcileVoicePresence(actual map[uuid.UUID][]uuid.UUID) []uuid.UU
 type callStartedTransition struct {
 	channelID uuid.UUID
 	starterID uuid.UUID
+}
+
+// participantJoinedTransition pairs a channel with a user newly found in its
+// SFU snapshot under ReconcileVoicePresence, for a channel that already had
+// an open call (the empty→non-empty case is callStartedTransition instead).
+// The reconcile-side backstop for a lost real-time voice_joined on a call
+// already in progress.
+type participantJoinedTransition struct {
+	channelID uuid.UUID
+	userID    uuid.UUID
 }
 
 func voiceSetEqual(a, b map[uuid.UUID]struct{}) bool {

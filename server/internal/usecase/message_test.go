@@ -85,6 +85,10 @@ func (m *MockMessageRepository) CloseOrphanedCalls() error {
 	return m.Called().Error(0)
 }
 
+func (m *MockMessageRepository) AddCallParticipant(channelID, userID uuid.UUID) error {
+	return m.Called(channelID, userID).Error(0)
+}
+
 type MockChannelRepository struct{ mock.Mock }
 
 func (m *MockChannelRepository) Create(channel *domain.Channel) error {

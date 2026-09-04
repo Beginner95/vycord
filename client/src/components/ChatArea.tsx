@@ -301,7 +301,9 @@ export function ChatArea({ channel, user, onMobileBack, onShowMembers, onJoinVoi
   // Fetch usernames for all unique user_ids in messages
   useEffect(() => {
     const fetchUsernames = async () => {
-      const candidateIds = messages.map((msg) => msg.user_id);
+      const candidateIds = messages.flatMap((msg) =>
+        msg.kind === 'call' ? [msg.user_id, ...(msg.call_participant_ids ?? [])] : [msg.user_id]
+      );
       const userIds = collectUnresolvedUserIds(
         candidateIds,
         user?.id,
@@ -772,10 +774,17 @@ logger.error('Failed to jump to message:', err, { module: 'chat' });
             // Username/avatar: server member list first (kept live via
             // user_updated WS events, see AppPage), then the per-message
             // fetch cache as fallback for authors who left the server.
+            const resolveParticipantName = (uid: string): string =>
+              uid === user?.id
+                ? user!.username
+                : (members.find((m) => m.user_id === uid)?.username ?? userCache.get(uid)?.username ?? uid.slice(0, 8));
             const member = !isOwn ? members.find((m) => m.user_id === msg.user_id) : undefined;
             const cached = !isOwn ? userCache.get(msg.user_id) : undefined;
-            const displayName = isOwn ? user!.username : (member?.username ?? cached?.username ?? msg.user_id.slice(0, 8));
+            const displayName = resolveParticipantName(msg.user_id);
             const avatarUrl = isOwn ? user?.avatar_url : (member?.avatar_url ?? cached?.avatar_url);
+            const participantNames = msg.kind === 'call'
+              ? (msg.call_participant_ids ?? []).filter((id) => id !== msg.user_id).map(resolveParticipantName)
+              : [];
             return (
               <Fragment key={msg.id}>
                 {dayChanged && <DayDivider label={formatFullDate(msgDate)} />}
@@ -787,7 +796,7 @@ logger.error('Failed to jump to message:', err, { module: 'chat' });
                   </div>
                 )}
                 {msg.kind === 'call' ? (
-                  <CallEventRow msg={msg} starterName={displayName} />
+                  <CallEventRow msg={msg} starterName={displayName} participantNames={participantNames} />
                 ) : (
                   <MessageRow
                     msg={msg}

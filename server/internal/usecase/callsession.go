@@ -36,14 +36,15 @@ func NewCallSessionRecorder(messageRepo domain.MessageRepository, hub *ws.Hub) *
 func (r *callSessionRecorder) CallStarted(channelID, starterID uuid.UUID) {
 	now := time.Now()
 	msg := &domain.Message{
-		ID:            uuid.New(),
-		ChannelID:     channelID,
-		UserID:        starterID,
-		Content:       "",
-		Kind:          "call",
-		CallStartedAt: &now,
-		CreatedAt:     now,
-		UpdatedAt:     now,
+		ID:                 uuid.New(),
+		ChannelID:          channelID,
+		UserID:             starterID,
+		Content:            "",
+		Kind:               "call",
+		CallStartedAt:      &now,
+		CallParticipantIDs: []uuid.UUID{starterID},
+		CreatedAt:          now,
+		UpdatedAt:          now,
 	}
 
 	ok, err := r.messageRepo.CreateCall(msg)
@@ -56,6 +57,17 @@ func (r *callSessionRecorder) CallStarted(channelID, starterID uuid.UUID) {
 	}
 
 	r.broadcast(channelID, "chat_message", msg)
+}
+
+// ParticipantJoined implements ws.CallSessionRecorder. No broadcast — the
+// participant list is only surfaced to clients once, in the message_update
+// CallEnded (or the presence worker's sweep) already sends when the call
+// closes (design doc «Live-обновление»: the active placard never
+// live-updates its participant list).
+func (r *callSessionRecorder) ParticipantJoined(channelID, userID uuid.UUID) {
+	if err := r.messageRepo.AddCallParticipant(channelID, userID); err != nil {
+		slog.Error("callsession: failed to add call participant", "channel_id", channelID, "user_id", userID, "error", err)
+	}
 }
 
 // CallEnded implements ws.CallSessionRecorder. Idempotent: EndCall closes at
