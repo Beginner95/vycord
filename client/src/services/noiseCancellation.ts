@@ -143,6 +143,12 @@ class NoiseCancellationService {
     return this.chains.get(streamId)?.context.state ?? 'no-ctx';
   }
 
+  /** Сырой getUserMedia-аудиотрек цепочки — для наблюдения за миграцией
+   *  устройства захвата (destination-трек синтетический). */
+  getRawAudioTrack(streamId: string): MediaStreamTrack | null {
+    return this.chains.get(streamId)?.rawStream.getAudioTracks()[0] ?? null;
+  }
+
   private persist(): void {
     try {
       localStorage.setItem(
@@ -316,6 +322,15 @@ class NoiseCancellationService {
    * ломается), пишет error и сбрасывает runtime isEnabled; персист-намерение
    * не трогает — при следующем звонке попытка повторится.
    */
+  /** true, если releaseChain ещё не снял цепочку: он не ходит через opQueue
+   *  и может снести её, пока queued activateChain ждёт buildStage. */
+  private isChainLive(chain: AudioChain): boolean {
+    for (const c of this.chains.values()) {
+      if (c === chain) return true;
+    }
+    return false;
+  }
+
   private async activateChain(chain: AudioChain): Promise<void> {
     this.state.isLoading = true;
     this.state.error = null;
@@ -323,13 +338,22 @@ class NoiseCancellationService {
     try {
       if (!chain.stage || chain.stage.modelId !== this.state.modelId) {
         this.destroyStage(chain);
-        chain.stage = await this.buildStage(chain);
+        const stage = await this.buildStage(chain);
+        if (!this.isChainLive(chain)) {
+          stage.node.disconnect();
+          stage.worker.terminate();
+          return;
+        }
+        chain.stage = stage;
       }
       chain.source.disconnect();
       chain.source.connect(chain.stage.node);
       chain.stage.node.connect(chain.micGain);
       chain.active = true;
     } catch (err) {
+      // Цепочка снесена под нами (закрытый контекст кидает из buildStage) —
+      // не ошибка NC, состояние тоггла не трогаем.
+      if (!this.isChainLive(chain)) return;
       const message = err instanceof Error ? err.message : 'noise suppression init failed';
       logger.error('[NC] pipeline init failed:', err, {
         module: 'nc',

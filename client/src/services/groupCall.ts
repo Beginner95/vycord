@@ -44,6 +44,32 @@ function gcLog(userId: string, action: string, data?: Record<string, unknown>): 
   }
 }
 
+// Explicit constraints avoid macOS/Android-specific quirks:
+// - channelCount ideal:1 → Opus mono, prevents macOS from injecting stereo fmtp params
+//   that older pion versions may not accept (stereo=1;sprop-stereo=1 mismatch).
+// - sampleRate ideal:48000 → Opus native rate; avoids resampling artefacts on Android.
+// Using ideal: (not exact) so the browser still works on devices that can't hit 48kHz.
+// Module-level: acquireMedia and rebuildMicPipeline must capture identically.
+const MIC_AUDIO_CONSTRAINTS: MediaTrackConstraints = {
+  channelCount: { ideal: 1 },
+  sampleRate: { ideal: 48000 },
+  echoCancellation: true,
+  noiseSuppression: true,
+  autoGainControl: true,
+};
+
+// Non-reversible 8-hex digest: device signatures embed personal device names
+// ("Ivan's AirPods"); telemetry needs same/different only. Full strings stay in gcLog.
+function sigDigest(sig: string): string {
+  let h = 5381;
+  for (let i = 0; i < sig.length; i++) h = ((h << 5) + h + sig.charCodeAt(i)) >>> 0;
+  return h.toString(16).padStart(8, '0');
+}
+
+// defaultMicSignature values that are states, not device identities — never a
+// rebuild baseline or trigger; a later tick with a real device recovers.
+const MIC_SIG_SENTINELS = new Set(['', 'unknown', 'none', 'no-default-entry']);
+
 // Parses SDP and extracts per-m-section info: direction, SSRCs, msid, mid.
 function parseSdpSections(sdp: string): Array<Record<string, unknown>> {
   const sections: Array<Record<string, unknown>> = [];
@@ -267,6 +293,34 @@ class GroupCallService {
   // fire a report per tick per remote track and flood the issue.
   private vyc76LastReportAt = new Map<string, number>();
   private vyc76ReportCount = 0;
+
+  // ── Mic-device watch ──
+  // The mic is captured once from the OS default device and lives in a
+  // 48kHz-pinned AudioContext for the whole call. A mid-call default-input
+  // change (Bluetooth HFP at 16/24 kHz) can leave Chromium's capture resampler
+  // stale → the published track is genuinely time-compressed ("talks 2x fast"),
+  // and no recovery path rebuilds the chain. The watch does, in place.
+  private micWatchIntervalId: ReturnType<typeof setInterval> | null = null;
+  private micWatchDebounceId: ReturnType<typeof setTimeout> | null = null;
+  private micDeviceSignature = '';
+  private micRebuildInFlight = false;
+  private micRebuildCount = 0;
+  // Damping: no rebuilds before this timestamp — 15s after success (5min once
+  // a call rebuilt 5 times), exponential 30s→5min after failures.
+  private micRebuildBlockedUntil = 0;
+  private micRebuildFailures = 0;
+  // Ownership token: a hung rebuild settling during a LATER call must not
+  // clear a lock the successor call now holds.
+  private micRebuildToken = 0;
+  // Field arrow, not a method: add/removeEventListener need a stable reference.
+  private readonly onDeviceChange = (): void => {
+    // Bluetooth profile flips fire devicechange in bursts; let the dust settle.
+    if (this.micWatchDebounceId !== null) clearTimeout(this.micWatchDebounceId);
+    this.micWatchDebounceId = setTimeout(() => {
+      this.micWatchDebounceId = null;
+      void this.checkMicMigration('devicechange');
+    }, 1000);
+  };
   // Selected ICE candidate pair, as "localType/proto → remoteType/proto".
   // Empty until the first sample; used to detect mid-call path moves.
   private lastIcePath = '';
@@ -320,9 +374,16 @@ class GroupCallService {
     this.sessionEpoch++;
     this.currentUserId = userId;
     this.currentRoomId = roomId;
+    // Per-call damping; a partialTeardown-based rejoin skips full teardown.
+    this.micRebuildCount = 0;
+    this.micRebuildFailures = 0;
+    this.micRebuildBlockedUntil = 0;
 
     try {
       const raw = await this.acquireMedia();
+      // Baseline BEFORE the seconds-long createChain: a device flip inside
+      // that window must be detected, not recorded as the baseline.
+      const micBaselineSig = raw !== null ? this.defaultMicSignature() : null;
       if (raw !== null) {
         this._microphoneAvailable = raw.getAudioTracks().length > 0;
         // Единая Web Audio цепочка NC-сервиса: worklet при включённом NC, bypass
@@ -347,6 +408,7 @@ class GroupCallService {
           })),
           noiseCancellationEnabled: noiseCancellationService.getState().isEnabled,
         });
+        this.startMicWatch(micBaselineSig !== null ? await micBaselineSig : '');
       } else {
         this._microphoneAvailable = false;
         gcLog(userId, 'no media devices, joining without local media');
@@ -1448,18 +1510,7 @@ class GroupCallService {
   }
 
   private async acquireMedia(): Promise<MediaStream | null> {
-    // Explicit constraints avoid macOS/Android-specific quirks:
-    // - channelCount ideal:1 → Opus mono, prevents macOS from injecting stereo fmtp params
-    //   that older pion versions may not accept (stereo=1;sprop-stereo=1 mismatch).
-    // - sampleRate ideal:48000 → Opus native rate; avoids resampling artefacts on Android.
-    // Using ideal: (not exact) so the browser still works on devices that can't hit 48kHz.
-    const audioConstraints: MediaTrackConstraints = {
-      channelCount: { ideal: 1 },
-      sampleRate: { ideal: 48000 },
-      echoCancellation: true,
-      noiseSuppression: true,
-      autoGainControl: true,
-    };
+    const audioConstraints = MIC_AUDIO_CONSTRAINTS;
     gcLog(this.currentUserId, 'getUserMedia constraints', { audio: audioConstraints });
     try {
       return await navigator.mediaDevices.getUserMedia({ audio: audioConstraints, video: true });
@@ -1475,6 +1526,202 @@ class GroupCallService {
     } catch { /* try next */ }
     gcLog(this.currentUserId, 'no media devices available, joining without local media');
     return null;
+  }
+
+  // ── Private: mic-device watch (see the field block for the why) ────────────
+
+  // Identity of the OS-default mic: the 'default' entry's label/groupId change
+  // even when Chrome migrates the live track silently.
+  private async defaultMicSignature(): Promise<string> {
+    try {
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const inputs = devices.filter((d) => d.kind === 'audioinput');
+      if (inputs.length === 0) return 'none';
+      // No inputs[0] fallback: enumeration order shifts with unrelated devices
+      // and would fake migrations in non-Chromium builds (no 'default' entry).
+      const def = inputs.find((d) => d.deviceId === 'default');
+      return def ? `${def.deviceId}|${def.groupId}|${def.label}` : 'no-default-entry';
+    } catch {
+      return 'unknown';
+    }
+  }
+
+  private startMicWatch(baselineSig: string): void {
+    this.stopMicWatch();
+    if (!this.localStream || this.localStream.getAudioTracks().length === 0) return;
+    this.micDeviceSignature = baselineSig;
+    navigator.mediaDevices?.addEventListener('devicechange', this.onDeviceChange);
+    // devicechange doesn't fire when the default moves between already-present
+    // devices — the poll covers that, plus a dead raw track.
+    this.micWatchIntervalId = setInterval(() => void this.checkMicMigration('poll'), 5000);
+  }
+
+  private stopMicWatch(): void {
+    if (this.micWatchIntervalId !== null) {
+      clearInterval(this.micWatchIntervalId);
+      this.micWatchIntervalId = null;
+    }
+    if (this.micWatchDebounceId !== null) {
+      clearTimeout(this.micWatchDebounceId);
+      this.micWatchDebounceId = null;
+    }
+    navigator.mediaDevices?.removeEventListener('devicechange', this.onDeviceChange);
+    this.micDeviceSignature = '';
+  }
+
+  private async checkMicMigration(trigger: string): Promise<void> {
+    if (this.micRebuildInFlight || !this.localStream) return;
+    if (Date.now() < this.micRebuildBlockedUntil) return;
+    const epoch = this.sessionEpoch;
+    const stream = this.localStream;
+    const sig = await this.defaultMicSignature();
+    if (epoch !== this.sessionEpoch || this.localStream !== stream) return;
+    // Sentinel: nothing to compare or rebuild onto (no mic / enumeration failed).
+    if (MIC_SIG_SENTINELS.has(sig)) return;
+    const raw = noiseCancellationService.getRawAudioTrack(stream.id);
+    const rawDead = raw !== null && raw.readyState !== 'live';
+    const sigChanged =
+      !MIC_SIG_SENTINELS.has(this.micDeviceSignature) && sig !== this.micDeviceSignature;
+    if (!sigChanged && !rawDead) return;
+    const settings = raw?.getSettings();
+    // Full identity (labels carry personal device names) stays local-only.
+    gcLog(this.currentUserId, 'mic device migrated — rebuilding capture chain', {
+      trigger,
+      sigChanged,
+      rawDead,
+      from: this.micDeviceSignature,
+      to: sig,
+      rawLabel: raw?.label ?? null,
+      rawReadyState: raw?.readyState ?? null,
+      rawSettings: settings ?? null,
+      chainCtxState: noiseCancellationService.getChainContextState(stream.id),
+    });
+    this.reportVyc76('mic-migrated', 'Mic device migrated mid-call', {
+      trigger,
+      sigChanged,
+      rawDead,
+      fromSig: sigDigest(this.micDeviceSignature),
+      toSig: sigDigest(sig),
+      rawReadyState: raw?.readyState ?? null,
+      rawSampleRate: settings?.sampleRate ?? null,
+      rawChannelCount: settings?.channelCount ?? null,
+      chainCtxState: noiseCancellationService.getChainContextState(stream.id),
+    }, 10_000);
+    await this.rebuildMicPipeline(trigger, sig);
+  }
+
+  // Rebuilds the capture against the CURRENT default device: fresh gUM, fresh
+  // NC chain, replaceTrack on the live sender — a rejoin's cure without the rejoin.
+  private async rebuildMicPipeline(trigger: string, newSig: string): Promise<void> {
+    if (this.micRebuildInFlight) return;
+    const oldStream = this.localStream;
+    const oldAudio = oldStream?.getAudioTracks()[0];
+    if (!oldStream || !oldAudio) return;
+    this.micRebuildInFlight = true;
+    const myToken = ++this.micRebuildToken;
+    const epoch = this.sessionEpoch;
+    let rawAudio: MediaStream | null = null;
+    let rebuilt: MediaStream | null = null;
+    let swapped = false;
+    try {
+      rawAudio = await navigator.mediaDevices.getUserMedia({ audio: MIC_AUDIO_CONSTRAINTS });
+      if (epoch !== this.sessionEpoch || this.localStream !== oldStream) {
+        rawAudio.getTracks().forEach((t) => t.stop());
+        return;
+      }
+      rebuilt = await noiseCancellationService.createChain(rawAudio);
+      const newAudio = rebuilt.getAudioTracks()[0];
+      if (epoch !== this.sessionEpoch || this.localStream !== oldStream || !newAudio) {
+        return; // finally-block cleanup releases the fresh chain
+      }
+      // Mute BEFORE the sender swap — no leaked syllable between replaceTrack
+      // and a later gain change. Same semantics as toggleMuteAudio.
+      if (!noiseCancellationService.setMicMuted(rebuilt.id, this.micMuted)) {
+        newAudio.enabled = !this.micMuted;
+      }
+      // Same-kind swap on the live sender; during a reconnect window pc is
+      // null and the coming createPeerConnection re-adds from localStream.
+      const sender = this.pc?.getSenders().find((s) => s.track === oldAudio);
+      if (sender) await sender.replaceTrack(newAudio);
+      if (epoch !== this.sessionEpoch || this.localStream !== oldStream) {
+        return;
+      }
+      // Camera tracks move over as-is (same objects — enabled state survives).
+      oldStream.getVideoTracks().forEach((t) => rebuilt!.addTrack(t));
+
+      this.localStream = rebuilt;
+      this.micDeviceSignature = newSig;
+      this.micRebuildCount++;
+      swapped = true;
+      // Re-assert AFTER the swap: a toggle during the replaceTrack await landed
+      // on the OLD chain — losing it would leave a hot mic behind a muted UI.
+      if (!noiseCancellationService.setMicMuted(rebuilt.id, this.micMuted)) {
+        newAudio.enabled = !this.micMuted;
+      }
+      this.micRebuildFailures = 0;
+      this.micRebuildBlockedUntil = Date.now() + (this.micRebuildCount >= 5 ? 300_000 : 15_000);
+
+      noiseCancellationService.releaseChain(oldStream.id);
+      oldAudio.stop();
+
+      const newRaw = noiseCancellationService.getRawAudioTrack(rebuilt.id);
+      const newSettings = newRaw?.getSettings();
+      // Full identity (labels carry personal device names) stays local-only.
+      gcLog(this.currentUserId, 'mic capture chain rebuilt', {
+        trigger,
+        rebuildIndex: this.micRebuildCount,
+        senderSwapped: sender != null,
+        newRawLabel: newRaw?.label ?? null,
+        newRawSettings: newSettings ?? null,
+      });
+      this.reportVyc76('mic-rebuilt', 'Mic capture chain rebuilt mid-call', {
+        trigger,
+        rebuildIndex: this.micRebuildCount,
+        senderSwapped: sender != null,
+        toSig: sigDigest(newSig),
+        newRawSampleRate: newSettings?.sampleRate ?? null,
+        newRawChannelCount: newSettings?.channelCount ?? null,
+      }, 10_000);
+    } catch (err) {
+      if (epoch === this.sessionEpoch && this.localStream === oldStream) {
+        // Keep the old chain — degraded audio beats no audio; the next
+        // devicechange/poll tick past the backoff window retries.
+        this.micRebuildFailures++;
+        this.micRebuildBlockedUntil =
+          Date.now() + Math.min(30_000 * 2 ** (this.micRebuildFailures - 1), 300_000);
+        gcLog(this.currentUserId, 'mic rebuild FAILED, keeping old chain', {
+          trigger,
+          failureIndex: this.micRebuildFailures,
+          error: String(err),
+        });
+        this.reportVyc76('mic-rebuild-failed', 'Mic capture chain rebuild failed', {
+          trigger,
+          error: String(err),
+        });
+      } else {
+        // Stale invocation settling after its call ended must not poison the
+        // successor call's damping or report budget.
+        gcLog(this.currentUserId, 'stale mic rebuild settled after its call ended', {
+          trigger,
+          error: String(err),
+        });
+      }
+    } finally {
+      if (!swapped) {
+        if (rebuilt) {
+          // Bailed/threw after the fresh chain existed: dismantle it (audio
+          // only — camera tracks attach only once the swap commits).
+          noiseCancellationService.releaseChain(rebuilt.id);
+          rebuilt.getAudioTracks().forEach((t) => t.stop());
+        }
+        // A chainless bail (createChain rejected) must still release the mic;
+        // double-stop is a no-op.
+        rawAudio?.getAudioTracks().forEach((t) => t.stop());
+      }
+      if (this.micRebuildToken === myToken) {
+        this.micRebuildInFlight = false;
+      }
+    }
   }
 
   // ── Private: signaling connection ─────────────────────────────────────────
@@ -2455,6 +2702,12 @@ class GroupCallService {
     this.currentRoomId = '';
     this._microphoneAvailable = false;
     this.micMuted = false;
+    this.stopMicWatch();
+    this.micRebuildCount = 0;
+    this.micRebuildFailures = 0;
+    this.micRebuildBlockedUntil = 0;
+    // A never-settling rebuild must not wedge the watch off for later calls.
+    this.micRebuildInFlight = false;
     this.joinedAt = 0;
     this.pcCreatedAt = 0;
     this.pcConnectedAt = 0;
