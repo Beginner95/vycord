@@ -53,6 +53,36 @@ func TestUserHandler_UpdateLastVisited_LogsRequestIDOnError(t *testing.T) {
 	}
 }
 
+func TestUserHandler_GetUserByID_DoesNotLeakLastSeenAt(t *testing.T) {
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	hub := ws.NewHub(log)
+	mockUC := new(mockUserUseCase)
+	h := NewUserHandler(mockUC, hub, log)
+
+	userID := uuid.New()
+	seenAt := time.Date(2026, 9, 4, 10, 0, 0, 0, time.UTC)
+	user := &domain.User{
+		ID:           userID,
+		Username:     "alice",
+		LastSeenAt:   &seenAt,
+		ShowLastSeen: false,
+	}
+	mockUC.On("GetByID", userID).Return(user, nil)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/users/"+userID.String(), nil)
+	req.SetPathValue("id", userID.String())
+
+	rec := httptest.NewRecorder()
+	h.GetUserByID(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if strings.Contains(rec.Body.String(), "last_seen_at") {
+		t.Fatalf("expected response to NOT contain last_seen_at, got: %s", rec.Body.String())
+	}
+}
+
 func multipartAvatarBody(t *testing.T, filename string, content []byte) (*bytes.Buffer, string) {
 	t.Helper()
 	buf := &bytes.Buffer{}

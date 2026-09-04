@@ -23,7 +23,10 @@ type User struct {
 	EmailVerifiedAt *time.Time `json:"email_verified_at,omitempty"`
 	// LastSeenAt — момент последнего реального WS-дисконнекта. nil, если
 	// пользователь ни разу не выходил в офлайн (включая свежую регистрацию).
-	LastSeenAt *time.Time `json:"last_seen_at,omitempty"`
+	// json:"-": сериализация напрямую из domain.User обходила бы приватность
+	// (show_last_seen) — только GetLastSeenBatch/domain.LastSeenInfo решает,
+	// показывать ли значение.
+	LastSeenAt *time.Time `json:"-"`
 	// ShowLastSeen — приватность: false скрывает LastSeenAt от всех, кто
 	// спрашивает через GetLastSeenBatch. По умолчанию true (миграция 023).
 	ShowLastSeen bool `json:"show_last_seen"`
