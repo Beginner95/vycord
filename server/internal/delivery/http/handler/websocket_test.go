@@ -150,6 +150,7 @@ func newTestHandler(t *testing.T, userID uuid.UUID) (*WebSocketHandler, *ws.Hub)
 
 	users := &mockUserUseCase{}
 	users.On("UpdateStatus", userID, mock.Anything).Return(nil)
+	users.On("UpdateLastSeen", userID, mock.Anything).Return(nil)
 
 	calls := &mockCallUseCase{}
 	calls.On("EndAllActiveCalls", userID).Return(nil)
@@ -239,6 +240,7 @@ func newMultiUserTestHandler(t *testing.T, users map[string]*domain.User) (*WebS
 
 	userUC := &mockUserUseCase{}
 	userUC.On("UpdateStatus", mock.Anything, mock.Anything).Return(nil)
+	userUC.On("UpdateLastSeen", mock.Anything, mock.Anything).Return(nil)
 
 	calls := &mockCallUseCase{}
 	calls.On("EndAllActiveCalls", mock.Anything).Return(nil)
@@ -699,4 +701,79 @@ func TestVoiceJoined_DeniedAccess_DoesNotJoinRoster(t *testing.T) {
 
 	_, ok := hub.GetVoiceState()[channelID]
 	assert.False(t, ok, "denied user must not appear in the voice channel roster")
+}
+
+// TestReadPump_RealDisconnect_UpdatesLastSeen: a genuine client disconnect
+// (not a reconnect-driven replacement) must call UpdateLastSeen, in the same
+// guarded branch that already calls UpdateStatus(..., StatusOffline).
+func TestReadPump_RealDisconnect_UpdatesLastSeen(t *testing.T) {
+	userID := uuid.New()
+	h, hub := newTestHandler(t, userID)
+
+	srv := httptest.NewServer(http.HandlerFunc(h.HandleWebSocket))
+	defer srv.Close()
+
+	conn := dialWS(t, srv)
+	assert.Eventually(t, func() bool { return hub.IsOnline(userID) }, time.Second, 10*time.Millisecond)
+
+	conn.Close()
+
+	mockUC := h.userUseCase.(*mockUserUseCase)
+	assert.Eventually(t, func() bool {
+		for _, c := range mockUC.Calls {
+			if c.Method == "UpdateLastSeen" {
+				return true
+			}
+		}
+		return false
+	}, time.Second, 10*time.Millisecond, "UpdateLastSeen must be called after a real disconnect")
+}
+
+// TestReadPump_StaleReconnectedConnection_DoesNotUpdateLastSeen: when a
+// second connection for the same user replaces the first, the OLD
+// connection's eventual teardown (forced closed by the hub on register) must
+// NOT call UpdateLastSeen — that would incorrectly overwrite the live
+// connection's presence with a stale timestamp. Mirrors the existing
+// wasCurrent guard already covering UpdateStatus.
+func TestReadPump_StaleReconnectedConnection_DoesNotUpdateLastSeen(t *testing.T) {
+	userID := uuid.New()
+	h, hub := newMultiUserTestHandler(t, map[string]*domain.User{
+		"tok": {ID: userID, Username: "tester", Email: "t@e.st", Status: domain.StatusOffline},
+	})
+
+	srv := httptest.NewServer(http.HandlerFunc(h.HandleWebSocket))
+	defer srv.Close()
+
+	oldConn := dialWSWithToken(t, srv, "tok")
+	assert.Eventually(t, func() bool { return hub.IsOnline(userID) }, time.Second, 10*time.Millisecond)
+
+	newConn := dialWSWithToken(t, srv, "tok") // reconnect: hub force-closes oldConn's socket
+	defer newConn.Close()
+
+	// Background reader: gorilla only auto-answers server Pings with Pongs
+	// while something is calling ReadMessage. Without this, newConn itself
+	// would go unanswered past pongWait and die within this test's own sleep
+	// window, producing a legitimate UpdateLastSeen call for ITS OWN teardown
+	// that has nothing to do with the guard under test. Mirrors
+	// TestLiveClientStaysOnline's keepalive pattern.
+	go func() {
+		for {
+			if _, _, err := newConn.ReadMessage(); err != nil {
+				return
+			}
+		}
+	}()
+
+	// Give the old connection's readPump time to observe the forced close and
+	// run its defer with wasCurrent == false.
+	time.Sleep(300 * time.Millisecond)
+
+	mockUC := h.userUseCase.(*mockUserUseCase)
+	for _, c := range mockUC.Calls {
+		if c.Method == "UpdateLastSeen" {
+			t.Fatalf("UpdateLastSeen must not be called for the stale connection's teardown")
+		}
+	}
+
+	oldConn.Close() // already dead on the server side — releases the client-side handle only
 }
