@@ -261,6 +261,10 @@ export const ru = {
     tabVideo: 'Видео',
     tabAppearance: 'Внешний вид',
 
+    privacy: 'Приватность',
+    showLastSeen: 'Показывать последний визит',
+    showLastSeenDescription: 'Другие видят, когда вы последний раз были в сети',
+
     account: 'Учётная запись',
     usernameLabel: 'Имя пользователя',
     emailLabel: 'Email',

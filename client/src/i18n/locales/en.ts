@@ -250,6 +250,10 @@ export const en: Dictionary = {
     tabVideo: 'Video',
     tabAppearance: 'Appearance',
 
+    privacy: 'Privacy',
+    showLastSeen: 'Show Last Seen',
+    showLastSeenDescription: 'Others can see when you were last online',
+
     account: 'Account',
     usernameLabel: 'Username',
     emailLabel: 'Email',
