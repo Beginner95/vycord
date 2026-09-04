@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { ChevronLeft, Phone } from 'lucide-react';
 import { useAuthStore } from '@/stores/authStore';
 import { useServerStore } from '@/stores/serverStore';
+import { useLocaleStore, type Locale } from '@/stores/localeStore';
 import { apiService, apiErrorText } from '@/services/api';
 import { wsService } from '@/services/websocket';
 import { callService } from '@/services/call';
@@ -11,7 +12,8 @@ import { voiceChannelNameFor } from '@/utils/voiceMembership';
 import { can, PERMISSIONS } from '@/utils/permissions';
 import { inviteExpiry } from '@/utils/inviteExpiry';
 import type { User, MemberWithUser, Invite } from '@/types';
-import { useT } from '@/i18n';
+import { useT, useTp, type TFunc, type TKey, type TVars } from '@/i18n';
+import { formatLastSeen } from '@/i18n/format';
 import './UserList.css';
 
 interface UserListProps {
@@ -25,11 +27,29 @@ function sortByUsername(members: MemberWithUser[]): MemberWithUser[] {
   );
 }
 
+// Pure decision: null/undefined last_seen_at (never seen, or hidden by the
+// user's own privacy setting — the API intentionally makes both look the
+// same, see the last-seen spec) renders nothing; otherwise delegate to
+// formatLastSeen.
+export function lastSeenLabel(
+  lastSeenAt: string | null | undefined,
+  now: Date,
+  locale: Locale,
+  t: TFunc,
+  tp: (key: TKey, count: number, vars?: TVars) => string,
+): string | null {
+  if (!lastSeenAt) return null;
+  return formatLastSeen(new Date(lastSeenAt), now, locale, t, tp);
+}
+
 export function UserList({ onMobileBack, voiceParticipants }: UserListProps) {
   const t = useT();
   const { user: currentUser } = useAuthStore();
   const { members, channels } = useServerStore();
   const [onlineIds, setOnlineIds] = useState<Set<string>>(new Set());
+  const tp = useTp();
+  const locale = useLocaleStore((s) => s.locale);
+  const [lastSeenById, setLastSeenById] = useState<Map<string, string | null>>(new Map());
 
   useEffect(() => {
     loadOnlineIds();
@@ -116,8 +136,24 @@ export function UserList({ onMobileBack, voiceParticipants }: UserListProps) {
     return { onlineMembers: sortByUsername(online), offlineMembers: sortByUsername(offline) };
   }, [members, onlineIds]);
 
+  useEffect(() => {
+    if (offlineMembers.length === 0) return;
+    let cancelled = false;
+    apiService
+      .getLastSeenBatch(offlineMembers.map((m) => m.user_id))
+      .then((res) => {
+        if (cancelled) return;
+        setLastSeenById(new Map(Object.entries(res).map(([id, info]) => [id, info.last_seen_at])));
+      })
+      .catch((err) => logger.error('Failed to load last seen:', err, { module: 'userList' }));
+    return () => {
+      cancelled = true;
+    };
+  }, [offlineMembers]);
+
   const renderMember = (m: MemberWithUser, online: boolean) => {
     const voiceName = online ? voiceChannelNameFor(m.user_id, voiceParticipants, channels) : null;
+    const lastSeen = online ? null : lastSeenLabel(lastSeenById.get(m.user_id), new Date(), locale, t, tp);
     return (
       <div key={m.user_id} className={`user-item${online ? '' : ' is-offline'}`}>
         <span className={`user-avatar-wrap${online ? ' is-online' : ''}`}>
@@ -128,6 +164,7 @@ export function UserList({ onMobileBack, voiceParticipants }: UserListProps) {
         <div className="user-item-text">
           <span className="user-name">{m.username}</span>
           {voiceName && <span className="user-item-sub">{t('server.inVoice', { channel: voiceName })}</span>}
+          {lastSeen && <span className="user-item-sub">{lastSeen}</span>}
         </div>
         {online && currentUser && m.user_id !== currentUser.id && (
           <button
