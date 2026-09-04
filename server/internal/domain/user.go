@@ -30,6 +30,13 @@ type User struct {
 	// ShowLastSeen — приватность: false скрывает LastSeenAt от всех, кто
 	// спрашивает через GetLastSeenBatch. По умолчанию true (миграция 023).
 	ShowLastSeen bool `json:"show_last_seen"`
+	// AllowFriendRequests — кто может слать заявку в друзья: everyone /
+	// mutual_servers / none. Дефолт everyone (миграция 024).
+	AllowFriendRequests PrivacyMode `json:"allow_friend_requests"`
+	// AllowDMFrom — кто может писать в ЛС: everyone / mutual_servers /
+	// friends. Дефолт friends (миграция 024) — самый строгий разумный
+	// режим: переписка с друзьями им не ограничивается.
+	AllowDMFrom PrivacyMode `json:"allow_dm_from"`
 }
 
 type UserStatus string
