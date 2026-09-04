@@ -354,6 +354,15 @@ export const en: Dictionary = {
     callUser: 'Call {{name}}',
     inVoice: 'in voice · {{channel}}',
 
+    lastSeenJustNow: 'just now',
+    lastSeenMinutesAgo: plural({
+      one: '{{count}} minute ago',
+      other: '{{count}} minutes ago',
+    }),
+    lastSeenTodayAt: 'today at {{time}}',
+    lastSeenYesterdayAt: 'yesterday at {{time}}',
+    lastSeenOnDateAt: '{{date}} at {{time}}',
+
     // Privacy
     privateLabel: 'Private server',
     privateHint: 'New members can only join via an invite link — "Invite" in the server menu.',

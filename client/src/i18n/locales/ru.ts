@@ -365,6 +365,17 @@ export const ru = {
     callUser: 'Позвонить {{name}}',
     inVoice: 'в голосовом · {{channel}}',
 
+    lastSeenJustNow: 'только что',
+    lastSeenMinutesAgo: plural({
+      one: '{{count}} минуту назад',
+      few: '{{count}} минуты назад',
+      many: '{{count}} минут назад',
+      other: '{{count}} минуты назад',
+    }),
+    lastSeenTodayAt: 'сегодня в {{time}}',
+    lastSeenYesterdayAt: 'вчера в {{time}}',
+    lastSeenOnDateAt: '{{date}} в {{time}}',
+
     // Приватность
     privateLabel: 'Приватный сервер',
     privateHint: 'Новых участников можно позвать только по инвайт-ссылке — «Пригласить» в меню сервера.',
