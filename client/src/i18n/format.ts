@@ -3,6 +3,7 @@ import { useLocaleStore, type Locale } from '@/stores/localeStore';
 import { ru } from './locales/ru';
 import { en } from './locales/en';
 import type { Dictionary } from './locales/ru';
+import type { TFunc, TKey, TVars } from './index';
 
 export const RU_MONTHS_GENITIVE = [
   'января', 'февраля', 'марта', 'апреля', 'мая', 'июня',
@@ -81,4 +82,29 @@ export function useDateFormat() {
     }),
     [locale],
   );
+}
+
+type TpFunc = (key: TKey, count: number, vars?: TVars) => string;
+
+/**
+ * "только что" / "5 мин назад" / "сегодня в 14:30" / "вчера в 09:15" /
+ * "04 сентября 2026 в 10:00" — first matching rule wins, in this order.
+ */
+export function formatLastSeen(date: Date, now: Date, locale: Locale, t: TFunc, tp: TpFunc): string {
+  const diffMinutes = Math.floor((now.getTime() - date.getTime()) / 60000);
+  const time = date.toLocaleTimeString(locale, TIME_OPTS);
+
+  if (diffMinutes < 1) return t('server.lastSeenJustNow');
+  if (diffMinutes < 60) return tp('server.lastSeenMinutesAgo', diffMinutes, { count: diffMinutes });
+  if (isSameCalendarDay(date, now)) return t('server.lastSeenTodayAt', { time });
+
+  const yesterday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
+  if (isSameCalendarDay(date, yesterday)) return t('server.lastSeenYesterdayAt', { time });
+
+  const day = String(date.getDate()).padStart(2, '0');
+  const dateStr =
+    locale === 'ru'
+      ? `${day} ${RU_MONTHS_GENITIVE[date.getMonth()]} ${date.getFullYear()}`
+      : `${EN_MONTHS[date.getMonth()]} ${date.getDate()}, ${date.getFullYear()}`;
+  return t('server.lastSeenOnDateAt', { date: dateStr, time });
 }

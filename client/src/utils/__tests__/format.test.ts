@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isSameCalendarDay, resolveDayLabel, RU_MONTHS_GENITIVE, EN_MONTHS, formatCallDuration } from '@/i18n/format';
+import { isSameCalendarDay, resolveDayLabel, RU_MONTHS_GENITIVE, EN_MONTHS, formatCallDuration, formatLastSeen } from '@/i18n/format';
 
 const ruT = (key: string) => (key === 'chat.today' ? 'Сегодня' : 'Вчера');
 const enT = (key: string) => (key === 'chat.today' ? 'Today' : 'Yesterday');
@@ -73,5 +73,79 @@ describe('formatCallDuration', () => {
   });
   it('clamps negative input to 0', () => {
     expect(formatCallDuration(-5, 'ru')).toBe('0 сек');
+  });
+});
+
+const ruLastSeenDict: Record<string, string> = {
+  'server.lastSeenJustNow': 'только что',
+  'server.lastSeenTodayAt': 'сегодня в {{time}}',
+  'server.lastSeenYesterdayAt': 'вчера в {{time}}',
+  'server.lastSeenOnDateAt': '{{date}} в {{time}}',
+};
+const enLastSeenDict: Record<string, string> = {
+  'server.lastSeenJustNow': 'just now',
+  'server.lastSeenTodayAt': 'today at {{time}}',
+  'server.lastSeenYesterdayAt': 'yesterday at {{time}}',
+  'server.lastSeenOnDateAt': '{{date}} at {{time}}',
+};
+
+function fakeInterpolate(template: string, vars?: Record<string, string | number>): string {
+  if (!vars) return template;
+  return template.replace(/\{\{(\w+)\}\}/g, (m, name) => (name in vars ? String(vars[name]) : m));
+}
+
+function fakeLastSeenT(dict: Record<string, string>) {
+  return (key: string, vars?: Record<string, string | number>) => fakeInterpolate(dict[key] ?? key, vars);
+}
+
+function fakeLastSeenTp(locale: 'ru' | 'en') {
+  return (key: string, count: number, vars?: Record<string, string | number>) => {
+    if (key !== 'server.lastSeenMinutesAgo') return key;
+    const rule = new Intl.PluralRules(locale).select(count);
+    const forms: Record<string, string> =
+      locale === 'ru'
+        ? { one: '{{count}} минуту назад', few: '{{count}} минуты назад', many: '{{count}} минут назад', other: '{{count}} минуты назад' }
+        : { one: '{{count}} minute ago', other: '{{count}} minutes ago' };
+    const template = forms[rule] ?? forms.other;
+    return fakeInterpolate(template, { ...vars, count });
+  };
+}
+
+describe('formatLastSeen', () => {
+  const NOW = new Date(2026, 8, 4, 12, 0, 0); // 4 сентября 2026, 12:00
+
+  it('< 1 мин → «только что»', () => {
+    const date = new Date(NOW.getTime() - 30 * 1000);
+    expect(formatLastSeen(date, NOW, 'ru', fakeLastSeenT(ruLastSeenDict), fakeLastSeenTp('ru'))).toBe('только что');
+  });
+
+  it('1 мин назад — форма «one»', () => {
+    const date = new Date(NOW.getTime() - 1 * 60 * 1000);
+    expect(formatLastSeen(date, NOW, 'ru', fakeLastSeenT(ruLastSeenDict), fakeLastSeenTp('ru'))).toBe('1 минуту назад');
+  });
+
+  it('5 мин назад — форма «many»', () => {
+    const date = new Date(NOW.getTime() - 5 * 60 * 1000);
+    expect(formatLastSeen(date, NOW, 'ru', fakeLastSeenT(ruLastSeenDict), fakeLastSeenTp('ru'))).toBe('5 минут назад');
+  });
+
+  it('2 часа назад, тот же календарный день → «сегодня в HH:MM», не «N ч назад»', () => {
+    const date = new Date(2026, 8, 4, 10, 0, 0);
+    expect(formatLastSeen(date, NOW, 'ru', fakeLastSeenT(ruLastSeenDict), fakeLastSeenTp('ru'))).toBe('сегодня в 10:00');
+  });
+
+  it('вчера → «вчера в HH:MM»', () => {
+    const date = new Date(2026, 8, 3, 21, 15, 0);
+    expect(formatLastSeen(date, NOW, 'ru', fakeLastSeenT(ruLastSeenDict), fakeLastSeenTp('ru'))).toBe('вчера в 21:15');
+  });
+
+  it('> 7 дней → полная дата', () => {
+    const date = new Date(2026, 7, 20, 9, 0, 0);
+    expect(formatLastSeen(date, NOW, 'ru', fakeLastSeenT(ruLastSeenDict), fakeLastSeenTp('ru'))).toBe('20 августа 2026 в 09:00');
+  });
+
+  it('en: minutes-ago plural', () => {
+    const date = new Date(NOW.getTime() - 2 * 60 * 1000);
+    expect(formatLastSeen(date, NOW, 'en', fakeLastSeenT(enLastSeenDict), fakeLastSeenTp('en'))).toBe('2 minutes ago');
   });
 });

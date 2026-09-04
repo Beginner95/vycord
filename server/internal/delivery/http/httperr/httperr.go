@@ -52,10 +52,12 @@ const (
 	CodeInvalidToken      = "invalid_or_expired_token"
 
 	// Пользователи
-	CodeUserNotFound        = "user_not_found"
-	CodeSearchUsersFailed   = "search_users_failed"
-	CodeLastVisitedFailed   = "update_last_visited_failed"
-	CodeSearchQueryRequired = "search_query_required"
+	CodeUserNotFound          = "user_not_found"
+	CodeSearchUsersFailed     = "search_users_failed"
+	CodeLastVisitedFailed     = "update_last_visited_failed"
+	CodeSearchQueryRequired   = "search_query_required"
+	CodeLastSeenFailed        = "last_seen_failed"
+	CodeLastSeenBatchTooLarge = "last_seen_batch_too_large"
 
 	// Аватары и иконки
 	CodeAvatarTooLarge       = "avatar_file_too_large"

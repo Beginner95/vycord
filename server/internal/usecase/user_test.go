@@ -10,6 +10,7 @@ import (
 	"io"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -200,4 +201,77 @@ func TestRemoveAvatar_NoOpWhenNoAvatarSet(t *testing.T) {
 	assert.Nil(t, user.AvatarURL)
 	userRepo.AssertNotCalled(t, "Update", mock.Anything, mock.Anything)
 	storage.AssertNotCalled(t, "Delete", mock.Anything, mock.Anything)
+}
+
+func TestUpdateLastSeen_PassesThroughToRepository(t *testing.T) {
+	userRepo := new(MockUserRepository)
+	uc := usecase.NewUserUseCase(userRepo, new(MockStorage))
+
+	userID := uuid.New()
+	now := time.Now()
+	userRepo.On("UpdateLastSeen", userID, now).Return(nil)
+
+	err := uc.UpdateLastSeen(userID, now)
+
+	require.NoError(t, err)
+	userRepo.AssertExpectations(t)
+}
+
+func TestGetLastSeenBatch_EmptyInput_ReturnsEmptyMapWithoutCallingRepository(t *testing.T) {
+	userRepo := new(MockUserRepository)
+	uc := usecase.NewUserUseCase(userRepo, new(MockStorage))
+
+	result, err := uc.GetLastSeenBatch(nil)
+
+	require.NoError(t, err)
+	assert.Empty(t, result)
+	userRepo.AssertNotCalled(t, "GetLastSeenBatch", mock.Anything)
+}
+
+func TestGetLastSeenBatch_TooManyIDs_ReturnsErrWithoutCallingRepository(t *testing.T) {
+	userRepo := new(MockUserRepository)
+	uc := usecase.NewUserUseCase(userRepo, new(MockStorage))
+
+	ids := make([]uuid.UUID, 201)
+	for i := range ids {
+		ids[i] = uuid.New()
+	}
+
+	_, err := uc.GetLastSeenBatch(ids)
+
+	assert.ErrorIs(t, err, domain.ErrLastSeenBatchTooLarge)
+	userRepo.AssertNotCalled(t, "GetLastSeenBatch", mock.Anything)
+}
+
+func TestGetLastSeenBatch_PassesThroughRepositoryResult(t *testing.T) {
+	userRepo := new(MockUserRepository)
+	uc := usecase.NewUserUseCase(userRepo, new(MockStorage))
+
+	visibleID := uuid.New()
+	hiddenID := uuid.New()
+	seenAt := time.Now()
+	ids := []uuid.UUID{visibleID, hiddenID}
+	repoResult := map[uuid.UUID]domain.LastSeenInfo{
+		visibleID: {LastSeenAt: &seenAt, Visible: true},
+		hiddenID:  {LastSeenAt: nil, Visible: false},
+	}
+	userRepo.On("GetLastSeenBatch", ids).Return(repoResult, nil)
+
+	result, err := uc.GetLastSeenBatch(ids)
+
+	require.NoError(t, err)
+	assert.Equal(t, repoResult, result)
+}
+
+func TestSetShowLastSeen_UpdatesTheColumn(t *testing.T) {
+	userRepo := new(MockUserRepository)
+	uc := usecase.NewUserUseCase(userRepo, new(MockStorage))
+
+	userID := uuid.New()
+	userRepo.On("Update", userID, map[string]interface{}{"show_last_seen": false}).Return(nil)
+
+	err := uc.SetShowLastSeen(userID, false)
+
+	require.NoError(t, err)
+	userRepo.AssertExpectations(t)
 }

@@ -18,6 +18,7 @@ export function ProfileSettings() {
   const [cropFile, setCropFile] = useState<File | null>(null);
   const [pickError, setPickError] = useState<string | null>(null);
   const [removing, setRemoving] = useState(false);
+  const [privacyError, setPrivacyError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -53,6 +54,18 @@ export function ProfileSettings() {
       setPickError(apiErrorText(err, t));
     } finally {
       setRemoving(false);
+    }
+  };
+
+  const handleShowLastSeenChange = async (checked: boolean) => {
+    const previous = user?.show_last_seen ?? true;
+    updateUser({ show_last_seen: checked });
+    setPrivacyError(null);
+    try {
+      await apiService.updatePrivacy(checked);
+    } catch (err) {
+      updateUser({ show_last_seen: previous });
+      setPrivacyError(apiErrorText(err, t));
     }
   };
 
@@ -103,6 +116,26 @@ export function ProfileSettings() {
             <p className="setting-row-desc">{user?.email}</p>
           </div>
         </div>
+      </div>
+
+      <div className="settings-section">
+        <h3 className="settings-section-title">{t('settings.privacy')}</h3>
+        <div className="setting-row">
+          <div className="setting-row-info">
+            <span className="setting-row-title">{t('settings.showLastSeen')}</span>
+            <p className="setting-row-desc">{t('settings.showLastSeenDescription')}</p>
+          </div>
+          <label className="toggle-switch">
+            <input
+              type="checkbox"
+              aria-label={t('settings.showLastSeen')}
+              checked={user?.show_last_seen ?? true}
+              onChange={(e) => { void handleShowLastSeenChange(e.target.checked); }}
+            />
+            <span className="toggle-track" />
+          </label>
+        </div>
+        {privacyError && <p className="setting-warning">{privacyError}</p>}
       </div>
 
       <div className="settings-section">

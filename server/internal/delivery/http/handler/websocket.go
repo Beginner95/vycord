@@ -105,6 +105,9 @@ func (h *WebSocketHandler) readPump(client *ws.Client) {
 			if err := h.userUseCase.UpdateStatus(client.UserID, domain.StatusOffline); err != nil {
 				h.log.Warn("failed to set user offline", "user_id", client.UserID, "error", err)
 			}
+			if err := h.userUseCase.UpdateLastSeen(client.UserID, time.Now()); err != nil {
+				h.log.Warn("failed to update last seen", "user_id", client.UserID, "error", err)
+			}
 		}
 	}()
 

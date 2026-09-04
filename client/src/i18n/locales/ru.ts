@@ -261,6 +261,10 @@ export const ru = {
     tabVideo: 'Видео',
     tabAppearance: 'Внешний вид',
 
+    privacy: 'Приватность',
+    showLastSeen: 'Показывать последний визит',
+    showLastSeenDescription: 'Другие видят, когда вы последний раз были в сети',
+
     account: 'Учётная запись',
     usernameLabel: 'Имя пользователя',
     emailLabel: 'Email',
@@ -364,6 +368,17 @@ export const ru = {
     offline: 'Не в сети',
     callUser: 'Позвонить {{name}}',
     inVoice: 'в голосовом · {{channel}}',
+
+    lastSeenJustNow: 'только что',
+    lastSeenMinutesAgo: plural({
+      one: '{{count}} минуту назад',
+      few: '{{count}} минуты назад',
+      many: '{{count}} минут назад',
+      other: '{{count}} минуты назад',
+    }),
+    lastSeenTodayAt: 'сегодня в {{time}}',
+    lastSeenYesterdayAt: 'вчера в {{time}}',
+    lastSeenOnDateAt: '{{date}} в {{time}}',
 
     // Приватность
     privateLabel: 'Приватный сервер',

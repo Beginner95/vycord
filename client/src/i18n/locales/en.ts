@@ -250,6 +250,10 @@ export const en: Dictionary = {
     tabVideo: 'Video',
     tabAppearance: 'Appearance',
 
+    privacy: 'Privacy',
+    showLastSeen: 'Show Last Seen',
+    showLastSeenDescription: 'Others can see when you were last online',
+
     account: 'Account',
     usernameLabel: 'Username',
     emailLabel: 'Email',
@@ -353,6 +357,15 @@ export const en: Dictionary = {
     offline: 'Offline',
     callUser: 'Call {{name}}',
     inVoice: 'in voice · {{channel}}',
+
+    lastSeenJustNow: 'just now',
+    lastSeenMinutesAgo: plural({
+      one: '{{count}} minute ago',
+      other: '{{count}} minutes ago',
+    }),
+    lastSeenTodayAt: 'today at {{time}}',
+    lastSeenYesterdayAt: 'yesterday at {{time}}',
+    lastSeenOnDateAt: '{{date}} at {{time}}',
 
     // Privacy
     privateLabel: 'Private server',

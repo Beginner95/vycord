@@ -232,6 +232,8 @@ func main() {
 	router.HandleFunc("GET /api/v1/users/{id}", authMid.RequireAuth(userHandler.GetUserByID))
 	router.HandleFunc("POST /api/v1/users/me/avatar", authMid.RequireAuth(userHandler.UploadAvatar))
 	router.HandleFunc("DELETE /api/v1/users/me/avatar", authMid.RequireAuth(userHandler.RemoveAvatar))
+	router.HandleFunc("POST /api/v1/users/last-seen", authMid.RequireAuth(userHandler.GetLastSeenBatch))
+	router.HandleFunc("PATCH /api/v1/users/me/privacy", authMid.RequireAuth(userHandler.UpdatePrivacy))
 
 	// Server routes
 	router.HandleFunc("POST /api/v1/servers", authMid.RequireAuth(serverHandler.CreateServer))

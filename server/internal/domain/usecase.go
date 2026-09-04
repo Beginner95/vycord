@@ -1,6 +1,10 @@
 package domain
 
-import "github.com/google/uuid"
+import (
+	"time"
+
+	"github.com/google/uuid"
+)
 
 // AuthUseCase — вход существующих аккаунтов паролем и обслуживание сессии.
 // Register здесь больше нет: аккаунты создаются только через
@@ -42,6 +46,9 @@ type UserUseCase interface {
 	UpdateLastVisited(id uuid.UUID, serverID, channelID *uuid.UUID) error
 	UpdateAvatar(id uuid.UUID, data []byte) (*User, error)
 	RemoveAvatar(id uuid.UUID) (*User, error)
+	UpdateLastSeen(id uuid.UUID, at time.Time) error
+	GetLastSeenBatch(ids []uuid.UUID) (map[uuid.UUID]LastSeenInfo, error)
+	SetShowLastSeen(id uuid.UUID, show bool) error
 }
 
 // ChannelAccessChecker — минимальный срез ServerUseCase для мест, которым
