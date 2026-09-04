@@ -11,24 +11,35 @@ interface CallEventRowProps {
    * same way MessageRow's displayName is resolved (members/userCache), so
    * this component doesn't do its own lookup. */
   starterName: string;
+  /** Display names of every OTHER participant (msg.user_id excluded),
+   * resolved by the caller the same way as starterName. Ignored while the
+   * call is active — the list is only shown once it ends, never
+   * live-updated (design doc «Live-обновление»). Defaults to []. */
+  participantNames?: string[];
 }
 
-export function CallEventRow({ msg, starterName }: CallEventRowProps) {
+export function CallEventRow({ msg, starterName, participantNames = [] }: CallEventRowProps) {
   const t = useT();
   const { formatTime } = useDateFormat();
   const locale = useLocaleStore((s) => s.locale);
   const isActive = !msg.call_ended_at;
   const time = formatTime(new Date(msg.created_at));
 
-  const label = isActive
-    ? t('chat.callStarted', { name: starterName })
-    : t('chat.callEnded', {
-        name: starterName,
-        duration: formatCallDuration(
-          (new Date(msg.call_ended_at!).getTime() - new Date(msg.call_started_at!).getTime()) / 1000,
-          locale,
-        ),
-      });
+  let label: string;
+  if (isActive) {
+    label = t('chat.callStarted', { name: starterName });
+  } else {
+    const duration = formatCallDuration(
+      (new Date(msg.call_ended_at!).getTime() - new Date(msg.call_started_at!).getTime()) / 1000,
+      locale,
+    );
+    const others = participantNames.length > 0
+      ? new Intl.ListFormat(locale, { style: 'long', type: 'conjunction' }).format(participantNames)
+      : null;
+    label = others
+      ? t('chat.callEndedWithParticipants', { name: starterName, others, duration })
+      : t('chat.callEnded', { name: starterName, duration });
+  }
 
   return (
     <div className="call-event-row" role="note" aria-label={label}>

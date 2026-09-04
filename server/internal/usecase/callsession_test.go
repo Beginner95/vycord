@@ -18,15 +18,19 @@ import (
 // call-bookkeeping methods do anything; the rest are stubs never exercised
 // by these tests but required to satisfy the interface.
 type fakeCallMessageRepo struct {
-	createCallFn        func(msg *domain.Message) (bool, error)
-	endCallFn           func(channelID uuid.UUID) (*domain.Message, bool, error)
-	touchCallsFn        func(channelIDs []uuid.UUID) error
-	closeCallsMissingFn func(channelIDs []uuid.UUID, minAge time.Duration) ([]*domain.Message, error)
+	createCallFn         func(msg *domain.Message) (bool, error)
+	endCallFn            func(channelID uuid.UUID) (*domain.Message, bool, error)
+	addCallParticipantFn func(channelID, userID uuid.UUID) error
+	touchCallsFn         func(channelIDs []uuid.UUID) error
+	closeCallsMissingFn  func(channelIDs []uuid.UUID, minAge time.Duration) ([]*domain.Message, error)
 }
 
 func (f *fakeCallMessageRepo) CreateCall(msg *domain.Message) (bool, error) { return f.createCallFn(msg) }
 func (f *fakeCallMessageRepo) EndCall(channelID uuid.UUID) (*domain.Message, bool, error) {
 	return f.endCallFn(channelID)
+}
+func (f *fakeCallMessageRepo) AddCallParticipant(channelID, userID uuid.UUID) error {
+	return f.addCallParticipantFn(channelID, userID)
 }
 func (f *fakeCallMessageRepo) TouchCalls(channelIDs []uuid.UUID) error { return f.touchCallsFn(channelIDs) }
 func (f *fakeCallMessageRepo) CloseCallsMissingFrom(channelIDs []uuid.UUID, minAge time.Duration) ([]*domain.Message, error) {
@@ -132,6 +136,42 @@ func TestCallSessionRecorder_CallEnded_ZeroRowsDoesNotBroadcast(t *testing.T) {
 		case msg := <-client.Send:
 			if strings.Contains(string(msg), `"message_update"`) {
 				t.Fatalf("unexpected message_update broadcast when no open call was closed: %s", msg)
+			}
+		case <-deadline:
+			return
+		}
+	}
+}
+
+func TestCallSessionRecorder_ParticipantJoined_CallsAddCallParticipantWithNoBroadcast(t *testing.T) {
+	channelID, userID := uuid.New(), uuid.New()
+	h, client := newTestHubForRecorder(t, channelID)
+
+	var gotChannelID, gotUserID uuid.UUID
+	repo := &fakeCallMessageRepo{
+		addCallParticipantFn: func(cID, uID uuid.UUID) error {
+			gotChannelID, gotUserID = cID, uID
+			return nil
+		},
+	}
+	rec := usecase.NewCallSessionRecorder(repo, h)
+
+	rec.ParticipantJoined(channelID, userID)
+
+	assert.Equal(t, channelID, gotChannelID)
+	assert.Equal(t, userID, gotUserID)
+
+	// Only chat_message/message_update would indicate an (unwanted) call
+	// broadcast here; online_users/voice_state are unrelated hub bookkeeping
+	// that newTestHubForRecorder's RegisterClient can still be delivering
+	// asynchronously at this point (see the sibling CallStarted/CallEnded
+	// tests above, which filter the same way).
+	deadline := time.After(200 * time.Millisecond)
+	for {
+		select {
+		case msg := <-client.Send:
+			if strings.Contains(string(msg), `"chat_message"`) || strings.Contains(string(msg), `"message_update"`) {
+				t.Fatalf("unexpected broadcast on ParticipantJoined: %s", msg)
 			}
 		case <-deadline:
 			return
