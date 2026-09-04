@@ -5,21 +5,6 @@ import { formatCallDuration } from '@/i18n/format';
 import type { ChatMessage } from '@/stores/messageStore';
 import './CallEventRow.css';
 
-// tsconfig's lib target (ES2020) predates the ES2021 Intl.ListFormat types;
-// the runtime API has been broadly available for years, so augment the
-// ambient Intl namespace locally rather than bumping the project-wide lib.
-declare namespace Intl {
-  interface ListFormatOptions {
-    localeMatcher?: 'lookup' | 'best fit';
-    type?: 'conjunction' | 'disjunction' | 'unit';
-    style?: 'long' | 'short' | 'narrow';
-  }
-  class ListFormat {
-    constructor(locales?: string | string[], options?: ListFormatOptions);
-    format(list: Iterable<string>): string;
-  }
-}
-
 interface CallEventRowProps {
   msg: ChatMessage;
   /** Display name of msg.user_id — the caller already resolves this the

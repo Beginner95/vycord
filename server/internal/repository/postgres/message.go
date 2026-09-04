@@ -405,29 +405,48 @@ func (r *messageRepository) CreateCall(msg *domain.Message) (bool, error) {
 }
 
 // AddCallParticipant adds userID to channelID's open call, if any.
-// Idempotent: 0 rows affected (nil error) when the channel has no open call
-// — it may have closed between the hub reading its state and this call
-// landing — or when userID is already in call_participant_ids. One atomic
-// UPDATE, safe under concurrent joins to the same row (Postgres serializes
-// via the row lock; a second call with the same userID simply finds the
-// WHERE clause false the moment the first one commits).
+// Idempotent: 0 rows affected (nil error) when userID is already in
+// call_participant_ids. One atomic UPDATE per attempt, safe under
+// concurrent joins to the same row (Postgres serializes via the row lock).
+//
+// Retries a bounded number of times on zero rows affected: JoinVoiceChannel
+// calls CallStarted (which INSERTs the call row via CreateCall) for the
+// first joiner and ParticipantJoined (which calls this method) for every
+// later joiner, from independent unsynchronized goroutines — there is no
+// guarantee the first joiner's INSERT has committed by the time a
+// near-simultaneous second joiner's UPDATE runs. Without a retry, that
+// race silently and permanently drops the second joiner from the
+// finalized participant list (found in VYC-88 final review — the
+// presence-worker reconcile backstop cannot recover this case, since hub
+// state already reflects both users present by the next tick). A retry
+// that still finds zero rows after all attempts is the ordinary,
+// already-idempotent no-op case (channel closed in the meantime, or
+// userID already recorded) — same as before this fix.
 //
 // updated_at is deliberately not touched — same reasoning as EndCall not
 // touching it (VYC-87 spec): the client's "edited" indicator is
 // updated_at !== created_at, and a call message is written to many times
 // over its life without ever being user-edited.
 func (r *messageRepository) AddCallParticipant(channelID, userID uuid.UUID) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
+	const maxAttempts = 3
+	const retryDelay = 100 * time.Millisecond
 
-	_, err := r.db.Exec(ctx, `
-		UPDATE messages
-		SET call_participant_ids = array_append(call_participant_ids, $2)
-		WHERE channel_id = $1 AND kind = 'call' AND call_ended_at IS NULL
-		  AND NOT ($2 = ANY(call_participant_ids))
-	`, channelID, userID)
-	if err != nil {
-		return fmt.Errorf("failed to add call participant: %w", err)
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		tag, err := r.db.Exec(ctx, `
+			UPDATE messages
+			SET call_participant_ids = array_append(call_participant_ids, $2)
+			WHERE channel_id = $1 AND kind = 'call' AND call_ended_at IS NULL
+			  AND NOT ($2 = ANY(call_participant_ids))
+		`, channelID, userID)
+		cancel()
+		if err != nil {
+			return fmt.Errorf("failed to add call participant: %w", err)
+		}
+		if tag.RowsAffected() > 0 || attempt == maxAttempts {
+			return nil
+		}
+		time.Sleep(retryDelay)
 	}
 	return nil
 }
