@@ -112,7 +112,8 @@ func (r *userRepository) GetByEmail(email string) (*domain.User, error) {
 	defer cancel()
 
 	query := `
-		SELECT id, username, email, password_hash, avatar_url, status, created_at, updated_at, email_verified_at
+		SELECT id, username, email, password_hash, avatar_url, status, created_at, updated_at, email_verified_at,
+		       last_seen_at, show_last_seen
 		FROM users
 		WHERE email = $1
 	`
@@ -128,6 +129,8 @@ func (r *userRepository) GetByEmail(email string) (*domain.User, error) {
 		&user.CreatedAt,
 		&user.UpdatedAt,
 		&user.EmailVerifiedAt,
+		&user.LastSeenAt,
+		&user.ShowLastSeen,
 	)
 
 	if err == sql.ErrNoRows {
@@ -145,7 +148,8 @@ func (r *userRepository) GetByUsername(username string) (*domain.User, error) {
 	defer cancel()
 
 	query := `
-		SELECT id, username, email, password_hash, avatar_url, status, created_at, updated_at, email_verified_at
+		SELECT id, username, email, password_hash, avatar_url, status, created_at, updated_at, email_verified_at,
+		       last_seen_at, show_last_seen
 		FROM users
 		WHERE username = $1
 	`
@@ -161,6 +165,8 @@ func (r *userRepository) GetByUsername(username string) (*domain.User, error) {
 		&user.CreatedAt,
 		&user.UpdatedAt,
 		&user.EmailVerifiedAt,
+		&user.LastSeenAt,
+		&user.ShowLastSeen,
 	)
 
 	if err == sql.ErrNoRows {

@@ -139,6 +139,39 @@ func TestLoginRejectsUnverified(t *testing.T) {
 	assert.ErrorIs(t, err, domain.ErrEmailNotVerified)
 }
 
+// TestLogin_PropagatesShowLastSeenFromRepository guards against a regression
+// where GetByEmail's SELECT/Scan (repository/postgres/user.go) forgets to
+// load show_last_seen: Go zero-values an un-scanned bool to false, so a user
+// who *disabled* last-seen would silently look like they had it enabled (and
+// vice versa for anyone else) the moment Login's result reaches the client
+// and gets persisted into authStore. This test only exercises the usecase
+// against a mock repo — it can't catch a wrong SQL SELECT list by itself —
+// but it does pin the invariant that Login must not drop or reset
+// ShowLastSeen once the repository returns it.
+func TestLogin_PropagatesShowLastSeenFromRepository(t *testing.T) {
+	mockRepo := new(MockUserRepository)
+	refreshRepo := new(MockRefreshTokenRepository)
+	authUseCase := newAuthUseCase(mockRepo, refreshRepo)
+
+	hashed, _ := bcrypt.GenerateFromPassword([]byte("password123"), bcrypt.DefaultCost)
+	verifiedAt := time.Now().Add(-time.Hour)
+	mockRepo.On("GetByEmail", "u@e.com").Return(&domain.User{
+		ID:              uuid.New(),
+		Email:           "u@e.com",
+		Password:        string(hashed),
+		EmailVerifiedAt: &verifiedAt,
+		ShowLastSeen:    false,
+	}, nil)
+	refreshRepo.On("Create", mock.AnythingOfType("*domain.RefreshToken")).Return(nil)
+
+	user, _, _, err := authUseCase.Login("u@e.com", "password123")
+
+	assert.NoError(t, err)
+	if assert.NotNil(t, user) {
+		assert.False(t, user.ShowLastSeen, "expected Login to propagate show_last_seen=false as returned by the repository, not zero-value it")
+	}
+}
+
 func TestLogin_InvalidCredentials(t *testing.T) {
 	mockRepo := new(MockUserRepository)
 	refreshRepo := new(MockRefreshTokenRepository)
