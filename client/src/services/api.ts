@@ -1,5 +1,5 @@
 import { useAuthStore } from '@/stores/authStore';
-import type { Server, User, Role, PermissionsResponse, Invite, InvitePreview, Sticker, Attachment } from '@/types';
+import type { Server, User, Role, PermissionsResponse, Invite, InvitePreview, Sticker, Attachment, LastSeenInfo } from '@/types';
 import { hasKey, type TFunc, type TKey } from '@/i18n';
 import { decodeJwtExpMs } from '@/utils/jwt';
 import { ACCESS_TOKEN_KEY, REFRESH_TOKEN_KEY } from '@/stores/authStore';
@@ -603,6 +603,20 @@ class ApiService {
   // Online users
   async getOnlineUsers() {
     return this.request('/api/v1/users/online');
+  }
+
+  async getLastSeenBatch(userIds: string[]) {
+    return this.request<Record<string, LastSeenInfo>>('/api/v1/users/last-seen', {
+      method: 'POST',
+      body: JSON.stringify({ user_ids: userIds }),
+    });
+  }
+
+  async updatePrivacy(showLastSeen: boolean) {
+    return this.request('/api/v1/users/me/privacy', {
+      method: 'PATCH',
+      body: JSON.stringify({ show_last_seen: showLastSeen }),
+    });
   }
 
   // TURN credentials for WebRTC (ephemeral, per-user)

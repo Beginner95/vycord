@@ -26,6 +26,7 @@ export interface User {
   status: UserStatus;
   created_at: string;
   updated_at: string;
+  show_last_seen: boolean;
 }
 
 export type UserStatus = 'online' | 'idle' | 'dnd' | 'offline';
@@ -144,6 +145,12 @@ export interface MemberWithUser {
   avatar_url?: string;
   roles: string[];
   joined_at: string;
+  last_seen_at?: string | null;
+}
+
+export interface LastSeenInfo {
+  last_seen_at: string | null;
+  visible: boolean;
 }
 
 export interface AuthState {
