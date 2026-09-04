@@ -38,6 +38,14 @@ func (m *MockFriendRepository) GetByPair(a, b uuid.UUID) (*domain.Friendship, er
 	return args.Get(0).(*domain.Friendship), args.Error(1)
 }
 
+func (m *MockFriendRepository) GetByID(id uuid.UUID) (*domain.Friendship, error) {
+	args := m.Called(id)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*domain.Friendship), args.Error(1)
+}
+
 func (m *MockFriendRepository) Create(f *domain.Friendship) error {
 	return m.Called(f).Error(0)
 }

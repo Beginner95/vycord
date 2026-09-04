@@ -121,6 +121,27 @@ func (r *friendRepository) GetByPair(a, b uuid.UUID) (*domain.Friendship, error)
 	return f, nil
 }
 
+func (r *friendRepository) GetByID(id uuid.UUID) (*domain.Friendship, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	query := `
+		SELECT id, requester_id, addressee_id, status, created_at, accepted_at
+		FROM friendships WHERE id = $1
+	`
+	f := &domain.Friendship{}
+	err := r.db.QueryRow(ctx, query, id).Scan(
+		&f.ID, &f.RequesterID, &f.AddresseeID, &f.Status, &f.CreatedAt, &f.AcceptedAt,
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, domain.ErrFriendshipNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to get friendship by id: %w", err)
+	}
+	return f, nil
+}
+
 func (r *friendRepository) Create(f *domain.Friendship) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()

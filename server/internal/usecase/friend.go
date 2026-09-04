@@ -125,11 +125,24 @@ func (uc *friendUseCase) SendRequest(fromID uuid.UUID, username string) (*domain
 		return nil, nil, false, err
 	}
 	if existing != nil {
-		// Ветка встречной заявки реализуется в Task 7.
 		if existing.Status == domain.FriendshipAccepted {
 			return nil, nil, false, domain.ErrAlreadyFriends
 		}
-		return nil, nil, false, domain.ErrFriendRequestExists
+		if existing.RequesterID == fromID {
+			return nil, nil, false, domain.ErrFriendRequestExists
+		}
+		// Встречная заявка: он уже позвал меня — значит это не вторая
+		// заявка, а принятие первой. Транзакция не нужна: условие
+		// `AND status = 'pending'` внутри UPDATE делает переход атомарным.
+		if err := uc.friendRepo.Accept(existing.ID, fromID, time.Now().UTC()); err != nil {
+			if errors.Is(err, domain.ErrFriendshipNotFound) {
+				// Гонка: кто-то принял её между GetByPair и Accept.
+				// Результат ровно тот, которого хотел пользователь.
+				return nil, brief, true, nil
+			}
+			return nil, nil, false, err
+		}
+		return nil, brief, true, nil
 	}
 
 	f := &domain.Friendship{
@@ -161,13 +174,42 @@ func (uc *friendUseCase) ListBlocks(userID uuid.UUID) ([]*domain.UserBrief, erro
 // errNotImplemented — временная заглушка. NewFriendUseCase возвращает
 // domain.FriendUseCase напрямую, поэтому Go проверяет соответствие
 // интерфейсу немедленно, в точке return внутри конструктора: без этих
-// пяти методов пакет usecase не компилируется вообще, а не только при
-// попытке ими воспользоваться. Реальную логику добавляют Task 7 (заявки)
-// и Task 8 (блокировки) — эти тела здесь только ради компиляции.
-var errNotImplemented = errors.New("not implemented: see Task 7/8")
+// методов пакет usecase не компилируется вообще, а не только при попытке
+// ими воспользоваться. AcceptRequest реализован в Task 7; DeleteRequest,
+// RemoveFriend, Block, Unblock остаются заглушками до Task 8 — эти тела
+// здесь только ради компиляции.
+var errNotImplemented = errors.New("not implemented: see Task 8")
 
 func (uc *friendUseCase) AcceptRequest(userID, requestID uuid.UUID) (*domain.FriendProfile, uuid.UUID, error) {
-	return nil, uuid.Nil, errNotImplemented
+	f, err := uc.friendRepo.GetByID(requestID)
+	if err != nil {
+		return nil, uuid.Nil, err
+	}
+	// Принять можно только адресованную мне заявку. Повторная проверка в
+	// UPDATE ниже — не дублирование, а защита от гонки; эта же нужна, чтобы
+	// не открыть чужой профиль тому, кто просто угадал id.
+	if f.AddresseeID != userID {
+		return nil, uuid.Nil, domain.ErrFriendshipNotFound
+	}
+
+	at := time.Now().UTC()
+	if err := uc.friendRepo.Accept(requestID, userID, at); err != nil {
+		return nil, uuid.Nil, err
+	}
+
+	other, err := uc.userRepo.GetByID(f.RequesterID)
+	if err != nil {
+		return nil, uuid.Nil, err
+	}
+
+	return &domain.FriendProfile{
+		UserBrief: domain.UserBrief{
+			UserID:    other.ID,
+			Username:  other.Username,
+			AvatarURL: other.AvatarURL,
+		},
+		FriendsSince: at,
+	}, other.ID, nil
 }
 
 func (uc *friendUseCase) DeleteRequest(userID, requestID uuid.UUID) (uuid.UUID, error) {

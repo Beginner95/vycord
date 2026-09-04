@@ -124,3 +124,105 @@ func TestCanDM_BlockedFriend_StillRejected(t *testing.T) {
 	assert.ErrorIs(t, uc.CanDM(me, other), domain.ErrInteractionForbidden)
 	fr.AssertNotCalled(t, "IsFriend")
 }
+
+func TestSendRequest_CounterRequest_BecomesFriendship(t *testing.T) {
+	uc, fr, br, ur, _ := newFriendUC(t)
+	me, other := uuid.New(), uuid.New()
+	reqID := uuid.New()
+
+	ur.On("GetByUsername", "other").Return(userWith(other, "other", domain.PrivacyEveryone, domain.PrivacyFriends), nil)
+	br.On("IsBlockedEither", me, other).Return(false, nil)
+	// Заявка от НЕГО ко мне уже висит.
+	fr.On("GetByPair", me, other).Return(&domain.Friendship{
+		ID: reqID, RequesterID: other, AddresseeID: me, Status: domain.FriendshipPending,
+	}, nil)
+	fr.On("Accept", reqID, me, mock.AnythingOfType("time.Time")).Return(nil)
+
+	_, target, accepted, err := uc.SendRequest(me, "other")
+	require.NoError(t, err)
+	assert.True(t, accepted, "встречная заявка обязана сразу становиться дружбой, а не 409")
+	assert.Equal(t, other, target.UserID)
+	fr.AssertNotCalled(t, "Create", mock.Anything)
+}
+
+func TestSendRequest_OwnRequestAlreadyPending_Rejected(t *testing.T) {
+	uc, fr, br, ur, _ := newFriendUC(t)
+	me, other := uuid.New(), uuid.New()
+
+	ur.On("GetByUsername", "other").Return(userWith(other, "other", domain.PrivacyEveryone, domain.PrivacyFriends), nil)
+	br.On("IsBlockedEither", me, other).Return(false, nil)
+	fr.On("GetByPair", me, other).Return(&domain.Friendship{
+		ID: uuid.New(), RequesterID: me, AddresseeID: other, Status: domain.FriendshipPending,
+	}, nil)
+
+	_, _, _, err := uc.SendRequest(me, "other")
+	assert.ErrorIs(t, err, domain.ErrFriendRequestExists)
+}
+
+func TestSendRequest_AlreadyFriends_Rejected(t *testing.T) {
+	uc, fr, br, ur, _ := newFriendUC(t)
+	me, other := uuid.New(), uuid.New()
+
+	ur.On("GetByUsername", "other").Return(userWith(other, "other", domain.PrivacyEveryone, domain.PrivacyFriends), nil)
+	br.On("IsBlockedEither", me, other).Return(false, nil)
+	fr.On("GetByPair", me, other).Return(&domain.Friendship{
+		ID: uuid.New(), RequesterID: other, AddresseeID: me, Status: domain.FriendshipAccepted,
+	}, nil)
+
+	_, _, _, err := uc.SendRequest(me, "other")
+	assert.ErrorIs(t, err, domain.ErrAlreadyFriends)
+}
+
+func TestAcceptRequest_RaceWithConcurrentAccept_Rejected(t *testing.T) {
+	uc, fr, _, _, _ := newFriendUC(t)
+	me, other := uuid.New(), uuid.New()
+	reqID := uuid.New()
+
+	// Заявка моя, но между чтением и UPDATE её приняли из другой вкладки:
+	// условие `AND status = 'pending'` обновит ноль строк. Проверка в
+	// UPDATE — не дублирование проверки в Go, а защита именно от этого.
+	fr.On("GetByID", reqID).Return(&domain.Friendship{
+		ID: reqID, RequesterID: other, AddresseeID: me, Status: domain.FriendshipPending,
+	}, nil)
+	fr.On("Accept", reqID, me, mock.AnythingOfType("time.Time")).Return(domain.ErrFriendshipNotFound)
+
+	_, _, err := uc.AcceptRequest(me, reqID)
+	assert.ErrorIs(t, err, domain.ErrFriendshipNotFound)
+}
+
+func TestAcceptRequest_Success_ReturnsProfileAndRequesterID(t *testing.T) {
+	uc, fr, _, ur, _ := newFriendUC(t)
+	me, other := uuid.New(), uuid.New()
+	reqID := uuid.New()
+
+	fr.On("GetByID", reqID).Return(&domain.Friendship{
+		ID: reqID, RequesterID: other, AddresseeID: me, Status: domain.FriendshipPending,
+	}, nil)
+	fr.On("Accept", reqID, me, mock.AnythingOfType("time.Time")).Return(nil)
+	ur.On("GetByID", other).Return(userWith(other, "other", domain.PrivacyEveryone, domain.PrivacyFriends), nil)
+
+	profile, otherID, err := uc.AcceptRequest(me, reqID)
+	require.NoError(t, err)
+	// Второй результат — id второй стороны: хендлеру он нужен, чтобы
+	// отправить ей friend_added.
+	assert.Equal(t, other, otherID)
+	assert.Equal(t, other, profile.UserID)
+	assert.Equal(t, "other", profile.Username)
+}
+
+func TestAcceptRequest_NotMyRequest_RejectedBeforeUpdate(t *testing.T) {
+	uc, fr, _, _, _ := newFriendUC(t)
+	me := uuid.New()
+	reqID := uuid.New()
+
+	// Заявка между двумя посторонними: угадавший id не должен ни принять
+	// её, ни узнать из ответа, что она существует.
+	fr.On("GetByID", reqID).Return(&domain.Friendship{
+		ID: reqID, RequesterID: uuid.New(), AddresseeID: uuid.New(),
+		Status: domain.FriendshipPending,
+	}, nil)
+
+	_, _, err := uc.AcceptRequest(me, reqID)
+	assert.ErrorIs(t, err, domain.ErrFriendshipNotFound)
+	fr.AssertNotCalled(t, "Accept", mock.Anything, mock.Anything, mock.Anything)
+}

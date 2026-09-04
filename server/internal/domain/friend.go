@@ -82,6 +82,9 @@ type FriendRepository interface {
 	// GetByPair возвращает связь пары в любом направлении.
 	// ErrFriendshipNotFound, если связи нет.
 	GetByPair(a, b uuid.UUID) (*Friendship, error)
+	// GetByID возвращает связь по её идентификатору. Нужен принятию заявки:
+	// вторая сторона по id заявки иначе неизвестна.
+	GetByID(id uuid.UUID) (*Friendship, error)
 	Create(f *Friendship) error
 	// Accept переводит заявку в accepted одним UPDATE с условием
 	// `WHERE id = $1 AND addressee_id = $2 AND status = 'pending'`.
