@@ -58,6 +58,7 @@ const (
 	CodeSearchQueryRequired   = "search_query_required"
 	CodeLastSeenFailed        = "last_seen_failed"
 	CodeLastSeenBatchTooLarge = "last_seen_batch_too_large"
+	CodeInvalidPrivacyValue   = "invalid_privacy_value"
 
 	// Аватары и иконки
 	CodeAvatarTooLarge       = "avatar_file_too_large"

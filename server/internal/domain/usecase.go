@@ -48,7 +48,9 @@ type UserUseCase interface {
 	RemoveAvatar(id uuid.UUID) (*User, error)
 	UpdateLastSeen(id uuid.UUID, at time.Time) error
 	GetLastSeenBatch(ids []uuid.UUID) (map[uuid.UUID]LastSeenInfo, error)
-	SetShowLastSeen(id uuid.UUID, show bool) error
+	// SetPrivacy обновляет настройки приватности. nil-поле не трогается —
+	// частичное обновление, а не перезапись всего набора.
+	SetPrivacy(id uuid.UUID, showLastSeen *bool, friendRequests, dmFrom *PrivacyMode) error
 }
 
 // ChannelAccessChecker — минимальный срез ServerUseCase для мест, которым

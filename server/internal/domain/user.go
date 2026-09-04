@@ -72,6 +72,11 @@ type UserRepository interface {
 	// GetLastSeenBatch возвращает last-seen-инфо для запрошенных id одним
 	// запросом. Отсутствующие id просто не попадают в результат.
 	GetLastSeenBatch(ids []uuid.UUID) (map[uuid.UUID]LastSeenInfo, error)
+	// UpdatePrivacy обновляет только переданные (не-nil) настройки. Отдельный
+	// метод, а не Update с картой — тот же принцип, что у MarkEmailVerified
+	// и UpdateLastSeen: колонки не входят в whitelist произвольных
+	// обновлений и меняются ровно в одном сценарии.
+	UpdatePrivacy(id uuid.UUID, showLastSeen *bool, friendRequests, dmFrom *PrivacyMode) error
 }
 
 // LastSeenInfo — снимок «когда видели» с учётом приватности: Visible=false

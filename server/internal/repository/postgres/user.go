@@ -75,7 +75,7 @@ func (r *userRepository) GetByID(id uuid.UUID) (*domain.User, error) {
 	query := `
 		SELECT id, username, email, password_hash, avatar_url, status,
 		       last_server_id, last_channel_id, created_at, updated_at, email_verified_at,
-		       last_seen_at, show_last_seen
+		       last_seen_at, show_last_seen, allow_friend_requests, allow_dm_from
 		FROM users
 		WHERE id = $1
 	`
@@ -95,6 +95,8 @@ func (r *userRepository) GetByID(id uuid.UUID) (*domain.User, error) {
 		&user.EmailVerifiedAt,
 		&user.LastSeenAt,
 		&user.ShowLastSeen,
+		&user.AllowFriendRequests,
+		&user.AllowDMFrom,
 	)
 
 	if err == sql.ErrNoRows {
@@ -113,7 +115,7 @@ func (r *userRepository) GetByEmail(email string) (*domain.User, error) {
 
 	query := `
 		SELECT id, username, email, password_hash, avatar_url, status, created_at, updated_at, email_verified_at,
-		       last_seen_at, show_last_seen
+		       last_seen_at, show_last_seen, allow_friend_requests, allow_dm_from
 		FROM users
 		WHERE email = $1
 	`
@@ -131,6 +133,8 @@ func (r *userRepository) GetByEmail(email string) (*domain.User, error) {
 		&user.EmailVerifiedAt,
 		&user.LastSeenAt,
 		&user.ShowLastSeen,
+		&user.AllowFriendRequests,
+		&user.AllowDMFrom,
 	)
 
 	if err == sql.ErrNoRows {
@@ -149,7 +153,7 @@ func (r *userRepository) GetByUsername(username string) (*domain.User, error) {
 
 	query := `
 		SELECT id, username, email, password_hash, avatar_url, status, created_at, updated_at, email_verified_at,
-		       last_seen_at, show_last_seen
+		       last_seen_at, show_last_seen, allow_friend_requests, allow_dm_from
 		FROM users
 		WHERE username = $1
 	`
@@ -167,6 +171,8 @@ func (r *userRepository) GetByUsername(username string) (*domain.User, error) {
 		&user.EmailVerifiedAt,
 		&user.LastSeenAt,
 		&user.ShowLastSeen,
+		&user.AllowFriendRequests,
+		&user.AllowDMFrom,
 	)
 
 	if err == sql.ErrNoRows {
@@ -237,7 +243,8 @@ func (r *userRepository) Search(query string, limit, offset int) ([]*domain.User
 	defer cancel()
 
 	sqlQuery := `
-		SELECT id, username, email, avatar_url, status, created_at, updated_at
+		SELECT id, username, email, avatar_url, status, created_at, updated_at,
+		       allow_friend_requests, allow_dm_from
 		FROM users
 		WHERE username ILIKE $1
 		ORDER BY username
@@ -262,6 +269,8 @@ func (r *userRepository) Search(query string, limit, offset int) ([]*domain.User
 			&user.Status,
 			&user.CreatedAt,
 			&user.UpdatedAt,
+			&user.AllowFriendRequests,
+			&user.AllowDMFrom,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan user: %w", err)
@@ -308,6 +317,27 @@ func (r *userRepository) UpdateLastSeen(id uuid.UUID, at time.Time) error {
 		`UPDATE users SET last_seen_at = $1, updated_at = $1 WHERE id = $2`, at, id)
 	if err != nil {
 		return fmt.Errorf("failed to update last seen: %w", err)
+	}
+	return nil
+}
+
+func (r *userRepository) UpdatePrivacy(id uuid.UUID, showLastSeen *bool, friendRequests, dmFrom *domain.PrivacyMode) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	// COALESCE вместо динамической сборки SET: nil-параметр оставляет
+	// колонку как есть, запрос остаётся одним статическим текстом.
+	query := `
+		UPDATE users
+		SET show_last_seen        = COALESCE($2, show_last_seen),
+		    allow_friend_requests = COALESCE($3, allow_friend_requests),
+		    allow_dm_from         = COALESCE($4, allow_dm_from),
+		    updated_at            = NOW()
+		WHERE id = $1
+	`
+	_, err := r.db.Exec(ctx, query, id, showLastSeen, friendRequests, dmFrom)
+	if err != nil {
+		return fmt.Errorf("failed to update privacy: %w", err)
 	}
 	return nil
 }

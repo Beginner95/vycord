@@ -92,8 +92,8 @@ func (m *mockUserUseCase) GetLastSeenBatch(ids []uuid.UUID) (map[uuid.UUID]domai
 	return args.Get(0).(map[uuid.UUID]domain.LastSeenInfo), args.Error(1)
 }
 
-func (m *mockUserUseCase) SetShowLastSeen(id uuid.UUID, show bool) error {
-	return m.Called(id, show).Error(0)
+func (m *mockUserUseCase) SetPrivacy(id uuid.UUID, showLastSeen *bool, friendRequests, dmFrom *domain.PrivacyMode) error {
+	return m.Called(id, showLastSeen, friendRequests, dmFrom).Error(0)
 }
 
 type mockCallUseCase struct{ mock.Mock }

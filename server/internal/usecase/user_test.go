@@ -268,9 +268,10 @@ func TestSetShowLastSeen_UpdatesTheColumn(t *testing.T) {
 	uc := usecase.NewUserUseCase(userRepo, new(MockStorage))
 
 	userID := uuid.New()
-	userRepo.On("Update", userID, map[string]interface{}{"show_last_seen": false}).Return(nil)
+	show := false
+	userRepo.On("UpdatePrivacy", userID, &show, (*domain.PrivacyMode)(nil), (*domain.PrivacyMode)(nil)).Return(nil)
 
-	err := uc.SetShowLastSeen(userID, false)
+	err := uc.SetPrivacy(userID, &show, nil, nil)
 
 	require.NoError(t, err)
 	userRepo.AssertExpectations(t)

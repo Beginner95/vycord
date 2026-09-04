@@ -182,13 +182,37 @@ func (h *UserHandler) GetLastSeenBatch(w http.ResponseWriter, r *http.Request) {
 func (h *UserHandler) UpdatePrivacy(w http.ResponseWriter, r *http.Request) {
 	userID := r.Context().Value("user_id").(uuid.UUID)
 	var req struct {
-		ShowLastSeen *bool `json:"show_last_seen"`
+		ShowLastSeen        *bool               `json:"show_last_seen"`
+		AllowFriendRequests *domain.PrivacyMode `json:"allow_friend_requests"`
+		AllowDMFrom         *domain.PrivacyMode `json:"allow_dm_from"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.ShowLastSeen == nil {
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		h.sendError(w, http.StatusBadRequest, httperr.CodeInvalidBody, "invalid request body")
 		return
 	}
-	if err := h.userUseCase.SetShowLastSeen(userID, *req.ShowLastSeen); err != nil {
+	// Тело без единого поля — не «ничего не менять», а ошибка клиента.
+	if req.ShowLastSeen == nil && req.AllowFriendRequests == nil && req.AllowDMFrom == nil {
+		h.sendError(w, http.StatusBadRequest, httperr.CodeInvalidBody, "no privacy fields provided")
+		return
+	}
+	// Валидируем режимы до вызова use case: неизвестное значение не должно
+	// доходить до бизнес-логики — тот же контракт, что и ValidForFriendRequests/
+	// ValidForDM в usecase.userUseCase.SetPrivacy, но проверенный на входе.
+	if req.AllowFriendRequests != nil && !req.AllowFriendRequests.ValidForFriendRequests() {
+		h.sendError(w, http.StatusBadRequest, httperr.CodeInvalidPrivacyValue, "invalid privacy value")
+		return
+	}
+	if req.AllowDMFrom != nil && !req.AllowDMFrom.ValidForDM() {
+		h.sendError(w, http.StatusBadRequest, httperr.CodeInvalidPrivacyValue, "invalid privacy value")
+		return
+	}
+
+	err := h.userUseCase.SetPrivacy(userID, req.ShowLastSeen, req.AllowFriendRequests, req.AllowDMFrom)
+	if errors.Is(err, domain.ErrInvalidPrivacyMode) {
+		h.sendError(w, http.StatusBadRequest, httperr.CodeInvalidPrivacyValue, "invalid privacy value")
+		return
+	}
+	if err != nil {
 		h.log.Error("failed to update privacy", "request_id", middleware.RequestIDFromContext(r.Context()), "error", err)
 		h.sendError(w, http.StatusInternalServerError, httperr.CodeLastSeenFailed, "failed to update privacy")
 		return

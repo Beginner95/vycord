@@ -319,7 +319,7 @@ func TestUserHandler_UpdatePrivacy_RejectsMissingField(t *testing.T) {
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body.String())
 	}
-	mockUC.AssertNotCalled(t, "SetShowLastSeen", mock.Anything, mock.Anything)
+	mockUC.AssertNotCalled(t, "SetPrivacy", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
 }
 
 func TestUserHandler_UpdatePrivacy_Success(t *testing.T) {
@@ -329,7 +329,8 @@ func TestUserHandler_UpdatePrivacy_Success(t *testing.T) {
 	h := NewUserHandler(mockUC, hub, log)
 
 	userID := uuid.New()
-	mockUC.On("SetShowLastSeen", userID, false).Return(nil)
+	show := false
+	mockUC.On("SetPrivacy", userID, &show, (*domain.PrivacyMode)(nil), (*domain.PrivacyMode)(nil)).Return(nil)
 
 	req := httptest.NewRequest(http.MethodPatch, "/api/v1/users/me/privacy", strings.NewReader(`{"show_last_seen":false}`))
 	req = req.WithContext(context.WithValue(req.Context(), "user_id", userID))
@@ -340,4 +341,63 @@ func TestUserHandler_UpdatePrivacy_Success(t *testing.T) {
 		t.Fatalf("expected 204, got %d: %s", rec.Code, rec.Body.String())
 	}
 	mockUC.AssertExpectations(t)
+}
+
+func TestUserHandler_UpdatePrivacy_AcceptsOnlyFriendRequestsField(t *testing.T) {
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	mockUC := new(mockUserUseCase)
+	userID := uuid.New()
+	mode := domain.PrivacyMutualServers
+	mockUC.On("SetPrivacy", userID, (*bool)(nil), &mode, (*domain.PrivacyMode)(nil)).Return(nil)
+
+	h := NewUserHandler(mockUC, ws.NewHub(log), log)
+	req := httptest.NewRequest(http.MethodPatch, "/api/v1/users/me/privacy",
+		strings.NewReader(`{"allow_friend_requests":"mutual_servers"}`))
+	req = req.WithContext(context.WithValue(req.Context(), "user_id", userID))
+
+	rec := httptest.NewRecorder()
+	h.UpdatePrivacy(rec, req)
+
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("expected 204, got %d (body: %s)", rec.Code, rec.Body.String())
+	}
+	mockUC.AssertExpectations(t)
+}
+
+func TestUserHandler_UpdatePrivacy_RejectsUnknownMode(t *testing.T) {
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	mockUC := new(mockUserUseCase)
+	userID := uuid.New()
+
+	h := NewUserHandler(mockUC, ws.NewHub(log), log)
+	req := httptest.NewRequest(http.MethodPatch, "/api/v1/users/me/privacy",
+		strings.NewReader(`{"allow_dm_from":"none"}`))
+	req = req.WithContext(context.WithValue(req.Context(), "user_id", userID))
+
+	rec := httptest.NewRecorder()
+	h.UpdatePrivacy(rec, req)
+
+	// 'none' валиден для заявок, но не для ЛС: 'friends' уже самый строгий.
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for allow_dm_from=none, got %d", rec.Code)
+	}
+	mockUC.AssertNotCalled(t, "SetPrivacy", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
+}
+
+func TestUserHandler_UpdatePrivacy_RejectsEmptyBody(t *testing.T) {
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	mockUC := new(mockUserUseCase)
+	userID := uuid.New()
+
+	h := NewUserHandler(mockUC, ws.NewHub(log), log)
+	req := httptest.NewRequest(http.MethodPatch, "/api/v1/users/me/privacy",
+		strings.NewReader(`{}`))
+	req = req.WithContext(context.WithValue(req.Context(), "user_id", userID))
+
+	rec := httptest.NewRecorder()
+	h.UpdatePrivacy(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for a body with no fields, got %d", rec.Code)
+	}
 }
