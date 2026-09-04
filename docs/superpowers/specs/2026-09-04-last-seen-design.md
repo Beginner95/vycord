@@ -85,13 +85,12 @@
   `httperr.CodeInvalidBody` при ошибке парсинга → вызов usecase →
   `httperr.Code...Failed` при ошибке usecase → `204 No Content` на успех.
   Тот же скелет годится для батч-эндпоинта и для privacy-эндпоинта.
-- **Последняя миграция — `022_call_participants`**
-  (`server/migrations/022_call_participants.up.sql`), однофайловый формат
-  `-- +migrate Up` / `-- +migrate Down` в *одном* файле (не в паре
-  `.up.sql`/`.down.sql`, несмотря на то что более старые миграции вроде
-  `007_user_last_visited` используют пару файлов — оба стиля читает один и
-  тот же раннер, `022` — актуальный прецедент, ему и следуем). Новая
-  миграция — `023_user_last_seen`.
+- **Последняя миграция — `022_call_participants`**, пара файлов
+  `022_call_participants.up.sql` / `.down.sql`, каждый с собственным
+  маркером (`-- +migrate Up` / `-- +migrate Down`) — тот же парный формат,
+  что и у `007_user_last_visited`, и тот же, что генерирует
+  `make migrate-create NAME=...`. Новая миграция — пара
+  `023_user_last_seen.up.sql` / `023_user_last_seen.down.sql`.
 - **Фронт**: `UserList.tsx` — `onlineIds: Set<string>` из локального
   `useState`, подгружается `apiService.getOnlineUsers()`
   (`UserList.tsx:50-57`), рефетчится на `online_users`/`user_joined`/
@@ -150,13 +149,18 @@ id просто не появляется в ключах вместо отде�
 
 ## Модель данных
 
-Миграция `023_user_last_seen`:
+Миграция `023_user_last_seen` — пара файлов, тот же парный формат, что и
+`022_call_participants`:
 
 ```sql
+-- server/migrations/023_user_last_seen.up.sql
 -- +migrate Up
 ALTER TABLE users ADD COLUMN IF NOT EXISTS last_seen_at TIMESTAMPTZ;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS show_last_seen BOOLEAN NOT NULL DEFAULT true;
+```
 
+```sql
+-- server/migrations/023_user_last_seen.down.sql
 -- +migrate Down
 ALTER TABLE users DROP COLUMN IF EXISTS show_last_seen;
 ALTER TABLE users DROP COLUMN IF EXISTS last_seen_at;
