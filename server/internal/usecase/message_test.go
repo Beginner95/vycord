@@ -175,6 +175,10 @@ func (m *MockServerRepository) IsMember(serverID, userID uuid.UUID) (bool, error
 	args := m.Called(serverID, userID)
 	return args.Bool(0), args.Error(1)
 }
+func (m *MockServerRepository) HasMutualServer(a, b uuid.UUID) (bool, error) {
+	args := m.Called(a, b)
+	return args.Bool(0), args.Error(1)
+}
 func (m *MockServerRepository) GetMembersWithUsers(serverID uuid.UUID) ([]*domain.MemberWithUser, error) {
 	args := m.Called(serverID)
 	if args.Get(0) == nil {
