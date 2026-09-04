@@ -226,3 +226,77 @@ func TestAcceptRequest_NotMyRequest_RejectedBeforeUpdate(t *testing.T) {
 	assert.ErrorIs(t, err, domain.ErrFriendshipNotFound)
 	fr.AssertNotCalled(t, "Accept", mock.Anything, mock.Anything, mock.Anything)
 }
+
+func TestDeleteRequest_ReturnsOtherPartyForNotification(t *testing.T) {
+	uc, fr, _, _, _ := newFriendUC(t)
+	me, other := uuid.New(), uuid.New()
+	reqID := uuid.New()
+
+	fr.On("GetByID", reqID).Return(&domain.Friendship{
+		ID: reqID, RequesterID: me, AddresseeID: other, Status: domain.FriendshipPending,
+	}, nil)
+	fr.On("Delete", reqID, me).Return(nil)
+
+	otherID, err := uc.DeleteRequest(me, reqID)
+	require.NoError(t, err)
+	// Вторая сторона нужна, чтобы отправить ей friend_request_cancelled.
+	assert.Equal(t, other, otherID)
+	// otherID вычисляется из уже прочитанной заявки f и не зависит от
+	// реального удаления — без этой проверки тест не ловит регрессию, где
+	// заявка вычисляется, но фактически не удаляется.
+	fr.AssertCalled(t, "Delete", reqID, me)
+}
+
+func TestDeleteRequest_ForeignRequest_Rejected(t *testing.T) {
+	uc, fr, _, _, _ := newFriendUC(t)
+	me := uuid.New()
+	reqID := uuid.New()
+
+	fr.On("GetByID", reqID).Return(&domain.Friendship{
+		ID: reqID, RequesterID: uuid.New(), AddresseeID: uuid.New(),
+		Status: domain.FriendshipPending,
+	}, nil)
+
+	_, err := uc.DeleteRequest(me, reqID)
+	assert.ErrorIs(t, err, domain.ErrFriendshipNotFound)
+	fr.AssertNotCalled(t, "Delete", mock.Anything, mock.Anything)
+}
+
+func TestBlock_Self_Rejected(t *testing.T) {
+	uc, _, br, _, _ := newFriendUC(t)
+	me := uuid.New()
+
+	err := uc.Block(me, me)
+	assert.ErrorIs(t, err, domain.ErrSelfFriendship)
+	br.AssertNotCalled(t, "Block", mock.Anything, mock.Anything)
+}
+
+func TestBlock_DropsFriendship(t *testing.T) {
+	uc, _, br, _, _ := newFriendUC(t)
+	me, other := uuid.New(), uuid.New()
+	// Удаление дружбы — часть транзакции репозитория, юзкейс её не дублирует.
+	br.On("Block", me, other).Return(nil)
+
+	require.NoError(t, uc.Block(me, other))
+	br.AssertCalled(t, "Block", me, other)
+}
+
+func TestRemoveFriend_DeletesPair(t *testing.T) {
+	uc, fr, _, _, _ := newFriendUC(t)
+	me, other := uuid.New(), uuid.New()
+	fr.On("DeleteByPair", me, other).Return(nil)
+
+	require.NoError(t, uc.RemoveFriend(me, other))
+	// Без этой проверки тест проходит и тогда, когда RemoveFriend вообще не
+	// обращается к репозиторию — require.NoError сам по себе этого не ловит.
+	fr.AssertCalled(t, "DeleteByPair", me, other)
+}
+
+func TestUnblock_DelegatesToBlockRepo(t *testing.T) {
+	uc, _, br, _, _ := newFriendUC(t)
+	me, other := uuid.New(), uuid.New()
+	br.On("Unblock", me, other).Return(nil)
+
+	require.NoError(t, uc.Unblock(me, other))
+	br.AssertCalled(t, "Unblock", me, other)
+}

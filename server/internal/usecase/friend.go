@@ -171,15 +171,6 @@ func (uc *friendUseCase) ListBlocks(userID uuid.UUID) ([]*domain.UserBrief, erro
 	return uc.blockRepo.List(userID)
 }
 
-// errNotImplemented — временная заглушка. NewFriendUseCase возвращает
-// domain.FriendUseCase напрямую, поэтому Go проверяет соответствие
-// интерфейсу немедленно, в точке return внутри конструктора: без этих
-// методов пакет usecase не компилируется вообще, а не только при попытке
-// ими воспользоваться. AcceptRequest реализован в Task 7; DeleteRequest,
-// RemoveFriend, Block, Unblock остаются заглушками до Task 8 — эти тела
-// здесь только ради компиляции.
-var errNotImplemented = errors.New("not implemented: see Task 8")
-
 func (uc *friendUseCase) AcceptRequest(userID, requestID uuid.UUID) (*domain.FriendProfile, uuid.UUID, error) {
 	f, err := uc.friendRepo.GetByID(requestID)
 	if err != nil {
@@ -213,17 +204,40 @@ func (uc *friendUseCase) AcceptRequest(userID, requestID uuid.UUID) (*domain.Fri
 }
 
 func (uc *friendUseCase) DeleteRequest(userID, requestID uuid.UUID) (uuid.UUID, error) {
-	return uuid.Nil, errNotImplemented
+	f, err := uc.friendRepo.GetByID(requestID)
+	if err != nil {
+		return uuid.Nil, err
+	}
+	if f.RequesterID != userID && f.AddresseeID != userID {
+		// Чужая заявка. Отдаём «не найдено», а не «запрещено»: наличие
+		// заявки с таким id — тоже информация.
+		return uuid.Nil, domain.ErrFriendshipNotFound
+	}
+
+	if err := uc.friendRepo.Delete(requestID, userID); err != nil {
+		return uuid.Nil, err
+	}
+
+	other := f.AddresseeID
+	if other == userID {
+		other = f.RequesterID
+	}
+	return other, nil
 }
 
 func (uc *friendUseCase) RemoveFriend(userID, friendID uuid.UUID) error {
-	return errNotImplemented
+	return uc.friendRepo.DeleteByPair(userID, friendID)
 }
 
 func (uc *friendUseCase) Block(userID, targetID uuid.UUID) error {
-	return errNotImplemented
+	if userID == targetID {
+		return domain.ErrSelfFriendship
+	}
+	// Дружбу удаляет сам репозиторий, одной транзакцией со вставкой
+	// блокировки — здесь это не дублируется.
+	return uc.blockRepo.Block(userID, targetID)
 }
 
 func (uc *friendUseCase) Unblock(userID, targetID uuid.UUID) error {
-	return errNotImplemented
+	return uc.blockRepo.Unblock(userID, targetID)
 }
