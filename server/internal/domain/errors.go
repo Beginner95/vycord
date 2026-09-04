@@ -121,6 +121,10 @@ var (
 	ErrInteractionForbidden = errors.New("interaction forbidden")
 	// ErrInvalidPrivacyMode — неизвестное значение режима приватности.
 	ErrInvalidPrivacyMode = errors.New("invalid privacy mode")
+	// ErrUserNotFound — пользователь с указанным id/username не существует.
+	// Отдельно от ErrInteractionForbidden: то, что юзернейма не существует,
+	// не секрет (он же виден в /users поиске) — прятать тут нечего.
+	ErrUserNotFound = errors.New("user not found")
 )
 
 var (

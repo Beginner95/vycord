@@ -74,6 +74,8 @@ func main() {
 	// Initialize repositories
 	userRepo := postgres.NewUserRepository(db)
 	serverRepo := postgres.NewServerRepository(db)
+	friendRepo := postgres.NewFriendRepository(db)
+	blockRepo := postgres.NewBlockRepository(db)
 	channelRepo := postgres.NewChannelRepository(db)
 	messageRepo := postgres.NewMessageRepository(db)
 	callRepo := postgres.NewCallRepository(db)
@@ -124,6 +126,7 @@ func main() {
 	inviteUseCase := usecase.NewInviteUseCase(inviteRepo, serverRepo, permissionUseCase)
 	roleUseCase := usecase.NewRoleUseCase(serverRepo, roleRepo, permissionUseCase)
 	serverUseCase := usecase.NewServerUseCase(serverRepo, channelRepo, userRepo, roleRepo, storage, permissionUseCase)
+	friendUseCase := usecase.NewFriendUseCase(friendRepo, blockRepo, userRepo, serverRepo)
 	voiceTokenUseCase := usecase.NewVoiceTokenUseCase(serverUseCase, cfg.JWTSecret)
 	messageUseCase := usecase.NewMessageUseCase(messageRepo, channelRepo, serverRepo, stickerRepo, permissionUseCase, attachmentRepo, storage)
 	stickerUseCase := usecase.NewStickerUseCase(stickerRepo, serverRepo, permissionUseCase, storage)
@@ -201,6 +204,7 @@ func main() {
 	roleHandler := handler.NewRoleHandler(roleUseCase, permissionUseCase, log)
 	voiceTokenHandler := handler.NewVoiceTokenHandler(voiceTokenUseCase, log)
 	attachmentHandler := handler.NewAttachmentHandler(attachmentUseCase, quotaUseCase, attachmentSigner, cfg.MaxUploadBytes, log)
+	friendHandler := handler.NewFriendHandler(friendUseCase, hub, log)
 
 	// Setup router
 	router := http.NewServeMux()
@@ -234,6 +238,17 @@ func main() {
 	router.HandleFunc("DELETE /api/v1/users/me/avatar", authMid.RequireAuth(userHandler.RemoveAvatar))
 	router.HandleFunc("POST /api/v1/users/last-seen", authMid.RequireAuth(userHandler.GetLastSeenBatch))
 	router.HandleFunc("PATCH /api/v1/users/me/privacy", authMid.RequireAuth(userHandler.UpdatePrivacy))
+
+	// Friends (VYC-90)
+	router.HandleFunc("GET /api/v1/friends", authMid.RequireAuth(friendHandler.ListFriends))
+	router.HandleFunc("GET /api/v1/friends/requests", authMid.RequireAuth(friendHandler.ListRequests))
+	router.HandleFunc("POST /api/v1/friends/requests", authMid.RequireAuth(friendHandler.SendRequest))
+	router.HandleFunc("POST /api/v1/friends/requests/{id}/accept", authMid.RequireAuth(friendHandler.AcceptRequest))
+	router.HandleFunc("DELETE /api/v1/friends/requests/{id}", authMid.RequireAuth(friendHandler.DeleteRequest))
+	router.HandleFunc("DELETE /api/v1/friends/{user_id}", authMid.RequireAuth(friendHandler.RemoveFriend))
+	router.HandleFunc("GET /api/v1/blocks", authMid.RequireAuth(friendHandler.ListBlocks))
+	router.HandleFunc("POST /api/v1/blocks", authMid.RequireAuth(friendHandler.Block))
+	router.HandleFunc("DELETE /api/v1/blocks/{user_id}", authMid.RequireAuth(friendHandler.Unblock))
 
 	// Server routes
 	router.HandleFunc("POST /api/v1/servers", authMid.RequireAuth(serverHandler.CreateServer))
