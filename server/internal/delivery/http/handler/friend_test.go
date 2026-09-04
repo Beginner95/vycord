@@ -136,3 +136,32 @@ func TestFriendHandler_SendRequest_EmptyUsernameRejected(t *testing.T) {
 	}
 	uc.AssertNotCalled(t, "SendRequest", mock.Anything, mock.Anything)
 }
+
+// Регрессия на баг GetByUsername: postgres-репозиторий сравнивал ошибку с
+// sql.ErrNoRows вместо pgx.ErrNoRows (драйвер — pgx) и никогда не совпадал,
+// так что заявка несуществующему username улетала в default/500 вместо 404.
+// Этот тест проверяет только слой хендлера — что ErrUserNotFound от
+// use case транслируется в 404 user_not_found, а не в 500. Сам фикс в
+// postgres.GetByUsername (pgx.ErrNoRows -> domain.ErrUserNotFound) проверен
+// отдельно живым запросом к БД, см. отчёт задачи.
+func TestFriendHandler_SendRequest_UnknownUsernameIs404(t *testing.T) {
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	uc := new(mockFriendUseCase)
+	me := uuid.New()
+	uc.On("SendRequest", me, "ghost").Return(nil, nil, false, domain.ErrUserNotFound)
+
+	h := NewFriendHandler(uc, ws.NewHub(log), log)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/friends/requests",
+		strings.NewReader(`{"username":"ghost"}`))
+	req = req.WithContext(context.WithValue(req.Context(), "user_id", me))
+
+	rec := httptest.NewRecorder()
+	h.SendRequest(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "user_not_found") {
+		t.Fatalf("expected code user_not_found, got: %s", rec.Body.String())
+	}
+}

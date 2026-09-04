@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/vycord/server/internal/domain"
@@ -175,8 +176,8 @@ func (r *userRepository) GetByUsername(username string) (*domain.User, error) {
 		&user.AllowDMFrom,
 	)
 
-	if err == sql.ErrNoRows {
-		return nil, fmt.Errorf("user not found")
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, domain.ErrUserNotFound
 	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to get user: %w", err)
