@@ -112,13 +112,15 @@ func TestCanDM_NotFriend_PrivacyFriends_Rejected(t *testing.T) {
 }
 
 func TestCanDM_BlockedFriend_StillRejected(t *testing.T) {
-	uc, _, br, ur, _ := newFriendUC(t)
+	uc, fr, br, ur, _ := newFriendUC(t)
 	me, other := uuid.New(), uuid.New()
 	ur.On("GetByID", other).Return(userWith(other, "other", domain.PrivacyEveryone, domain.PrivacyEveryone), nil)
 	// Блокировка проверяется ПЕРВОЙ и короткозамыкает дружбу.
 	br.On("IsBlockedEither", me, other).Return(true, nil)
+	// Намеренно НЕ регистрируем ожидание на IsFriend: если код дойдёт до
+	// проверки дружбы, testify-мок запаникует на неожиданном вызове — это
+	// само по себе сигнализирует о нарушении короткого замыкания.
 
 	assert.ErrorIs(t, uc.CanDM(me, other), domain.ErrInteractionForbidden)
-	fr := new(MockFriendRepository)
 	fr.AssertNotCalled(t, "IsFriend")
 }
