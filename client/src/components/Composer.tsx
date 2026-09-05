@@ -104,7 +104,9 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pickerTab, setPickerTab] = useState<ExpressionTab>('emoji');
   const [linkOpen, setLinkOpen] = useState(false);
-  // Own local boolean, in the same style as emojiOpen/stickerOpen above.
+  // Own local boolean, mutually exclusive with `pickerOpen` via `togglePicker`
+  // below — the `emojiOpen`/`stickerOpen` pair it once paired with was
+  // collapsed into `pickerOpen`/`pickerTab` in Task 5.
   const [attachOpen, setAttachOpen] = useState(false);
 
   /**
@@ -409,6 +411,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
         <ExpressionPicker
           tabs={['emoji', 'stickers', 'gif']}
           initialTab={pickerTab}
+          onTabChange={setPickerTab}
           onClose={() => setPickerOpen(false)}
           onSelectEmoji={(emoji) => { insertAtCaret(target, emoji); setPickerOpen(false); }}
           stickers={{
