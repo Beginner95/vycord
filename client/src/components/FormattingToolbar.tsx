@@ -22,7 +22,7 @@ export function FormattingToolbar({ onWrap, onBullet, onNumbered, onLink, onPick
   // The emoji button is the only one here that OPENS a dismissible surface, and
   // it needs a second, different guarantee. `useDismissOnOutside` dismisses on
   // BUBBLE-phase document `mousedown`, so without stopPropagation the press
-  // closes the open picker and this button's own `onEmojiToggle` immediately
+  // closes the open picker and this button's own `onPickerToggle` immediately
   // re-opens it — the toggle can never close its own picker. `preventDefault`
   // alone does NOT stop propagation, which is why the shared `prevent` above
   // was never enough. Both render sites of this toolbar (Composer and
@@ -34,7 +34,7 @@ export function FormattingToolbar({ onWrap, onBullet, onNumbered, onLink, onPick
   // where `quote` is absent — and stopPropagation on a document-level
   // `mousedown` starves EVERY document-mousedown dismisser for that click.
   // Measured call sites: ContextMenu.tsx:37, VolumeControlPopover.tsx:60,
-  // useFloatingSelectionToolbar.ts:76, plus useDismissOnOutside.ts:65 itself.
+  // useFloatingSelectionToolbar.ts:76, plus useDismissOnOutside.ts:73 itself.
   // Widening the opt-out to all of them would break outside-dismissal for those
   // three surfaces to fix one button's problem.
   const preventAndStop = (e: MouseEvent) => { e.preventDefault(); e.stopPropagation(); };

@@ -462,12 +462,15 @@
 
 /* M5.5 T5: the attach popover now wears the same shell as its composer
    sibling (ExpressionPicker.css) — --canvas fill, --line
-   hairline, 12px radius, --shadow-popover — instead of the legacy aliases it
-   arrived with. It anchors to `.composer-field`, the nearest positioned
-   ancestor.
+   hairline, --shadow-popover — instead of the legacy aliases it arrived with.
+   Corners are NOT the same, though: `.attach-picker` below stays at the 12px
+   literal (never used ExpressionPicker's radius), while `ExpressionPicker.css`
+   uses `var(--radius-modal)` (16px) — the two shells share fill/border/shadow
+   but not corner radius. It anchors to `.composer-field`, the nearest
+   positioned ancestor.
 
    `right: 0`, not `left: 0`. The attach button is the second control from the
-   RIGHT end of the field (Composer.tsx:381, between the emoji toggle and send),
+   RIGHT end of the field (Composer.tsx:393, between the emoji toggle and send),
    so anchoring the popover to the field's left edge opened it at the opposite
    end of the composer from the control that owns it — reported from manual QA.
    Right-anchoring puts its edge under the button group. Do not "restore" the
