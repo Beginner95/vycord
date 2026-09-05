@@ -62,7 +62,7 @@ export function ProfileSettings() {
     updateUser({ show_last_seen: checked });
     setPrivacyError(null);
     try {
-      await apiService.updatePrivacy(checked);
+      await apiService.updatePrivacy({ show_last_seen: checked });
     } catch (err) {
       updateUser({ show_last_seen: previous });
       setPrivacyError(apiErrorText(err, t));
