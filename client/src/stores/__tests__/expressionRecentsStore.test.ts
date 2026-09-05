@@ -75,6 +75,23 @@ describe('recordEmoji', () => {
     expect(Object.keys(bucket)).toHaveLength(MAX_ENTRIES_PER_BUCKET);
     expect(bucket.keeper).toBeDefined();
   });
+
+  it('does not evict the key it just wrote, even at the cap with every existing entry ahead of it on count', () => {
+    // Заполняем корзину до предела записями с count: 2 — новый ключ входит с
+    // count: 1 и по rank() всегда проигрывает всем существующим (count решает
+    // раньше lastUsed), так что naive prune после bump выбросил бы именно его
+    // же — запись стала бы тихим no-op, а строка «часто используемых»
+    // замёрзла бы навсегда.
+    const full: Record<string, { count: number; lastUsed: number }> = {};
+    for (let i = 0; i < MAX_ENTRIES_PER_BUCKET; i++) {
+      full[`e${i}`] = { count: 2, lastUsed: i };
+    }
+    useExpressionRecentsStore.setState({ emoji: full });
+    useExpressionRecentsStore.getState().recordEmoji('new');
+    const bucket = useExpressionRecentsStore.getState().emoji;
+    expect(bucket.new).toBeDefined();
+    expect(Object.keys(bucket)).toHaveLength(MAX_ENTRIES_PER_BUCKET);
+  });
 });
 
 describe('recordSticker', () => {
@@ -84,17 +101,24 @@ describe('recordSticker', () => {
     expect(useExpressionRecentsStore.getState().stickers.s2).toBeUndefined();
   });
 
-  it('evicts the least-recently-touched server past MAX_SERVER_BUCKETS', () => {
+  it('evicts the least-recently-touched server past MAX_SERVER_BUCKETS, not the oldest-inserted', () => {
+    // srv0 is inserted FIRST but given the NEWEST lastUsed, so a test that
+    // merely checked "srv0 is gone" couldn't tell recency-based eviction from
+    // plain FIFO — both would drop srv0. Give it the newest lastUsed instead:
+    // it must survive, and the genuinely least-recent bucket (srv1) must be
+    // the one dropped.
     for (let i = 0; i < MAX_SERVER_BUCKETS; i++) {
+      const lastUsed = i === 0 ? 1000 + MAX_SERVER_BUCKETS : 1000 + i;
       useExpressionRecentsStore.setState((s) => ({
-        stickers: { ...s.stickers, [`srv${i}`]: { x: { count: 1, lastUsed: 1000 + i } } },
+        stickers: { ...s.stickers, [`srv${i}`]: { x: { count: 1, lastUsed } } },
       }));
     }
     useExpressionRecentsStore.getState().recordSticker('srv-new', 'st-a');
     const ids = Object.keys(useExpressionRecentsStore.getState().stickers);
     expect(ids).toHaveLength(MAX_SERVER_BUCKETS);
     expect(ids).toContain('srv-new');
-    expect(ids).not.toContain('srv0'); // самый старый lastUsed
+    expect(ids).toContain('srv0'); // самый свежий lastUsed — должен выжить
+    expect(ids).not.toContain('srv1'); // теперь самый старый lastUsed
   });
 });
 

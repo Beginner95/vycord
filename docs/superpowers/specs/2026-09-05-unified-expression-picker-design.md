@@ -114,8 +114,10 @@ testable without React:
 Both sort `count` desc, then `lastUsed` desc.
 
 **Caps.** Track at most 64 entries per bucket and 20 server buckets; on write,
-evict lowest `count`, oldest `lastUsed` first. Display 8 emoji (one row of the
-8-column grid) and 6 stickers (two rows of three).
+evict lowest `count`, oldest `lastUsed` first among every OTHER key to make
+room for the entry being written — that entry itself is never a candidate for
+its own eviction. Display 8 emoji (one row of the 8-column grid) and 6
+stickers (two rows of three).
 
 **Resolution.** `topStickers` returns ids; `StickerPanel` maps them against the
 live `items` array and **drops misses**. A sticker deleted from the server

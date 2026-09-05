@@ -103,10 +103,13 @@ export function topStickers(state: RecentsState, serverId: string, limit: number
   return rank(state.stickers[serverId] ?? {}, limit);
 }
 
-function pruneBucket(bucket: Record<string, RecentEntry>): Record<string, RecentEntry> {
+function pruneBucket(
+  bucket: Record<string, RecentEntry>,
+  limit: number = MAX_ENTRIES_PER_BUCKET,
+): Record<string, RecentEntry> {
   const keys = Object.keys(bucket);
-  if (keys.length <= MAX_ENTRIES_PER_BUCKET) return bucket;
-  const kept = rank(bucket, MAX_ENTRIES_PER_BUCKET);
+  if (keys.length <= limit) return bucket;
+  const kept = rank(bucket, limit);
   return Object.fromEntries(kept.map((k) => [k, bucket[k]]));
 }
 
@@ -116,7 +119,17 @@ function bump(
   now: number,
 ): Record<string, RecentEntry> {
   const prev = bucket[key];
-  return pruneBucket({ ...bucket, [key]: { count: (prev?.count ?? 0) + 1, lastUsed: now } });
+  const entry = { count: (prev?.count ?? 0) + 1, lastUsed: now };
+  // The key being written must survive this same call: at a full bucket a
+  // brand-new key enters at count: 1 and rank() puts it last (count decides
+  // before the lastUsed tiebreak), so pruning it back in with everyone else
+  // would silently evict the very write we're making. Prune the OTHER keys
+  // down to room-for-one, then add the bumped entry back on top — eviction
+  // still takes the lowest count / oldest lastUsed first among every other
+  // key, exactly as before.
+  const { [key]: _omit, ...others } = bucket;
+  const keptOthers = pruneBucket(others, MAX_ENTRIES_PER_BUCKET - 1);
+  return { ...keptOthers, [key]: entry };
 }
 
 /** Свежесть сервера — максимальный lastUsed внутри его корзины. */
