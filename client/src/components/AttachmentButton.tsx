@@ -28,7 +28,7 @@ interface AttachmentButtonProps {
  *
  * M5.5 T3, verified empirically. That hook registers a CAPTURE-phase document
  * keydown listener which, on Escape, calls `preventDefault()` and
- * `stopPropagation()` (useDismissOnOutside.ts:61-62, registered at :66). The
+ * `stopPropagation()` (useDismissOnOutside.ts:69-70, registered at :74). The
  * hook's only other call site (ExpressionPicker) is itself
  * mounted only while open, so the swallow lasts exactly as long as the surface
  * that wants Escape. AttachmentButton called the hook from the always-mounted
