@@ -358,7 +358,7 @@
    Live consumers, RE-DERIVED from `rg -n 'fade-in|scale-in|modal-in' src/` at
    M6 T4 — every line number below was re-checked, not carried forward — so
    check before deleting any of these:
-     fade-in  — .modal-overlay below; EmojiPicker.css:18, StickerPicker.css:17
+     fade-in  — .modal-overlay below; ExpressionPicker.css:32
      scale-in — .context-menu below. NO external consumers left: T9's
                 AvatarCropModal.css rewrite dropped the last one (it was the
                 only file outside primitives.css using it).

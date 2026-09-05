@@ -460,8 +460,8 @@
   }
 }
 
-/* M5.5 T5: the attach popover now wears the same shell as its two composer
-   siblings (EmojiPicker.css / StickerPicker.css) — --canvas fill, --line
+/* M5.5 T5: the attach popover now wears the same shell as its composer
+   sibling (ExpressionPicker.css) — --canvas fill, --line
    hairline, 12px radius, --shadow-popover — instead of the legacy aliases it
    arrived with. It anchors to `.composer-field`, the nearest positioned
    ancestor.
