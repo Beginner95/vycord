@@ -13,8 +13,7 @@ import { SendHorizontal, Smile, Sticker } from 'lucide-react';
 import { FormattingToolbar } from '@/components/FormattingToolbar';
 import { FloatingQuoteButton } from '@/components/FloatingQuoteButton';
 import { MentionDropdown } from '@/components/MentionDropdown';
-import { EmojiPicker } from '@/components/EmojiPicker';
-import { StickerPicker } from '@/components/StickerPicker';
+import { ExpressionPicker } from '@/components/ExpressionPicker';
 import { LinkDialog } from '@/components/LinkDialog';
 import { AttachmentButton } from '@/components/AttachmentButton';
 import { AttachmentTray } from '@/components/AttachmentTray';
@@ -33,6 +32,7 @@ import {
 import { isUnsafeUrl } from '@/utils/markdown';
 import { useT } from '@/i18n';
 import type { Attachment, Channel, MemberWithUser, Sticker as ServerSticker } from '@/types';
+import type { ExpressionTab } from '@/stores/expressionRecentsStore';
 import './Composer.css';
 
 const QUOTE_PREFIX = '> ';
@@ -80,7 +80,7 @@ interface ComposerProps {
 }
 
 /**
- * The whole compose path: the field, its formatting/mention/emoji/sticker
+ * The whole compose path: the field, its formatting/mention/expression
  * chrome and every text transform that acts on the draft. ChatArea only
  * supplies the send callbacks and the sticker inventory.
  */
@@ -101,44 +101,54 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
   const [input, setInput] = useState('');
   const [caretInQuoteLine, setCaretInQuoteLine] = useState(false);
   const [fmtOpen, setFmtOpen] = useState(false);
-  const [emojiOpen, setEmojiOpen] = useState(false);
-  const [stickerOpen, setStickerOpen] = useState(false);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [pickerTab, setPickerTab] = useState<ExpressionTab>('emoji');
   const [linkOpen, setLinkOpen] = useState(false);
   // Own local boolean, in the same style as emojiOpen/stickerOpen above.
   const [attachOpen, setAttachOpen] = useState(false);
 
   /**
-   * The three popover surfaces are MUTUALLY EXCLUSIVE: opening one closes the
-   * others. Every toggle below goes through this, never through a bare setter.
+   * The two popover surfaces are MUTUALLY EXCLUSIVE: opening one closes the
+   * other. Every toggle below goes through this, never through a bare setter.
+   *
+   * The set used to be three — emoji, sticker, attach. Emoji and sticker are
+   * now one ExpressionPicker with tabs, so it is two.
    *
    * Exclusion has to live here because the toggles opt out of the only
    * mechanism that would otherwise provide it. `useDismissOnOutside` dismisses
    * on a DOCUMENT bubble-phase `mousedown`, and each toggle carries
-   * `onMouseDown={(e) => e.stopPropagation()}` so it can close its own picker
-   * (M5.5 T4). React's SyntheticEvent.stopPropagation() calls
+   * `onMouseDown={(e) => e.stopPropagation()}` so it can close its own picker.
+   * React's SyntheticEvent.stopPropagation() calls
    * nativeEvent.stopPropagation() at the root container, so that press never
    * reaches the document — and the document listener is also what would have
-   * dismissed the OTHER picker. The opt-out and cross-dismissal cannot both
+   * dismissed the OTHER surface. The opt-out and cross-dismissal cannot both
    * come from that one listener; the opt-out is the one worth keeping (it is
    * what makes a toggle able to close its own picker), so exclusion is
    * explicit state here.
    *
-   * Measured, not assumed: `.emoji-picker` (264x240) and `.sticker-picker`
-   * (324x320) share `right:12px; bottom:calc(100% + 8px)` and `z-index:30`,
-   * and emoji renders before sticker below, so the sticker panel paints on top
-   * and fully contains the emoji one — sticker-then-emoji produced no visible
-   * change at all. Covered by tools/probe-picker-exclusion.js, which walks
-   * every ordered pair.
-   *
    * `fmtOpen` and `linkOpen` are deliberately OUTSIDE the set. The formatting
    * toolbar is a persistent strip rather than an occluding popover, and it is
-   * what renders the second emoji toggle — closing it on open would detach
+   * what renders the second picker toggle — closing it on open would detach
    * that button mid-interaction. `linkOpen` is a dialog with its own scrim.
    */
-  const togglePicker = (which: 'emoji' | 'sticker' | 'attach') => {
-    setEmojiOpen((v) => (which === 'emoji' ? !v : false));
-    setStickerOpen((v) => (which === 'sticker' ? !v : false));
+  const togglePicker = (which: 'picker' | 'attach') => {
+    setPickerOpen((v) => (which === 'picker' ? !v : false));
     setAttachOpen((v) => (which === 'attach' ? !v : false));
+  };
+
+  /**
+   * Emoji and sticker share one surface, so their buttons differ only in which
+   * tab they land on. Pressing the button for the tab already showing closes
+   * the picker; pressing the other SWITCHES tab rather than closing — the
+   * behaviour that motivates merging the two surfaces in the first place.
+   */
+  const openPickerOn = (tab: ExpressionTab) => {
+    if (pickerOpen && pickerTab !== tab) {
+      setPickerTab(tab);
+      return;
+    }
+    setPickerTab(tab);
+    togglePicker('picker');
   };
 
   // Shares one zustand store with ChatArea's own call of this hook: the hook
@@ -317,8 +327,8 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
           onBullet={() => applyLineToggle(target, toggleBullet)}
           onNumbered={() => applyLineToggle(target, toggleNumbered)}
           onLink={() => setLinkOpen(true)}
-          onPickerToggle={() => togglePicker('emoji')}
-          pickerOpen={emojiOpen}
+          onPickerToggle={() => openPickerOn('emoji')}
+          pickerOpen={pickerOpen && pickerTab === 'emoji'}
           quote={{ active: caretInQuoteLine, onToggle: toggleQuotePrefix }}
         />
       )}
@@ -352,7 +362,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
         </button>
         <button
           type="button"
-          className={`composer-icon-btn${stickerOpen ? ' is-active' : ''}`}
+          className={`composer-icon-btn${pickerOpen && pickerTab === 'stickers' ? ' is-active' : ''}`}
           aria-label={t('chat.stickers')}
           title={t('chat.stickers')}
           // useDismissOnOutside dismisses on BUBBLE-phase `mousedown`, so any
@@ -362,19 +372,19 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
           // toggle can never close its own picker. Same opt-out as
           // AttachmentButton's, which inherited it from develop.
           onMouseDown={(e) => e.stopPropagation()}
-          onClick={() => togglePicker('sticker')}
+          onClick={() => openPickerOn('stickers')}
         >
           <Sticker size={17} strokeWidth={1.8} />
         </button>
         <button
           type="button"
-          className={`composer-icon-btn${emojiOpen ? ' is-active' : ''}`}
+          className={`composer-icon-btn${pickerOpen && pickerTab === 'emoji' ? ' is-active' : ''}`}
           aria-label={t('chat.emoji')}
           title={t('chat.emoji')}
           // See the sticker toggle above: bubble-phase `mousedown` opt-out, or
           // the picker can never be closed by its own button.
           onMouseDown={(e) => e.stopPropagation()}
-          onClick={() => togglePicker('emoji')}
+          onClick={() => openPickerOn('emoji')}
         >
           <Smile size={17} strokeWidth={1.8} />
         </button>
@@ -395,18 +405,24 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
         <MentionDropdown mention={mention} />
       </form>
       <p className="composer-hint">{t('chat.composerHint')}</p>
-      {emojiOpen && (
-        <EmojiPicker
-          onSelect={(emoji) => { insertAtCaret(target, emoji); setEmojiOpen(false); }}
-          onClose={() => setEmojiOpen(false)}
-        />
-      )}
-      {stickerOpen && (
-        <StickerPicker
-          stickers={serverStickers}
-          onSelect={(sticker) => { void onSendSticker(sticker).then((ok) => { if (ok) setStickerOpen(false); }); }}
-          onClose={() => setStickerOpen(false)}
-          onManage={canManageStickers ? () => { setStickerOpen(false); onOpenStickerManager(); } : undefined}
+      {pickerOpen && (
+        <ExpressionPicker
+          tabs={['emoji', 'stickers', 'gif']}
+          initialTab={pickerTab}
+          onClose={() => setPickerOpen(false)}
+          onSelectEmoji={(emoji) => { insertAtCaret(target, emoji); setPickerOpen(false); }}
+          stickers={{
+            serverId: channel.server_id,
+            items: serverStickers,
+            onSend: async (sticker) => {
+              const ok = await onSendSticker(sticker);
+              if (ok) setPickerOpen(false);
+              return ok;
+            },
+            onManage: canManageStickers
+              ? () => { setPickerOpen(false); onOpenStickerManager(); }
+              : undefined,
+          }}
         />
       )}
       <LinkDialog
