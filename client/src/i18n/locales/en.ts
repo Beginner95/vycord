@@ -59,7 +59,6 @@ export const en: Dictionary = {
     insertEmoji: 'Insert emoji',
     frequentlyUsed: 'Frequently used',
     gif: 'GIF',
-    comingSoon: 'soon',
     emojiCategory: {
       smileys: 'People',
       gestures: 'Gestures',

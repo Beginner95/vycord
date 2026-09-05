@@ -1,5 +1,8 @@
 import { create } from 'zustand';
 
+// 'gif' is reserved for a future tab — no picker currently renders it (see
+// setLastTab below), but the union keeps it so a GIF panel can land later
+// without another migration of persisted state.
 export type ExpressionTab = 'emoji' | 'stickers' | 'gif';
 
 export interface RecentEntry {

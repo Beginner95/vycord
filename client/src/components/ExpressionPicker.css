@@ -59,11 +59,6 @@
   transition: background var(--transition), color var(--transition);
 }
 
-.expression-picker-tab:disabled {
-  color: var(--muted-2);
-  cursor: default;
-}
-
 .expression-picker-tab:hover:not(:disabled) {
   color: var(--ink);
   background: var(--canvas-2);
@@ -72,15 +67,6 @@
 .expression-picker-tab.is-active {
   color: var(--accent-text);
   background: var(--accent-soft);
-}
-
-.expression-picker-chip {
-  padding: 2px 6px;
-  font-size: 10px;
-  font-weight: 600;
-  text-transform: uppercase;
-  background: var(--canvas-3);
-  border-radius: var(--radius-chip);
 }
 
 .expression-picker-body {
