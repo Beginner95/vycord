@@ -113,7 +113,9 @@
    .app-layout / mobile-panel band system at all. */
 .app-account-dock {
   position: fixed;
-  left: 92px; /* 76px server rail + 16px gutter — never overlaps the rail */
+
+  /* 76px server rail + 22px .sidebar-gutter (M6 T15) — never overlaps the rail. */
+  left: 98px;
   bottom: 16px;
   width: 252px;
   max-width: calc(100vw - 32px);
@@ -122,7 +124,15 @@
   border-radius: var(--radius-card);
   overflow: hidden;
   box-shadow: var(--shadow-card);
-  z-index: var(--z-overlay);
+
+  /* Намеренно БЕЗ z-index: это персистентный, не на весь вьюпорт элемент
+     хрома (как CallDock/.user-panel были раньше), не блокирующий скрим —
+     overlay-контракт (client/docs/design-system.md) на него не
+     распространяется. z-index: var(--z-overlay) здесь был реальным багом:
+     тот же токен, что у .modal-overlay, и более поздний порядок в DOM
+     красил док поверх фона любой открытой модалки. Без z-index элемент
+     стекуется на базовом уровне — ниже любой модалки (--z-overlay: 1000)
+     без явного числового литерала (запрещён design-system.md). */
 }
 
 .app-account-dock > *:first-child {
