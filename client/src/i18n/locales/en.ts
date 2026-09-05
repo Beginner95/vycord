@@ -412,6 +412,10 @@ export const en: Dictionary = {
     hide: 'Hide sidebar',
     show: 'Show sidebar',
   },
+  friends: {
+    title: 'Friends',
+    pendingBadge: 'Incoming friend requests',
+  },
   palette: {
     title: 'Quick jump',
     placeholder: 'Channels, messages, actions…',

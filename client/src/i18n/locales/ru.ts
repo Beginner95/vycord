@@ -425,6 +425,10 @@ export const ru = {
     hide: 'Скрыть сайдбар',
     show: 'Показать сайдбар',
   },
+  friends: {
+    title: 'Друзья',
+    pendingBadge: 'Входящие заявки в друзья',
+  },
   palette: {
     title: 'Быстрый переход',
     placeholder: 'Каналы, сообщения, действия…',

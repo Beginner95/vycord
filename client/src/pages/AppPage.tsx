@@ -7,6 +7,7 @@ import { wsService } from '@/services/websocket';
 import { apiService, apiErrorText } from '@/services/api';
 import { logger } from '@/utils/logger';
 import { ServerList } from '@/components/ServerList';
+import { HomeView } from '@/components/HomeView';
 import { ChannelSidebar } from '@/components/ChannelSidebar';
 import { ChatArea } from '@/components/ChatArea';
 import { FindServerModal } from '@/components/FindServerModal';
@@ -20,6 +21,7 @@ import { CallStage } from '@/components/CallStage';
 import { CallNotifBanner } from '@/components/CallNotifBanner';
 import { groupCallService } from '@/services/groupCall';
 import { useCallStore, initCallBridge } from '@/stores/callStore';
+import { useFriendStore } from '@/stores/friendStore';
 import { usePaletteHotkey } from '@/hooks/usePaletteHotkey';
 import { useT } from '@/i18n';
 import type { Server, Channel, Message, MemberWithUser } from '@/types';
@@ -85,6 +87,7 @@ export function AppPage() {
   const { user, accessToken, logout } = useAuthStore();
   const { servers, setServers, setServersLoaded, setCurrentServer, currentServer, setChannels, channels, currentChannel, setCurrentChannel, setMembers, members, setPermissions } = useServerStore();
   const { setMessages } = useMessageStore();
+  const pendingCount = useFriendStore((s) => s.incoming.length);
   const [showCreateServer, setShowCreateServer] = useState(false);
   const [findServerOpen, setFindServerOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -534,6 +537,12 @@ export function AppPage() {
     setMembersOpen((v) => !v);
   };
 
+  const handleSelectHome = () => {
+    setCurrentServer(null);
+    setCurrentChannel(null);
+    setMobilePanel('chat');
+  };
+
   const handleSelectServer = async (server: Server) => {
     setCurrentServer(server);
     setMembers([]);
@@ -673,57 +682,65 @@ logger.error('Failed to create server:', err, { module: 'app' });
           onCreateServer={() => { setShowCreateServer(true); setCreateServerError(''); }}
           onOpenFindServer={() => setFindServerOpen(true)}
           onServerDeleted={handleServerRemoved}
+          onSelectHome={handleSelectHome}
+          pendingCount={pendingCount}
         />
 
-        <ChannelSidebar
-          server={currentServer}
-          channels={channels}
-          currentChannel={currentChannel}
-          onSelectChannel={handleSelectChannel}
-          onJoinVoice={handleJoinVoice}
-          user={user}
-          onLogout={handleLogout}
-          onMobileBack={() => setMobilePanel('servers')}
-          voiceParticipants={voiceParticipants}
-          members={members}
-          onChannelDeleted={handleChannelRemoved}
-          onGoToCall={handleGoToCall}
-          onServerDeleted={handleServerRemoved}
-          onOpenSettings={() => setSettingsOpen(true)}
-          onCreateChannel={() => setCreateChannelOpen(true)}
-        />
+        {currentServer ? (
+          <>
+            <ChannelSidebar
+              server={currentServer}
+              channels={channels}
+              currentChannel={currentChannel}
+              onSelectChannel={handleSelectChannel}
+              onJoinVoice={handleJoinVoice}
+              user={user}
+              onLogout={handleLogout}
+              onMobileBack={() => setMobilePanel('servers')}
+              voiceParticipants={voiceParticipants}
+              members={members}
+              onChannelDeleted={handleChannelRemoved}
+              onGoToCall={handleGoToCall}
+              onServerDeleted={handleServerRemoved}
+              onOpenSettings={() => setSettingsOpen(true)}
+              onCreateChannel={() => setCreateChannelOpen(true)}
+            />
 
-        {/* Сцена звонка показывается только в том канале, где идёт звонок:
-            уход в другой канал размонтирует её, а сам звонок продолжается —
-            его состояние и подписки живут в сторе. */}
-        <div className="channel-body" style={{ '--call-stage-height': `${stageHeight}%` } as React.CSSProperties}>
-          {callChannelId && callChannelId === currentChannel?.id && (
-            <>
-              <CallStage onMobileBackToChat={() => setMobilePanel('chat')} />
-              <div
-                className="call-split-handle"
-                onPointerDown={handleSplitDragStart}
-                role="separator"
-                aria-label={t('call.resizeSplit')}
+            {/* Сцена звонка показывается только в том канале, где идёт звонок:
+                уход в другой канал размонтирует её, а сам звонок продолжается —
+                его состояние и подписки живут в сторе. */}
+            <div className="channel-body" style={{ '--call-stage-height': `${stageHeight}%` } as React.CSSProperties}>
+              {callChannelId && callChannelId === currentChannel?.id && (
+                <>
+                  <CallStage onMobileBackToChat={() => setMobilePanel('chat')} />
+                  <div
+                    className="call-split-handle"
+                    onPointerDown={handleSplitDragStart}
+                    role="separator"
+                    aria-label={t('call.resizeSplit')}
+                  />
+                </>
+              )}
+              <ChatArea
+                channel={currentChannel}
+                user={user}
+                onMobileBack={() => setMobilePanel('channels')}
+                onShowMembers={handleToggleMembers}
+                onJoinVoice={handleJoinVoice}
+                onShowCall={
+                  callChannelId && callChannelId === currentChannel?.id
+                    ? () => setMobilePanel('call')
+                    : undefined
+                }
+                onCreateServer={() => { setShowCreateServer(true); setCreateServerError(''); }}
+                onFindServer={() => setFindServerOpen(true)}
+                voiceParticipants={voiceParticipants}
               />
-            </>
-          )}
-          <ChatArea
-            channel={currentChannel}
-            user={user}
-            onMobileBack={() => setMobilePanel('channels')}
-            onShowMembers={handleToggleMembers}
-            onJoinVoice={handleJoinVoice}
-            onShowCall={
-              callChannelId && callChannelId === currentChannel?.id
-                ? () => setMobilePanel('call')
-                : undefined
-            }
-            onCreateServer={() => { setShowCreateServer(true); setCreateServerError(''); }}
-            onFindServer={() => setFindServerOpen(true)}
-            voiceParticipants={voiceParticipants}
-          />
-        </div>
+            </div>
+          </>
+        ) : (
+          <HomeView />
+        )}
 
         {/* Список участников виден всегда, включая звонок: чат и сцена теперь
             делят колонку, и прятать соседнюю панель больше не за чем. */}
