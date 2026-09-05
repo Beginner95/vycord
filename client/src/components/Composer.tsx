@@ -9,7 +9,7 @@ import {
   type FormEvent,
   type KeyboardEvent,
 } from 'react';
-import { SendHorizontal, Smile, Sticker } from 'lucide-react';
+import { SendHorizontal, Smile } from 'lucide-react';
 import { FormattingToolbar } from '@/components/FormattingToolbar';
 import { FloatingQuoteButton } from '@/components/FloatingQuoteButton';
 import { MentionDropdown } from '@/components/MentionDropdown';
@@ -32,7 +32,6 @@ import {
 import { isUnsafeUrl } from '@/utils/markdown';
 import { useT } from '@/i18n';
 import type { Attachment, Channel, MemberWithUser, Sticker as ServerSticker } from '@/types';
-import type { ExpressionTab } from '@/stores/expressionRecentsStore';
 import './Composer.css';
 
 const QUOTE_PREFIX = '> ';
@@ -102,11 +101,10 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
   const [caretInQuoteLine, setCaretInQuoteLine] = useState(false);
   const [fmtOpen, setFmtOpen] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
-  const [pickerTab, setPickerTab] = useState<ExpressionTab>('emoji');
   const [linkOpen, setLinkOpen] = useState(false);
   // Own local boolean, mutually exclusive with `pickerOpen` via `togglePicker`
   // below — the `emojiOpen`/`stickerOpen` pair it once paired with was
-  // collapsed into `pickerOpen`/`pickerTab` in Task 5.
+  // collapsed into the single `pickerOpen` in Task 5.
   const [attachOpen, setAttachOpen] = useState(false);
 
   /**
@@ -136,21 +134,6 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
   const togglePicker = (which: 'picker' | 'attach') => {
     setPickerOpen((v) => (which === 'picker' ? !v : false));
     setAttachOpen((v) => (which === 'attach' ? !v : false));
-  };
-
-  /**
-   * Emoji and sticker share one surface, so their buttons differ only in which
-   * tab they land on. Pressing the button for the tab already showing closes
-   * the picker; pressing the other SWITCHES tab rather than closing — the
-   * behaviour that motivates merging the two surfaces in the first place.
-   */
-  const openPickerOn = (tab: ExpressionTab) => {
-    if (pickerOpen && pickerTab !== tab) {
-      setPickerTab(tab);
-      return;
-    }
-    setPickerTab(tab);
-    togglePicker('picker');
   };
 
   // Shares one zustand store with ChatArea's own call of this hook: the hook
@@ -329,8 +312,8 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
           onBullet={() => applyLineToggle(target, toggleBullet)}
           onNumbered={() => applyLineToggle(target, toggleNumbered)}
           onLink={() => setLinkOpen(true)}
-          onPickerToggle={() => openPickerOn('emoji')}
-          pickerOpen={pickerOpen && pickerTab === 'emoji'}
+          onPickerToggle={() => togglePicker('picker')}
+          pickerOpen={pickerOpen}
           quote={{ active: caretInQuoteLine, onToggle: toggleQuotePrefix }}
         />
       )}
@@ -364,9 +347,9 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
         </button>
         <button
           type="button"
-          className={`composer-icon-btn${pickerOpen && pickerTab === 'stickers' ? ' is-active' : ''}`}
-          aria-label={t('chat.stickers')}
-          title={t('chat.stickers')}
+          className={`composer-icon-btn${pickerOpen ? ' is-active' : ''}`}
+          aria-label={t('chat.emoji')}
+          title={t('chat.emoji')}
           // useDismissOnOutside dismisses on BUBBLE-phase `mousedown`, so any
           // button that opens a dismissible surface must stop propagation here
           // or it closes-then-reopens: mousedown dismisses the picker, and the
@@ -374,19 +357,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
           // toggle can never close its own picker. Same opt-out as
           // AttachmentButton's, which inherited it from develop.
           onMouseDown={(e) => e.stopPropagation()}
-          onClick={() => openPickerOn('stickers')}
-        >
-          <Sticker size={17} strokeWidth={1.8} />
-        </button>
-        <button
-          type="button"
-          className={`composer-icon-btn${pickerOpen && pickerTab === 'emoji' ? ' is-active' : ''}`}
-          aria-label={t('chat.emoji')}
-          title={t('chat.emoji')}
-          // See the sticker toggle above: bubble-phase `mousedown` opt-out, or
-          // the picker can never be closed by its own button.
-          onMouseDown={(e) => e.stopPropagation()}
-          onClick={() => openPickerOn('emoji')}
+          onClick={() => togglePicker('picker')}
         >
           <Smile size={17} strokeWidth={1.8} />
         </button>
@@ -409,9 +380,8 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
       <p className="composer-hint">{t('chat.composerHint')}</p>
       {pickerOpen && (
         <ExpressionPicker
-          tabs={['emoji', 'stickers', 'gif']}
-          initialTab={pickerTab}
-          onTabChange={setPickerTab}
+          tabs={['emoji', 'stickers']}
+          initialTab="emoji"
           onClose={() => setPickerOpen(false)}
           onSelectEmoji={(emoji) => { insertAtCaret(target, emoji); setPickerOpen(false); }}
           stickers={{

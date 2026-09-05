@@ -31,12 +31,13 @@ describe('ExpressionPicker', () => {
     expect(screen.queryByRole('tablist')).toBeNull();
   });
 
-  it('renders a tab strip when several tabs are offered, with GIF disabled', () => {
+  it('renders exactly the offered tabs, with no GIF tab', () => {
     render(
-      <ExpressionPicker tabs={['emoji', 'stickers', 'gif']} onClose={vi.fn()} onSelectEmoji={vi.fn()} />,
+      <ExpressionPicker tabs={['emoji', 'stickers']} onClose={vi.fn()} onSelectEmoji={vi.fn()} />,
     );
     expect(screen.getByRole('tablist')).toBeTruthy();
-    expect(screen.getByRole('tab', { name: /GIF/ })).toHaveProperty('disabled', true);
+    expect(screen.getAllByRole('tab')).toHaveLength(2);
+    expect(screen.queryByRole('tab', { name: /GIF/ })).toBeNull();
   });
 
   it('selecting an emoji records it and reports it upward', () => {
