@@ -383,7 +383,10 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
           tabs={['emoji', 'stickers']}
           initialTab="emoji"
           onClose={() => setPickerOpen(false)}
-          onSelectEmoji={(emoji) => { insertAtCaret(target, emoji); setPickerOpen(false); }}
+          // Emoji leaves the picker open — inserting several in a row is the
+          // common case (Telegram's behaviour). A sticker is a whole message,
+          // not a character, so sending one closes the surface below.
+          onSelectEmoji={(emoji) => insertAtCaret(target, emoji)}
           stickers={{
             serverId: channel.server_id,
             items: serverStickers,

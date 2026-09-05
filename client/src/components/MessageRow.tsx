@@ -306,7 +306,7 @@ function MessageEditor({ initial, members, canMentionEveryone, onCancelEdit, onS
         <ExpressionPicker
           tabs={['emoji']}
           onClose={() => setPickerOpen(false)}
-          onSelectEmoji={(emoji) => { insertAtCaret(target, emoji); setPickerOpen(false); }}
+          onSelectEmoji={(emoji) => insertAtCaret(target, emoji)}
         />
       )}
       <LinkDialog
