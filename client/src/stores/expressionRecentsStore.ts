@@ -2,7 +2,10 @@ import { create } from 'zustand';
 
 // 'gif' is reserved for a future tab — no picker currently renders it (see
 // setLastTab below), but the union keeps it so a GIF panel can land later
-// without another migration of persisted state.
+// without another migration of persisted state. Re-introducing 'gif' into a
+// `tabs` array is NOT enough on its own: ExpressionPicker.tsx has no panel
+// branch for it, so an enabled 'gif' tab would render a blank body until a
+// panel branch is added alongside it.
 export type ExpressionTab = 'emoji' | 'stickers' | 'gif';
 
 export interface RecentEntry {

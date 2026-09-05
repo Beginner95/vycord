@@ -59,14 +59,22 @@
   transition: background var(--transition), color var(--transition);
 }
 
-.expression-picker-tab:hover:not(:disabled) {
-  color: var(--ink);
-  background: var(--canvas-2);
-}
-
 .expression-picker-tab.is-active {
   color: var(--accent-text);
   background: var(--accent-soft);
+}
+
+/* No tab can be `:disabled` any more (the GIF placeholder that could was
+   removed), so this dropped the now-dead `:not(:disabled)` guard. That drops
+   its specificity from (0,3,0) to (0,2,0) — level with `.is-active` above —
+   so with equal specificity the LATER rule wins a tie. This rule is placed
+   after `.is-active` on purpose, to keep matching the pre-simplification
+   result: hovering the active tab still shows the hover colors, not the
+   active ones, exactly as it did when `:hover:not(:disabled)`'s higher
+   specificity made it win regardless of source order. */
+.expression-picker-tab:hover {
+  color: var(--ink);
+  background: var(--canvas-2);
 }
 
 .expression-picker-body {

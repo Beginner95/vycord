@@ -70,7 +70,7 @@ describe('ExpressionPicker: stickers', () => {
   const openStickers = (items: Sticker[], onSend = vi.fn().mockResolvedValue(true)) => {
     render(
       <ExpressionPicker
-        tabs={['emoji', 'stickers', 'gif']}
+        tabs={['emoji', 'stickers']}
         initialTab="stickers"
         onClose={vi.fn()}
         onSelectEmoji={vi.fn()}
@@ -125,7 +125,7 @@ describe('ExpressionPicker: stickers', () => {
     const onSend = vi.fn().mockResolvedValue(true);
     const { rerender } = render(
       <ExpressionPicker
-        tabs={['emoji', 'stickers', 'gif']}
+        tabs={['emoji', 'stickers']}
         initialTab="emoji"
         onClose={vi.fn()}
         onSelectEmoji={vi.fn()}
@@ -137,7 +137,7 @@ describe('ExpressionPicker: stickers', () => {
 
     rerender(
       <ExpressionPicker
-        tabs={['emoji', 'stickers', 'gif']}
+        tabs={['emoji', 'stickers']}
         initialTab="stickers"
         onClose={vi.fn()}
         onSelectEmoji={vi.fn()}
