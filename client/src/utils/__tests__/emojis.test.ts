@@ -20,4 +20,10 @@ describe('EMOJI_CATEGORIES', () => {
       }
     }
   });
+
+  it('every category carries a distinct labelKey under chat.emojiCategory', () => {
+    const keys = EMOJI_CATEGORIES.map((c) => c.labelKey);
+    expect(new Set(keys).size).toBe(keys.length);
+    for (const k of keys) expect(k.startsWith('chat.emojiCategory.')).toBe(true);
+  });
 });

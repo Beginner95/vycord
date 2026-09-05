@@ -36,7 +36,7 @@ export function EmojiPicker({ onSelect, onClose }: EmojiPickerProps) {
             type="button"
             className={`emoji-tab${c.id === active ? ' is-active' : ''}`}
             onClick={() => setActive(c.id)}
-            title={c.label}
+            title={t(c.labelKey)}
           >
             {c.emojis[0]}
           </button>
