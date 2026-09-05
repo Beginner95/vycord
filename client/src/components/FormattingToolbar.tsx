@@ -8,12 +8,12 @@ interface FormattingToolbarProps {
   onBullet: () => void;
   onNumbered: () => void;
   onLink: () => void;
-  onEmojiToggle: () => void;
-  emojiOpen: boolean;
+  onPickerToggle: () => void;
+  pickerOpen: boolean;
   quote?: { active: boolean; onToggle: () => void };
 }
 
-export function FormattingToolbar({ onWrap, onBullet, onNumbered, onLink, onEmojiToggle, emojiOpen, quote }: FormattingToolbarProps) {
+export function FormattingToolbar({ onWrap, onBullet, onNumbered, onLink, onPickerToggle, pickerOpen, quote }: FormattingToolbarProps) {
   const t = useT();
   // Keep the caret/selection in the textarea — the toolbar must not steal focus,
   // or every transform would operate on a collapsed selection.
@@ -51,7 +51,7 @@ export function FormattingToolbar({ onWrap, onBullet, onNumbered, onLink, onEmoj
       <button type="button" onMouseDown={prevent} className="fmt-btn" aria-label={t('chat.link')} title={t('chat.link')} onClick={onLink}><Link2 size={15} strokeWidth={1.8} /></button>
       <button type="button" onMouseDown={prevent} className="fmt-btn" aria-label={t('chat.numberedList')} title={t('chat.numberedList')} onClick={onNumbered}><ListOrdered size={15} strokeWidth={1.8} /></button>
       <button type="button" onMouseDown={prevent} className="fmt-btn" aria-label={t('chat.bulletedList')} title={t('chat.bulletedList')} onClick={onBullet}><List size={15} strokeWidth={1.8} /></button>
-      <button type="button" onMouseDown={preventAndStop} className={`fmt-btn${emojiOpen ? ' is-active' : ''}`} aria-label={t('chat.emoji')} title={t('chat.emoji')} onClick={onEmojiToggle}><Smile size={15} strokeWidth={1.8} /></button>
+      <button type="button" onMouseDown={preventAndStop} className={`fmt-btn${pickerOpen ? ' is-active' : ''}`} aria-label={t('chat.emoji')} title={t('chat.emoji')} onClick={onPickerToggle}><Smile size={15} strokeWidth={1.8} /></button>
     </div>
   );
 }

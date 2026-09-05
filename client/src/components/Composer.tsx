@@ -317,8 +317,8 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
           onBullet={() => applyLineToggle(target, toggleBullet)}
           onNumbered={() => applyLineToggle(target, toggleNumbered)}
           onLink={() => setLinkOpen(true)}
-          onEmojiToggle={() => togglePicker('emoji')}
-          emojiOpen={emojiOpen}
+          onPickerToggle={() => togglePicker('emoji')}
+          pickerOpen={emojiOpen}
           quote={{ active: caretInQuoteLine, onToggle: toggleQuotePrefix }}
         />
       )}

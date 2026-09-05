@@ -3,7 +3,7 @@ import { Pencil, Trash2, Quote, Clock } from 'lucide-react';
 import { Avatar } from '@/components/Avatar';
 import { FormattingToolbar } from '@/components/FormattingToolbar';
 import { MentionDropdown } from '@/components/MentionDropdown';
-import { EmojiPicker } from '@/components/EmojiPicker';
+import { ExpressionPicker } from '@/components/ExpressionPicker';
 import { LinkDialog } from '@/components/LinkDialog';
 import { MessageAttachments } from '@/components/MessageAttachments';
 import { useMentionAutocomplete } from '@/hooks/useMentionAutocomplete';
@@ -245,13 +245,13 @@ interface MessageEditorProps extends MessageRowProps {
 
 /**
  * Inline editor for one message. Owns its whole edit-session state (value,
- * mention autocomplete, emoji picker, link dialog) so it is created on
+ * mention autocomplete, expression picker, link dialog) so it is created on
  * "start edit" and thrown away on save/cancel — no per-message edit state
  * has to live in ChatArea any more.
  */
 function MessageEditor({ initial, members, canMentionEveryone, onCancelEdit, onSaveEdit }: MessageEditorProps) {
   const [value, setValue] = useState(initial);
-  const [emojiOpen, setEmojiOpen] = useState(false);
+  const [pickerOpen, setPickerOpen] = useState(false);
   const [linkOpen, setLinkOpen] = useState(false);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -288,7 +288,7 @@ function MessageEditor({ initial, members, canMentionEveryone, onCancelEdit, onS
         // Clicking inside the link dialog or the emoji grid blurs the textarea
         // before its click handler runs — cancelling the edit would eat the very
         // action the user asked for, so blur only cancels with no popover open.
-        onBlur={() => { if (!linkOpen && !emojiOpen) onCancelEdit(); }}
+        onBlur={() => { if (!linkOpen && !pickerOpen) onCancelEdit(); }}
         maxLength={2000}
         rows={1}
         autoFocus
@@ -298,14 +298,15 @@ function MessageEditor({ initial, members, canMentionEveryone, onCancelEdit, onS
         onBullet={() => applyLineToggle(target, toggleBullet)}
         onNumbered={() => applyLineToggle(target, toggleNumbered)}
         onLink={() => setLinkOpen(true)}
-        onEmojiToggle={() => setEmojiOpen((open) => !open)}
-        emojiOpen={emojiOpen}
+        onPickerToggle={() => setPickerOpen((open) => !open)}
+        pickerOpen={pickerOpen}
       />
       <MentionDropdown mention={mention} />
-      {emojiOpen && (
-        <EmojiPicker
-          onSelect={(emoji) => { insertAtCaret(target, emoji); setEmojiOpen(false); }}
-          onClose={() => setEmojiOpen(false)}
+      {pickerOpen && (
+        <ExpressionPicker
+          tabs={['emoji']}
+          onClose={() => setPickerOpen(false)}
+          onSelectEmoji={(emoji) => { insertAtCaret(target, emoji); setPickerOpen(false); }}
         />
       )}
       <LinkDialog

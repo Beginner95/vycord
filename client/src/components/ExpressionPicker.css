@@ -1,0 +1,167 @@
+/* Единый пикер эмодзи/стикеров/GIF. Позиционируется от ближайшего
+   `position: relative` предка: `.composer-root` из композера, `.msg-edit`
+   из встроенного редактора сообщения. */
+.expression-picker {
+  position: absolute;
+  right: 12px;
+  bottom: calc(100% + 8px);
+
+  /* Литерал ОСОЗНАННО, вопреки правилу «z-index — всегда токен».
+     `.composer-root` — position: relative с z-index: auto, то есть НЕ создаёт
+     контекста наложения: пикер конкурирует прямо в корневом контексте, там же,
+     где все `position: fixed` оверлеи. Значит он обязан рисоваться НИЖЕ стека
+     оверлеев, а в шкале нет ступени ниже --z-overlay (1000): --z-popover (1100)
+     поднял бы пикер над модалками и над --z-menu (1050). Что оверлей реально
+     может подняться над открытым пикером — измерено, а не предположено:
+     useDismissOnOutside.ts:24-29 фиксирует ⌘K над открытым пикером (хоткей не
+     шлёт mousedown, поэтому пикер не закрывается). 30 — то же значение, что
+     было у обоих удалённых стилей и у соседних поповеров ChatArea.css:479,511. */
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+
+  /* Ширина и высота одинаковы на всех вкладках: переключение не должно
+     менять размер поповера. */
+  width: 324px;
+  height: 360px;
+  overflow: hidden;
+  background: var(--canvas);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-modal);
+  box-shadow: var(--shadow-popover);
+  animation: fade-in 0.12s var(--ease-out);
+}
+
+.expression-picker-tabs {
+  display: flex;
+  flex-shrink: 0;
+  gap: 4px;
+  padding: 8px;
+  border-bottom: 1px solid var(--line);
+}
+
+.expression-picker-tab {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--muted);
+  background: none;
+  border: none;
+  border-radius: var(--radius-btn);
+  cursor: pointer;
+  transition: background var(--transition), color var(--transition);
+}
+
+.expression-picker-tab:disabled {
+  color: var(--muted-2);
+  cursor: default;
+}
+
+.expression-picker-tab:hover:not(:disabled) {
+  color: var(--ink);
+  background: var(--canvas-2);
+}
+
+.expression-picker-tab.is-active {
+  color: var(--accent-text);
+  background: var(--accent-soft);
+}
+
+.expression-picker-chip {
+  padding: 2px 6px;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  background: var(--canvas-3);
+  border-radius: var(--radius-chip);
+}
+
+.expression-picker-body {
+  flex: 1;
+  padding: 0 8px 8px;
+  overflow-y: auto;
+}
+
+.expression-section-title {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  margin: 0;
+  padding: 8px 2px 6px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--muted-2);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  background: var(--canvas);
+}
+
+.expression-emoji-grid {
+  display: grid;
+  grid-template-columns: repeat(8, 1fr);
+  gap: 2px;
+}
+
+.expression-emoji-cell {
+  display: flex;
+
+  /* Никакой фиксированной ширины: ячейка следует за своей дорожкой. Именно
+     фиксированные 96px внутри repeat(3, 1fr) давали старому .sticker-picker
+     горизонтальный скроллбар. */
+  width: 100%;
+  aspect-ratio: 1;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  font-size: 18px;
+  line-height: 1;
+  background: none;
+  border: none;
+  border-radius: var(--radius-row);
+  cursor: pointer;
+  transition: background var(--transition);
+}
+
+.expression-emoji-cell:hover {
+  background: var(--canvas-2);
+}
+
+.expression-picker-anchors {
+  display: flex;
+  flex-shrink: 0;
+  gap: 2px;
+  padding: 6px 8px;
+  overflow-x: auto;
+  border-top: 1px solid var(--line);
+}
+
+.expression-picker-anchor {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  font-size: 16px;
+  line-height: 1;
+  color: var(--muted);
+  background: none;
+  border: none;
+  border-radius: var(--radius-row);
+  cursor: pointer;
+  transition: background var(--transition);
+}
+
+.expression-picker-anchor:hover {
+  background: var(--canvas-2);
+}
+
+.expression-picker-anchor.is-active {
+  color: var(--accent-text);
+  background: var(--accent-soft);
+}
