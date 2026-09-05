@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react';
-import { Clock, Settings2, Sticker as StickerIcon } from 'lucide-react';
+import { Clock, Settings as SettingsIcon, Sticker as StickerIcon } from 'lucide-react';
 import {
   useExpressionRecentsStore,
   topStickers,
@@ -113,7 +113,7 @@ export function StickerPanel({ serverId, items, onSend, onManage }: StickerPanel
             title={t('chat.manageStickers')}
             aria-label={t('chat.manageStickers')}
           >
-            <Settings2 size={15} strokeWidth={1.8} />
+            <SettingsIcon size={15} strokeWidth={1.8} />
           </button>
         )}
       </div>
