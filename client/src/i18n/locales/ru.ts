@@ -57,7 +57,6 @@ export const ru = {
     emoji: 'Эмодзи',
     insertEmoji: 'Вставить эмодзи',
     frequentlyUsed: 'Часто используемые',
-    gif: 'GIF',
     emojiCategory: {
       smileys: 'Люди',
       gestures: 'Жесты',

@@ -31,13 +31,15 @@ describe('ExpressionPicker', () => {
     expect(screen.queryByRole('tablist')).toBeNull();
   });
 
-  it('renders exactly the offered tabs, with no GIF tab', () => {
+  it('renders exactly the offered tabs, named Emoji and Stickers', () => {
     render(
       <ExpressionPicker tabs={['emoji', 'stickers']} onClose={vi.fn()} onSelectEmoji={vi.fn()} />,
     );
     expect(screen.getByRole('tablist')).toBeTruthy();
-    expect(screen.getAllByRole('tab')).toHaveLength(2);
-    expect(screen.queryByRole('tab', { name: /GIF/ })).toBeNull();
+    const tabs = screen.getAllByRole('tab');
+    expect(tabs).toHaveLength(2);
+    expect(tabs[0].textContent).toMatch(/Эмодзи|Emoji/);
+    expect(tabs[1].textContent).toMatch(/Стикеры|Stickers/);
   });
 
   it('selecting an emoji records it and reports it upward', () => {

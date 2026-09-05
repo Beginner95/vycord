@@ -128,11 +128,6 @@ describe('setLastTab', () => {
     expect(useExpressionRecentsStore.getState().lastTab).toBe('stickers');
     expect(JSON.parse(window.localStorage.getItem(KEY)!).lastTab).toBe('stickers');
   });
-
-  it('never persists gif — it is a disabled placeholder', () => {
-    useExpressionRecentsStore.getState().setLastTab('gif');
-    expect(useExpressionRecentsStore.getState().lastTab).toBe('emoji');
-  });
 });
 
 it('a throwing setItem does not break the in-memory store', () => {
@@ -188,5 +183,12 @@ describe('load() at module import', () => {
       emoji: { good: { count: 2, lastUsed: 5 }, bad: 'nope', alsoBad: { count: 'x' } },
     }));
     expect((await fresh()).emoji).toEqual({ good: { count: 2, lastUsed: 5 } });
+  });
+
+  it('coerces a stale lastTab of "gif" (persisted by an earlier build) to emoji', async () => {
+    window.localStorage.setItem(KEY, JSON.stringify({
+      v: 1, lastTab: 'gif', stickers: {}, emoji: {},
+    }));
+    expect((await fresh()).lastTab).toBe('emoji');
   });
 });

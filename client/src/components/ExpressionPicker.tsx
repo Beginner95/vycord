@@ -56,8 +56,7 @@ export function ExpressionPicker({ tabs, initialTab, onClose, onSelectEmoji, sti
   // That means the mount-time lazy initializer above never re-runs on its own,
   // so `active` must be synced explicitly whenever `initialTab` changes to a
   // tab this instance hasn't already settled on. Reuses `pick()` so an
-  // out-of-`tabs` value (in particular 'gif', which has no panel) is ignored
-  // exactly as it is on mount.
+  // out-of-`tabs` value is ignored exactly as it is on mount.
   // Deliberately keyed on `initialTab` alone (not `tabs`, which the caller
   // passes as a fresh array literal on every render): resyncing on every
   // parent re-render would stomp a tab picked via the strip's own `select()`
@@ -76,7 +75,6 @@ export function ExpressionPicker({ tabs, initialTab, onClose, onSelectEmoji, sti
   const label: Record<ExpressionTab, string> = {
     emoji: t('chat.emoji'),
     stickers: t('chat.stickers'),
-    gif: t('chat.gif'),
   };
 
   return (

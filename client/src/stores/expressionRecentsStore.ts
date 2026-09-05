@@ -1,12 +1,6 @@
 import { create } from 'zustand';
 
-// 'gif' is reserved for a future tab — no picker currently renders it (see
-// setLastTab below), but the union keeps it so a GIF panel can land later
-// without another migration of persisted state. Re-introducing 'gif' into a
-// `tabs` array is NOT enough on its own: ExpressionPicker.tsx has no panel
-// branch for it, so an enabled 'gif' tab would render a blank body until a
-// panel branch is added alongside it.
-export type ExpressionTab = 'emoji' | 'stickers' | 'gif';
+export type ExpressionTab = 'emoji' | 'stickers';
 
 export interface RecentEntry {
   count: number;
@@ -188,8 +182,9 @@ export const useExpressionRecentsStore = create<ExpressionRecentsStore>((set) =>
       return next;
     }),
 
-  // 'gif' — выключенная заглушка: если её запомнить, пикер откроется на
-  // вкладке, которую нельзя выбрать.
+  // Защитное сужение: значение может прийти через каст или из устаревших
+  // данных, так что оно не гарантированно соответствует ExpressionTab —
+  // любое значение кроме 'stickers' схлопывается в 'emoji'.
   setLastTab: (tab) =>
     set((s) => {
       const next = { ...snapshot(s), lastTab: (tab === 'stickers' ? 'stickers' : 'emoji') as ExpressionTab };
