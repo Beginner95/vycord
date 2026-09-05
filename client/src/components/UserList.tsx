@@ -4,14 +4,14 @@ import { useAuthStore } from '@/stores/authStore';
 import { useServerStore } from '@/stores/serverStore';
 import { useLocaleStore, type Locale } from '@/stores/localeStore';
 import { apiService, apiErrorText } from '@/services/api';
-import { wsService } from '@/services/websocket';
 import { callService } from '@/services/call';
 import { Avatar } from '@/components/Avatar';
+import { useOnlineIds } from '@/hooks/useOnlineIds';
 import { logger } from '@/utils/logger';
 import { voiceChannelNameFor } from '@/utils/voiceMembership';
 import { can, PERMISSIONS } from '@/utils/permissions';
 import { inviteExpiry } from '@/utils/inviteExpiry';
-import type { User, MemberWithUser, Invite } from '@/types';
+import type { MemberWithUser, Invite } from '@/types';
 import { useT, useTp, type TFunc, type TKey, type TVars } from '@/i18n';
 import { formatLastSeen } from '@/i18n/format';
 import './UserList.css';
@@ -66,35 +66,12 @@ export function UserList({ onMobileBack, voiceParticipants }: UserListProps) {
   const t = useT();
   const { user: currentUser } = useAuthStore();
   const { members, channels } = useServerStore();
-  const [onlineIds, setOnlineIds] = useState<Set<string>>(new Set());
+  // HTTP-снимок + подписка на online_users/user_joined/user_left/user_updated
+  // живёт в useOnlineIds (общий с HomeView.tsx — см. хук для рационале).
+  const onlineIds = useOnlineIds();
   const tp = useTp();
   const locale = useLocaleStore((s) => s.locale);
   const [lastSeenById, setLastSeenById] = useState<Map<string, string | null>>(new Map());
-
-  useEffect(() => {
-    loadOnlineIds();
-
-    // Any of these events means the set of globally-online users may have
-    // changed, so re-fetch. (user_updated fires on avatar changes too, but
-    // re-fetching on it is harmless — same trigger set the old code used.)
-    const unsubscribers = [
-      wsService.on('online_users', () => loadOnlineIds()),
-      wsService.on('user_joined', () => loadOnlineIds()),
-      wsService.on('user_left', () => loadOnlineIds()),
-      wsService.on('user_updated', () => loadOnlineIds()),
-    ];
-
-    return () => unsubscribers.forEach((unsub) => unsub());
-  }, []);
-
-  const loadOnlineIds = async () => {
-    try {
-      const users = await apiService.getOnlineUsers() as User[];
-      setOnlineIds(new Set(users.map((u) => u.id)));
-    } catch (err) {
-      logger.error('Failed to load online users:', err, { module: 'userList' });
-    }
-  };
 
   const handleCallUser = async (userId: string) => {
     await callService.startCall(userId);

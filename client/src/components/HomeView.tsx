@@ -1,10 +1,7 @@
-import { useEffect, useState } from 'react';
-import { apiService } from '@/services/api';
-import { wsService } from '@/services/websocket';
+import { useEffect } from 'react';
 import { useFriendStore, initFriendBridge } from '@/stores/friendStore';
+import { useOnlineIds } from '@/hooks/useOnlineIds';
 import { FriendsPanel } from '@/components/FriendsPanel';
-import { logger } from '@/utils/logger';
-import type { User } from '@/types';
 import './HomeView.css';
 
 /**
@@ -20,40 +17,19 @@ import './HomeView.css';
 export function HomeView() {
   const load = useFriendStore((s) => s.load);
   const loaded = useFriendStore((s) => s.loaded);
-  const [onlineIds, setOnlineIds] = useState<Set<string>>(new Set());
+  // Тот же хук, что у UserList.tsx: HTTP-снимок + подписка на четыре
+  // WS-события живут в одном месте (useOnlineIds), а не в двух разошедшихся
+  // копиях. Общее СОСТОЯНИЕ им не нужно — UserList и HomeView никогда не
+  // смонтированы одновременно (развилка currentServer в AppPage) — но общий
+  // КОД обязателен, иначе будущее изменение механизма (новое событие,
+  // дебаунс, другая обработка ошибок) молча разойдётся между потребителями.
+  const onlineIds = useOnlineIds();
 
   useEffect(() => {
     if (!loaded) void load();
   }, [loaded, load]);
 
   useEffect(() => initFriendBridge(), []);
-
-  // Тот же механизм, что у UserList.tsx: HTTP-снимок онлайн-пользователей
-  // плюс live-обновление через те же четыре WS-события. Копия состояния
-  // умышленно НЕ шарится между компонентами — UserList и HomeView никогда не
-  // смонтированы одновременно (развилка currentServer в AppPage), так что
-  // общий стор для onlineIds не окупился бы, а только добавил бы лишний слой.
-  useEffect(() => {
-    loadOnlineIds();
-
-    const unsubscribers = [
-      wsService.on('online_users', () => loadOnlineIds()),
-      wsService.on('user_joined', () => loadOnlineIds()),
-      wsService.on('user_left', () => loadOnlineIds()),
-      wsService.on('user_updated', () => loadOnlineIds()),
-    ];
-
-    return () => unsubscribers.forEach((unsub) => unsub());
-  }, []);
-
-  const loadOnlineIds = async () => {
-    try {
-      const users = (await apiService.getOnlineUsers()) as User[];
-      setOnlineIds(new Set(users.map((u) => u.id)));
-    } catch (err) {
-      logger.error('Failed to load online users:', err, { module: 'homeView' });
-    }
-  };
 
   return (
     <div className="home-view">
