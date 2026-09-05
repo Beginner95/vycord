@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/mock"
@@ -164,4 +165,51 @@ func TestFriendHandler_SendRequest_UnknownUsernameIs404(t *testing.T) {
 	if !strings.Contains(rec.Body.String(), "user_not_found") {
 		t.Fatalf("expected code user_not_found, got: %s", rec.Body.String())
 	}
+}
+
+// Регрессия на асимметрию с SendRequest: принимая заявку, AcceptRequest
+// обязан уведомить friend_added ОБЕ стороны — не только того, кто отправил
+// заявку изначально (otherID), но и того, кто её принял (userID). У
+// принявшего может быть открыта вторая вкладка, которую HTTP-ответ этого
+// запроса не обновит — ровно та же причина, по которой SendRequest шлёт
+// friend_added обеим сторонам во встречной ветке через notifyFriendAdded.
+// Использует registerFakeClient/readChanUntilType из server_test.go
+// (тот же пакет handler) — реального WS-апгрейда не требуется.
+func TestFriendHandler_AcceptRequest_NotifiesBothSides(t *testing.T) {
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	hub := ws.NewHub(log)
+	go hub.Run()
+
+	me := uuid.New()    // тот, кто нажал "принять"
+	other := uuid.New() // тот, кто изначально отправил заявку
+
+	meClient := registerFakeClient(t, hub, me)
+	otherClient := registerFakeClient(t, hub, other)
+
+	requestID := uuid.New()
+	profile := &domain.FriendProfile{
+		UserBrief:    domain.UserBrief{UserID: other, Username: "other"},
+		FriendsSince: time.Now(),
+	}
+
+	uc := new(mockFriendUseCase)
+	uc.On("AcceptRequest", me, requestID).Return(profile, other, nil)
+
+	h := NewFriendHandler(uc, hub, log)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/friends/requests/"+requestID.String()+"/accept", nil)
+	req = req.WithContext(context.WithValue(req.Context(), "user_id", me))
+	req.SetPathValue("id", requestID.String())
+
+	rec := httptest.NewRecorder()
+	h.AcceptRequest(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	// Тот, кто отправил заявку, узнаёт, что её приняли.
+	readChanUntilType(t, otherClient.Send, "friend_added", time.Second)
+	// Тот, кто принял, тоже получает событие — вторая вкладка того же
+	// пользователя не узнает об этом из HTTP-ответа.
+	readChanUntilType(t, meClient.Send, "friend_added", time.Second)
 }

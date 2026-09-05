@@ -120,13 +120,16 @@ func (h *FriendHandler) AcceptRequest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	profile, otherID, err := h.friendUseCase.AcceptRequest(userID, requestID)
+	profile, _, err := h.friendUseCase.AcceptRequest(userID, requestID)
 	if err != nil {
 		h.writeFriendError(w, r, err)
 		return
 	}
 
-	h.hub.SendToUser(otherID, wsMessage("friend_added", map[string]any{"user_id": userID.String()}))
+	// Обе стороны узнают о новой дружбе сразу — как и во встречной ветке
+	// SendRequest: у принявшего заявку тоже может быть открыта вторая
+	// вкладка, которую HTTP-ответ этого запроса не обновит.
+	h.notifyFriendAdded(userID, &profile.UserBrief)
 	h.sendJSON(w, http.StatusOK, profile)
 }
 
