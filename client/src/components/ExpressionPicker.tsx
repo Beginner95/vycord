@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useDismissOnOutside } from '@/hooks/useDismissOnOutside';
 import { EmojiPanel } from '@/components/EmojiPanel';
+import { StickerPanel, type StickerPanelProps } from '@/components/StickerPanel';
 import { useExpressionRecentsStore, type ExpressionTab } from '@/stores/expressionRecentsStore';
 import { useT } from '@/i18n';
 import './ExpressionPicker.css';
@@ -12,9 +13,11 @@ export interface ExpressionPickerProps {
   initialTab?: ExpressionTab;
   onClose: () => void;
   onSelectEmoji: (emoji: string) => void;
+  /** Отсутствует ⇒ вкладку «Стикеры» отрисовать нельзя. */
+  stickers?: StickerPanelProps;
 }
 
-export function ExpressionPicker({ tabs, initialTab, onClose, onSelectEmoji }: ExpressionPickerProps) {
+export function ExpressionPicker({ tabs, initialTab, onClose, onSelectEmoji, stickers }: ExpressionPickerProps) {
   const t = useT();
   // Единственная подписка на весь пикер. Панели — «глупые» тела: хук держит
   // capture-listener на document и должен жить ровно столько, сколько
@@ -63,6 +66,7 @@ export function ExpressionPicker({ tabs, initialTab, onClose, onSelectEmoji }: E
         </div>
       )}
       {active === 'emoji' && <EmojiPanel onSelect={onSelectEmoji} />}
+      {active === 'stickers' && stickers && <StickerPanel {...stickers} />}
     </div>
   );
 }

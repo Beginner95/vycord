@@ -3,6 +3,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, cleanup } from '@testing-library/react';
 import { ExpressionPicker } from '@/components/ExpressionPicker';
 import { useExpressionRecentsStore } from '@/stores/expressionRecentsStore';
+import type { Sticker } from '@/types';
 
 // Без явного cleanup DOM-узлы от предыдущих it() остаются в document (globals
 // не включены в vite.config.ts, поэтому автоматический cleanup из
@@ -56,5 +57,61 @@ describe('ExpressionPicker', () => {
     useExpressionRecentsStore.setState({ emoji: { '👍': { count: 3, lastUsed: 1 } } });
     render(<ExpressionPicker tabs={['emoji']} onClose={vi.fn()} onSelectEmoji={vi.fn()} />);
     expect(screen.getByText(/Часто используемые|Frequently used/)).toBeTruthy();
+  });
+});
+
+const sticker = (id: string): Sticker => ({
+  id, server_id: 's1', name: id, image_url: `/uploads/${id}.png`,
+  created_by: 'u1', created_at: '2026-09-05T00:00:00Z',
+});
+
+describe('ExpressionPicker: stickers', () => {
+  const openStickers = (items: Sticker[], onSend = vi.fn().mockResolvedValue(true)) => {
+    render(
+      <ExpressionPicker
+        tabs={['emoji', 'stickers', 'gif']}
+        initialTab="stickers"
+        onClose={vi.fn()}
+        onSelectEmoji={vi.fn()}
+        stickers={{ serverId: 's1', items, onSend }}
+      />,
+    );
+    return onSend;
+  };
+
+  it('records a sticker only after a successful send', async () => {
+    const onSend = openStickers([sticker('st-a')]);
+    fireEvent.click(screen.getByAltText('st-a'));
+    await vi.waitFor(() =>
+      expect(useExpressionRecentsStore.getState().stickers.s1['st-a'].count).toBe(1),
+    );
+    expect(onSend).toHaveBeenCalled();
+  });
+
+  it('does not record a sticker when the send fails', async () => {
+    const onSend = openStickers([sticker('st-a')], vi.fn().mockResolvedValue(false));
+    fireEvent.click(screen.getByAltText('st-a'));
+    // Ждём именно вызов onSend, а не «состояние пустое» — последнее верно
+    // сразу и waitFor вернулся бы, не дав .then() в choose() ни одного тика.
+    await vi.waitFor(() => expect(onSend).toHaveBeenCalled());
+    await Promise.resolve();
+    expect(useExpressionRecentsStore.getState().stickers.s1).toBeUndefined();
+    // Панель осталась открытой: неудачная отправка ничего не закрывает.
+    expect(screen.getByAltText('st-a')).toBeTruthy();
+  });
+
+  it('drops frequently-used ids that are no longer in the inventory', () => {
+    useExpressionRecentsStore.setState({
+      stickers: { s1: { 'st-gone': { count: 9, lastUsed: 2 }, 'st-a': { count: 1, lastUsed: 1 } } },
+    });
+    openStickers([sticker('st-a')]);
+    // st-a попадает и в «частые», и в «все»; st-gone не встречается нигде.
+    expect(screen.getAllByAltText('st-a')).toHaveLength(2);
+    expect(screen.queryByAltText('st-gone')).toBeNull();
+  });
+
+  it('shows the empty state for a server with no stickers', () => {
+    openStickers([]);
+    expect(screen.getByText(/пока нет стикеров|No stickers/)).toBeTruthy();
   });
 });
