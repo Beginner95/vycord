@@ -114,4 +114,36 @@ describe('ExpressionPicker: stickers', () => {
     openStickers([]);
     expect(screen.getByText(/пока нет стикеров|No stickers/)).toBeTruthy();
   });
+
+  // A parent whose picker stays mounted (composer's switch-instead-of-close)
+  // re-renders with a new `initialTab` on an existing instance — no remount.
+  // The tab strip's `is-active` class following `initialTab` proves nothing
+  // about the PANEL BODY, which used to be driven only by a mount-time
+  // lazy initializer. Assert on the body's own content.
+  it('switches the rendered panel when initialTab changes on an already-mounted instance', () => {
+    const onSend = vi.fn().mockResolvedValue(true);
+    const { rerender } = render(
+      <ExpressionPicker
+        tabs={['emoji', 'stickers', 'gif']}
+        initialTab="emoji"
+        onClose={vi.fn()}
+        onSelectEmoji={vi.fn()}
+        stickers={{ serverId: 's1', items: [sticker('st-a')], onSend }}
+      />,
+    );
+    expect(screen.getAllByText('😀').length).toBeGreaterThan(0);
+    expect(screen.queryByAltText('st-a')).toBeNull();
+
+    rerender(
+      <ExpressionPicker
+        tabs={['emoji', 'stickers', 'gif']}
+        initialTab="stickers"
+        onClose={vi.fn()}
+        onSelectEmoji={vi.fn()}
+        stickers={{ serverId: 's1', items: [sticker('st-a')], onSend }}
+      />,
+    );
+    expect(screen.getByAltText('st-a')).toBeTruthy();
+    expect(screen.queryByText('😀')).toBeNull();
+  });
 });

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useDismissOnOutside } from '@/hooks/useDismissOnOutside';
 import { EmojiPanel } from '@/components/EmojiPanel';
 import { StickerPanel, type StickerPanelProps } from '@/components/StickerPanel';
@@ -30,6 +30,26 @@ export function ExpressionPicker({ tabs, initialTab, onClose, onSelectEmoji, sti
   const [active, setActive] = useState<ExpressionTab>(
     () => pick(initialTab) ?? pick(lastTab) ?? tabs[0],
   );
+
+  // The composer's toggle-driven switch (openPickerOn) re-renders an
+  // ALREADY-MOUNTED ExpressionPicker with a new `initialTab` rather than
+  // remounting it — no `key` on that call site, deliberately, so the popover
+  // doesn't replay its open animation or lose EmojiPanel/StickerPanel's
+  // frequently-used snapshot and scroll position on every tab switch. That
+  // means the mount-time lazy initializer above never re-runs on its own, so
+  // `active` must be synced explicitly whenever `initialTab` changes to a
+  // tab this instance hasn't already settled on. Reuses `pick()` so an
+  // out-of-`tabs` value (in particular 'gif', which has no panel) is ignored
+  // exactly as it is on mount.
+  // Deliberately keyed on `initialTab` alone (not `tabs`, which the caller
+  // passes as a fresh array literal on every render): resyncing on every
+  // parent re-render would stomp a tab picked via the strip's own `select()`
+  // the next time anything upstream re-renders, even though `initialTab`
+  // itself never changed.
+  useEffect(() => {
+    const next = pick(initialTab);
+    if (next) setActive(next);
+  }, [initialTab]);
 
   const select = (tab: ExpressionTab) => {
     setActive(tab);
