@@ -742,9 +742,14 @@ logger.error('Failed to create server:', err, { module: 'app' });
           <HomeView />
         )}
 
-        {/* Список участников виден всегда, включая звонок: чат и сцена теперь
-            делят колонку, и прятать соседнюю панель больше не за чем. */}
-        <UserList onMobileBack={() => setMobilePanel('chat')} voiceParticipants={voiceParticipants} />
+        {/* Список участников виден на любом сервере, включая звонок: чат и
+            сцена делят колонку, и прятать соседнюю панель больше не за чем.
+            Но вне сервера («Дом») ему показывать нечего — members в сторе
+            остаются от последнего открытого сервера, и без этой проверки
+            здесь висел бы чужой контекст рядом с HomeView. */}
+        {currentServer && (
+          <UserList onMobileBack={() => setMobilePanel('chat')} voiceParticipants={voiceParticipants} />
+        )}
       </div>
 
       <FindServerModal
