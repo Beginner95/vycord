@@ -27,6 +27,8 @@ export interface User {
   created_at: string;
   updated_at: string;
   show_last_seen: boolean;
+  allow_friend_requests?: PrivacyMode;
+  allow_dm_from?: PrivacyMode;
 }
 
 export type UserStatus = 'online' | 'idle' | 'dnd' | 'offline';
