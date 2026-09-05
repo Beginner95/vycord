@@ -600,7 +600,10 @@ export const en: Dictionary = {
     friend_request_exists: 'Friend request already sent',
     already_friends: 'You are already friends',
     friendship_not_found: 'Request or friendship not found',
-    interaction_forbidden: 'This user has restricted friend requests',
+    // final-review fix M-6: was friend-request-specific text, but this same
+    // interaction_forbidden code will also cover DM denials in a future
+    // phase — neutralized to text that names neither case.
+    interaction_forbidden: "This action isn't available",
     username_required: 'Enter a username',
   },
 };

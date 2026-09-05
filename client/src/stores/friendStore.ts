@@ -15,6 +15,7 @@ interface FriendState {
   applyRequestReceived: (req: FriendRequest) => void;
   applyRequestCancelled: (requestId: string) => void;
   applyFriendRemoved: (userId: string) => void;
+  reset: () => void;
 }
 
 export const useFriendStore = create<FriendState>((set) => ({
@@ -68,6 +69,12 @@ export const useFriendStore = create<FriendState>((set) => ({
       incoming: state.incoming.filter((r) => r.user.user_id !== userId),
       outgoing: state.outgoing.filter((r) => r.user.user_id !== userId),
     })),
+
+  // Логаут: без этого следующий вход в том же табе показывает данные
+  // предыдущего аккаунта до первого разрешения load() — короткая, но
+  // реальная утечка между сессиями (final-review fix M-4).
+  reset: () =>
+    set({ friends: [], incoming: [], outgoing: [], blocked: [], loaded: false }),
 }));
 
 /**

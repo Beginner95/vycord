@@ -61,4 +61,24 @@ describe('friendStore', () => {
     useFriendStore.getState().applyFriendRemoved('u2');
     expect(useFriendStore.getState().outgoing).toHaveLength(0);
   });
+
+  // Регрессия M-4: без reset() данные первого аккаунта оставались в сторе
+  // до первого разрешения load() после логина вторым аккаунтом в том же
+  // табе — короткая, но реальная утечка между сессиями.
+  it('reset очищает все четыре списка и loaded', () => {
+    useFriendStore.setState({
+      friends: [friend('u1')],
+      incoming: [req('r1', 'u2')],
+      outgoing: [req('r2', 'u3')],
+      blocked: [{ user_id: 'u4', username: 'u-u4' }],
+      loaded: true,
+    });
+    useFriendStore.getState().reset();
+    const state = useFriendStore.getState();
+    expect(state.friends).toEqual([]);
+    expect(state.incoming).toEqual([]);
+    expect(state.outgoing).toEqual([]);
+    expect(state.blocked).toEqual([]);
+    expect(state.loaded).toBe(false);
+  });
 });

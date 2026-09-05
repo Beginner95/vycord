@@ -99,6 +99,45 @@
   color: var(--ink);
 }
 
+/* ── Persistent account dock (final-review fix I-B/I-C) ──
+   CallDock (return-to-call + mic/hangup) and UserPanel (avatar, Settings,
+   Logout) used to render only from inside ChannelSidebar's own column, which
+   itself only renders while a server is selected — both became unreachable
+   while "Дом" showed HomeView instead. Hoisted here as a small persistent
+   floating card, styled after CallNotifBanner.css's fixed-position recipe
+   (same z-index/shadow/radius family) rather than as a flex column in
+   .app-layout: reusing the 252px sidebar SLOT would mean either duplicating
+   it as an empty extra column when a server is selected (wasted width) or
+   reverting HomeView's full-width layout (M6-adjacent decision, out of
+   scope here). A floating card sidesteps both without touching the
+   .app-layout / mobile-panel band system at all. */
+.app-account-dock {
+  position: fixed;
+  left: 92px; /* 76px server rail + 16px gutter — never overlaps the rail */
+  bottom: 16px;
+  width: 252px;
+  max-width: calc(100vw - 32px);
+  display: flex;
+  flex-direction: column;
+  border-radius: var(--radius-card);
+  overflow: hidden;
+  box-shadow: var(--shadow-card);
+  z-index: var(--z-overlay);
+}
+
+.app-account-dock > *:first-child {
+  border-top: none;
+}
+
+@media (width < 900px) {
+  .app-account-dock {
+    left: 16px;
+    right: 16px;
+    bottom: calc(env(safe-area-inset-bottom, 0px) + 16px);
+    width: auto;
+  }
+}
+
 /* Desktop-only: collapse the left sidebar block. Scoped to min-width so the
    fixed 'hidden' attribute never competes with the mobile panel rules.
    M6 T7: this pair moved 769/768 → 900/899 (decision 5). The 17 component

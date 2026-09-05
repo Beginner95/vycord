@@ -17,6 +17,8 @@ import { CreateChannelModal } from '@/components/CreateChannelModal';
 import { UserList } from '@/components/UserList';
 import { TitleBar } from '@/components/TitleBar';
 import { CallUI } from '@/components/CallUI';
+import { CallDock } from '@/components/CallDock';
+import { UserPanel } from '@/components/UserPanel';
 import { CallStage } from '@/components/CallStage';
 import { CallNotifBanner } from '@/components/CallNotifBanner';
 import { groupCallService } from '@/services/groupCall';
@@ -205,9 +207,7 @@ export function AppPage() {
   // initFriendBridge живёт всё время сессии, а не только пока открыт "Дом" —
   // иначе WS-события друзей (новая заявка, бейдж) пропадают, пока пользователь
   // смотрит любой сервер. Тот же приём, что уже применён к initCallBridge выше.
-  useEffect(() => {
-    initFriendBridge();
-  }, []);
+  useEffect(() => initFriendBridge(), []);
 
   useEffect(() => {
     void useFriendStore.getState().load();
@@ -626,6 +626,7 @@ export function AppPage() {
 
   const handleLogout = () => {
     void apiService.logout();
+    useFriendStore.getState().reset();
     logout();
   };
 
@@ -706,14 +707,11 @@ logger.error('Failed to create server:', err, { module: 'app' });
               onSelectChannel={handleSelectChannel}
               onJoinVoice={handleJoinVoice}
               user={user}
-              onLogout={handleLogout}
               onMobileBack={() => setMobilePanel('servers')}
               voiceParticipants={voiceParticipants}
               members={members}
               onChannelDeleted={handleChannelRemoved}
-              onGoToCall={handleGoToCall}
               onServerDeleted={handleServerRemoved}
-              onOpenSettings={() => setSettingsOpen(true)}
               onCreateChannel={() => setCreateChannelOpen(true)}
             />
 
@@ -846,6 +844,18 @@ logger.error('Failed to create server:', err, { module: 'app' });
         onJoinVoice={handleJoinVoice}
         onShowChat={() => setMobilePanel('chat')}
       />
+      {/* Final-review fix I-B/I-C: CallDock and UserPanel (Settings/Logout)
+          used to render only from inside ChannelSidebar, which itself only
+          renders while a server is selected — so both became unreachable
+          while "Дом" (currentServer === null) showed HomeView instead. Hoisted
+          here, unconditionally, the same way CallUI already sits outside the
+          currentServer ternary for call-related UI that must survive across
+          top-level views. */}
+      <div className="app-account-dock">
+        <CallDock onGoToCall={handleGoToCall} />
+        <UserPanel user={user} onLogout={handleLogout} onOpenSettings={() => setSettingsOpen(true)} />
+      </div>
+
       <CallUI />
     </div>
   );

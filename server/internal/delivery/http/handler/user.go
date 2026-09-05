@@ -274,7 +274,11 @@ func (h *UserHandler) UploadAvatar(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.hub.BroadcastUserUpdate(userID, user.AvatarURL)
-	h.sendJSON(w, http.StatusOK, user)
+	h.sendJSON(w, http.StatusOK, meResponse{
+		User:                user,
+		AllowFriendRequests: user.AllowFriendRequests,
+		AllowDMFrom:         user.AllowDMFrom,
+	})
 }
 
 // RemoveAvatar clears the caller's avatar and broadcasts the change.
@@ -288,7 +292,11 @@ func (h *UserHandler) RemoveAvatar(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.hub.BroadcastUserUpdate(userID, user.AvatarURL)
-	h.sendJSON(w, http.StatusOK, user)
+	h.sendJSON(w, http.StatusOK, meResponse{
+		User:                user,
+		AllowFriendRequests: user.AllowFriendRequests,
+		AllowDMFrom:         user.AllowDMFrom,
+	})
 }
 
 func (h *UserHandler) writeUserError(w http.ResponseWriter, r *http.Request, err error) {

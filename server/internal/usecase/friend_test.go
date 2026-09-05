@@ -334,7 +334,7 @@ func TestBlock_Self_Rejected(t *testing.T) {
 	br.AssertNotCalled(t, "Block", mock.Anything, mock.Anything)
 }
 
-func TestBlock_DropsFriendship(t *testing.T) {
+func TestBlock_DelegatesToBlockRepo(t *testing.T) {
 	uc, _, br, _, _ := newFriendUC(t)
 	me, other := uuid.New(), uuid.New()
 	// Удаление дружбы — часть транзакции репозитория, юзкейс её не дублирует.
