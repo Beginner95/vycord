@@ -413,7 +413,6 @@ export const en: Dictionary = {
     show: 'Show sidebar',
   },
   friends: {
-    title: 'Friends',
     pendingBadge: 'Incoming friend requests',
     tabOnline: 'Online',
     tabAll: 'All',

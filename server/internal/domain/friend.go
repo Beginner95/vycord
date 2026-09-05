@@ -120,8 +120,11 @@ type FriendUseCase interface {
 	ListFriends(userID uuid.UUID) ([]*FriendProfile, error)
 	ListRequests(userID uuid.UUID) (incoming, outgoing []*FriendRequest, err error)
 	// SendRequest шлёт заявку по ТОЧНОМУ username. accepted=true означает,
-	// что встречная заявка уже висела и запрос её принял.
-	SendRequest(fromID uuid.UUID, username string) (req *FriendRequest, target *UserBrief, accepted bool, err error)
+	// что встречная заявка уже висела и запрос её принял. self — краткий
+	// профиль САМОГО вызывающего (fromID): req.User собран из target и
+	// годится для HTTP-ответа вызывающему, но для WS-пуша target'у «другая
+	// сторона» — это вызывающий, а не он сам, отсюда и второй профиль.
+	SendRequest(fromID uuid.UUID, username string) (req *FriendRequest, target *UserBrief, self *UserBrief, accepted bool, err error)
 	AcceptRequest(userID, requestID uuid.UUID) (*FriendProfile, uuid.UUID, error)
 	// DeleteRequest — отклонить входящую или отменить исходящую. Второй
 	// результат — id другой стороны, ей уходит WS-событие.

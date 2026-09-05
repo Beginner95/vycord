@@ -125,6 +125,13 @@ var (
 	// Отдельно от ErrInteractionForbidden: то, что юзернейма не существует,
 	// не секрет (он же виден в /users поиске) — прятать тут нечего.
 	ErrUserNotFound = errors.New("user not found")
+	// ErrFriendshipPairRace — конкурентная вставка нарушила
+	// uq_friendships_pair: два одновременных запроса «стать друзьями» (каждый
+	// становится встречной заявкой для другого) оба прошли GetByPair, не
+	// найдя строки, и оба попытались Create. Использующему коду следует
+	// перечитать пару через GetByPair и разрешить её так же, как обычную
+	// встречную заявку — не поднимать наверх как 500.
+	ErrFriendshipPairRace = errors.New("friendship pair race")
 )
 
 var (

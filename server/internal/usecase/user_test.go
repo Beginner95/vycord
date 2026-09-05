@@ -263,7 +263,7 @@ func TestGetLastSeenBatch_PassesThroughRepositoryResult(t *testing.T) {
 	assert.Equal(t, repoResult, result)
 }
 
-func TestSetShowLastSeen_UpdatesTheColumn(t *testing.T) {
+func TestSetPrivacy_UpdatesShowLastSeenColumn(t *testing.T) {
 	userRepo := new(MockUserRepository)
 	uc := usecase.NewUserUseCase(userRepo, new(MockStorage))
 

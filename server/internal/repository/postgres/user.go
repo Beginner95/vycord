@@ -243,9 +243,11 @@ func (r *userRepository) Search(query string, limit, offset int) ([]*domain.User
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
+	// Не выбираем allow_friend_requests/allow_dm_from: результаты поиска —
+	// это никогда "я сам", а domain.User больше не сериализует эти поля
+	// напрямую (json:"-"), так что читать их здесь незачем.
 	sqlQuery := `
-		SELECT id, username, email, avatar_url, status, created_at, updated_at,
-		       allow_friend_requests, allow_dm_from
+		SELECT id, username, email, avatar_url, status, created_at, updated_at
 		FROM users
 		WHERE username ILIKE $1
 		ORDER BY username
@@ -270,8 +272,6 @@ func (r *userRepository) Search(query string, limit, offset int) ([]*domain.User
 			&user.Status,
 			&user.CreatedAt,
 			&user.UpdatedAt,
-			&user.AllowFriendRequests,
-			&user.AllowDMFrom,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan user: %w", err)

@@ -37,7 +37,7 @@ func TestSendRequest_ToSelf_Rejected(t *testing.T) {
 	me := uuid.New()
 	ur.On("GetByUsername", "self").Return(userWith(me, "self", domain.PrivacyEveryone, domain.PrivacyFriends), nil)
 
-	_, _, _, err := uc.SendRequest(me, "self")
+	_, _, _, _, err := uc.SendRequest(me, "self")
 	assert.ErrorIs(t, err, domain.ErrSelfFriendship)
 }
 
@@ -47,7 +47,7 @@ func TestSendRequest_Blocked_ReturnsGenericForbidden(t *testing.T) {
 	ur.On("GetByUsername", "other").Return(userWith(other, "other", domain.PrivacyEveryone, domain.PrivacyFriends), nil)
 	br.On("IsBlockedEither", me, other).Return(true, nil)
 
-	_, _, _, err := uc.SendRequest(me, "other")
+	_, _, _, _, err := uc.SendRequest(me, "other")
 	// Именно ErrInteractionForbidden, а не отдельная «вы заблокированы»:
 	// различимость этих случаев снаружи — утечка.
 	assert.ErrorIs(t, err, domain.ErrInteractionForbidden)
@@ -59,7 +59,7 @@ func TestSendRequest_PrivacyNone_Rejected(t *testing.T) {
 	ur.On("GetByUsername", "other").Return(userWith(other, "other", domain.PrivacyNone, domain.PrivacyFriends), nil)
 	br.On("IsBlockedEither", me, other).Return(false, nil)
 
-	_, _, _, err := uc.SendRequest(me, "other")
+	_, _, _, _, err := uc.SendRequest(me, "other")
 	assert.ErrorIs(t, err, domain.ErrInteractionForbidden)
 }
 
@@ -70,7 +70,7 @@ func TestSendRequest_MutualServers_NoCommonServer_Rejected(t *testing.T) {
 	br.On("IsBlockedEither", me, other).Return(false, nil)
 	sr.On("HasMutualServer", me, other).Return(false, nil)
 
-	_, _, _, err := uc.SendRequest(me, "other")
+	_, _, _, _, err := uc.SendRequest(me, "other")
 	assert.ErrorIs(t, err, domain.ErrInteractionForbidden)
 }
 
@@ -82,12 +82,71 @@ func TestSendRequest_MutualServers_WithCommonServer_Allowed(t *testing.T) {
 	sr.On("HasMutualServer", me, other).Return(true, nil)
 	fr.On("GetByPair", me, other).Return(nil, domain.ErrFriendshipNotFound)
 	fr.On("Create", mock.AnythingOfType("*domain.Friendship")).Return(nil)
+	ur.On("GetByID", me).Return(userWith(me, "me", domain.PrivacyEveryone, domain.PrivacyFriends), nil)
 
-	req, target, accepted, err := uc.SendRequest(me, "other")
+	req, target, self, accepted, err := uc.SendRequest(me, "other")
 	require.NoError(t, err)
 	assert.False(t, accepted)
 	assert.Equal(t, other, target.UserID)
 	assert.Equal(t, other, req.User.UserID)
+	// Регрессия C1: self обязан быть профилем ВЫЗЫВАЮЩЕГО (me), а не target —
+	// хендлер использует его для WS-пуша target'у, где "другая сторона" это
+	// вызывающий.
+	assert.Equal(t, me, self.UserID)
+}
+
+// Регрессия C1: SendRequest обязан возвращать профиль ВЫЗЫВАЮЩЕГО отдельно
+// от профиля target'а — хендлер использует его для WS-пуша заявки target'у,
+// где "другая сторона" это как раз вызывающий, а не сам target. До фикса
+// SendRequest возвращал только target-брифа, и хендлер пушил target'у его же
+// собственный профиль.
+func TestSendRequest_ReturnsCallerOwnBriefAsSelf(t *testing.T) {
+	uc, fr, br, ur, _ := newFriendUC(t)
+	me, other := uuid.New(), uuid.New()
+
+	ur.On("GetByUsername", "other").Return(userWith(other, "other", domain.PrivacyEveryone, domain.PrivacyFriends), nil)
+	ur.On("GetByID", me).Return(userWith(me, "me", domain.PrivacyEveryone, domain.PrivacyFriends), nil)
+	br.On("IsBlockedEither", me, other).Return(false, nil)
+	fr.On("GetByPair", me, other).Return(nil, domain.ErrFriendshipNotFound)
+	fr.On("Create", mock.AnythingOfType("*domain.Friendship")).Return(nil)
+
+	_, target, self, accepted, err := uc.SendRequest(me, "other")
+	require.NoError(t, err)
+	assert.False(t, accepted)
+	require.NotNil(t, self)
+	assert.Equal(t, me, self.UserID, "self обязан быть вызывающим (me), а не target'ом")
+	assert.NotEqual(t, target.UserID, self.UserID)
+}
+
+// Регрессия M2: два одновременных "стать друзьями" (каждый становится
+// встречной заявкой для другого) могут оба пройти GetByPair, не найдя
+// строки, и оба дойти до Create — проигравший получает от репозитория
+// ErrFriendshipPairRace вместо unwrapped 500. SendRequest обязан перечитать
+// пару и разрешить её так же, как обычную встречную заявку.
+func TestSendRequest_ConcurrentCounterRequest_ResolvesInsteadOf500(t *testing.T) {
+	uc, fr, br, ur, _ := newFriendUC(t)
+	me, other := uuid.New(), uuid.New()
+	reqID := uuid.New()
+
+	ur.On("GetByUsername", "other").Return(userWith(other, "other", domain.PrivacyEveryone, domain.PrivacyFriends), nil)
+	ur.On("GetByID", me).Return(userWith(me, "me", domain.PrivacyEveryone, domain.PrivacyFriends), nil)
+	br.On("IsBlockedEither", me, other).Return(false, nil)
+	// Первый GetByPair не находит строки — мы решаем создавать заявку.
+	fr.On("GetByPair", me, other).Return(nil, domain.ErrFriendshipNotFound).Once()
+	// Create проигрывает гонку: конкурентный запрос успел вставить строку
+	// для этой же пары (встречная заявка от other).
+	fr.On("Create", mock.AnythingOfType("*domain.Friendship")).Return(domain.ErrFriendshipPairRace)
+	// Перечитываем пару — теперь она есть, и это встречная заявка от other.
+	fr.On("GetByPair", me, other).Return(&domain.Friendship{
+		ID: reqID, RequesterID: other, AddresseeID: me, Status: domain.FriendshipPending,
+	}, nil).Once()
+	fr.On("Accept", reqID, me, mock.AnythingOfType("time.Time")).Return(nil)
+
+	_, target, self, accepted, err := uc.SendRequest(me, "other")
+	require.NoError(t, err, "гонка обязана разрешиться, а не всплыть как ошибка")
+	assert.True(t, accepted)
+	assert.Equal(t, other, target.UserID)
+	assert.Equal(t, me, self.UserID)
 }
 
 func TestCanDM_FriendsBypassPrivacySetting(t *testing.T) {
@@ -137,11 +196,13 @@ func TestSendRequest_CounterRequest_BecomesFriendship(t *testing.T) {
 		ID: reqID, RequesterID: other, AddresseeID: me, Status: domain.FriendshipPending,
 	}, nil)
 	fr.On("Accept", reqID, me, mock.AnythingOfType("time.Time")).Return(nil)
+	ur.On("GetByID", me).Return(userWith(me, "me", domain.PrivacyEveryone, domain.PrivacyFriends), nil)
 
-	_, target, accepted, err := uc.SendRequest(me, "other")
+	_, target, self, accepted, err := uc.SendRequest(me, "other")
 	require.NoError(t, err)
 	assert.True(t, accepted, "встречная заявка обязана сразу становиться дружбой, а не 409")
 	assert.Equal(t, other, target.UserID)
+	assert.Equal(t, me, self.UserID)
 	fr.AssertNotCalled(t, "Create", mock.Anything)
 }
 
@@ -150,12 +211,13 @@ func TestSendRequest_OwnRequestAlreadyPending_Rejected(t *testing.T) {
 	me, other := uuid.New(), uuid.New()
 
 	ur.On("GetByUsername", "other").Return(userWith(other, "other", domain.PrivacyEveryone, domain.PrivacyFriends), nil)
+	ur.On("GetByID", me).Return(userWith(me, "me", domain.PrivacyEveryone, domain.PrivacyFriends), nil)
 	br.On("IsBlockedEither", me, other).Return(false, nil)
 	fr.On("GetByPair", me, other).Return(&domain.Friendship{
 		ID: uuid.New(), RequesterID: me, AddresseeID: other, Status: domain.FriendshipPending,
 	}, nil)
 
-	_, _, _, err := uc.SendRequest(me, "other")
+	_, _, _, _, err := uc.SendRequest(me, "other")
 	assert.ErrorIs(t, err, domain.ErrFriendRequestExists)
 }
 
@@ -164,12 +226,13 @@ func TestSendRequest_AlreadyFriends_Rejected(t *testing.T) {
 	me, other := uuid.New(), uuid.New()
 
 	ur.On("GetByUsername", "other").Return(userWith(other, "other", domain.PrivacyEveryone, domain.PrivacyFriends), nil)
+	ur.On("GetByID", me).Return(userWith(me, "me", domain.PrivacyEveryone, domain.PrivacyFriends), nil)
 	br.On("IsBlockedEither", me, other).Return(false, nil)
 	fr.On("GetByPair", me, other).Return(&domain.Friendship{
 		ID: uuid.New(), RequesterID: other, AddresseeID: me, Status: domain.FriendshipAccepted,
 	}, nil)
 
-	_, _, _, err := uc.SendRequest(me, "other")
+	_, _, _, _, err := uc.SendRequest(me, "other")
 	assert.ErrorIs(t, err, domain.ErrAlreadyFriends)
 }
 

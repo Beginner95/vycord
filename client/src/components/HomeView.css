@@ -1,7 +1,27 @@
 .home-view {
   display: flex;
+  flex-direction: column;
   flex: 1;
   min-width: 0;
   min-height: 0;
   background: var(--canvas);
+}
+
+/* Mobile back button row — hidden on desktop, same convention as
+   UserList.css's .user-list-mobile-header: base rule here owns the layout,
+   AppPage.css flips `display` on for width < 900px (final-review fix I1). */
+.home-view-mobile-header {
+  display: none;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  padding: 16px 16px 12px;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--ink);
+  background: var(--canvas);
+  border-bottom: 1px solid var(--line);
 }

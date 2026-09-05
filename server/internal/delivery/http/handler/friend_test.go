@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"log/slog"
 	"net/http"
@@ -38,17 +39,21 @@ func (m *mockFriendUseCase) ListRequests(userID uuid.UUID) ([]*domain.FriendRequ
 	return in, out, args.Error(2)
 }
 
-func (m *mockFriendUseCase) SendRequest(fromID uuid.UUID, username string) (*domain.FriendRequest, *domain.UserBrief, bool, error) {
+func (m *mockFriendUseCase) SendRequest(fromID uuid.UUID, username string) (*domain.FriendRequest, *domain.UserBrief, *domain.UserBrief, bool, error) {
 	args := m.Called(fromID, username)
 	var req *domain.FriendRequest
-	var brief *domain.UserBrief
+	var target *domain.UserBrief
+	var self *domain.UserBrief
 	if args.Get(0) != nil {
 		req = args.Get(0).(*domain.FriendRequest)
 	}
 	if args.Get(1) != nil {
-		brief = args.Get(1).(*domain.UserBrief)
+		target = args.Get(1).(*domain.UserBrief)
 	}
-	return req, brief, args.Bool(2), args.Error(3)
+	if args.Get(2) != nil {
+		self = args.Get(2).(*domain.UserBrief)
+	}
+	return req, target, self, args.Bool(3), args.Error(4)
 }
 
 func (m *mockFriendUseCase) AcceptRequest(userID, requestID uuid.UUID) (*domain.FriendProfile, uuid.UUID, error) {
@@ -95,7 +100,7 @@ func TestFriendHandler_SendRequest_ForbiddenIsOpaque(t *testing.T) {
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	uc := new(mockFriendUseCase)
 	me := uuid.New()
-	uc.On("SendRequest", me, "other").Return(nil, nil, false, domain.ErrInteractionForbidden)
+	uc.On("SendRequest", me, "other").Return(nil, nil, nil, false, domain.ErrInteractionForbidden)
 
 	h := NewFriendHandler(uc, ws.NewHub(log), log)
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/friends/requests",
@@ -149,7 +154,7 @@ func TestFriendHandler_SendRequest_UnknownUsernameIs404(t *testing.T) {
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	uc := new(mockFriendUseCase)
 	me := uuid.New()
-	uc.On("SendRequest", me, "ghost").Return(nil, nil, false, domain.ErrUserNotFound)
+	uc.On("SendRequest", me, "ghost").Return(nil, nil, nil, false, domain.ErrUserNotFound)
 
 	h := NewFriendHandler(uc, ws.NewHub(log), log)
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/friends/requests",
@@ -212,4 +217,122 @@ func TestFriendHandler_AcceptRequest_NotifiesBothSides(t *testing.T) {
 	// Тот, кто принял, тоже получает событие — вторая вкладка того же
 	// пользователя не узнает об этом из HTTP-ответа.
 	readChanUntilType(t, meClient.Send, "friend_added", time.Second)
+}
+
+// Регрессия C1: WS-пуш friend_request, который получает АДРЕСАТ заявки,
+// обязан описывать отправителя заявки (self), а не самого адресата (target).
+// req.User (собранный use case'ом из target) годится только для HTTP-ответа
+// вызывающему — если SendRequest-хендлер по ошибке переиспользует req для
+// WS-пуша, адресат увидит в заявке собственный профиль вместо профиля того,
+// кто её прислал.
+func TestFriendHandler_SendRequest_WSPushToTargetCarriesCallerIdentity(t *testing.T) {
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	hub := ws.NewHub(log)
+	go hub.Run()
+
+	caller := uuid.New() // тот, кто шлёт заявку (fromID)
+	target := uuid.New() // адресат заявки
+
+	targetClient := registerFakeClient(t, hub, target)
+
+	callerBrief := &domain.UserBrief{UserID: caller, Username: "caller"}
+	targetBrief := &domain.UserBrief{UserID: target, Username: "target"}
+
+	requestID := uuid.New()
+	req := &domain.FriendRequest{
+		ID:        requestID,
+		User:      *targetBrief, // с точки зрения вызывающего — верно
+		CreatedAt: time.Now(),
+	}
+
+	uc := new(mockFriendUseCase)
+	uc.On("SendRequest", caller, "target").Return(req, targetBrief, callerBrief, false, nil)
+
+	h := NewFriendHandler(uc, hub, log)
+	httpReq := httptest.NewRequest(http.MethodPost, "/api/v1/friends/requests",
+		strings.NewReader(`{"username":"target"}`))
+	httpReq = httpReq.WithContext(context.WithValue(httpReq.Context(), "user_id", caller))
+
+	rec := httptest.NewRecorder()
+	h.SendRequest(rec, httpReq)
+
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	data := readChanUntilType(t, targetClient.Send, "friend_request", time.Second)
+	var msg ws.Message
+	if err := json.Unmarshal(data, &msg); err != nil {
+		t.Fatalf("unmarshal ws.Message: %v", err)
+	}
+	var payload domain.FriendRequest
+	if err := json.Unmarshal(msg.Payload, &payload); err != nil {
+		t.Fatalf("unmarshal payload: %v", err)
+	}
+	if payload.User.UserID != caller {
+		t.Fatalf("expected WS push to carry caller id %s, got %s (target's own id would be %s)",
+			caller, payload.User.UserID, target)
+	}
+}
+
+// Регрессия I2: RemoveFriend и Block обязаны уведомлять обе стороны, а не
+// только «другую» — у актора тоже может быть открыта вторая вкладка.
+func TestFriendHandler_RemoveFriend_NotifiesBothSides(t *testing.T) {
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	hub := ws.NewHub(log)
+	go hub.Run()
+
+	me := uuid.New()
+	friend := uuid.New()
+
+	meClient := registerFakeClient(t, hub, me)
+	friendClient := registerFakeClient(t, hub, friend)
+
+	uc := new(mockFriendUseCase)
+	uc.On("RemoveFriend", me, friend).Return(nil)
+
+	h := NewFriendHandler(uc, hub, log)
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/friends/"+friend.String(), nil)
+	req = req.WithContext(context.WithValue(req.Context(), "user_id", me))
+	req.SetPathValue("user_id", friend.String())
+
+	rec := httptest.NewRecorder()
+	h.RemoveFriend(rec, req)
+
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("expected 204, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	readChanUntilType(t, friendClient.Send, "friend_removed", time.Second)
+	readChanUntilType(t, meClient.Send, "friend_removed", time.Second)
+}
+
+func TestFriendHandler_Block_NotifiesBothSides(t *testing.T) {
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	hub := ws.NewHub(log)
+	go hub.Run()
+
+	me := uuid.New()
+	target := uuid.New()
+
+	meClient := registerFakeClient(t, hub, me)
+	targetClient := registerFakeClient(t, hub, target)
+
+	uc := new(mockFriendUseCase)
+	uc.On("Block", me, target).Return(nil)
+
+	h := NewFriendHandler(uc, hub, log)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/friends/block",
+		strings.NewReader(`{"user_id":"`+target.String()+`"}`))
+	req = req.WithContext(context.WithValue(req.Context(), "user_id", me))
+
+	rec := httptest.NewRecorder()
+	h.Block(rec, req)
+
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("expected 204, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	readChanUntilType(t, targetClient.Send, "friend_removed", time.Second)
+	readChanUntilType(t, meClient.Send, "friend_removed", time.Second)
 }

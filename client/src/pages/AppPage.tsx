@@ -21,7 +21,7 @@ import { CallStage } from '@/components/CallStage';
 import { CallNotifBanner } from '@/components/CallNotifBanner';
 import { groupCallService } from '@/services/groupCall';
 import { useCallStore, initCallBridge } from '@/stores/callStore';
-import { useFriendStore } from '@/stores/friendStore';
+import { useFriendStore, initFriendBridge } from '@/stores/friendStore';
 import { usePaletteHotkey } from '@/hooks/usePaletteHotkey';
 import { useT } from '@/i18n';
 import type { Server, Channel, Message, MemberWithUser } from '@/types';
@@ -200,6 +200,17 @@ export function AppPage() {
   // идемпотентна — повторные вызовы (StrictMode, ремаунт) ничего не делают.
   useEffect(() => {
     initCallBridge();
+  }, []);
+
+  // initFriendBridge живёт всё время сессии, а не только пока открыт "Дом" —
+  // иначе WS-события друзей (новая заявка, бейдж) пропадают, пока пользователь
+  // смотрит любой сервер. Тот же приём, что уже применён к initCallBridge выше.
+  useEffect(() => {
+    initFriendBridge();
+  }, []);
+
+  useEffect(() => {
+    void useFriendStore.getState().load();
   }, []);
 
   useEffect(() => {
@@ -739,7 +750,7 @@ logger.error('Failed to create server:', err, { module: 'app' });
             </div>
           </>
         ) : (
-          <HomeView />
+          <HomeView onMobileBack={() => setMobilePanel('servers')} />
         )}
 
         {/* Список участников виден на любом сервере, включая звонок: чат и

@@ -4,10 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/vycord/server/internal/domain"
 )
@@ -152,6 +154,14 @@ func (r *friendRepository) Create(f *domain.Friendship) error {
 	`
 	_, err := r.db.Exec(ctx, query, f.ID, f.RequesterID, f.AddresseeID, f.Status, f.CreatedAt)
 	if err != nil {
+		// uq_friendships_pair: два одновременных "стать друзьями" (каждый —
+		// встречная заявка для другого) оба прошли GetByPair не найдя строки
+		// и оба дошли до Create. Тот же приём обнаружения 23505, что уже
+		// применён в userRepository.Create для users_username_key/email_key.
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" && strings.Contains(pgErr.ConstraintName, "friendships_pair") {
+			return domain.ErrFriendshipPairRace
+		}
 		return fmt.Errorf("failed to create friendship: %w", err)
 	}
 	return nil
@@ -182,9 +192,14 @@ func (r *friendRepository) Delete(id, actorID uuid.UUID) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
+	// AND status = 'pending' — защита в глубину: DeleteRequest вызывается
+	// только с id заявки, но эндпоинт «отменить заявку» не должен уметь
+	// удалить уже принятую дружбу через прямой вызов API с чужим/угаданным
+	// id. Без этого другая сторона получила бы friend_request_cancelled
+	// вместо friend_removed для реально существовавшей дружбы.
 	query := `
 		DELETE FROM friendships
-		WHERE id = $1 AND (requester_id = $2 OR addressee_id = $2)
+		WHERE id = $1 AND (requester_id = $2 OR addressee_id = $2) AND status = 'pending'
 	`
 	tag, err := r.db.Exec(ctx, query, id, actorID)
 	if err != nil {

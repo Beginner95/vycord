@@ -14,7 +14,6 @@ interface FriendState {
   load: () => Promise<void>;
   applyRequestReceived: (req: FriendRequest) => void;
   applyRequestCancelled: (requestId: string) => void;
-  applyFriendAdded: (friend: FriendProfile) => void;
   applyFriendRemoved: (userId: string) => void;
 }
 
@@ -58,19 +57,17 @@ export const useFriendStore = create<FriendState>((set) => ({
       outgoing: state.outgoing.filter((r) => r.id !== requestId),
     })),
 
-  applyFriendAdded: (friend) =>
-    set((state) => ({
-      friends: state.friends.some((f) => f.user_id === friend.user_id)
-        ? state.friends
-        : [...state.friends, friend],
-      // Принятая заявка обязана исчезнуть из «Ожидания» — иначе она
-      // останется висеть у обеих сторон до перезагрузки.
-      incoming: state.incoming.filter((r) => r.user.user_id !== friend.user_id),
-      outgoing: state.outgoing.filter((r) => r.user.user_id !== friend.user_id),
-    })),
-
   applyFriendRemoved: (userId) =>
-    set((state) => ({ friends: state.friends.filter((f) => f.user_id !== userId) })),
+    set((state) => ({
+      friends: state.friends.filter((f) => f.user_id !== userId),
+      // Блокировка удаляет ЛЮБУЮ строку friendships (включая pending), но
+      // рассылает только friend_removed — без этой чистки повисшая заявка
+      // осталась бы в "Ожидании" и 404-ила бы при попытке ей что-то сделать.
+      // Дёшево и безопасно применять и для обычного unfriend: заявки к
+      // удалённому другу к этому моменту уже не должно быть.
+      incoming: state.incoming.filter((r) => r.user.user_id !== userId),
+      outgoing: state.outgoing.filter((r) => r.user.user_id !== userId),
+    })),
 }));
 
 /**
@@ -90,7 +87,13 @@ export function initFriendBridge(): () => void {
     wsService.on('friend_added', () => {
       // Событие несёт только user_id второй стороны. Профиль и точное
       // friends_since берём перезагрузкой: она дешевле, чем держать на
-      // сервере отдельный «полный» payload ради одного случая.
+      // сервере отдельный «полный» payload ради одного случая. Это
+      // единственная и окончательная реализация — не промежуточный
+      // воркэраунд: раньше существовал реактивный редьюсер applyFriendAdded
+      // на случай, если это событие когда-нибудь станет нести полный
+      // профиль, но он был мёртвым кодом (нигде не вызывался из реального
+      // WS-пути) с тестами, создававшими ложное впечатление, что путь жив —
+      // final-review fix I4 удалил его.
       void useFriendStore.getState().load();
     }),
     wsService.on('friend_removed', (payload) => {

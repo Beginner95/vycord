@@ -95,7 +95,7 @@ func (h *FriendHandler) SendRequest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	req, target, accepted, err := h.friendUseCase.SendRequest(userID, username)
+	req, target, self, accepted, err := h.friendUseCase.SendRequest(userID, username)
 	if err != nil {
 		h.writeFriendError(w, r, err)
 		return
@@ -108,7 +108,14 @@ func (h *FriendHandler) SendRequest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.hub.SendToUser(target.UserID, wsMessage("friend_request", req))
+	// «Другая сторона» viewer-зависима: для HTTP-ответа вызывающему это
+	// target (req.User уже = target, верно), а для WS-пуша target'у это
+	// САМ вызывающий.
+	h.hub.SendToUser(target.UserID, wsMessage("friend_request", &domain.FriendRequest{
+		ID:        req.ID,
+		User:      *self,
+		CreatedAt: req.CreatedAt,
+	}))
 	h.sendJSON(w, http.StatusCreated, map[string]any{"status": "pending", "request": req})
 }
 
@@ -165,7 +172,7 @@ func (h *FriendHandler) RemoveFriend(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.hub.SendToUser(friendID, wsMessage("friend_removed", map[string]any{"user_id": userID.String()}))
+	h.notifyFriendRemoved(userID, friendID)
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -201,7 +208,7 @@ func (h *FriendHandler) Block(w http.ResponseWriter, r *http.Request) {
 
 	// Блокировка удаляет дружбу — заблокированный обязан увидеть это в
 	// своём списке, иначе у него останется «друг», которому нельзя писать.
-	h.hub.SendToUser(targetID, wsMessage("friend_removed", map[string]any{"user_id": userID.String()}))
+	h.notifyFriendRemoved(userID, targetID)
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -224,6 +231,13 @@ func (h *FriendHandler) Unblock(w http.ResponseWriter, r *http.Request) {
 func (h *FriendHandler) notifyFriendAdded(actorID uuid.UUID, other *domain.UserBrief) {
 	h.hub.SendToUser(other.UserID, wsMessage("friend_added", map[string]any{"user_id": actorID.String()}))
 	h.hub.SendToUser(actorID, wsMessage("friend_added", map[string]any{"user_id": other.UserID.String()}))
+}
+
+// notifyFriendRemoved уведомляет обе стороны — та же причина, что и у
+// notifyFriendAdded: у актора тоже может быть открыта вторая вкладка.
+func (h *FriendHandler) notifyFriendRemoved(actorID, otherID uuid.UUID) {
+	h.hub.SendToUser(otherID, wsMessage("friend_removed", map[string]any{"user_id": actorID.String()}))
+	h.hub.SendToUser(actorID, wsMessage("friend_removed", map[string]any{"user_id": otherID.String()}))
 }
 
 // wsMessage собирает ws.Message с уже сериализованным payload.

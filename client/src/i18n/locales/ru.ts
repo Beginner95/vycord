@@ -426,7 +426,6 @@ export const ru = {
     show: 'Показать сайдбар',
   },
   friends: {
-    title: 'Друзья',
     pendingBadge: 'Входящие заявки в друзья',
     tabOnline: 'В сети',
     tabAll: 'Все',

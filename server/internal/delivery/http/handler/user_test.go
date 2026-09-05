@@ -83,6 +83,84 @@ func TestUserHandler_GetUserByID_DoesNotLeakLastSeenAt(t *testing.T) {
 	}
 }
 
+// Регрессия C2: GetUserByID сериализует domain.User напрямую — приватные
+// настройки (allow_friend_requests/allow_dm_from) не должны утекать чужому
+// профилю, иначе ErrInteractionForbidden теряет смысл: причину отказа можно
+// просто прочитать напрямую, а не выяснять перебором.
+func TestUserHandler_GetUserByID_DoesNotLeakPrivacySettings(t *testing.T) {
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	hub := ws.NewHub(log)
+	mockUC := new(mockUserUseCase)
+	h := NewUserHandler(mockUC, hub, log)
+
+	userID := uuid.New()
+	user := &domain.User{
+		ID:                  userID,
+		Username:            "alice",
+		AllowFriendRequests: domain.PrivacyMode("none"),
+		AllowDMFrom:         domain.PrivacyMode("none"),
+	}
+	mockUC.On("GetByID", userID).Return(user, nil)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/users/"+userID.String(), nil)
+	req.SetPathValue("id", userID.String())
+
+	rec := httptest.NewRecorder()
+	h.GetUserByID(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	body := rec.Body.String()
+	if strings.Contains(body, "allow_friend_requests") || strings.Contains(body, "allow_dm_from") {
+		t.Fatalf("expected response to NOT contain privacy setting keys, got: %s", body)
+	}
+	if strings.Contains(body, "none") {
+		t.Fatalf("expected response to NOT contain leaked privacy value, got: %s", body)
+	}
+}
+
+// GetMe — прямая противоположность: единственное законное место, где эти
+// поля обязаны быть видны (это твой собственный профиль).
+func TestUserHandler_GetMe_IncludesPrivacySettings(t *testing.T) {
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	hub := ws.NewHub(log)
+	mockUC := new(mockUserUseCase)
+	h := NewUserHandler(mockUC, hub, log)
+
+	userID := uuid.New()
+	user := &domain.User{
+		ID:                  userID,
+		Username:            "alice",
+		AllowFriendRequests: domain.PrivacyMode("mutual_servers"),
+		AllowDMFrom:         domain.PrivacyMode("none"),
+	}
+	mockUC.On("GetByID", userID).Return(user, nil)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/users/me", nil)
+	req = req.WithContext(context.WithValue(req.Context(), "user_id", userID))
+
+	rec := httptest.NewRecorder()
+	h.GetMe(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var resp struct {
+		AllowFriendRequests string `json:"allow_friend_requests"`
+		AllowDMFrom         string `json:"allow_dm_from"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if resp.AllowFriendRequests != "mutual_servers" {
+		t.Fatalf("expected allow_friend_requests=mutual_servers, got %q (body: %s)", resp.AllowFriendRequests, rec.Body.String())
+	}
+	if resp.AllowDMFrom != "none" {
+		t.Fatalf("expected allow_dm_from=none, got %q (body: %s)", resp.AllowDMFrom, rec.Body.String())
+	}
+}
+
 func multipartAvatarBody(t *testing.T, filename string, content []byte) (*bytes.Buffer, string) {
 	t.Helper()
 	buf := &bytes.Buffer{}

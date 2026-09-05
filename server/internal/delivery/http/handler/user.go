@@ -43,6 +43,19 @@ func NewUserHandler(userUseCase domain.UserUseCase, hub *ws.Hub, log *slog.Logge
 	}
 }
 
+// meResponse re-exposes AllowFriendRequests/AllowDMFrom with real JSON tags.
+// domain.User tags these json:"-" (see its comment) so that GetUserByID and
+// SearchUsers, which serialize domain.User directly, never leak another
+// user's privacy settings. GetMe is the ONE legitimate place to show them —
+// you're looking at your own profile — so the outer struct's shallower,
+// explicitly-tagged fields win over the embedded *domain.User's json:"-"
+// fields of the same name.
+type meResponse struct {
+	*domain.User
+	AllowFriendRequests domain.PrivacyMode `json:"allow_friend_requests"`
+	AllowDMFrom         domain.PrivacyMode `json:"allow_dm_from"`
+}
+
 func (h *UserHandler) GetMe(w http.ResponseWriter, r *http.Request) {
 	userID := r.Context().Value("user_id").(uuid.UUID)
 
@@ -52,7 +65,11 @@ func (h *UserHandler) GetMe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.sendJSON(w, http.StatusOK, user)
+	h.sendJSON(w, http.StatusOK, meResponse{
+		User:                user,
+		AllowFriendRequests: user.AllowFriendRequests,
+		AllowDMFrom:         user.AllowDMFrom,
+	})
 }
 
 func (h *UserHandler) GetUserByID(w http.ResponseWriter, r *http.Request) {

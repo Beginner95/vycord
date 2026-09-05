@@ -104,14 +104,27 @@ func (uc *friendUseCase) CanDM(fromID, toID uuid.UUID) error {
 	return uc.canInteract(fromID, to, interactionDM)
 }
 
-func (uc *friendUseCase) SendRequest(fromID uuid.UUID, username string) (*domain.FriendRequest, *domain.UserBrief, bool, error) {
+func (uc *friendUseCase) SendRequest(fromID uuid.UUID, username string) (*domain.FriendRequest, *domain.UserBrief, *domain.UserBrief, bool, error) {
 	target, err := uc.userRepo.GetByUsername(username)
 	if err != nil {
-		return nil, nil, false, err
+		return nil, nil, nil, false, err
 	}
 
 	if err := uc.canInteract(fromID, target, interactionFriendRequest); err != nil {
-		return nil, nil, false, err
+		return nil, nil, nil, false, err
+	}
+
+	// self — профиль вызывающего, нужен хендлеру для WS-пуша target'у
+	// (там "другая сторона" — это вызывающий, а не сам target). Ошибка
+	// здесь — реальная ошибка: fromID приходит из валидного JWT.
+	self, err := uc.userRepo.GetByID(fromID)
+	if err != nil {
+		return nil, nil, nil, false, err
+	}
+	selfBrief := &domain.UserBrief{
+		UserID:    self.ID,
+		Username:  self.Username,
+		AvatarURL: self.AvatarURL,
 	}
 
 	brief := &domain.UserBrief{
@@ -122,27 +135,10 @@ func (uc *friendUseCase) SendRequest(fromID uuid.UUID, username string) (*domain
 
 	existing, err := uc.friendRepo.GetByPair(fromID, target.ID)
 	if err != nil && !errors.Is(err, domain.ErrFriendshipNotFound) {
-		return nil, nil, false, err
+		return nil, nil, nil, false, err
 	}
 	if existing != nil {
-		if existing.Status == domain.FriendshipAccepted {
-			return nil, nil, false, domain.ErrAlreadyFriends
-		}
-		if existing.RequesterID == fromID {
-			return nil, nil, false, domain.ErrFriendRequestExists
-		}
-		// Встречная заявка: он уже позвал меня — значит это не вторая
-		// заявка, а принятие первой. Транзакция не нужна: условие
-		// `AND status = 'pending'` внутри UPDATE делает переход атомарным.
-		if err := uc.friendRepo.Accept(existing.ID, fromID, time.Now().UTC()); err != nil {
-			if errors.Is(err, domain.ErrFriendshipNotFound) {
-				// Гонка: кто-то принял её между GetByPair и Accept.
-				// Результат ровно тот, которого хотел пользователь.
-				return nil, brief, true, nil
-			}
-			return nil, nil, false, err
-		}
-		return nil, brief, true, nil
+		return uc.resolveExistingPair(fromID, existing, brief, selfBrief)
 	}
 
 	f := &domain.Friendship{
@@ -153,10 +149,47 @@ func (uc *friendUseCase) SendRequest(fromID uuid.UUID, username string) (*domain
 		CreatedAt:   time.Now().UTC(),
 	}
 	if err := uc.friendRepo.Create(f); err != nil {
-		return nil, nil, false, err
+		if errors.Is(err, domain.ErrFriendshipPairRace) {
+			// Конкурентная встречная заявка: кто-то создал строку для этой
+			// же пары между нашим GetByPair и Create. Перечитываем и
+			// разрешаем её тем же путём, что и обычную встречную заявку,
+			// а не отдаём наверх 500.
+			raced, err := uc.friendRepo.GetByPair(fromID, target.ID)
+			if err != nil {
+				return nil, nil, nil, false, err
+			}
+			return uc.resolveExistingPair(fromID, raced, brief, selfBrief)
+		}
+		return nil, nil, nil, false, err
 	}
 
-	return &domain.FriendRequest{ID: f.ID, User: *brief, CreatedAt: f.CreatedAt}, brief, false, nil
+	return &domain.FriendRequest{ID: f.ID, User: *brief, CreatedAt: f.CreatedAt}, brief, selfBrief, false, nil
+}
+
+// resolveExistingPair решает, что делать, когда для (fromID, target) уже
+// есть строка friendships — обычный путь через GetByPair до Create, а также
+// путь после ErrFriendshipPairRace, когда строку успел создать конкурентный
+// запрос. Вынесено в отдельный метод именно ради второго вызова: логика
+// идентична, дублировать её нельзя — разойдётся.
+func (uc *friendUseCase) resolveExistingPair(fromID uuid.UUID, existing *domain.Friendship, brief, selfBrief *domain.UserBrief) (*domain.FriendRequest, *domain.UserBrief, *domain.UserBrief, bool, error) {
+	if existing.Status == domain.FriendshipAccepted {
+		return nil, nil, nil, false, domain.ErrAlreadyFriends
+	}
+	if existing.RequesterID == fromID {
+		return nil, nil, nil, false, domain.ErrFriendRequestExists
+	}
+	// Встречная заявка: он уже позвал меня — значит это не вторая заявка, а
+	// принятие первой. Транзакция не нужна: условие `AND status = 'pending'`
+	// внутри UPDATE делает переход атомарным.
+	if err := uc.friendRepo.Accept(existing.ID, fromID, time.Now().UTC()); err != nil {
+		if errors.Is(err, domain.ErrFriendshipNotFound) {
+			// Гонка: кто-то принял её между GetByPair и Accept.
+			// Результат ровно тот, которого хотел пользователь.
+			return nil, brief, selfBrief, true, nil
+		}
+		return nil, nil, nil, false, err
+	}
+	return nil, brief, selfBrief, true, nil
 }
 
 func (uc *friendUseCase) ListFriends(userID uuid.UUID) ([]*domain.FriendProfile, error) {

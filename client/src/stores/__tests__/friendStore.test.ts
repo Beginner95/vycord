@@ -40,23 +40,25 @@ describe('friendStore', () => {
     expect(useFriendStore.getState().incoming).toHaveLength(1);
   });
 
-  it('при добавлении друга убирает связанную заявку из обоих списков', () => {
-    // Иначе принятая заявка останется висеть во вкладке «Ожидание».
-    useFriendStore.setState({ incoming: [req('r1', 'u1')], outgoing: [] });
-    useFriendStore.getState().applyFriendAdded(friend('u1'));
-    expect(useFriendStore.getState().friends).toHaveLength(1);
-    expect(useFriendStore.getState().incoming).toHaveLength(0);
-  });
-
-  it('не дублирует друга при повторном friend_added', () => {
-    useFriendStore.getState().applyFriendAdded(friend('u1'));
-    useFriendStore.getState().applyFriendAdded(friend('u1'));
-    expect(useFriendStore.getState().friends).toHaveLength(1);
-  });
-
   it('удаляет друга по user_id', () => {
     useFriendStore.setState({ friends: [friend('u1'), friend('u2')] });
     useFriendStore.getState().applyFriendRemoved('u1');
     expect(useFriendStore.getState().friends.map((f) => f.user_id)).toEqual(['u2']);
+  });
+
+  // Регрессия I3: Block удаляет ЛЮБУЮ строку friendships (в т.ч. pending),
+  // но рассылает только friend_removed. Без чистки заявок пользователь видел
+  // бы фантомную заявку к/от заблокированного, которая 404-ила бы при
+  // попытке ей что-то сделать.
+  it('при friend_removed также убирает совпадающую запись из incoming', () => {
+    useFriendStore.setState({ incoming: [req('r1', 'u1')], outgoing: [] });
+    useFriendStore.getState().applyFriendRemoved('u1');
+    expect(useFriendStore.getState().incoming).toHaveLength(0);
+  });
+
+  it('при friend_removed также убирает совпадающую запись из outgoing', () => {
+    useFriendStore.setState({ incoming: [], outgoing: [req('r2', 'u2')] });
+    useFriendStore.getState().applyFriendRemoved('u2');
+    expect(useFriendStore.getState().outgoing).toHaveLength(0);
   });
 });

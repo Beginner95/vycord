@@ -139,7 +139,8 @@
   .app-layout .server-list,
   .app-layout .channel-sidebar,
   .app-layout .channel-body,
-  .app-layout .user-list {
+  .app-layout .user-list,
+  .app-layout .home-view {
     display: none;
     width: 100vw;
     min-width: 100vw;
@@ -156,6 +157,16 @@
      ниже. */
   .app-layout[data-mobile-panel="chat"] .channel-body,
   .app-layout[data-mobile-panel="call"] .channel-body {
+    display: flex;
+  }
+
+  /* final-review fix I1: .home-view раньше не участвовало в этой модели
+     вообще и оставалось видимым независимо от data-mobile-panel — тупик,
+     из которого некуда вернуться. handleSelectHome в AppPage.tsx выставляет
+     панель "chat" (тот же слот, что и обычный чат — currentServer===null
+     ровно тогда, когда рендерится HomeView, так что они никогда не
+     конкурируют за этот слот одновременно). */
+  .app-layout[data-mobile-panel="chat"] .home-view {
     display: flex;
   }
 
@@ -199,7 +210,8 @@
   .app-layout .chat-back-btn,
   .app-layout .chat-call-btn,
   .app-layout .stage-back-btn,
-  .app-layout .user-list-mobile-header {
+  .app-layout .user-list-mobile-header,
+  .app-layout .home-view-mobile-header {
     display: flex;
   }
 }
