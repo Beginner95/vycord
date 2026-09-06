@@ -1,7 +1,7 @@
 {
   "name": "vycord",
   "private": true,
-  "version": "2.3.0",
+  "version": "2.4.0",
   "description": "Vy Cord application with noise cancellation",
   "author": "Vy Cord Team",
   "license": "MIT",
