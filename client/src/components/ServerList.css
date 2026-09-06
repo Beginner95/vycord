@@ -101,6 +101,26 @@
   color: var(--white);
 }
 
+/* Pending-friend-request count, pinned to the tile's top-right corner. The
+   2px ring matches `--rail` (the tile's own backdrop) so the badge reads as
+   cut out of the surface rather than floating on top of it. */
+.server-icon-badge {
+  position: absolute;
+  top: -2px;
+  right: -2px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: var(--radius-pill);
+  background: var(--danger);
+  color: var(--white);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 16px;
+  text-align: center;
+  box-shadow: 0 0 0 2px var(--rail);
+}
+
 /* Bottom group: create + search, pinned, separated by a hairline. */
 .rail-bottom {
   margin-top: auto;
@@ -336,5 +356,16 @@
     height: 40px;
     min-width: 40px;
     border-radius: var(--radius-tile);
+  }
+
+  /* Desktop pins the badge to the square tile's corner (`.server-icon-badge`
+     above). The mobile row has no corner to pin to — the tile is full-width
+     with the symbol and name laid out left to right — so the badge drops out
+     of that absolute position and takes its place as a normal flex child,
+     pushed to the row's trailing edge instead. */
+  .server-icon-badge {
+    position: static;
+    margin-left: auto;
+    box-shadow: none;
   }
 }

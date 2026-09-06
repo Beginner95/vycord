@@ -59,6 +59,10 @@ type ServerRepository interface {
 	AddMember(serverID, userID uuid.UUID) error
 	RemoveMember(serverID, userID uuid.UUID) error
 	IsMember(serverID, userID uuid.UUID) (bool, error)
+	// HasMutualServer — состоят ли оба пользователя хотя бы в одном общем
+	// сервере. Один EXISTS-запрос: режиму приватности mutual_servers нужен
+	// булев ответ, а не списки.
+	HasMutualServer(a, b uuid.UUID) (bool, error)
 	// GetMembersWithUsers возвращает всех участников сервера (включая владельца,
 	// который с миграции 009 хранится обычной строкой в server_members) вместе
 	// с данными профиля.

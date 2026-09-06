@@ -99,7 +99,11 @@ func (h *OTPHandler) Verify(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"access_token":  accessToken,
 		"refresh_token": refreshToken,
-		"user":          user,
+		"user": meResponse{
+			User:                user,
+			AllowFriendRequests: user.AllowFriendRequests,
+			AllowDMFrom:         user.AllowDMFrom,
+		},
 	})
 }
 

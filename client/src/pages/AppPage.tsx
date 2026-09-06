@@ -7,6 +7,7 @@ import { wsService } from '@/services/websocket';
 import { apiService, apiErrorText } from '@/services/api';
 import { logger } from '@/utils/logger';
 import { ServerList } from '@/components/ServerList';
+import { HomeView } from '@/components/HomeView';
 import { ChannelSidebar } from '@/components/ChannelSidebar';
 import { ChatArea } from '@/components/ChatArea';
 import { FindServerModal } from '@/components/FindServerModal';
@@ -16,10 +17,13 @@ import { CreateChannelModal } from '@/components/CreateChannelModal';
 import { UserList } from '@/components/UserList';
 import { TitleBar } from '@/components/TitleBar';
 import { CallUI } from '@/components/CallUI';
+import { CallDock } from '@/components/CallDock';
+import { UserPanel } from '@/components/UserPanel';
 import { CallStage } from '@/components/CallStage';
 import { CallNotifBanner } from '@/components/CallNotifBanner';
 import { groupCallService } from '@/services/groupCall';
 import { useCallStore, initCallBridge } from '@/stores/callStore';
+import { useFriendStore, initFriendBridge } from '@/stores/friendStore';
 import { usePaletteHotkey } from '@/hooks/usePaletteHotkey';
 import { useT } from '@/i18n';
 import type { Server, Channel, Message, MemberWithUser } from '@/types';
@@ -85,6 +89,7 @@ export function AppPage() {
   const { user, accessToken, logout } = useAuthStore();
   const { servers, setServers, setServersLoaded, setCurrentServer, currentServer, setChannels, channels, currentChannel, setCurrentChannel, setMembers, members, setPermissions } = useServerStore();
   const { setMessages } = useMessageStore();
+  const pendingCount = useFriendStore((s) => s.incoming.length);
   const [showCreateServer, setShowCreateServer] = useState(false);
   const [findServerOpen, setFindServerOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -197,6 +202,15 @@ export function AppPage() {
   // идемпотентна — повторные вызовы (StrictMode, ремаунт) ничего не делают.
   useEffect(() => {
     initCallBridge();
+  }, []);
+
+  // initFriendBridge живёт всё время сессии, а не только пока открыт "Дом" —
+  // иначе WS-события друзей (новая заявка, бейдж) пропадают, пока пользователь
+  // смотрит любой сервер. Тот же приём, что уже применён к initCallBridge выше.
+  useEffect(() => initFriendBridge(), []);
+
+  useEffect(() => {
+    void useFriendStore.getState().load();
   }, []);
 
   useEffect(() => {
@@ -534,6 +548,12 @@ export function AppPage() {
     setMembersOpen((v) => !v);
   };
 
+  const handleSelectHome = () => {
+    setCurrentServer(null);
+    setCurrentChannel(null);
+    setMobilePanel('chat');
+  };
+
   const handleSelectServer = async (server: Server) => {
     setCurrentServer(server);
     setMembers([]);
@@ -606,6 +626,7 @@ export function AppPage() {
 
   const handleLogout = () => {
     void apiService.logout();
+    useFriendStore.getState().reset();
     logout();
   };
 
@@ -673,61 +694,71 @@ logger.error('Failed to create server:', err, { module: 'app' });
           onCreateServer={() => { setShowCreateServer(true); setCreateServerError(''); }}
           onOpenFindServer={() => setFindServerOpen(true)}
           onServerDeleted={handleServerRemoved}
+          onSelectHome={handleSelectHome}
+          pendingCount={pendingCount}
         />
 
-        <ChannelSidebar
-          server={currentServer}
-          channels={channels}
-          currentChannel={currentChannel}
-          onSelectChannel={handleSelectChannel}
-          onJoinVoice={handleJoinVoice}
-          user={user}
-          onLogout={handleLogout}
-          onMobileBack={() => setMobilePanel('servers')}
-          voiceParticipants={voiceParticipants}
-          members={members}
-          onChannelDeleted={handleChannelRemoved}
-          onGoToCall={handleGoToCall}
-          onServerDeleted={handleServerRemoved}
-          onOpenSettings={() => setSettingsOpen(true)}
-          onCreateChannel={() => setCreateChannelOpen(true)}
-        />
+        {currentServer ? (
+          <>
+            <ChannelSidebar
+              server={currentServer}
+              channels={channels}
+              currentChannel={currentChannel}
+              onSelectChannel={handleSelectChannel}
+              onJoinVoice={handleJoinVoice}
+              user={user}
+              onMobileBack={() => setMobilePanel('servers')}
+              voiceParticipants={voiceParticipants}
+              members={members}
+              onChannelDeleted={handleChannelRemoved}
+              onServerDeleted={handleServerRemoved}
+              onCreateChannel={() => setCreateChannelOpen(true)}
+            />
 
-        {/* Сцена звонка показывается только в том канале, где идёт звонок:
-            уход в другой канал размонтирует её, а сам звонок продолжается —
-            его состояние и подписки живут в сторе. */}
-        <div className="channel-body" style={{ '--call-stage-height': `${stageHeight}%` } as React.CSSProperties}>
-          {callChannelId && callChannelId === currentChannel?.id && (
-            <>
-              <CallStage onMobileBackToChat={() => setMobilePanel('chat')} />
-              <div
-                className="call-split-handle"
-                onPointerDown={handleSplitDragStart}
-                role="separator"
-                aria-label={t('call.resizeSplit')}
+            {/* Сцена звонка показывается только в том канале, где идёт звонок:
+                уход в другой канал размонтирует её, а сам звонок продолжается —
+                его состояние и подписки живут в сторе. */}
+            <div className="channel-body" style={{ '--call-stage-height': `${stageHeight}%` } as React.CSSProperties}>
+              {callChannelId && callChannelId === currentChannel?.id && (
+                <>
+                  <CallStage onMobileBackToChat={() => setMobilePanel('chat')} />
+                  <div
+                    className="call-split-handle"
+                    onPointerDown={handleSplitDragStart}
+                    role="separator"
+                    aria-label={t('call.resizeSplit')}
+                  />
+                </>
+              )}
+              <ChatArea
+                channel={currentChannel}
+                user={user}
+                onMobileBack={() => setMobilePanel('channels')}
+                onShowMembers={handleToggleMembers}
+                onJoinVoice={handleJoinVoice}
+                onShowCall={
+                  callChannelId && callChannelId === currentChannel?.id
+                    ? () => setMobilePanel('call')
+                    : undefined
+                }
+                onCreateServer={() => { setShowCreateServer(true); setCreateServerError(''); }}
+                onFindServer={() => setFindServerOpen(true)}
+                voiceParticipants={voiceParticipants}
               />
-            </>
-          )}
-          <ChatArea
-            channel={currentChannel}
-            user={user}
-            onMobileBack={() => setMobilePanel('channels')}
-            onShowMembers={handleToggleMembers}
-            onJoinVoice={handleJoinVoice}
-            onShowCall={
-              callChannelId && callChannelId === currentChannel?.id
-                ? () => setMobilePanel('call')
-                : undefined
-            }
-            onCreateServer={() => { setShowCreateServer(true); setCreateServerError(''); }}
-            onFindServer={() => setFindServerOpen(true)}
-            voiceParticipants={voiceParticipants}
-          />
-        </div>
+            </div>
+          </>
+        ) : (
+          <HomeView onMobileBack={() => setMobilePanel('servers')} />
+        )}
 
-        {/* Список участников виден всегда, включая звонок: чат и сцена теперь
-            делят колонку, и прятать соседнюю панель больше не за чем. */}
-        <UserList onMobileBack={() => setMobilePanel('chat')} voiceParticipants={voiceParticipants} />
+        {/* Список участников виден на любом сервере, включая звонок: чат и
+            сцена делят колонку, и прятать соседнюю панель больше не за чем.
+            Но вне сервера («Дом») ему показывать нечего — members в сторе
+            остаются от последнего открытого сервера, и без этой проверки
+            здесь висел бы чужой контекст рядом с HomeView. */}
+        {currentServer && (
+          <UserList onMobileBack={() => setMobilePanel('chat')} voiceParticipants={voiceParticipants} />
+        )}
       </div>
 
       <FindServerModal
@@ -813,6 +844,18 @@ logger.error('Failed to create server:', err, { module: 'app' });
         onJoinVoice={handleJoinVoice}
         onShowChat={() => setMobilePanel('chat')}
       />
+      {/* Final-review fix I-B/I-C: CallDock and UserPanel (Settings/Logout)
+          used to render only from inside ChannelSidebar, which itself only
+          renders while a server is selected — so both became unreachable
+          while "Дом" (currentServer === null) showed HomeView instead. Hoisted
+          here, unconditionally, the same way CallUI already sits outside the
+          currentServer ternary for call-related UI that must survive across
+          top-level views. */}
+      <div className="app-account-dock">
+        <CallDock onGoToCall={handleGoToCall} />
+        <UserPanel user={user} onLogout={handleLogout} onOpenSettings={() => setSettingsOpen(true)} />
+      </div>
+
       <CallUI />
     </div>
   );

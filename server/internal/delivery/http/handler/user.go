@@ -43,6 +43,19 @@ func NewUserHandler(userUseCase domain.UserUseCase, hub *ws.Hub, log *slog.Logge
 	}
 }
 
+// meResponse re-exposes AllowFriendRequests/AllowDMFrom with real JSON tags.
+// domain.User tags these json:"-" (see its comment) so that GetUserByID and
+// SearchUsers, which serialize domain.User directly, never leak another
+// user's privacy settings. GetMe is the ONE legitimate place to show them —
+// you're looking at your own profile — so the outer struct's shallower,
+// explicitly-tagged fields win over the embedded *domain.User's json:"-"
+// fields of the same name.
+type meResponse struct {
+	*domain.User
+	AllowFriendRequests domain.PrivacyMode `json:"allow_friend_requests"`
+	AllowDMFrom         domain.PrivacyMode `json:"allow_dm_from"`
+}
+
 func (h *UserHandler) GetMe(w http.ResponseWriter, r *http.Request) {
 	userID := r.Context().Value("user_id").(uuid.UUID)
 
@@ -52,7 +65,11 @@ func (h *UserHandler) GetMe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.sendJSON(w, http.StatusOK, user)
+	h.sendJSON(w, http.StatusOK, meResponse{
+		User:                user,
+		AllowFriendRequests: user.AllowFriendRequests,
+		AllowDMFrom:         user.AllowDMFrom,
+	})
 }
 
 func (h *UserHandler) GetUserByID(w http.ResponseWriter, r *http.Request) {
@@ -182,13 +199,37 @@ func (h *UserHandler) GetLastSeenBatch(w http.ResponseWriter, r *http.Request) {
 func (h *UserHandler) UpdatePrivacy(w http.ResponseWriter, r *http.Request) {
 	userID := r.Context().Value("user_id").(uuid.UUID)
 	var req struct {
-		ShowLastSeen *bool `json:"show_last_seen"`
+		ShowLastSeen        *bool               `json:"show_last_seen"`
+		AllowFriendRequests *domain.PrivacyMode `json:"allow_friend_requests"`
+		AllowDMFrom         *domain.PrivacyMode `json:"allow_dm_from"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.ShowLastSeen == nil {
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		h.sendError(w, http.StatusBadRequest, httperr.CodeInvalidBody, "invalid request body")
 		return
 	}
-	if err := h.userUseCase.SetShowLastSeen(userID, *req.ShowLastSeen); err != nil {
+	// Тело без единого поля — не «ничего не менять», а ошибка клиента.
+	if req.ShowLastSeen == nil && req.AllowFriendRequests == nil && req.AllowDMFrom == nil {
+		h.sendError(w, http.StatusBadRequest, httperr.CodeInvalidBody, "no privacy fields provided")
+		return
+	}
+	// Валидируем режимы до вызова use case: неизвестное значение не должно
+	// доходить до бизнес-логики — тот же контракт, что и ValidForFriendRequests/
+	// ValidForDM в usecase.userUseCase.SetPrivacy, но проверенный на входе.
+	if req.AllowFriendRequests != nil && !req.AllowFriendRequests.ValidForFriendRequests() {
+		h.sendError(w, http.StatusBadRequest, httperr.CodeInvalidPrivacyValue, "invalid privacy value")
+		return
+	}
+	if req.AllowDMFrom != nil && !req.AllowDMFrom.ValidForDM() {
+		h.sendError(w, http.StatusBadRequest, httperr.CodeInvalidPrivacyValue, "invalid privacy value")
+		return
+	}
+
+	err := h.userUseCase.SetPrivacy(userID, req.ShowLastSeen, req.AllowFriendRequests, req.AllowDMFrom)
+	if errors.Is(err, domain.ErrInvalidPrivacyMode) {
+		h.sendError(w, http.StatusBadRequest, httperr.CodeInvalidPrivacyValue, "invalid privacy value")
+		return
+	}
+	if err != nil {
 		h.log.Error("failed to update privacy", "request_id", middleware.RequestIDFromContext(r.Context()), "error", err)
 		h.sendError(w, http.StatusInternalServerError, httperr.CodeLastSeenFailed, "failed to update privacy")
 		return
@@ -233,7 +274,11 @@ func (h *UserHandler) UploadAvatar(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.hub.BroadcastUserUpdate(userID, user.AvatarURL)
-	h.sendJSON(w, http.StatusOK, user)
+	h.sendJSON(w, http.StatusOK, meResponse{
+		User:                user,
+		AllowFriendRequests: user.AllowFriendRequests,
+		AllowDMFrom:         user.AllowDMFrom,
+	})
 }
 
 // RemoveAvatar clears the caller's avatar and broadcasts the change.
@@ -247,7 +292,11 @@ func (h *UserHandler) RemoveAvatar(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.hub.BroadcastUserUpdate(userID, user.AvatarURL)
-	h.sendJSON(w, http.StatusOK, user)
+	h.sendJSON(w, http.StatusOK, meResponse{
+		User:                user,
+		AllowFriendRequests: user.AllowFriendRequests,
+		AllowDMFrom:         user.AllowDMFrom,
+	})
 }
 
 func (h *UserHandler) writeUserError(w http.ResponseWriter, r *http.Request, err error) {
