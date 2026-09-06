@@ -30,6 +30,18 @@ type User struct {
 	// ShowLastSeen — приватность: false скрывает LastSeenAt от всех, кто
 	// спрашивает через GetLastSeenBatch. По умолчанию true (миграция 023).
 	ShowLastSeen bool `json:"show_last_seen"`
+	// AllowFriendRequests — кто может слать заявку в друзья: everyone /
+	// mutual_servers / none. Дефолт everyone (миграция 024).
+	// json:"-": приватность — раздаётся ТОЛЬКО в ответе GetMe (через
+	// meResponse), не через прямую сериализацию domain.User — иначе
+	// GetUserByID/SearchUsers утекали бы приватность любого пользователя
+	// тому, кто спросит. Тот же приём, что уже применён к LastSeenAt.
+	AllowFriendRequests PrivacyMode `json:"-"`
+	// AllowDMFrom — кто может писать в ЛС: everyone / mutual_servers /
+	// friends. Дефолт friends (миграция 024) — самый строгий разумный
+	// режим: переписка с друзьями им не ограничивается.
+	// json:"-": та же причина, что у AllowFriendRequests выше.
+	AllowDMFrom PrivacyMode `json:"-"`
 }
 
 type UserStatus string
@@ -65,6 +77,11 @@ type UserRepository interface {
 	// GetLastSeenBatch возвращает last-seen-инфо для запрошенных id одним
 	// запросом. Отсутствующие id просто не попадают в результат.
 	GetLastSeenBatch(ids []uuid.UUID) (map[uuid.UUID]LastSeenInfo, error)
+	// UpdatePrivacy обновляет только переданные (не-nil) настройки. Отдельный
+	// метод, а не Update с картой — тот же принцип, что у MarkEmailVerified
+	// и UpdateLastSeen: колонки не входят в whitelist произвольных
+	// обновлений и меняются ровно в одном сценарии.
+	UpdatePrivacy(id uuid.UUID, showLastSeen *bool, friendRequests, dmFrom *PrivacyMode) error
 }
 
 // LastSeenInfo — снимок «когда видели» с учётом приватности: Visible=false

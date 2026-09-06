@@ -58,6 +58,7 @@ const (
 	CodeSearchQueryRequired   = "search_query_required"
 	CodeLastSeenFailed        = "last_seen_failed"
 	CodeLastSeenBatchTooLarge = "last_seen_batch_too_large"
+	CodeInvalidPrivacyValue   = "invalid_privacy_value"
 
 	// Аватары и иконки
 	CodeAvatarTooLarge       = "avatar_file_too_large"
@@ -127,6 +128,14 @@ const (
 	CodeStorageQuotaExceeded      = "storage_quota_exceeded"
 	CodeAttachmentLinkExpired     = "attachment_link_expired"
 	CodeInvalidAttachmentID       = "invalid_attachment_id"
+
+	// Friends (VYC-90)
+	CodeFriendSelf           = "friend_self"
+	CodeFriendRequestExists  = "friend_request_exists"
+	CodeAlreadyFriends       = "already_friends"
+	CodeFriendshipNotFound   = "friendship_not_found"
+	CodeInteractionForbidden = "interaction_forbidden"
+	CodeUsernameRequired     = "username_required"
 )
 
 // Write отправляет JSON-ответ об ошибке. Статус и текст передаются как есть.

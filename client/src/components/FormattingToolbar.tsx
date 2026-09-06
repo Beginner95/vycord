@@ -8,12 +8,12 @@ interface FormattingToolbarProps {
   onBullet: () => void;
   onNumbered: () => void;
   onLink: () => void;
-  onEmojiToggle: () => void;
-  emojiOpen: boolean;
+  onPickerToggle: () => void;
+  pickerOpen: boolean;
   quote?: { active: boolean; onToggle: () => void };
 }
 
-export function FormattingToolbar({ onWrap, onBullet, onNumbered, onLink, onEmojiToggle, emojiOpen, quote }: FormattingToolbarProps) {
+export function FormattingToolbar({ onWrap, onBullet, onNumbered, onLink, onPickerToggle, pickerOpen, quote }: FormattingToolbarProps) {
   const t = useT();
   // Keep the caret/selection in the textarea — the toolbar must not steal focus,
   // or every transform would operate on a collapsed selection.
@@ -22,7 +22,7 @@ export function FormattingToolbar({ onWrap, onBullet, onNumbered, onLink, onEmoj
   // The emoji button is the only one here that OPENS a dismissible surface, and
   // it needs a second, different guarantee. `useDismissOnOutside` dismisses on
   // BUBBLE-phase document `mousedown`, so without stopPropagation the press
-  // closes the open picker and this button's own `onEmojiToggle` immediately
+  // closes the open picker and this button's own `onPickerToggle` immediately
   // re-opens it — the toggle can never close its own picker. `preventDefault`
   // alone does NOT stop propagation, which is why the shared `prevent` above
   // was never enough. Both render sites of this toolbar (Composer and
@@ -34,7 +34,7 @@ export function FormattingToolbar({ onWrap, onBullet, onNumbered, onLink, onEmoj
   // where `quote` is absent — and stopPropagation on a document-level
   // `mousedown` starves EVERY document-mousedown dismisser for that click.
   // Measured call sites: ContextMenu.tsx:37, VolumeControlPopover.tsx:60,
-  // useFloatingSelectionToolbar.ts:76, plus useDismissOnOutside.ts:65 itself.
+  // useFloatingSelectionToolbar.ts:76, plus useDismissOnOutside.ts:73 itself.
   // Widening the opt-out to all of them would break outside-dismissal for those
   // three surfaces to fix one button's problem.
   const preventAndStop = (e: MouseEvent) => { e.preventDefault(); e.stopPropagation(); };
@@ -51,7 +51,7 @@ export function FormattingToolbar({ onWrap, onBullet, onNumbered, onLink, onEmoj
       <button type="button" onMouseDown={prevent} className="fmt-btn" aria-label={t('chat.link')} title={t('chat.link')} onClick={onLink}><Link2 size={15} strokeWidth={1.8} /></button>
       <button type="button" onMouseDown={prevent} className="fmt-btn" aria-label={t('chat.numberedList')} title={t('chat.numberedList')} onClick={onNumbered}><ListOrdered size={15} strokeWidth={1.8} /></button>
       <button type="button" onMouseDown={prevent} className="fmt-btn" aria-label={t('chat.bulletedList')} title={t('chat.bulletedList')} onClick={onBullet}><List size={15} strokeWidth={1.8} /></button>
-      <button type="button" onMouseDown={preventAndStop} className={`fmt-btn${emojiOpen ? ' is-active' : ''}`} aria-label={t('chat.emoji')} title={t('chat.emoji')} onClick={onEmojiToggle}><Smile size={15} strokeWidth={1.8} /></button>
+      <button type="button" onMouseDown={preventAndStop} className={`fmt-btn${pickerOpen ? ' is-active' : ''}`} aria-label={t('chat.emoji')} title={t('chat.emoji')} onClick={onPickerToggle}><Smile size={15} strokeWidth={1.8} /></button>
     </div>
   );
 }

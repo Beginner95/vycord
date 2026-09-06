@@ -105,6 +105,33 @@ var (
 	// ErrLastSeenBatchTooLarge — запрошено больше 200 user_ids за один вызов
 	// GetLastSeenBatch.
 	ErrLastSeenBatchTooLarge = errors.New("too many user ids in last seen batch")
+
+	// ErrSelfFriendship — заявка в друзья самому себе.
+	ErrSelfFriendship = errors.New("cannot befriend yourself")
+	// ErrFriendRequestExists — заявка от этого пользователя уже висит.
+	ErrFriendRequestExists = errors.New("friend request already exists")
+	// ErrAlreadyFriends — пользователи уже друзья.
+	ErrAlreadyFriends = errors.New("already friends")
+	// ErrFriendshipNotFound — заявки или дружбы нет, либо она чужая.
+	ErrFriendshipNotFound = errors.New("friendship not found")
+	// ErrInteractionForbidden — взаимодействие запрещено блокировкой ЛИБО
+	// настройкой приватности. Одна ошибка на две причины намеренно: если
+	// различать их наружу, перебором заявок вычисляется, кто тебя
+	// заблокировал, а кто просто закрыл приём.
+	ErrInteractionForbidden = errors.New("interaction forbidden")
+	// ErrInvalidPrivacyMode — неизвестное значение режима приватности.
+	ErrInvalidPrivacyMode = errors.New("invalid privacy mode")
+	// ErrUserNotFound — пользователь с указанным id/username не существует.
+	// Отдельно от ErrInteractionForbidden: то, что юзернейма не существует,
+	// не секрет (он же виден в /users поиске) — прятать тут нечего.
+	ErrUserNotFound = errors.New("user not found")
+	// ErrFriendshipPairRace — конкурентная вставка нарушила
+	// uq_friendships_pair: два одновременных запроса «стать друзьями» (каждый
+	// становится встречной заявкой для другого) оба прошли GetByPair, не
+	// найдя строки, и оба попытались Create. Использующему коду следует
+	// перечитать пару через GetByPair и разрешить её так же, как обычную
+	// встречную заявку — не поднимать наверх как 500.
+	ErrFriendshipPairRace = errors.New("friendship pair race")
 )
 
 var (

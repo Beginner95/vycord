@@ -35,9 +35,9 @@ type LoginRequest struct {
 }
 
 type LoginResponse struct {
-	AccessToken  string       `json:"access_token"`
-	RefreshToken string       `json:"refresh_token"`
-	User         *domain.User `json:"user"`
+	AccessToken  string     `json:"access_token"`
+	RefreshToken string     `json:"refresh_token"`
+	User         meResponse `json:"user"`
 }
 
 func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
@@ -67,7 +67,15 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.sendJSON(w, http.StatusOK, LoginResponse{AccessToken: accessToken, RefreshToken: refreshToken, User: user})
+	h.sendJSON(w, http.StatusOK, LoginResponse{
+		AccessToken:  accessToken,
+		RefreshToken: refreshToken,
+		User: meResponse{
+			User:                user,
+			AllowFriendRequests: user.AllowFriendRequests,
+			AllowDMFrom:         user.AllowDMFrom,
+		},
+	})
 }
 
 type RefreshRequest struct {
@@ -75,9 +83,9 @@ type RefreshRequest struct {
 }
 
 type RefreshResponse struct {
-	AccessToken  string       `json:"access_token"`
-	RefreshToken string       `json:"refresh_token"`
-	User         *domain.User `json:"user"`
+	AccessToken  string     `json:"access_token"`
+	RefreshToken string     `json:"refresh_token"`
+	User         meResponse `json:"user"`
 }
 
 // Refresh обменивает refresh-токен на новую пару access+refresh. Не требует
@@ -101,7 +109,15 @@ func (h *AuthHandler) Refresh(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.sendJSON(w, http.StatusOK, RefreshResponse{AccessToken: accessToken, RefreshToken: refreshToken, User: user})
+	h.sendJSON(w, http.StatusOK, RefreshResponse{
+		AccessToken:  accessToken,
+		RefreshToken: refreshToken,
+		User: meResponse{
+			User:                user,
+			AllowFriendRequests: user.AllowFriendRequests,
+			AllowDMFrom:         user.AllowDMFrom,
+		},
+	})
 }
 
 type LogoutRequest struct {

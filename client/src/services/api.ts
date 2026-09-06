@@ -1,5 +1,5 @@
 import { useAuthStore } from '@/stores/authStore';
-import type { Server, User, Role, PermissionsResponse, Invite, InvitePreview, Sticker, Attachment, LastSeenInfo } from '@/types';
+import type { Server, User, Role, PermissionsResponse, Invite, InvitePreview, Sticker, Attachment, LastSeenInfo, PrivacyMode, UserBrief, FriendProfile, FriendRequest } from '@/types';
 import { hasKey, type TFunc, type TKey } from '@/i18n';
 import { decodeJwtExpMs } from '@/utils/jwt';
 import { ACCESS_TOKEN_KEY, REFRESH_TOKEN_KEY } from '@/stores/authStore';
@@ -372,6 +372,53 @@ class ApiService {
     });
   }
 
+  // Friends (VYC-90)
+  async getFriends() {
+    return this.request<{ friends: FriendProfile[] }>('/api/v1/friends');
+  }
+
+  async getFriendRequests() {
+    return this.request<{ incoming: FriendRequest[]; outgoing: FriendRequest[] }>(
+      '/api/v1/friends/requests',
+    );
+  }
+
+  async sendFriendRequest(username: string) {
+    return this.request<{ status: 'pending' | 'accepted'; request?: FriendRequest; user?: UserBrief }>(
+      '/api/v1/friends/requests',
+      { method: 'POST', body: JSON.stringify({ username }) },
+    );
+  }
+
+  async acceptFriendRequest(requestId: string) {
+    return this.request<FriendProfile>(`/api/v1/friends/requests/${requestId}/accept`, {
+      method: 'POST',
+    });
+  }
+
+  async deleteFriendRequest(requestId: string) {
+    return this.request<void>(`/api/v1/friends/requests/${requestId}`, { method: 'DELETE' });
+  }
+
+  async removeFriend(userId: string) {
+    return this.request<void>(`/api/v1/friends/${userId}`, { method: 'DELETE' });
+  }
+
+  async getBlocks() {
+    return this.request<{ blocked: UserBrief[] }>('/api/v1/blocks');
+  }
+
+  async blockUser(userId: string) {
+    return this.request<void>('/api/v1/blocks', {
+      method: 'POST',
+      body: JSON.stringify({ user_id: userId }),
+    });
+  }
+
+  async unblockUser(userId: string) {
+    return this.request<void>(`/api/v1/blocks/${userId}`, { method: 'DELETE' });
+  }
+
   // Servers
   async createServer(name: string, isPrivate = false) {
     return this.request('/api/v1/servers', {
@@ -612,10 +659,14 @@ class ApiService {
     });
   }
 
-  async updatePrivacy(showLastSeen: boolean) {
-    return this.request('/api/v1/users/me/privacy', {
+  async updatePrivacy(patch: {
+    show_last_seen?: boolean;
+    allow_friend_requests?: PrivacyMode;
+    allow_dm_from?: PrivacyMode;
+  }) {
+    return this.request<void>('/api/v1/users/me/privacy', {
       method: 'PATCH',
-      body: JSON.stringify({ show_last_seen: showLastSeen }),
+      body: JSON.stringify(patch),
     });
   }
 

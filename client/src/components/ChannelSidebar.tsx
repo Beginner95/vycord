@@ -1,16 +1,14 @@
-import { useState, useEffect, useMemo, useRef, type MouseEvent } from 'react';
-import { ChevronDown, ChevronLeft, Hash, Plus, Mic, MicOff, Volume2, Headphones, Settings as SettingsIcon, LogOut, Pencil, Trash2 } from 'lucide-react';
+import { useState, useMemo, useRef, type MouseEvent } from 'react';
+import { ChevronDown, ChevronLeft, Hash, Plus, Mic, MicOff, Volume2, Headphones, Pencil, Trash2 } from 'lucide-react';
 import type { Server, Channel, User, MemberWithUser } from '@/types';
 import { ConfirmModal } from '@/components/ConfirmModal';
 import { Avatar } from '@/components/Avatar';
 import { ContextMenu } from '@/components/ContextMenu';
 import { EditChannelModal } from '@/components/EditChannelModal';
 import { ServerMenu } from '@/components/ServerMenu';
-import { CallDock } from '@/components/CallDock';
 import { apiService, apiErrorText } from '@/services/api';
 import { useServerStore } from '@/stores/serverStore';
 import { useCallStore } from '@/stores/callStore';
-import { noiseCancellationService } from '@/services/noiseCancellation';
 import { can, PERMISSIONS } from '@/utils/permissions';
 import { useT } from '@/i18n';
 import './ChannelSidebar.css';
@@ -22,14 +20,11 @@ interface ChannelSidebarProps {
   onSelectChannel: (channel: Channel) => void;
   onJoinVoice: (channel: Channel) => void;
   user: User | null;
-  onLogout: () => void;
   onMobileBack?: () => void;
   voiceParticipants?: Map<string, string[]>;
   members: MemberWithUser[];
   onChannelDeleted: (channelId: string) => void;
-  onGoToCall: (serverId: string | null, channelId: string) => void;
   onServerDeleted: (serverId: string) => void;
-  onOpenSettings: () => void;
   onCreateChannel: () => void;
 }
 
@@ -40,21 +35,16 @@ export function ChannelSidebar({
   onSelectChannel,
   onJoinVoice,
   user,
-  onLogout,
   onMobileBack,
   voiceParticipants,
   members,
   onChannelDeleted,
-  onGoToCall,
   onServerDeleted,
-  onOpenSettings,
   onCreateChannel,
 }: ChannelSidebarProps) {
   const t = useT();
-  const [ncEnabled, setNcEnabled] = useState(false);
   const [channelMenu, setChannelMenu] = useState<{ x: number; y: number; channel: Channel } | null>(null);
   const [editingChannel, setEditingChannel] = useState<Channel | null>(null);
-  const [confirmLogout, setConfirmLogout] = useState(false);
   // seq делает каждое открытие меню новым React-ключом: ServerMenu живёт до
   // dismiss тоста ошибки, и без нового ключа повторный клик по кнопке попадал
   // бы в уже смонтированный экземпляр с menuDismissed === true — меню не
@@ -116,16 +106,6 @@ export function ChannelSidebar({
   const resolveUsername = (userId: string): string => memberById.get(userId)?.username ?? userId.slice(0, 8);
   const resolveAvatarUrl = (userId: string): string | undefined => memberById.get(userId)?.avatar_url;
 
-  useEffect(() => {
-    // Подписка не выдаёт текущее состояние при регистрации — без явного чтения
-    // default-on не виден до первого notify() (старта звонка).
-    setNcEnabled(noiseCancellationService.getState().isEnabled);
-    const unsub = noiseCancellationService.onStateChange((state) => {
-      setNcEnabled(state.isEnabled);
-    });
-    return unsub;
-  }, []);
-
   // 'on' | 'off' | null; null = state unknown (channel we're not in) → no icon.
   const micStateFor = (channelId: string, userId: string): 'on' | 'off' | null => {
     if (callChannelId !== channelId) return null;
@@ -147,7 +127,6 @@ export function ChannelSidebar({
         <div className="no-server-message">
           <p>{t('channel.noServerHint')}</p>
         </div>
-        <CallDock onGoToCall={onGoToCall} />
       </nav>
     );
   }
@@ -270,48 +249,6 @@ export function ChannelSidebar({
           );
         })}
       </div>
-
-      <CallDock onGoToCall={onGoToCall} />
-
-      <div className="user-panel">
-        <span className="user-avatar-wrap is-online">
-          <Avatar url={user?.avatar_url} username={user?.username ?? ''} className="user-avatar-small" />
-        </span>
-        <div className="user-details">
-          <span className="user-tag">{user?.username}</span>
-          <span className="user-status-text">
-            {t('server.online')}
-            {ncEnabled && ` · ${t('channel.ncOn')}`}
-          </span>
-        </div>
-        <div className="user-actions">
-          <button
-            type="button"
-            className="panel-icon-btn"
-            onClick={() => onOpenSettings()}
-            title={t('settings.title')}
-          >
-            <SettingsIcon size={16} strokeWidth={1.8} />
-          </button>
-          <button
-            type="button"
-            className="panel-icon-btn is-danger"
-            onClick={() => setConfirmLogout(true)}
-            title={t('common.logout')}
-          >
-            <LogOut size={16} strokeWidth={1.8} />
-          </button>
-        </div>
-      </div>
-
-      <ConfirmModal
-        open={confirmLogout}
-        title={t('common.logoutTitle')}
-        body={t('common.logoutBody')}
-        confirmLabel={t('common.logout')}
-        onConfirm={onLogout}
-        onCancel={() => setConfirmLogout(false)}
-      />
 
       {channelMenu && (
         <ContextMenu

@@ -99,6 +99,55 @@
   color: var(--ink);
 }
 
+/* ── Persistent account dock (final-review fix I-B/I-C) ──
+   CallDock (return-to-call + mic/hangup) and UserPanel (avatar, Settings,
+   Logout) used to render only from inside ChannelSidebar's own column, which
+   itself only renders while a server is selected — both became unreachable
+   while "Дом" showed HomeView instead. Hoisted here as a small persistent
+   floating card, styled after CallNotifBanner.css's fixed-position recipe
+   (same z-index/shadow/radius family) rather than as a flex column in
+   .app-layout: reusing the 252px sidebar SLOT would mean either duplicating
+   it as an empty extra column when a server is selected (wasted width) or
+   reverting HomeView's full-width layout (M6-adjacent decision, out of
+   scope here). A floating card sidesteps both without touching the
+   .app-layout / mobile-panel band system at all. */
+.app-account-dock {
+  position: fixed;
+
+  /* 76px server rail + 22px .sidebar-gutter (M6 T15) — never overlaps the rail. */
+  left: 98px;
+  bottom: 16px;
+  width: 252px;
+  max-width: calc(100vw - 32px);
+  display: flex;
+  flex-direction: column;
+  border-radius: var(--radius-card);
+  overflow: hidden;
+  box-shadow: var(--shadow-card);
+
+  /* Намеренно БЕЗ z-index: это персистентный, не на весь вьюпорт элемент
+     хрома (как CallDock/.user-panel были раньше), не блокирующий скрим —
+     overlay-контракт (client/docs/design-system.md) на него не
+     распространяется. z-index: var(--z-overlay) здесь был реальным багом:
+     тот же токен, что у .modal-overlay, и более поздний порядок в DOM
+     красил док поверх фона любой открытой модалки. Без z-index элемент
+     стекуется на базовом уровне — ниже любой модалки (--z-overlay: 1000)
+     без явного числового литерала (запрещён design-system.md). */
+}
+
+.app-account-dock > *:first-child {
+  border-top: none;
+}
+
+@media (width < 900px) {
+  .app-account-dock {
+    left: 16px;
+    right: 16px;
+    bottom: calc(env(safe-area-inset-bottom, 0px) + 16px);
+    width: auto;
+  }
+}
+
 /* Desktop-only: collapse the left sidebar block. Scoped to min-width so the
    fixed 'hidden' attribute never competes with the mobile panel rules.
    M6 T7: this pair moved 769/768 → 900/899 (decision 5). The 17 component
@@ -139,7 +188,8 @@
   .app-layout .server-list,
   .app-layout .channel-sidebar,
   .app-layout .channel-body,
-  .app-layout .user-list {
+  .app-layout .user-list,
+  .app-layout .home-view {
     display: none;
     width: 100vw;
     min-width: 100vw;
@@ -156,6 +206,16 @@
      ниже. */
   .app-layout[data-mobile-panel="chat"] .channel-body,
   .app-layout[data-mobile-panel="call"] .channel-body {
+    display: flex;
+  }
+
+  /* final-review fix I1: .home-view раньше не участвовало в этой модели
+     вообще и оставалось видимым независимо от data-mobile-panel — тупик,
+     из которого некуда вернуться. handleSelectHome в AppPage.tsx выставляет
+     панель "chat" (тот же слот, что и обычный чат — currentServer===null
+     ровно тогда, когда рендерится HomeView, так что они никогда не
+     конкурируют за этот слот одновременно). */
+  .app-layout[data-mobile-panel="chat"] .home-view {
     display: flex;
   }
 
@@ -199,7 +259,8 @@
   .app-layout .chat-back-btn,
   .app-layout .chat-call-btn,
   .app-layout .stage-back-btn,
-  .app-layout .user-list-mobile-header {
+  .app-layout .user-list-mobile-header,
+  .app-layout .home-view-mobile-header {
     display: flex;
   }
 }

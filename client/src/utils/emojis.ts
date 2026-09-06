@@ -1,15 +1,18 @@
+import type { TKey } from '@/i18n';
+
 export interface EmojiCategory {
   id: string;
-  label: string;
+  /** Ключ словаря, а не текст: заголовки секций видны пользователю. */
+  labelKey: TKey;
   emojis: string[];
 }
 
 export const EMOJI_CATEGORIES: EmojiCategory[] = [
-  { id: 'smileys', label: '😀 Smileys', emojis: ['😀', '😁', '😂', '🤣', '😊', '😍', '😘', '😜', '🤪', '🤔', '😎', '🤩', '🥳', '😭', '😡', '😱', '🥺', '😴', '🤯', '🥱'] },
-  { id: 'gestures', label: '👋 Gestures', emojis: ['👋', '🤚', '🖐️', '✋', '👍', '👎', '👌', '✌️', '🤞', '🤟', '🤘', '👏', '🙌', '🙏', '🤝', '💪', '👈', '👉', '☝️', '👇'] },
-  { id: 'animals', label: '🐶 Animals', emojis: ['🐶', '🐱', '🦊', '🐻', '🐼', '🐨', '🦁', '🐯', '🐮', '🐷', '🐸', '🐵', '🐔', '🐧', '🐦', '🦄', '🐝', '🐢', '🐙', '🦋'] },
-  { id: 'food', label: '🍕 Food', emojis: ['🍎', '🍌', '🍓', '🍉', '🍇', '🍕', '🍔', '🍟', '🌭', '🍿', '🍩', '🍪', '🎂', '🍰', '🍫', '☕', '🍺', '🥤', '🍦', '🥟'] },
-  { id: 'activities', label: '⚽ Activities', emojis: ['⚽', '🏀', '🏈', '⚾', '🎾', '🎳', '🏆', '🥇', '🎮', '🎲', '🎯', '🎸', '🎹', '🎤', '🎧', '🎬', '✈️', '🚗', '🚀', '🏠'] },
-  { id: 'objects', label: '💡 Objects', emojis: ['💡', '🔑', '📱', '💻', '🖥️', '⌚', '📷', '🎥', '📝', '📚', '✏️', '🖊️', '📌', '📎', '🔒', '🔨', '🎁', '💊', '🧲', '🛒'] },
-  { id: 'symbols', label: '❤️ Symbols', emojis: ['❤️', '🧡', '💛', '💚', '💙', '💜', '🖤', '💔', '💯', '❗', '❓', '❗', '⭐', '✨', '🔥', '💤', '💢', '💥', '✅', '❌'] },
+  { id: 'smileys', labelKey: 'chat.emojiCategory.smileys', emojis: ['😀', '😁', '😂', '🤣', '😊', '😍', '😘', '😜', '🤪', '🤔', '😎', '🤩', '🥳', '😭', '😡', '😱', '🥺', '😴', '🤯', '🥱'] },
+  { id: 'gestures', labelKey: 'chat.emojiCategory.gestures', emojis: ['👋', '🤚', '🖐️', '✋', '👍', '👎', '👌', '✌️', '🤞', '🤟', '🤘', '👏', '🙌', '🙏', '🤝', '💪', '👈', '👉', '☝️', '👇'] },
+  { id: 'animals', labelKey: 'chat.emojiCategory.animals', emojis: ['🐶', '🐱', '🦊', '🐻', '🐼', '🐨', '🦁', '🐯', '🐮', '🐷', '🐸', '🐵', '🐔', '🐧', '🐦', '🦄', '🐝', '🐢', '🐙', '🦋'] },
+  { id: 'food', labelKey: 'chat.emojiCategory.food', emojis: ['🍎', '🍌', '🍓', '🍉', '🍇', '🍕', '🍔', '🍟', '🌭', '🍿', '🍩', '🍪', '🎂', '🍰', '🍫', '☕', '🍺', '🥤', '🍦', '🥟'] },
+  { id: 'activities', labelKey: 'chat.emojiCategory.activities', emojis: ['⚽', '🏀', '🏈', '⚾', '🎾', '🎳', '🏆', '🥇', '🎮', '🎲', '🎯', '🎸', '🎹', '🎤', '🎧', '🎬', '✈️', '🚗', '🚀', '🏠'] },
+  { id: 'objects', labelKey: 'chat.emojiCategory.objects', emojis: ['💡', '🔑', '📱', '💻', '🖥️', '⌚', '📷', '🎥', '📝', '📚', '✏️', '🖊️', '📌', '📎', '🔒', '🔨', '🎁', '💊', '🧲', '🛒'] },
+  { id: 'symbols', labelKey: 'chat.emojiCategory.symbols', emojis: ['❤️', '🧡', '💛', '💚', '💙', '💜', '🖤', '💔', '💯', '❗', '❓', '❗', '⭐', '✨', '🔥', '💤', '💢', '💥', '✅', '❌'] },
 ];

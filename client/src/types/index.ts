@@ -27,9 +27,31 @@ export interface User {
   created_at: string;
   updated_at: string;
   show_last_seen: boolean;
+  allow_friend_requests?: PrivacyMode;
+  allow_dm_from?: PrivacyMode;
 }
 
 export type UserStatus = 'online' | 'idle' | 'dnd' | 'offline';
+
+export type PrivacyMode = 'everyone' | 'mutual_servers' | 'none' | 'friends';
+
+export interface UserBrief {
+  user_id: string;
+  username: string;
+  avatar_url?: string | null;
+}
+
+/** Профиль друга: поля UserBrief приходят ПЛОСКИМИ (Go встраивает структуру). */
+export interface FriendProfile extends UserBrief {
+  friends_since: string;
+}
+
+/** Заявка: собеседник приходит ВЛОЖЕННЫМ полем user — в отличие от FriendProfile. */
+export interface FriendRequest {
+  id: string;
+  user: UserBrief;
+  created_at: string;
+}
 
 export interface Server {
   id: string;

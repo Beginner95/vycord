@@ -16,6 +16,9 @@ interface ServerListProps {
   onCreateServer: () => void;
   onOpenFindServer: () => void;
   onServerDeleted: (serverId: string) => void;
+  onSelectHome: () => void;
+  /** Количество входящих заявок для бейджа на кнопке «Дом». 0 — бейджа нет. */
+  pendingCount: number;
 }
 
 export function ServerList({
@@ -26,6 +29,8 @@ export function ServerList({
   onCreateServer,
   onOpenFindServer,
   onServerDeleted,
+  onSelectHome,
+  pendingCount,
 }: ServerListProps) {
   const t = useT();
   // seq — тот же контракт, что в ChannelSidebar: каждое открытие меню
@@ -44,9 +49,15 @@ export function ServerList({
         <div
           className={`server-icon server-icon-home ${!currentServer ? 'is-active' : ''}`}
           title={t('server.home')}
+          onClick={onSelectHome}
         >
           <span className="server-icon-symbol"><Home size={21} strokeWidth={1.8} /></span>
           <span className="server-icon-name">{t('server.home')}</span>
+          {pendingCount > 0 && (
+            <span className="server-icon-badge" aria-label={t('friends.pendingBadge')}>
+              {pendingCount > 99 ? '99+' : pendingCount}
+            </span>
+          )}
         </div>
         <div className="server-divider" />
         {servers.map((server) => (

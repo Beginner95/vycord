@@ -2,6 +2,7 @@ package handler
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -32,6 +33,49 @@ func TestAuthHandler_Refresh_Success(t *testing.T) {
 	respBody := rec.Body.String()
 	if !strings.Contains(respBody, "new-access-token") || !strings.Contains(respBody, "new-refresh-token") {
 		t.Fatalf("expected response to contain both new tokens, got: %s", respBody)
+	}
+}
+
+// Регрессия I-A: Login — как и GetMe — это ответ про "мой собственный
+// профиль". Раньше LoginResponse.User сериализовал *domain.User напрямую,
+// поэтому после фикса C2 (json:"-" на AllowFriendRequests/AllowDMFrom) эти
+// поля молча переставали приходить и в ответ на логин — клиентские дропдауны
+// приватности откатывались на дефолты при каждой новой сессии.
+func TestAuthHandler_Login_IncludesPrivacySettings(t *testing.T) {
+	log := slog.New(slog.NewTextHandler(&bytes.Buffer{}, nil))
+	mockUC := new(mockAuthUseCase)
+	user := &domain.User{
+		Username:            "testuser",
+		AllowFriendRequests: domain.PrivacyMode("mutual_servers"),
+		AllowDMFrom:         domain.PrivacyMode("none"),
+	}
+	mockUC.On("Login", "u@e.com", "password123").Return(user, "access-token", "refresh-token", nil)
+
+	h := NewAuthHandler(mockUC, log)
+
+	body := strings.NewReader(`{"email":"u@e.com","password":"password123"}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", body)
+	rec := httptest.NewRecorder()
+
+	h.Login(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var resp struct {
+		User struct {
+			AllowFriendRequests string `json:"allow_friend_requests"`
+			AllowDMFrom         string `json:"allow_dm_from"`
+		} `json:"user"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if resp.User.AllowFriendRequests != "mutual_servers" {
+		t.Fatalf("expected allow_friend_requests=mutual_servers, got %q (body: %s)", resp.User.AllowFriendRequests, rec.Body.String())
+	}
+	if resp.User.AllowDMFrom != "none" {
+		t.Fatalf("expected allow_dm_from=none, got %q (body: %s)", resp.User.AllowDMFrom, rec.Body.String())
 	}
 }
 

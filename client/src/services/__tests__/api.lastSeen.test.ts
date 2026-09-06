@@ -26,7 +26,7 @@ describe('apiService last seen', () => {
     });
     vi.stubGlobal('fetch', fetchMock);
 
-    await apiService.updatePrivacy(false);
+    await apiService.updatePrivacy({ show_last_seen: false });
 
     expect(fetchMock.mock.calls[0][0]).toContain('/api/v1/users/me/privacy');
     expect(fetchMock.mock.calls[0][1].method).toBe('PATCH');

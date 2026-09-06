@@ -288,6 +288,25 @@ func (r *serverRepository) IsMember(serverID, userID uuid.UUID) (bool, error) {
 	return exists, nil
 }
 
+func (r *serverRepository) HasMutualServer(a, b uuid.UUID) (bool, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	query := `
+		SELECT EXISTS (
+			SELECT 1
+			FROM server_members m1
+			JOIN server_members m2 ON m2.server_id = m1.server_id
+			WHERE m1.user_id = $1 AND m2.user_id = $2
+		)
+	`
+	var exists bool
+	if err := r.db.QueryRow(ctx, query, a, b).Scan(&exists); err != nil {
+		return false, fmt.Errorf("failed to check mutual server: %w", err)
+	}
+	return exists, nil
+}
+
 func (r *serverRepository) Search(query string, limit, offset int) ([]*domain.Server, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()

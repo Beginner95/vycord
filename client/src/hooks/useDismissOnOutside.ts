@@ -12,8 +12,9 @@ import { isBlockingOverlayOpen } from '@/hooks/useModalFocus';
  *   own `onMouseDown`. Without that opt-out a click on an open picker's
  *   toggle would dismiss it here and immediately re-open it in the toggle's
  *   `onClick`, leaving the picker stuck open. Every such toggle carries the
- *   opt-out: Composer's sticker and emoji buttons, FormattingToolbar's emoji
- *   button (`preventAndStop`, both render sites) and AttachmentButton's.
+ *   opt-out: the composer's emoji and sticker buttons (both opening
+ *   ExpressionPicker), FormattingToolbar's picker button (`preventAndStop`,
+ *   both render sites) and AttachmentButton's.
  * - The key listener is `keydown` on the *capture* phase and stops
  *   propagation, so Escape closes only the popover instead of also reaching
  *   the textarea underneath. Verified, not assumed: capture-at-document runs
@@ -45,9 +46,9 @@ import { isBlockingOverlayOpen } from '@/hooks/useModalFocus';
  * listener has already delivered the key to the editor. So the deferral stays.
  *
  * The deferral is sound only because every call site renders OUTSIDE any
- * `.modal-overlay`: EmojiPicker (Composer + MessageRow's editor), StickerPicker
- * (Composer) and AttachmentButton's AttachPicker (Composer). A future picker
- * rendered INSIDE a modal would silently lose its Escape to the modal above it.
+ * `.modal-overlay`: ExpressionPicker (Composer + MessageRow's editor) and
+ * AttachmentButton's AttachPicker (Composer). A future picker rendered
+ * INSIDE a modal would silently lose its Escape to the modal above it.
  */
 export function useDismissOnOutside<T extends HTMLElement>(onDismiss: () => void) {
   const ref = useRef<T | null>(null);

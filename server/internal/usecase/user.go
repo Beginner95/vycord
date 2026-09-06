@@ -150,11 +150,14 @@ func (uc *userUseCase) GetLastSeenBatch(ids []uuid.UUID) (map[uuid.UUID]domain.L
 	return uc.userRepo.GetLastSeenBatch(ids)
 }
 
-func (uc *userUseCase) SetShowLastSeen(id uuid.UUID, show bool) error {
-	if err := uc.userRepo.Update(id, map[string]interface{}{"show_last_seen": show}); err != nil {
-		return fmt.Errorf("failed to update show_last_seen: %w", err)
+func (uc *userUseCase) SetPrivacy(id uuid.UUID, showLastSeen *bool, friendRequests, dmFrom *domain.PrivacyMode) error {
+	if friendRequests != nil && !friendRequests.ValidForFriendRequests() {
+		return domain.ErrInvalidPrivacyMode
 	}
-	return nil
+	if dmFrom != nil && !dmFrom.ValidForDM() {
+		return domain.ErrInvalidPrivacyMode
+	}
+	return uc.userRepo.UpdatePrivacy(id, showLastSeen, friendRequests, dmFrom)
 }
 
 func randomHex(n int) string {
