@@ -312,8 +312,6 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
           onBullet={() => applyLineToggle(target, toggleBullet)}
           onNumbered={() => applyLineToggle(target, toggleNumbered)}
           onLink={() => setLinkOpen(true)}
-          onPickerToggle={() => togglePicker('picker')}
-          pickerOpen={pickerOpen}
           quote={{ active: caretInQuoteLine, onToggle: toggleQuotePrefix }}
         />
       )}
