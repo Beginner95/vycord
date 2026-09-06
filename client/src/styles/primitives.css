@@ -358,12 +358,12 @@
    Live consumers, RE-DERIVED from `rg -n 'fade-in|scale-in|modal-in' src/` at
    M6 T4 — every line number below was re-checked, not carried forward — so
    check before deleting any of these:
-     fade-in  — .modal-overlay below; EmojiPicker.css:18, StickerPicker.css:17
+     fade-in  — .modal-overlay below; ExpressionPicker.css:32
      scale-in — .context-menu below. NO external consumers left: T9's
                 AvatarCropModal.css rewrite dropped the last one (it was the
                 only file outside primitives.css using it).
-     modal-in — .modal below; ConfirmModal.css:9, CallUI.css:30,
-                Settings.css:22, CommandPalette.css:26 (added in M5 T3, after
+     modal-in — .modal below; ConfirmModal.css:9, CallUI.css:37,
+                Settings.css:19, CommandPalette.css:27 (added in M5 T3, after
                 the M4 T9 re-derivation below — that's why it was missing
                 here until this pass). The radio `::after` this comment used
                 to list as a second internal consumer was deleted in M6 T4
