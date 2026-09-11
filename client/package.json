@@ -1,7 +1,7 @@
 {
   "name": "vycord",
   "private": true,
-  "version": "2.4.0",
+  "version": "2.4.1",
   "description": "Vy Cord application with noise cancellation",
   "author": "Vy Cord Team",
   "license": "MIT",
@@ -90,7 +90,11 @@
         "dmg",
         "zip"
       ],
-      "category": "public.app-category.social-networking"
+      "category": "public.app-category.social-networking",
+      "extendInfo": {
+        "NSCameraUsageDescription": "Vy Cord использует камеру для видеозвонков и видеосообщений.",
+        "NSMicrophoneUsageDescription": "Vy Cord использует микрофон для голосовых и видеозвонков."
+      }
     },
     "nsis": {
       "oneClick": false,
