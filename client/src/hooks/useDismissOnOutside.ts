@@ -13,8 +13,7 @@ import { isBlockingOverlayOpen } from '@/hooks/useModalFocus';
  *   toggle would dismiss it here and immediately re-open it in the toggle's
  *   `onClick`, leaving the picker stuck open. Every such toggle carries the
  *   opt-out: the composer's emoji and sticker buttons (both opening
- *   ExpressionPicker), FormattingToolbar's picker button (`preventAndStop`,
- *   both render sites) and AttachmentButton's.
+ *   ExpressionPicker) and AttachmentButton's.
  * - The key listener is `keydown` on the *capture* phase and stops
  *   propagation, so Escape closes only the popover instead of also reaching
  *   the textarea underneath. Verified, not assumed: capture-at-document runs
