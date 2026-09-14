@@ -1,7 +1,7 @@
 {
   "name": "vycord",
   "private": true,
-  "version": "2.4.1",
+  "version": "2.4.2",
   "description": "Vy Cord application with noise cancellation",
   "author": "Vy Cord Team",
   "license": "MIT",
@@ -87,8 +87,20 @@
     },
     "mac": {
       "target": [
-        "dmg",
-        "zip"
+        {
+          "target": "dmg",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        }
       ],
       "category": "public.app-category.social-networking",
       "extendInfo": {
