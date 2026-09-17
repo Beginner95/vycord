@@ -7,7 +7,7 @@ import { LinkDialog } from '@/components/LinkDialog';
 import { MessageAttachments } from '@/components/MessageAttachments';
 import { useMentionAutocomplete } from '@/hooks/useMentionAutocomplete';
 import { toggleBullet, toggleNumbered, applyLineToggle, applyWrap, insertAtCaret, linkToken } from '@/utils/textTransforms';
-import { tokenizeMentions, LEGACY_ROLE_KEYS } from '@/utils/mentions';
+import { tokenizeMentions, toDisplayMentions, toWireMentions, LEGACY_ROLE_KEYS } from '@/utils/mentions';
 import { parseInline, blockify, normalizeLinkHref, type MdInlineNode } from '@/utils/markdown';
 import { resolveUploadUrl } from '@/services/api';
 import { useT, useDateFormat, type TFunc } from '@/i18n';
@@ -249,7 +249,7 @@ interface MessageEditorProps extends MessageRowProps {
  * has to live in ChatArea any more.
  */
 function MessageEditor({ initial, members, canMentionEveryone, onCancelEdit, onSaveEdit }: MessageEditorProps) {
-  const [value, setValue] = useState(initial);
+  const [value, setValue] = useState(() => toDisplayMentions(initial, members));
   const [linkOpen, setLinkOpen] = useState(false);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -268,7 +268,7 @@ function MessageEditor({ initial, members, canMentionEveryone, onCancelEdit, onS
     if (mention.handleKeyDown(e)) return;
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
-      void onSaveEdit(value.trim());
+      void onSaveEdit(toWireMentions(value, members).trim());
     } else if (e.key === 'Escape') {
       e.preventDefault();
       onCancelEdit();

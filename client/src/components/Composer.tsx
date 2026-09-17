@@ -30,6 +30,7 @@ import {
   linkToken,
 } from '@/utils/textTransforms';
 import { isUnsafeUrl } from '@/utils/markdown';
+import { toWireMentions } from '@/utils/mentions';
 import { useT } from '@/i18n';
 import type { Attachment, Channel, MemberWithUser, Sticker as ServerSticker } from '@/types';
 import './Composer.css';
@@ -202,7 +203,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
   const handleSubmit = (e: FormEvent) => {
     e.preventDefault();
     if (submittingRef.current) return;
-    const content = input.trim();
+    const content = toWireMentions(input, members).trim();
     // A message is valid with text OR with at least one finished upload.
     if (!content && readyAttachments.length === 0) return;
     // While anything is still uploading, hold the send — the message must
