@@ -350,6 +350,11 @@ class GroupCallService {
   async joinGroupCall(roomId: string, userId: string): Promise<boolean> {
     gcLog(userId, 'joinGroupCall', { roomId });
 
+    // Defensive: reset here too, not just in doJoinGroupCall, so a stale
+    // warning from a previous join can't linger past either early return
+    // below (neither reaches doJoinGroupCall's own reset).
+    this.mediaWarning = null;
+
     if (this.inCall) {
       this.callbacks?.onError('Already in a call');
       return false;

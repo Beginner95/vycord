@@ -216,7 +216,7 @@ export const en: Dictionary = {
 
     // Screen share errors
     screenPermissionDenied: 'Screen Recording permission is denied. Please grant it in System Settings → Privacy & Security → Screen Recording, then restart the app.',
-    mediaPermissionDenied: 'Camera and microphone access is denied by the system. Please grant it in System Settings → Privacy & Security → Camera / Microphone, then restart the app.',
+    mediaPermissionDenied: 'Camera and/or microphone access is denied by the system. Please grant it in System Settings → Privacy & Security → Camera / Microphone, then restart the app.',
     noLocalMediaWarning: "Couldn't access the camera and microphone — you joined without your video and audio.",
     screenSourcesFailed: 'Could not get screen sources. Please try again.',
     screenShareFailed: 'Failed to start screen sharing. Please try again.',

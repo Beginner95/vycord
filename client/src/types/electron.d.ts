@@ -27,8 +27,8 @@ export interface ElectronAPI {
   getAppVersion: () => Promise<string>;
   platform: string;
   getScreenSources: () => Promise<ScreenSourcesResult>;
-  // Optional for the same reason as setLocale/setTheme: older packaged
-  // builds and the web build don't have this method.
+  // Опционально по той же причине, что и setLocale/setTheme: старые сборки
+  // клиента и веб-сборка этого метода не имеют.
   getMediaAccessStatus?: () => Promise<MediaAccessStatusResult>;
   audioAssetsUrl: string;
   // Опционально: в веб-сборке electronAPI нет вовсе, а у клиентов,

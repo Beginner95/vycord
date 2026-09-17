@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { callService } from '@/services/call';
 
 describe('callService media-permission pre-flight', () => {
@@ -8,6 +8,10 @@ describe('callService media-permission pre-flight', () => {
         getUserMedia: vi.fn().mockRejectedValue(new DOMException('denied', 'NotAllowedError')),
       },
     });
+  });
+
+  afterEach(() => {
+    delete (window as unknown as { electronAPI?: unknown }).electronAPI;
   });
 
   it('surfaces the translated permission-denied message via onError when macOS reports denied', async () => {
@@ -20,10 +24,8 @@ describe('callService media-permission pre-flight', () => {
     await callService.startCall('peer-1');
 
     expect(onError).toHaveBeenCalledWith(
-      expect.stringMatching(/camera and microphone access is denied|Доступ к камере и микрофону запрещён/i),
+      expect.stringMatching(/camera and\/or microphone access is denied|Доступ к камере и\/или микрофону запрещён/i),
     );
-
-    delete (window as unknown as { electronAPI?: unknown }).electronAPI;
   });
 
   it('does not call onError proactively when there is no electronAPI bridge (web build)', async () => {
@@ -36,7 +38,7 @@ describe('callService media-permission pre-flight', () => {
     // but with the raw browser message, not the proactive translated one.
     expect(onError).toHaveBeenCalled();
     expect(onError).not.toHaveBeenCalledWith(
-      expect.stringMatching(/camera and microphone access is denied|Доступ к камере и микрофону запрещён/i),
+      expect.stringMatching(/camera and\/or microphone access is denied|Доступ к камере и\/или микрофону запрещён/i),
     );
   });
 });
