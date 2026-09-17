@@ -32,6 +32,8 @@ interface CallState {
   isMuted: boolean;
   isVideoOff: boolean;
   isMicAvailable: boolean;
+  /** Non-fatal "you joined without camera/mic" notice; null when nothing to show. */
+  mediaWarning: string | null;
   isScreenSharing: boolean;
 
   participants: RemoteParticipant[];
@@ -68,6 +70,7 @@ interface CallState {
   setStatus: (status: CallStatus) => void;
   toggleMute: () => void;
   toggleVideo: () => void;
+  clearMediaWarning: () => void;
 }
 
 // Функция, а не константа: Map/Set внутри — мутабельные объекты, и общий
@@ -82,6 +85,7 @@ const idle = () => ({
   isMuted: false,
   isVideoOff: true,
   isMicAvailable: true,
+  mediaWarning: null as string | null,
   isScreenSharing: false,
   participants: [] as RemoteParticipant[],
   remoteScreenStreams: new Map<string, MediaStream>(),
@@ -127,6 +131,7 @@ export const useCallStore = create<CallState>((set, get) => ({
     }
 
     const micAvailable = groupCallService.isMicrophoneAvailable;
+    const mediaWarning = groupCallService.lastMediaWarningState;
     set({
       status: 'connected',
       startedAt: Date.now(),
@@ -136,6 +141,7 @@ export const useCallStore = create<CallState>((set, get) => ({
       callServerName: opts.serverName,
       isMicAvailable: micAvailable,
       isMuted: !micAvailable,
+      mediaWarning,
     });
     wsService.send(micAvailable ? 'mic_unmuted' : 'mic_muted', {});
 
@@ -176,6 +182,8 @@ export const useCallStore = create<CallState>((set, get) => ({
   toggleMute: () => set({ isMuted: groupCallService.toggleMuteAudio() }),
 
   toggleVideo: () => set({ isVideoOff: groupCallService.toggleMuteVideo() }),
+
+  clearMediaWarning: () => set({ mediaWarning: null }),
 }));
 
 // ─── Мост к groupCallService ─────────────────────────────────────────────────

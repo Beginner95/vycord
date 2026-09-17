@@ -513,6 +513,7 @@ export function CallStage({ onMobileBackToChat }: CallStageProps) {
     : fullscreenTarget === 'focus';
   // Screen-share errors surface as a toast, not a blocking dialog (decision 11).
   const [stageError, setStageError] = useState<string | null>(null);
+  const mediaWarning = useCallStore((s) => s.mediaWarning);
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const remoteVideoRefs = useRef<Map<string, HTMLVideoElement>>(new Map());
   const focusedVideoRef = useRef<HTMLVideoElement>(null);
@@ -579,6 +580,15 @@ export function CallStage({ onMobileBackToChat }: CallStageProps) {
     const timer = setTimeout(() => setStageError(null), 5000);
     return () => clearTimeout(timer);
   }, [stageError]);
+
+  // Funnel a non-fatal "joined without camera/mic" notice from the store into
+  // the same toast used for screen-share errors, then clear it so it can't be
+  // shown twice on a later, unrelated re-render.
+  useEffect(() => {
+    if (!mediaWarning) return;
+    setStageError(mediaWarning);
+    useCallStore.getState().clearMediaWarning();
+  }, [mediaWarning]);
 
   // Attach stream to the focused main video whenever focus or stream changes.
   // Two cases: focusing a screen-sharer plays their dedicated screen stream
