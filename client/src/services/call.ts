@@ -6,6 +6,7 @@ import { logger } from '@/utils/logger';
 // Строка читается один раз в момент ошибки и сразу уходит в тост, поэтому
 // смена языка после её показа значения не имеет.
 import { t } from '@/i18n';
+import { getDeniedMediaKinds } from './mediaPermissions';
 
 interface WebRTCCallbacks {
   onRemoteStream: (stream: MediaStream) => void;
@@ -44,6 +45,12 @@ class CallService {
     try {
       this.remoteUserId = receiverId;
       this._microphoneAvailable = false;
+
+      const api = (window as Window & typeof globalThis).electronAPI;
+      const { cameraDenied, microphoneDenied } = await getDeniedMediaKinds(api);
+      if (cameraDenied || microphoneDenied) {
+        this.callbacks?.onError(t('call.mediaPermissionDenied'));
+      }
 
       // Get local media stream; fall back to audio-only, then video-only, then nothing
       try {
@@ -116,6 +123,13 @@ class CallService {
   async acceptCall(): Promise<void> {
     if (!this.localStream) {
       this._microphoneAvailable = false;
+
+      const api = (window as Window & typeof globalThis).electronAPI;
+      const { cameraDenied, microphoneDenied } = await getDeniedMediaKinds(api);
+      if (cameraDenied || microphoneDenied) {
+        this.callbacks?.onError(t('call.mediaPermissionDenied'));
+      }
+
       try {
         let rawStream: MediaStream;
         try {
