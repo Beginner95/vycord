@@ -12,6 +12,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getAppVersion: () => ipcRenderer.invoke('get-app-version'),
   platform: process.platform,
   getScreenSources: () => ipcRenderer.invoke('get-screen-sources'),
+  getMediaAccessStatus: () => ipcRenderer.invoke('get-media-access-status'),
   audioAssetsUrl,
   setLocale: (locale: string) => ipcRenderer.send('locale:changed', locale),
   setTheme: (theme: string) => ipcRenderer.send('theme:changed', theme),

@@ -7,6 +7,7 @@ import { apiService, apiErrorText } from './api';
 import { logger } from '@/utils/logger';
 // Нехуковый t: groupCall — обычный класс, useT() здесь вызвать нельзя.
 import { t } from '@/i18n';
+import { getDeniedMediaKinds } from './mediaPermissions';
 
 const SFU_URL = import.meta.env.VITE_SFU_URL || 'ws://localhost:8081';
 
@@ -228,6 +229,9 @@ class GroupCallService {
   // thereby collapse) it. Managed like dummyScreenAudioTrack.
   private dummyMicAudioTrack: MediaStreamTrack | null = null;
   private dummyMicAudioContext: AudioContext | null = null;
+  // Non-fatal "joined without camera/mic" notice, set right before
+  // acquireMedia() in doJoinGroupCall — see lastMediaWarningState.
+  private mediaWarning: string | null = null;
   // Detaches the AEC3 AudioWorkletNode/worker used to strip call-audio echo
   // out of the captured system audio before it is sent via screenAudioSender —
   // see startScreenShare/stopScreenShare.
@@ -346,6 +350,11 @@ class GroupCallService {
   async joinGroupCall(roomId: string, userId: string): Promise<boolean> {
     gcLog(userId, 'joinGroupCall', { roomId });
 
+    // Defensive: reset here too, not just in doJoinGroupCall, so a stale
+    // warning from a previous join can't linger past either early return
+    // below (neither reaches doJoinGroupCall's own reset).
+    this.mediaWarning = null;
+
     if (this.inCall) {
       this.callbacks?.onError('Already in a call');
       return false;
@@ -365,6 +374,7 @@ class GroupCallService {
   }
 
   private async doJoinGroupCall(roomId: string, userId: string): Promise<boolean> {
+    this.mediaWarning = null;
     this.intentionalLeave = false;
     // A hung previous reconnect cycle (e.g. its attempt never settled) must not
     // silently disable auto-reconnect for this new call.
@@ -380,6 +390,12 @@ class GroupCallService {
     this.micRebuildBlockedUntil = 0;
 
     try {
+      const api = (window as Window & typeof globalThis).electronAPI;
+      const { cameraDenied, microphoneDenied } = await getDeniedMediaKinds(api);
+      if (cameraDenied || microphoneDenied) {
+        this.mediaWarning = t('call.mediaPermissionDenied');
+      }
+
       const raw = await this.acquireMedia();
       // Baseline BEFORE the seconds-long createChain: a device flip inside
       // that window must be detected, not recorded as the baseline.
@@ -412,6 +428,9 @@ class GroupCallService {
       } else {
         this._microphoneAvailable = false;
         gcLog(userId, 'no media devices, joining without local media');
+        if (this.mediaWarning === null) {
+          this.mediaWarning = t('call.noLocalMediaWarning');
+        }
       }
     } catch (err) {
       gcLog(userId, 'media ERROR', { error: String(err) });
@@ -1436,6 +1455,7 @@ class GroupCallService {
   get isScreenSharing(): boolean { return this._isScreenSharing; }
   get isMicrophoneAvailable(): boolean { return this._microphoneAvailable; }
   get peerCount(): number { return this.remoteStreams.size; }
+  get lastMediaWarningState(): string | null { return this.mediaWarning; }
 
   // ── Private: media acquisition ────────────────────────────────────────────
 

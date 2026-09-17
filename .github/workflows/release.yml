@@ -32,3 +32,16 @@ jobs:
       - run: npx electron-builder --publish always
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Verify macOS arm64 entitlements
+        if: matrix.os == 'macos-latest'
+        working-directory: client
+        run: |
+          APP="release/mac-arm64/Vy Cord.app"
+          if [ ! -d "$APP" ]; then
+            echo "::error::$APP not found — check electron-builder's mac target output path"
+            exit 1
+          fi
+          codesign -d --entitlements - "$APP" 2>/dev/null > ents.plist
+          grep -q "com.apple.security.device.camera" ents.plist || { echo "::error::camera entitlement missing from arm64 build"; exit 1; }
+          grep -q "com.apple.security.device.audio-input" ents.plist || { echo "::error::audio-input entitlement missing from arm64 build"; exit 1; }

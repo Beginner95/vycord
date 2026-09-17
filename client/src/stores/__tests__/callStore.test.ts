@@ -6,6 +6,7 @@ vi.mock('@/services/groupCall', () => ({
     currentRoomIdState: '',
     isMicrophoneAvailable: true,
     isScreenSharing: false,
+    lastMediaWarningState: null as string | null,
     init: vi.fn(),
     joinGroupCall: vi.fn(),
     leaveGroupCall: vi.fn(),
@@ -32,6 +33,7 @@ const gc = groupCallService as unknown as {
   currentRoomIdState: string;
   isMicrophoneAvailable: boolean;
   isScreenSharing: boolean;
+  lastMediaWarningState: string | null;
   init: ReturnType<typeof vi.fn>;
   joinGroupCall: ReturnType<typeof vi.fn>;
   leaveGroupCall: ReturnType<typeof vi.fn>;
@@ -55,6 +57,7 @@ describe('callStore', () => {
     gc.currentRoomIdState = '';
     gc.isMicrophoneAvailable = true;
     gc.isScreenSharing = false;
+    gc.lastMediaWarningState = null;
     // joinGroupCall выставляет комнату так же, как настоящий сервис
     gc.joinGroupCall.mockImplementation(async (roomId: string) => {
       gc.currentRoomIdState = roomId;
@@ -136,6 +139,26 @@ describe('callStore', () => {
     expect(useCallStore.getState().isMuted).toBe(true);
     expect(useCallStore.getState().isMicAvailable).toBe(false);
     expect(sent().some(([type]) => type === 'mic_muted')).toBe(true);
+  });
+
+  it('join переносит lastMediaWarningState сервиса в mediaWarning стора', async () => {
+    gc.lastMediaWarningState = 'Доступ к камере и/или микрофону запрещён в системе.';
+
+    await useCallStore.getState().join(opts);
+
+    expect(useCallStore.getState().mediaWarning).toBe(
+      'Доступ к камере и/или микрофону запрещён в системе.',
+    );
+  });
+
+  it('clearMediaWarning сбрасывает mediaWarning в null', async () => {
+    gc.lastMediaWarningState = 'Не удалось получить доступ к камере и микрофону.';
+    await useCallStore.getState().join(opts);
+    expect(useCallStore.getState().mediaWarning).not.toBeNull();
+
+    useCallStore.getState().clearMediaWarning();
+
+    expect(useCallStore.getState().mediaWarning).toBeNull();
   });
 
   it('leave шлёт voice_left и voice_call_cancel и сбрасывает стор', async () => {

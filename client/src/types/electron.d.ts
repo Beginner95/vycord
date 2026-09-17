@@ -12,6 +12,13 @@ export interface ScreenSourcesResult {
   error?: string; // 'screen_permission_denied' | 'failed_to_get_sources'
 }
 
+export type MediaAccessStatus = 'not-determined' | 'granted' | 'denied' | 'restricted' | 'unknown';
+
+export interface MediaAccessStatusResult {
+  camera: MediaAccessStatus;
+  microphone: MediaAccessStatus;
+}
+
 export interface ElectronAPI {
   minimizeWindow: () => Promise<void>;
   maximizeWindow: () => Promise<void>;
@@ -20,6 +27,9 @@ export interface ElectronAPI {
   getAppVersion: () => Promise<string>;
   platform: string;
   getScreenSources: () => Promise<ScreenSourcesResult>;
+  // Опционально по той же причине, что и setLocale/setTheme: старые сборки
+  // клиента и веб-сборка этого метода не имеют.
+  getMediaAccessStatus?: () => Promise<MediaAccessStatusResult>;
   audioAssetsUrl: string;
   // Опционально: в веб-сборке electronAPI нет вовсе, а у клиентов,
   // собранных до появления локализации, нет этого метода.
