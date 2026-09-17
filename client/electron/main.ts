@@ -243,6 +243,18 @@ ipcMain.handle('get-screen-sources', async () => {
   }
 });
 
+ipcMain.handle('get-media-access-status', () => {
+  // Only macOS has a TCC-style per-app camera/mic gate; report "granted" on
+  // every other platform so callers don't need a platform check of their own.
+  if (process.platform !== 'darwin') {
+    return { camera: 'granted', microphone: 'granted' };
+  }
+  return {
+    camera: systemPreferences.getMediaAccessStatus('camera'),
+    microphone: systemPreferences.getMediaAccessStatus('microphone'),
+  };
+});
+
 app.whenReady().then(() => {
   try {
     // Grant camera and microphone permissions for WebRTC
