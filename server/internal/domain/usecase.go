@@ -99,12 +99,21 @@ type MessageUseCase interface {
 	GetMessagesAround(channelID, messageID, userID uuid.UUID, limit int) ([]*Message, error)
 	UpdateMessage(channelID, messageID, userID uuid.UUID, content string) (*Message, error)
 	DeleteMessage(channelID, messageID, userID uuid.UUID) error
+	// CreateGuestMessage writes an admitted guest's text message into the
+	// channel chat. No attachments, stickers or mentions.
+	CreateGuestMessage(guest *GuestContext, content string) (*Message, error)
+	// ListGuestMessages returns the guest's visible window, optionally after a
+	// cursor message. A cursor outside the window is ignored, never honoured.
+	ListGuestMessages(guest *GuestContext, afterID *uuid.UUID, limit int) ([]*GuestChatMessage, error)
 }
 
 type TURNUseCase interface {
 	// GetCredentials returns ephemeral TURN credentials for the user, or
 	// (nil, nil) when no TURN server is configured.
 	GetCredentials(userID uuid.UUID) (*TURNCredentials, error)
+	// GetCredentialsForIdentity is GetCredentials for an arbitrary identity
+	// string and TTL — guests use "guest:<id>" and a 1-hour TTL.
+	GetCredentialsForIdentity(identity string, ttl time.Duration) (*TURNCredentials, error)
 }
 
 type VoiceTokenUseCase interface {

@@ -15,11 +15,28 @@
 // Never hardcode credentials here: this file is committed.
 
 import { spawn } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import { mkdtemp, writeFile, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-const CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
+// Путь к Chrome: сначала CHROME_PATH, затем обычные места macOS и Linux.
+// Раньше здесь был только macOS-путь, и на Linux харнесс падал с ENOENT ещё
+// до открытия страницы.
+const CHROME = (() => {
+  const candidates = [
+    process.env.CHROME_PATH,
+    '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+    '/usr/bin/google-chrome',
+    '/usr/bin/google-chrome-stable',
+    '/usr/bin/chromium',
+    '/usr/bin/chromium-browser',
+  ].filter(Boolean);
+  for (const candidate of candidates) {
+    if (existsSync(candidate)) return candidate;
+  }
+  return candidates[0];
+})();
 const API = process.env.VYCORD_SMOKE_API || 'https://api.vycord.webvaha.ru';
 const APP = 'http://localhost:3000';
 const CREDS = { email: process.env.VYCORD_SMOKE_EMAIL, password: process.env.VYCORD_SMOKE_PASSWORD };

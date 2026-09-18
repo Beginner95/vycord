@@ -2,6 +2,12 @@ import { create } from 'zustand';
 import { useAuthStore } from '@/stores/authStore';
 import { groupCallService } from '@/services/groupCall';
 import { wsService } from '@/services/websocket';
+import {
+  useGuestManagementStore,
+  type GuestLobbyRequest,
+  type GuestLobbyResolved,
+  type GuestParticipantsEvent,
+} from '@/stores/guestManagementStore';
 import { audioService } from '@/services/audio';
 import { logger } from '@/utils/logger';
 import type { ConnectionQualityMetrics, QualityLevel } from '@/utils/callQuality';
@@ -172,10 +178,14 @@ export const useCallStore = create<CallState>((set, get) => ({
       audioService.playUserLeft();
     }
     groupCallService.leaveGroupCall();
+    useGuestManagementStore.getState().reset();
     set(idle());
   },
 
-  reset: () => set(idle()),
+  reset: () => {
+    useGuestManagementStore.getState().reset();
+    set(idle());
+  },
 
   setStatus: (status) => set({ status }),
 
@@ -479,6 +489,31 @@ export function initCallBridge(): void {
     if (p.user_id === selfId()) return;
     if (!isCallParticipant(p.user_id)) return;
     useCallStore.setState((s) => ({ remoteMicMuted: new Map(s.remoteMicMuted).set(p.user_id, false) }));
+  });
+
+  // ── Гости звонка (2026-09-17-guest-call-link-design.md) ──────────────────
+  // Гость не пользователь и не клиент хаба: до участников он доходит только
+  // этими событиями.
+
+  wsService.on('guest_lobby_request', (payload) => {
+    useGuestManagementStore.getState().onLobbyRequest(payload as GuestLobbyRequest);
+  });
+
+  wsService.on('guest_lobby_resolved', (payload) => {
+    useGuestManagementStore.getState().onLobbyResolved(payload as GuestLobbyResolved);
+  });
+
+  wsService.on('guest_participants', (payload) => {
+    useGuestManagementStore.getState().onGuestParticipants(payload as GuestParticipantsEvent);
+  });
+
+  wsService.on('guest_links_changed', (payload) => {
+    const { channel_id: channelId } = payload as { channel_id: string };
+    if (useCallStore.getState().callChannelId !== channelId) return;
+    void useGuestManagementStore.getState().refresh(channelId).catch(() => {
+      // Список гостей — вспомогательная панель: её неудачное обновление не
+      // должно ронять звонок.
+    });
   });
 
   wsService.on('connection_quality', (payload) => {

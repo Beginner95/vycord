@@ -4,7 +4,10 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"regexp"
+	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 	"github.com/vycord/server/internal/domain"
@@ -117,7 +120,7 @@ func (uc *messageUseCase) CreateMessage(channelID, userID uuid.UUID, content str
 	msg := &domain.Message{
 		ID:        uuid.New(),
 		ChannelID: channelID,
-		UserID:    userID,
+		UserID:    &userID,
 		Kind:      "user",
 		CreatedAt: now,
 		UpdatedAt: now,
@@ -299,7 +302,7 @@ func (uc *messageUseCase) UpdateMessage(channelID, messageID, userID uuid.UUID, 
 	if msg.Kind == "call" {
 		return nil, domain.ErrCallMessageImmutable
 	}
-	if msg.UserID != userID {
+	if !msg.IsAuthoredBy(userID) {
 		return nil, domain.ErrForbidden
 	}
 
@@ -325,7 +328,8 @@ func (uc *messageUseCase) UpdateMessage(channelID, messageID, userID uuid.UUID, 
 }
 
 func (uc *messageUseCase) DeleteMessage(channelID, messageID, userID uuid.UUID) error {
-	if _, err := uc.requirePermission(channelID, userID, domain.PermSendMessages); err != nil {
+	ch, err := uc.requirePermission(channelID, userID, domain.PermSendMessages)
+	if err != nil {
 		return err
 	}
 
@@ -339,7 +343,19 @@ func (uc *messageUseCase) DeleteMessage(channelID, messageID, userID uuid.UUID) 
 	if msg.Kind == "call" {
 		return domain.ErrCallMessageImmutable
 	}
-	if msg.UserID != userID {
+	if msg.GuestID != nil {
+		// Гость не может удалить собственное сообщение, поэтому его убирают
+		// владелец сервера и обладатель PermAdministrator (PermissionSet.Has
+		// короткозамыкает обоих). Для сообщений пользователей правило
+		// прежнее — удалить может только автор.
+		ps, err := uc.perms.Resolve(ch.ServerID, userID)
+		if err != nil {
+			return err
+		}
+		if !ps.Has(domain.PermAdministrator) {
+			return domain.ErrForbidden
+		}
+	} else if !msg.IsAuthoredBy(userID) {
 		return domain.ErrForbidden
 	}
 
@@ -390,4 +406,62 @@ func (uc *messageUseCase) deleteFiles(keys []string) {
 				"key", key, "error", err)
 		}
 	}
+}
+
+// guestMentionRe ловит любое упоминание в разметке клиента: <@uuid> и
+// <@&role>. Гость не может пинговать участников сервера — ни человека, ни роль.
+var guestMentionRe = regexp.MustCompile(`<@&?[^>\s]+>`)
+
+func (uc *messageUseCase) CreateGuestMessage(guest *domain.GuestContext, content string) (*domain.Message, error) {
+	if guest.Guest.Status != domain.GuestStatusAdmitted {
+		return nil, domain.ErrGuestNotAdmitted
+	}
+	content = strings.TrimSpace(content)
+	if content == "" {
+		return nil, domain.ErrMessageEmpty
+	}
+	if utf8.RuneCountInString(content) > domain.GuestMessageMaxLen {
+		return nil, domain.ErrGuestMessageTooLong
+	}
+	if guestMentionRe.MatchString(content) || everyoneRe.MatchString(content) {
+		return nil, domain.ErrGuestMentionForbidden
+	}
+
+	now := time.Now()
+	guestID := guest.Guest.ID
+	msg := &domain.Message{
+		ID:        uuid.New(),
+		ChannelID: guest.Guest.ChannelID,
+		GuestID:   &guestID,
+		Guest:     &domain.MessageGuest{ID: guestID, DisplayName: guest.Guest.DisplayName},
+		Content:   content,
+		Kind:      "user",
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+	if err := uc.messageRepo.CreateGuest(msg); err != nil {
+		return nil, fmt.Errorf("failed to create guest message: %w", err)
+	}
+	return msg, nil
+}
+
+func (uc *messageUseCase) ListGuestMessages(guest *domain.GuestContext, afterID *uuid.UUID, limit int) ([]*domain.GuestChatMessage, error) {
+	if guest.Guest.Status != domain.GuestStatusAdmitted || guest.Guest.AdmittedAt == nil {
+		return nil, domain.ErrGuestNotAdmitted
+	}
+	if limit <= 0 || limit > 50 {
+		limit = 50
+	}
+	since := *guest.Guest.AdmittedAt
+
+	// Курсор из другого канала или из времени до впуска игнорируется: он не
+	// должен расширять окно видимости гостя ни на одно сообщение.
+	var after *domain.Message
+	if afterID != nil {
+		if m, err := uc.messageRepo.GetByID(*afterID); err == nil &&
+			m.ChannelID == guest.Guest.ChannelID && !m.CreatedAt.Before(since) {
+			after = m
+		}
+	}
+	return uc.messageRepo.ListForGuest(guest.Guest.ChannelID, since, after, limit)
 }

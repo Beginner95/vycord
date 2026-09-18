@@ -59,7 +59,7 @@ func (r *serverRepository) GetByID(id uuid.UUID) (*domain.Server, error) {
 	defer cancel()
 
 	query := `
-		SELECT id, name, icon_url, owner_id, is_private, created_at, updated_at
+		SELECT id, name, icon_url, owner_id, is_private, guest_links_enabled, created_at, updated_at
 		FROM servers
 		WHERE id = $1
 	`
@@ -71,6 +71,7 @@ func (r *serverRepository) GetByID(id uuid.UUID) (*domain.Server, error) {
 		&server.IconURL,
 		&server.OwnerID,
 		&server.IsPrivate,
+		&server.GuestLinksEnabled,
 		&server.CreatedAt,
 		&server.UpdatedAt,
 	)
@@ -90,7 +91,7 @@ func (r *serverRepository) GetByName(name string) (*domain.Server, error) {
 	defer cancel()
 
 	query := `
-		SELECT id, name, icon_url, owner_id, is_private, created_at, updated_at
+		SELECT id, name, icon_url, owner_id, is_private, guest_links_enabled, created_at, updated_at
 		FROM servers
 		WHERE LOWER(name) = LOWER($1)
 	`
@@ -102,6 +103,7 @@ func (r *serverRepository) GetByName(name string) (*domain.Server, error) {
 		&server.IconURL,
 		&server.OwnerID,
 		&server.IsPrivate,
+		&server.GuestLinksEnabled,
 		&server.CreatedAt,
 		&server.UpdatedAt,
 	)
@@ -131,7 +133,7 @@ func (r *serverRepository) GetByOwner(ownerID uuid.UUID) ([]*domain.Server, erro
 	defer cancel()
 
 	query := `
-		SELECT id, name, icon_url, owner_id, is_private, created_at, updated_at
+		SELECT id, name, icon_url, owner_id, is_private, guest_links_enabled, created_at, updated_at
 		FROM servers
 		WHERE owner_id = $1
 		ORDER BY created_at DESC
@@ -146,7 +148,7 @@ func (r *serverRepository) GetByOwner(ownerID uuid.UUID) ([]*domain.Server, erro
 	var servers []*domain.Server
 	for rows.Next() {
 		s := &domain.Server{}
-		if err := rows.Scan(&s.ID, &s.Name, &s.IconURL, &s.OwnerID, &s.IsPrivate, &s.CreatedAt, &s.UpdatedAt); err != nil {
+		if err := rows.Scan(&s.ID, &s.Name, &s.IconURL, &s.OwnerID, &s.IsPrivate, &s.GuestLinksEnabled, &s.CreatedAt, &s.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("failed to scan server: %w", err)
 		}
 		servers = append(servers, s)
@@ -160,7 +162,7 @@ func (r *serverRepository) GetByMember(userID uuid.UUID) ([]*domain.Server, erro
 	defer cancel()
 
 	query := `
-		SELECT s.id, s.name, s.icon_url, s.owner_id, s.is_private, s.created_at, s.updated_at
+		SELECT s.id, s.name, s.icon_url, s.owner_id, s.is_private, s.guest_links_enabled, s.created_at, s.updated_at
 		FROM servers s
 		INNER JOIN server_members m ON s.id = m.server_id
 		WHERE m.user_id = $1
@@ -176,7 +178,7 @@ func (r *serverRepository) GetByMember(userID uuid.UUID) ([]*domain.Server, erro
 	var servers []*domain.Server
 	for rows.Next() {
 		s := &domain.Server{}
-		if err := rows.Scan(&s.ID, &s.Name, &s.IconURL, &s.OwnerID, &s.IsPrivate, &s.CreatedAt, &s.UpdatedAt); err != nil {
+		if err := rows.Scan(&s.ID, &s.Name, &s.IconURL, &s.OwnerID, &s.IsPrivate, &s.GuestLinksEnabled, &s.CreatedAt, &s.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("failed to scan server: %w", err)
 		}
 		servers = append(servers, s)
@@ -312,7 +314,7 @@ func (r *serverRepository) Search(query string, limit, offset int) ([]*domain.Se
 	defer cancel()
 
 	sqlQuery := `
-		SELECT s.id, s.name, s.icon_url, s.owner_id, s.is_private, s.created_at, s.updated_at
+		SELECT s.id, s.name, s.icon_url, s.owner_id, s.is_private, s.guest_links_enabled, s.created_at, s.updated_at
 		FROM servers s
 		WHERE s.name ILIKE $1 AND s.is_private = false
 		ORDER BY s.created_at DESC
@@ -329,7 +331,7 @@ func (r *serverRepository) Search(query string, limit, offset int) ([]*domain.Se
 	var servers []*domain.Server
 	for rows.Next() {
 		s := &domain.Server{}
-		if err := rows.Scan(&s.ID, &s.Name, &s.IconURL, &s.OwnerID, &s.IsPrivate, &s.CreatedAt, &s.UpdatedAt); err != nil {
+		if err := rows.Scan(&s.ID, &s.Name, &s.IconURL, &s.OwnerID, &s.IsPrivate, &s.GuestLinksEnabled, &s.CreatedAt, &s.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("failed to scan server: %w", err)
 		}
 		servers = append(servers, s)

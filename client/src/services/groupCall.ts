@@ -1,9 +1,10 @@
 import { noiseCancellationService } from './noiseCancellation';
 import { echoCancellationService } from './echoCancellation';
-import { getIceServers, STUN_SERVERS } from './iceConfig';
+import { STUN_SERVERS } from './iceConfig';
+import { getCallCredentials } from './callCredentials';
 import { ConnectionRecovery } from './connectionRecovery';
 import { computeQualityLevel, type ConnectionQualityMetrics } from '@/utils/callQuality';
-import { apiService, apiErrorText } from './api';
+import { apiErrorText } from './api';
 import { logger } from '@/utils/logger';
 // Нехуковый t: groupCall — обычный класс, useT() здесь вызвать нельзя.
 import { t } from '@/i18n';
@@ -539,7 +540,7 @@ class GroupCallService {
 
     let token: string;
     try {
-      const resp = await apiService.getVoiceToken(roomId);
+      const resp = await getCallCredentials().getVoiceToken(roomId);
       token = resp.token;
     } catch (err) {
       gcLog(userId, 'resume: failed to obtain voice token', { error: String(err) });
@@ -1750,7 +1751,7 @@ class GroupCallService {
   // initial join and reconnect. Fetches ICE servers every time: TURN entries
   // carry ephemeral credentials that may have expired during a network outage.
   private async connect(roomId: string, userId: string): Promise<boolean> {
-    this.iceServers = await getIceServers();
+    this.iceServers = await getCallCredentials().getIceServers();
     gcLog(userId, 'ICE servers', {
       urls: this.iceServers.flatMap((s) => s.urls),
       hasTurn: this.iceServers.some((s) => String(s.urls).startsWith('turn')),
@@ -1776,7 +1777,7 @@ class GroupCallService {
 
     let token: string;
     try {
-      const resp = await apiService.getVoiceToken(roomId);
+      const resp = await getCallCredentials().getVoiceToken(roomId);
       token = resp.token;
     } catch (err) {
       gcLog(userId, 'failed to obtain voice token', { error: String(err) });

@@ -154,12 +154,13 @@ export function MessageRow(props: MessageRowProps) {
       <div className="msg-gutter">
         {isContinuation
           ? <span className="msg-gutter-time">{time}</span>
-          : <Avatar url={avatarUrl} username={displayName} className="msg-avatar" />}
+          : <Avatar url={msg.guest ? undefined : avatarUrl} username={msg.guest ? msg.guest.display_name : displayName} className="msg-avatar" />}
       </div>
       <div className="msg-content">
         {!isContinuation && (
           <div className="msg-header">
-            <span className="msg-author">{displayName}</span>
+            <span className="msg-author">{msg.guest ? msg.guest.display_name : displayName}</span>
+            {msg.guest && <span className="msg-guest-chip">{t('guest.guestBadge')}</span>}
             {isOwn && <span className="msg-own-chip">{t('chat.youChip')}</span>}
             <span className="msg-time">
               {time}

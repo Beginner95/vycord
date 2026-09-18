@@ -136,6 +136,36 @@ const (
 	CodeFriendshipNotFound   = "friendship_not_found"
 	CodeInteractionForbidden = "interaction_forbidden"
 	CodeUsernameRequired     = "username_required"
+
+	// Ограничение частоты
+	CodeRateLimited = "rate_limited"
+
+	// Гостевой вход в звонок (2026-09-17-guest-call-link-design.md)
+	CodeInvalidGuestID        = "invalid_guest_id"
+	CodeInvalidGuestLinkID    = "invalid_guest_link_id"
+	CodeGuestLinkInvalid      = "guest_link_invalid"
+	CodeGuestLinkExpired      = "guest_link_expired"
+	CodeGuestLinkRevoked      = "guest_link_revoked"
+	CodeGuestCallEnded        = "guest_call_ended"
+	CodeGuestLinkClosed       = "guest_link_closed"
+	CodeGuestLinksDisabled    = "guest_links_disabled"
+	CodeGuestBanned           = "guest_banned"
+	CodeGuestCallFull         = "guest_call_full"
+	CodeGuestLobbyFull        = "guest_lobby_full"
+	CodeGuestLinkExhausted    = "guest_link_exhausted"
+	CodeInvalidGuestName      = "invalid_guest_name"
+	CodeReservedGuestName     = "reserved_guest_name"
+	CodeGuestSessionInvalid   = "guest_session_invalid"
+	CodeGuestNotAdmitted      = "guest_not_admitted"
+	CodeNotInCall             = "not_in_call"
+	CodeCallNotActive         = "call_not_active"
+	CodeTooManyGuestLinks     = "too_many_links"
+	CodeGuestAlreadyDecided   = "guest_already_decided"
+	CodeGuestLinkNotFound     = "guest_link_not_found"
+	CodeGuestNotFound         = "guest_not_found"
+	CodeGuestNotActive        = "guest_not_active"
+	CodeGuestMessageTooLong   = "guest_message_too_long"
+	CodeGuestMentionForbidden = "guest_mention_forbidden"
 )
 
 // Write отправляет JSON-ответ об ошибке. Статус и текст передаются как есть.

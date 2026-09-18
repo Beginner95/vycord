@@ -597,11 +597,21 @@ type fakeCallRecorder struct {
 	mu      sync.Mutex
 	started []callStartedCall
 	joined  []participantJoinedCall
+	left    []participantJoinedCall
 	ended   []uuid.UUID
 	// onCall, when set, runs synchronously inside CallStarted/CallEnded/
 	// ParticipantJoined — used by the lock-discipline test below to call
 	// back into the hub.
 	onCall func()
+}
+
+func (f *fakeCallRecorder) ParticipantLeft(channelID, userID uuid.UUID) {
+	f.mu.Lock()
+	f.left = append(f.left, participantJoinedCall{channelID, userID})
+	f.mu.Unlock()
+	if f.onCall != nil {
+		f.onCall()
+	}
 }
 
 func (f *fakeCallRecorder) CallStarted(channelID, starterID uuid.UUID) {
@@ -810,4 +820,80 @@ func TestCallSessionRecorder_CanCallBackIntoHubWithoutDeadlock(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("JoinVoiceChannel/LeaveVoiceChannel deadlocked: recorder callback must run with h.mu released")
 	}
+}
+
+func TestHub_VoicePresenceAccessors(t *testing.T) {
+	h := newTestHub()
+	u1, u2, channel, other := uuid.New(), uuid.New(), uuid.New(), uuid.New()
+	h.JoinVoiceChannel(u1, channel)
+	h.JoinVoiceChannel(u2, channel)
+
+	assert.True(t, h.IsInVoiceChannel(u1, channel))
+	assert.False(t, h.IsInVoiceChannel(u1, other))
+	assert.False(t, h.IsInVoiceChannel(uuid.New(), channel))
+	assert.ElementsMatch(t, []uuid.UUID{u1, u2}, h.VoiceParticipants(channel))
+
+	empty := h.VoiceParticipants(other)
+	assert.NotNil(t, empty)
+	assert.Empty(t, empty)
+
+	h.LeaveVoiceChannel(u1)
+	assert.False(t, h.IsInVoiceChannel(u1, channel))
+}
+
+func TestHub_VoiceChannelOf(t *testing.T) {
+	h := newTestHub()
+	userID, channelID := uuid.New(), uuid.New()
+
+	if _, ok := h.VoiceChannelOf(userID); ok {
+		t.Fatal("a user in no call has no voice channel")
+	}
+	h.JoinVoiceChannel(userID, channelID)
+	got, ok := h.VoiceChannelOf(userID)
+	assert.True(t, ok)
+	assert.Equal(t, channelID, got)
+
+	h.LeaveVoiceChannel(userID)
+	_, ok = h.VoiceChannelOf(userID)
+	assert.False(t, ok)
+}
+
+func TestHub_LeaveVoiceChannelNotifiesRecorder(t *testing.T) {
+	h := newTestHub()
+	rec := &fakeCallRecorder{}
+	h.SetCallSessionRecorder(rec)
+	userID, otherID, channelID := uuid.New(), uuid.New(), uuid.New()
+
+	h.JoinVoiceChannel(userID, channelID)
+	h.JoinVoiceChannel(otherID, channelID)
+	h.LeaveVoiceChannel(userID)
+
+	rec.mu.Lock()
+	left := append([]participantJoinedCall(nil), rec.left...)
+	rec.mu.Unlock()
+	assert.Equal(t, []participantJoinedCall{{channelID, userID}}, left,
+		"every leave reports the participant, not just the one that ends the call")
+
+	h.LeaveVoiceChannel(otherID)
+	rec.mu.Lock()
+	leftCount := len(rec.left)
+	rec.mu.Unlock()
+	assert.Equal(t, 2, leftCount, "the last participant leaving is reported too")
+}
+
+func TestHub_ReconcileReportsDisappearedParticipants(t *testing.T) {
+	h := newTestHub()
+	rec := &fakeCallRecorder{}
+	h.SetCallSessionRecorder(rec)
+	channelID, stays, vanishes := uuid.New(), uuid.New(), uuid.New()
+
+	h.JoinVoiceChannel(stays, channelID)
+	h.JoinVoiceChannel(vanishes, channelID)
+
+	h.ReconcileVoicePresence(map[uuid.UUID][]uuid.UUID{channelID: {stays}})
+
+	rec.mu.Lock()
+	left := append([]participantJoinedCall(nil), rec.left...)
+	rec.mu.Unlock()
+	assert.Equal(t, []participantJoinedCall{{channelID, vanishes}}, left)
 }

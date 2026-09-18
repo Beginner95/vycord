@@ -102,7 +102,7 @@ func TestMessageHandler_CreateMessage_SignsAttachments(t *testing.T) {
 	msg := &domain.Message{
 		ID:        uuid.New(),
 		ChannelID: channelID,
-		UserID:    userID,
+		UserID:    &userID,
 		Content:   "смотри",
 		Attachments: []*domain.Attachment{
 			{ID: attID, ChannelID: channelID, UserID: userID, Kind: domain.AttachmentKindImage},
@@ -235,4 +235,16 @@ func TestMessageHandler_GetMessagesAround_Success(t *testing.T) {
 	if len(got) != 1 || got[0].ID != messageID {
 		t.Fatalf("unexpected response: %+v", got)
 	}
+}
+
+func (m *mockMessageUseCase) CreateGuestMessage(guest *domain.GuestContext, content string) (*domain.Message, error) {
+	args := m.Called(guest, content)
+	msg, _ := args.Get(0).(*domain.Message)
+	return msg, args.Error(1)
+}
+
+func (m *mockMessageUseCase) ListGuestMessages(guest *domain.GuestContext, afterID *uuid.UUID, limit int) ([]*domain.GuestChatMessage, error) {
+	args := m.Called(guest, afterID, limit)
+	list, _ := args.Get(0).([]*domain.GuestChatMessage)
+	return list, args.Error(1)
 }

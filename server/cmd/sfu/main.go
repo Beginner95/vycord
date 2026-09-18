@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -106,6 +107,34 @@ func main() {
 		if err := json.NewEncoder(w).Encode(presence); err != nil {
 			http.Error(w, "encode error", http.StatusInternalServerError)
 		}
+	}))
+
+	// /guest-presence — то же, что /presence, но для гостей: их идентификаторы
+	// («guest:<uuid>») намеренно не попадают в /presence, потому что воркер
+	// сверки на стороне API разбирает те значения как UUID.
+	mux.HandleFunc("/guest-presence", httpapi.RequireInternalSecret(internalSecret, func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if err := json.NewEncoder(w).Encode(manager.GuestPresence()); err != nil {
+			http.Error(w, "encode error", http.StatusInternalServerError)
+		}
+	}))
+	// /kick выкидывает гостя из комнаты по требованию API (кик, отзыв ссылки,
+	// конец звонка). Только гостей: аккаунтного участника снаружи не удаляют.
+	mux.HandleFunc("POST /kick", httpapi.RequireInternalSecret(internalSecret, func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			RoomID   string `json:"room_id"`
+			Identity string `json:"identity"`
+		}
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<10)).Decode(&req); err != nil {
+			http.Error(w, "invalid body", http.StatusBadRequest)
+			return
+		}
+		if req.RoomID == "" || !strings.HasPrefix(req.Identity, "guest:") {
+			http.Error(w, "identity must be a guest", http.StatusBadRequest)
+			return
+		}
+		manager.KickGuest(req.RoomID, req.Identity)
+		w.WriteHeader(http.StatusNoContent)
 	}))
 
 	srv := &http.Server{

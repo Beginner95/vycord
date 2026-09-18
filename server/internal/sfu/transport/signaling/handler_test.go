@@ -17,11 +17,18 @@ import (
 
 	"github.com/vycord/server/internal/sfu/application"
 	sfuwebrtc "github.com/vycord/server/internal/sfu/infrastructure/webrtc"
+	"github.com/vycord/server/pkg/authtoken"
 )
 
 const testSecret = "handler-test-secret"
 
 func newTestServer(t *testing.T) *httptest.Server {
+	t.Helper()
+	srv, _ := newTestServerWithManager(t)
+	return srv
+}
+
+func newTestServerWithManager(t *testing.T) (*httptest.Server, *application.RoomManager) {
 	t.Helper()
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	pf, err := sfuwebrtc.NewPeerFactory([]string{}, "")
@@ -32,7 +39,7 @@ func newTestServer(t *testing.T) *httptest.Server {
 	t.Cleanup(mgr.Shutdown)
 	srv := httptest.NewServer(NewHandler(mgr, log, testSecret))
 	t.Cleanup(srv.Close)
-	return srv
+	return srv, mgr
 }
 
 func signToken(t *testing.T, userID string, exp time.Time) string {
@@ -592,5 +599,130 @@ func TestWatchShareUnknownTargetDoesNotCrashConnection(t *testing.T) {
 	// pre-existing message type we can use as a liveness probe.
 	if err := conn.WriteJSON(Message{Type: "request_keyframe", Payload: MustMarshal(struct{}{})}); err != nil {
 		t.Fatalf("connection died after unknown watch_share target: %v", err)
+	}
+}
+
+func signRoomTokenWithTyp(t *testing.T, typ, userID, roomID string, exp time.Time) string {
+	t.Helper()
+	tok := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
+		"typ":     typ,
+		"user_id": userID,
+		"room_id": roomID,
+		"exp":     exp.Unix(),
+	})
+	s, err := tok.SignedString([]byte(testSecret))
+	if err != nil {
+		t.Fatalf("sign typed room token: %v", err)
+	}
+	return s
+}
+
+func TestServeHTTPAcceptsTokenFromGenerateRoomToken(t *testing.T) {
+	srv := newTestServer(t)
+	roomID := uuid.New()
+	tok, err := authtoken.GenerateRoomToken(testSecret, uuid.New(), roomID, time.Minute)
+	if err != nil {
+		t.Fatalf("GenerateRoomToken: %v", err)
+	}
+	url := "ws" + strings.TrimPrefix(srv.URL, "http") + "/ws?room_id=" + roomID.String() + "&token=" + tok
+	conn, resp, err := websocket.DefaultDialer.Dial(url, nil)
+	if err != nil {
+		t.Fatalf("dial with typ=room token: %v (resp %v)", err, resp)
+	}
+	conn.Close()
+}
+
+func TestServeHTTPRejectsRoomTokenWithForeignTyp(t *testing.T) {
+	srv := newTestServer(t)
+	roomID := uuid.NewString()
+	for _, typ := range []string{authtoken.TypAccess, authtoken.TypGuestRoom} {
+		tok := signRoomTokenWithTyp(t, typ, uuid.NewString(), roomID, time.Now().Add(time.Hour))
+		if got := dialStatus(t, srv, "room_id="+roomID+"&token="+tok); got != http.StatusUnauthorized {
+			t.Fatalf("typ=%s: status = %d, want 401", typ, got)
+		}
+	}
+}
+
+// An account room token re-signed with the guest key is not a guest token
+// either: ValidateGuestRoomToken requires typ=guest_room.
+func TestServeHTTPRejectsRoomTypedTokenOnGuestKey(t *testing.T) {
+	srv := newTestServer(t)
+	roomID := uuid.New()
+	tok := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
+		"typ":     authtoken.TypRoom,
+		"user_id": uuid.NewString(),
+		"room_id": roomID.String(),
+		"exp":     time.Now().Add(time.Minute).Unix(),
+	})
+	signed, err := tok.SignedString(authtoken.DeriveKey(testSecret, authtoken.GuestRoomKeyLabel))
+	if err != nil {
+		t.Fatalf("sign: %v", err)
+	}
+	if got := dialStatus(t, srv, "room_id="+roomID.String()+"&token="+signed); got != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want 401", got)
+	}
+}
+
+// Н3, Н4: the guest path accepts a guest room token exactly once, and only for
+// the room the token names.
+func TestServeHTTPAcceptsGuestRoomToken(t *testing.T) {
+	srv := newTestServer(t)
+	roomID := uuid.New()
+	tok, err := authtoken.GenerateGuestRoomToken(testSecret, uuid.New(), roomID, time.Minute)
+	if err != nil {
+		t.Fatalf("GenerateGuestRoomToken: %v", err)
+	}
+
+	url := "ws" + strings.TrimPrefix(srv.URL, "http") + "/ws?room_id=" + roomID.String() + "&token=" + tok
+	conn, resp, err := websocket.DefaultDialer.Dial(url, nil)
+	if err != nil {
+		t.Fatalf("dial with a guest token: %v (resp %v)", err, resp)
+	}
+	conn.Close()
+
+	// Н4: the same token a second time is refused (single-use jti).
+	if got := dialStatus(t, srv, "room_id="+roomID.String()+"&token="+tok); got != http.StatusUnauthorized {
+		t.Fatalf("second use of the same guest token: status = %d, want 401", got)
+	}
+}
+
+// Н3
+func TestServeHTTPRejectsGuestTokenForAnotherRoom(t *testing.T) {
+	srv := newTestServer(t)
+	tok, err := authtoken.GenerateGuestRoomToken(testSecret, uuid.New(), uuid.New(), time.Minute)
+	if err != nil {
+		t.Fatalf("GenerateGuestRoomToken: %v", err)
+	}
+	if got := dialStatus(t, srv, "room_id="+uuid.NewString()+"&token="+tok); got != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want 401", got)
+	}
+}
+
+func TestServeHTTPRejectsExpiredGuestToken(t *testing.T) {
+	srv := newTestServer(t)
+	roomID := uuid.New()
+	tok, err := authtoken.GenerateGuestRoomToken(testSecret, uuid.New(), roomID, -time.Second)
+	if err != nil {
+		t.Fatalf("GenerateGuestRoomToken: %v", err)
+	}
+	if got := dialStatus(t, srv, "room_id="+roomID.String()+"&token="+tok); got != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want 401", got)
+	}
+}
+
+// Н8/Н9/Н11 at the SFU layer: once kicked, a guest cannot reconnect with a
+// token that was minted before the kick.
+func TestServeHTTPRejectsDeniedGuest(t *testing.T) {
+	srv, mgr := newTestServerWithManager(t)
+	roomID := uuid.New()
+	guestID := uuid.New()
+	tok, err := authtoken.GenerateGuestRoomToken(testSecret, guestID, roomID, time.Minute)
+	if err != nil {
+		t.Fatalf("GenerateGuestRoomToken: %v", err)
+	}
+	mgr.KickGuest(roomID.String(), authtoken.GuestIdentity(guestID))
+
+	if got := dialStatus(t, srv, "room_id="+roomID.String()+"&token="+tok); got != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want 401", got)
 	}
 }

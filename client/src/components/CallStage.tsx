@@ -2,7 +2,7 @@ import { useState, useEffect, useLayoutEffect, useRef, useCallback } from 'react
 import { createPortal } from 'react-dom';
 import {
   ArrowLeft, Maximize2, Minimize2, Mic, MicOff, Video, VideoOff,
-  MonitorUp, MonitorPlay, PhoneOff, Expand, Volume2, X, LayoutGrid,
+  MonitorUp, MonitorPlay, PhoneOff, Expand, Volume2, X, LayoutGrid, UserPlus,
 } from 'lucide-react';
 import { useAuthStore } from '@/stores/authStore';
 import { useCallStore, callWatchState } from '@/stores/callStore';
@@ -16,6 +16,9 @@ import { collectUnresolvedUserIds } from '@/utils/userCache';
 import type { User } from '@/types';
 import type { DesktopCapturerSource } from '@/types/electron';
 import type { ConnectionQualityMetrics, QualityLevel } from '@/utils/callQuality';
+import { GuestInvitePopover } from './GuestInvitePopover';
+import { GuestLobbyToast } from './GuestLobbyToast';
+import { useGuestManagementStore } from '@/stores/guestManagementStore';
 import { VolumeControlPopover } from './VolumeControlPopover';
 import { ScreenSourcePicker, ScreenQualityPicker } from './ScreenSharePicker';
 import { Avatar } from './Avatar';
@@ -449,7 +452,13 @@ export function CallStage({ onMobileBackToChat }: CallStageProps) {
   // initCallBridge(), потому что сцена звонка размонтируется при уходе в другой
   // канал, а обработка стримов/реконнекта/метрик должна это пережить.
   const setCall = useCallStore.setState;
-  const isInGroupCall = useCallStore((s) => s.callChannelId !== null);
+  const callChannelId = useCallStore((s) => s.callChannelId);
+  const isInGroupCall = callChannelId !== null;
+  // Гости звонка: их имена приходят событиями хаба, а не из userCache —
+  // в users их нет и быть не может.
+  const channelGuests = useGuestManagementStore((s) => s.channelGuests);
+  const [invitePosition, setInvitePosition] = useState<{ top: number; left: number } | null>(null);
+  const inviteBtnRef = useRef<HTMLButtonElement>(null);
   const callChannelName = useCallStore((s) => s.callChannelName);
   const isReconnecting = useCallStore((s) => s.status === 'reconnecting');
   const isMuted = useCallStore((s) => s.isMuted);
@@ -457,6 +466,20 @@ export function CallStage({ onMobileBackToChat }: CallStageProps) {
   const isVideoOff = useCallStore((s) => s.isVideoOff);
   const [userCache, setUserCache] = useState<Map<string, string>>(new Map());
   const userCacheRef = useRef(userCache);
+  // Гость никогда не попадёт в userCache: его имя знает только хаб.
+  const nameFor = useCallback(
+    (id: string): string => {
+      if (id.startsWith('guest:')) {
+        for (const guests of channelGuests.values()) {
+          const match = guests.find((guest) => guest.id === id);
+          if (match) return match.display_name;
+        }
+        return id.replace('guest:', '').slice(0, 8);
+      }
+      return userCache.get(id) ?? id.slice(0, 8);
+    },
+    [channelGuests, userCache],
+  );
   useEffect(() => {
     userCacheRef.current = userCache;
   }, [userCache]);
@@ -857,7 +880,7 @@ export function CallStage({ onMobileBackToChat }: CallStageProps) {
 
   // Displayed name for the focused participant
   const focusedName = focusedUserId
-    ? (userCache.get(focusedUserId) ?? focusedUserId.slice(0, 8))
+    ? nameFor(focusedUserId)
     : '';
   // First screen sharer ID for the banner
   const firstSharer = screenSharers.size > 0 ? [...screenSharers][0] : null;
@@ -932,7 +955,7 @@ export function CallStage({ onMobileBackToChat }: CallStageProps) {
             <div className="stage-share-banner">
               <MonitorUp size={16} strokeWidth={1.8} />
               <span className="stage-share-banner-text">
-                {t('call.isSharingScreen', { name: userCache.get(firstSharer) ?? firstSharer.slice(0, 8) })}
+                {t('call.isSharingScreen', { name: nameFor(firstSharer) })}
               </span>
               <button
                 className="stage-share-banner-btn"
@@ -1039,7 +1062,7 @@ export function CallStage({ onMobileBackToChat }: CallStageProps) {
                   <RemoteParticipantTile
                     key={p.userId}
                     participant={p}
-                    displayName={userCache.get(p.userId) ?? p.userId.slice(0, 8)}
+                    displayName={nameFor(p.userId)}
                     muted={remoteMicMuted.get(p.userId) ?? false}
                     isSharing={screenSharers.has(p.userId)}
                     layout="thumbnail"
@@ -1100,7 +1123,7 @@ export function CallStage({ onMobileBackToChat }: CallStageProps) {
                 <RemoteParticipantTile
                   key={p.userId}
                   participant={p}
-                  displayName={userCache.get(p.userId) ?? p.userId.slice(0, 8)}
+                  displayName={nameFor(p.userId)}
                   muted={remoteMicMuted.get(p.userId) ?? false}
                   isSharing={screenSharers.has(p.userId)}
                   layout="grid"
@@ -1118,6 +1141,8 @@ export function CallStage({ onMobileBackToChat }: CallStageProps) {
           )}
         </div>
       </div>
+
+      <GuestLobbyToast />
 
       <div className="stage-controls">
         <div className="stage-ctl">
@@ -1152,6 +1177,25 @@ export function CallStage({ onMobileBackToChat }: CallStageProps) {
           </button>
           <span className="stage-ctl-label">{t('call.ctlScreen')}</span>
         </div>
+        <div className="stage-ctl">
+          <button
+            ref={inviteBtnRef}
+            className={`stage-ctl-btn${invitePosition ? ' is-on' : ''}`}
+            onMouseDown={(e) => e.stopPropagation()}
+            onClick={() => {
+              if (invitePosition) {
+                setInvitePosition(null);
+                return;
+              }
+              const rect = inviteBtnRef.current?.getBoundingClientRect();
+              if (rect) setInvitePosition({ top: rect.top - 8, left: rect.left });
+            }}
+            title={t('guestInvite.button')}
+          >
+            <UserPlus size={16} strokeWidth={1.8} />
+          </button>
+          <span className="stage-ctl-label">{t('guestInvite.button')}</span>
+        </div>
         <div className="stage-ctl-divider" />
         {/* M6 T15, from manual QA: this was the only control in the bar whose
             label sat INSIDE the button, as a pill, while mic / camera / screen
@@ -1167,6 +1211,14 @@ export function CallStage({ onMobileBackToChat }: CallStageProps) {
           <span className="stage-ctl-label">{t('call.leaveLabel')}</span>
         </div>
       </div>
+
+      {invitePosition && callChannelId && (
+        <GuestInvitePopover
+          channelId={callChannelId}
+          position={invitePosition}
+          onClose={() => setInvitePosition(null)}
+        />
+      )}
     </div>
   );
 }

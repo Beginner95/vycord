@@ -21,6 +21,10 @@ import (
 type callSessionRecorder struct {
 	messageRepo domain.MessageRepository
 	hub         *ws.Hub
+	// onParticipantLeft — хук гостевых ссылок: когда создатель ссылки выходит
+	// из звонка, его ссылки перестают принимать новых гостей. nil означает,
+	// что гостевой use case не подключён (тесты, а также API до плана 3).
+	onParticipantLeft func(channelID, userID uuid.UUID)
 }
 
 // NewCallSessionRecorder builds the recorder. Wire it from main.go with
@@ -38,7 +42,7 @@ func (r *callSessionRecorder) CallStarted(channelID, starterID uuid.UUID) {
 	msg := &domain.Message{
 		ID:                 uuid.New(),
 		ChannelID:          channelID,
-		UserID:             starterID,
+		UserID:             &starterID,
 		Content:            "",
 		Kind:               "call",
 		CallStartedAt:      &now,
@@ -68,6 +72,21 @@ func (r *callSessionRecorder) ParticipantJoined(channelID, userID uuid.UUID) {
 	if err := r.messageRepo.AddCallParticipant(channelID, userID); err != nil {
 		slog.Error("callsession: failed to add call participant", "channel_id", channelID, "user_id", userID, "error", err)
 	}
+}
+
+// ParticipantLeft implements ws.CallSessionRecorder. Само бухгалтерии звонка
+// здесь делать нечего — хук существует ради гостевых ссылок.
+func (r *callSessionRecorder) ParticipantLeft(channelID, userID uuid.UUID) {
+	if r.onParticipantLeft == nil {
+		return
+	}
+	r.onParticipantLeft(channelID, userID)
+}
+
+// SetParticipantLeftHook устанавливает хук гостевых ссылок. Вызывается один
+// раз из main.go после сборки гостевого use case.
+func (r *callSessionRecorder) SetParticipantLeftHook(hook func(channelID, userID uuid.UUID)) {
+	r.onParticipantLeft = hook
 }
 
 // CallEnded implements ws.CallSessionRecorder. Idempotent: EndCall closes at

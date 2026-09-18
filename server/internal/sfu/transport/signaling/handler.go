@@ -32,6 +32,47 @@ func NewHandler(manager *application.RoomManager, log *slog.Logger, jwtSecret st
 	return &Handler{manager: manager, log: log, jwtSecret: jwtSecret}
 }
 
+// authenticate accepts either an account room token or a guest room token. The
+// two are signed with different keys (the guest key is derived from
+// JWT_SECRET), so an account token can never be used on the guest path or the
+// other way round — the separation is cryptographic, not a claim check.
+func (h *Handler) authenticate(w http.ResponseWriter, token string, roomID uuid.UUID, rawRoomID string) (string, bool) {
+	if uid, tokenRoomID, err := authtoken.ValidateRoomToken(h.jwtSecret, token); err == nil {
+		// Сравниваем разобранные UUID, а не строки: одинаковый идентификатор в
+		// другом регистре — это тот же самый room, отказывать по нему нельзя.
+		if tokenRoomID != roomID {
+			h.log.Warn("rejected connection: token not scoped to this room", "room_id", rawRoomID, "token_room_id", tokenRoomID)
+			http.Error(w, "invalid token", http.StatusUnauthorized)
+			return "", false
+		}
+		return uid.String(), true
+	}
+
+	claims, err := authtoken.ValidateGuestRoomToken(h.jwtSecret, token)
+	if err != nil {
+		h.log.Warn("rejected connection: invalid token", "room_id", rawRoomID, "error", err)
+		http.Error(w, "invalid token", http.StatusUnauthorized)
+		return "", false
+	}
+	if claims.RoomID != roomID {
+		h.log.Warn("rejected connection: guest token not scoped to this room", "room_id", rawRoomID, "token_room_id", claims.RoomID)
+		http.Error(w, "invalid token", http.StatusUnauthorized)
+		return "", false
+	}
+	identity := authtoken.GuestIdentity(claims.GuestID)
+	if h.manager.GuestDenied(identity) {
+		h.log.Warn("rejected connection: guest was kicked", "room_id", rawRoomID, "identity", identity)
+		http.Error(w, "invalid token", http.StatusUnauthorized)
+		return "", false
+	}
+	if !h.manager.UseJTI(claims.JTI, claims.ExpiresAt) {
+		h.log.Warn("rejected connection: guest token already used", "room_id", rawRoomID, "identity", identity)
+		http.Error(w, "invalid token", http.StatusUnauthorized)
+		return "", false
+	}
+	return identity, true
+}
+
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	token := r.URL.Query().Get("token")
 	if token == "" {
@@ -49,20 +90,10 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	uid, tokenRoomID, err := authtoken.ValidateRoomToken(h.jwtSecret, token)
-	if err != nil {
-		h.log.Warn("rejected connection: invalid token", "room_id", roomID, "error", err)
-		http.Error(w, "invalid token", http.StatusUnauthorized)
+	userID, ok := h.authenticate(w, token, parsedRoomID, roomID)
+	if !ok {
 		return
 	}
-	// Сравниваем разобранные UUID, а не строки: одинаковый идентификатор в
-	// другом регистре — это тот же самый room, отказывать по нему нельзя.
-	if tokenRoomID != parsedRoomID {
-		h.log.Warn("rejected connection: token not scoped to this room", "room_id", roomID, "token_room_id", tokenRoomID)
-		http.Error(w, "invalid token", http.StatusUnauthorized)
-		return
-	}
-	userID := uid.String()
 
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {

@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/vycord/server/internal/domain"
 	"github.com/vycord/server/internal/usecase"
+	"github.com/vycord/server/pkg/authtoken"
 )
 
 type MockUserRepository struct {
@@ -500,4 +502,51 @@ func TestLogout_RepoError_DoesNotReturnInvalidTokenError(t *testing.T) {
 	assert.Error(t, err)
 	assert.False(t, errors.Is(err, domain.ErrRefreshTokenInvalid), "an infra error must not be reported as an invalid token")
 	refreshRepo.AssertExpectations(t)
+}
+
+func TestLogin_AccessTokenCarriesAccessTyp(t *testing.T) {
+	mockRepo := new(MockUserRepository)
+	refreshRepo := new(MockRefreshTokenRepository)
+	authUseCase := newAuthUseCase(mockRepo, refreshRepo)
+
+	hashed, _ := bcrypt.GenerateFromPassword([]byte("password123"), bcrypt.DefaultCost)
+	verifiedAt := time.Now().Add(-time.Hour)
+	mockRepo.On("GetByEmail", "typ@e.com").Return(&domain.User{
+		ID:              uuid.New(),
+		Email:           "typ@e.com",
+		Password:        string(hashed),
+		EmailVerifiedAt: &verifiedAt,
+	}, nil)
+	refreshRepo.On("Create", mock.AnythingOfType("*domain.RefreshToken")).Return(nil)
+
+	_, access, _, err := authUseCase.Login("typ@e.com", "password123")
+	if !assert.NoError(t, err) {
+		return
+	}
+
+	claims := jwt.MapClaims{}
+	_, err = jwt.ParseWithClaims(access, claims, func(*jwt.Token) (any, error) {
+		return []byte("test-secret"), nil
+	})
+	assert.NoError(t, err)
+	assert.Equal(t, authtoken.TypAccess, claims["typ"])
+}
+
+// Н6 at the layer RequireAuth and the /ws hub actually call: a voice token is
+// rejected by claims alone, BEFORE any database lookup. The mock has no
+// GetByID expectation, so reaching the repository would panic the test.
+func TestValidateToken_RejectsRoomTokenWithoutTouchingRepository(t *testing.T) {
+	mockRepo := new(MockUserRepository)
+	refreshRepo := new(MockRefreshTokenRepository)
+	authUseCase := newAuthUseCase(mockRepo, refreshRepo)
+
+	roomTok, err := authtoken.GenerateRoomToken("test-secret", uuid.New(), uuid.New(), time.Minute)
+	if !assert.NoError(t, err) {
+		return
+	}
+
+	user, err := authUseCase.ValidateToken(roomTok)
+	assert.Error(t, err)
+	assert.Nil(t, user)
+	mockRepo.AssertNotCalled(t, "GetByID", mock.Anything)
 }

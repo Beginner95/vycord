@@ -259,6 +259,10 @@ type CallSessionRecorder interface {
 	CallStarted(channelID, starterID uuid.UUID)
 	CallEnded(channelID uuid.UUID)
 	ParticipantJoined(channelID, userID uuid.UUID)
+	// ParticipantLeft fires on EVERY leave, including the one that ends the
+	// call. The guest feature hangs off it: a link stops accepting new guests
+	// when its creator leaves the call.
+	ParticipantLeft(channelID, userID uuid.UUID)
 }
 
 // SetCallSessionRecorder installs the recorder. nil (the zero value, as in
@@ -487,8 +491,11 @@ func (h *Hub) LeaveVoiceChannel(userID uuid.UUID) (channelID uuid.UUID, particip
 	recorder := h.callSessionRecorder
 	h.mu.Unlock()
 
-	if channelEmptied && recorder != nil {
-		recorder.CallEnded(channelID)
+	if recorder != nil {
+		recorder.ParticipantLeft(channelID, userID)
+		if channelEmptied {
+			recorder.CallEnded(channelID)
+		}
 	}
 
 	return channelID, participants, true
@@ -518,6 +525,9 @@ func (h *Hub) ReconcileVoicePresence(actual map[uuid.UUID][]uuid.UUID) []uuid.UU
 	var started []callStartedTransition
 	var joined []participantJoinedTransition
 	var ended []uuid.UUID
+	// gone — участники, пропавшие из снапшота SFU: для гостевых ссылок уход
+	// участника значим сам по себе, а не только когда звонок опустел.
+	var gone []participantJoinedTransition
 	seen := make(map[uuid.UUID]bool, len(actual))
 
 	for channelID, userIDs := range actual {
@@ -541,6 +551,12 @@ func (h *Hub) ReconcileVoicePresence(actual map[uuid.UUID][]uuid.UUID) []uuid.UU
 			}
 		}
 
+		for id := range oldSet {
+			if _, stillThere := desired[id]; !stillThere {
+				gone = append(gone, participantJoinedTransition{channelID: channelID, userID: id})
+			}
+		}
+
 		h.voiceChannels[channelID] = desired
 		changed = append(changed, channelID)
 
@@ -560,6 +576,9 @@ func (h *Hub) ReconcileVoicePresence(actual map[uuid.UUID][]uuid.UUID) []uuid.UU
 	for channelID := range h.voiceChannels {
 		if seen[channelID] {
 			continue
+		}
+		for id := range h.voiceChannels[channelID] {
+			gone = append(gone, participantJoinedTransition{channelID: channelID, userID: id})
 		}
 		delete(h.voiceChannels, channelID)
 		changed = append(changed, channelID)
@@ -582,6 +601,9 @@ func (h *Hub) ReconcileVoicePresence(actual map[uuid.UUID][]uuid.UUID) []uuid.UU
 		}
 		for _, t := range joined {
 			recorder.ParticipantJoined(t.channelID, t.userID)
+		}
+		for _, t := range gone {
+			recorder.ParticipantLeft(t.channelID, t.userID)
 		}
 		for _, channelID := range ended {
 			recorder.CallEnded(channelID)
@@ -626,6 +648,34 @@ func (h *Hub) GetVoiceState() map[uuid.UUID][]uuid.UUID {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 	return h.voiceStateLocked()
+}
+
+// IsInVoiceChannel reports whether userID is in channelID's voice roster right
+// now. With VoiceParticipants it makes *Hub a domain.CallPresence for the
+// guest use case ("only call participants may invite, admit, reject").
+func (h *Hub) IsInVoiceChannel(userID, channelID uuid.UUID) bool {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	current, ok := h.clientVoiceChannel[userID]
+	return ok && current == channelID
+}
+
+// VoiceChannelOf returns the voice channel userID is currently in. Used to
+// route a member's mic/screen event to the guests of that call — and only that
+// call (the hub's own broadcast of those events still goes everywhere; that is
+// a separate, pre-existing problem tracked in the backlog).
+func (h *Hub) VoiceChannelOf(userID uuid.UUID) (uuid.UUID, bool) {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	channelID, ok := h.clientVoiceChannel[userID]
+	return channelID, ok
+}
+
+// VoiceParticipants returns a copy of channelID's voice roster (never nil).
+func (h *Hub) VoiceParticipants(channelID uuid.UUID) []uuid.UUID {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	return h.voiceParticipantsLocked(channelID)
 }
 
 // voiceParticipantsLocked returns the participant list for channelID.

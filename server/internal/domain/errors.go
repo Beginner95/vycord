@@ -142,3 +142,33 @@ var (
 	// кнопок, но это не защита от прямого запроса.
 	ErrCallMessageImmutable = errors.New("call messages cannot be edited or deleted")
 )
+
+// Гостевой вход в звонок (docs/superpowers/specs/2026-09-17-guest-call-link-design.md).
+// В отличие от ErrInviteNotFound причины отказа здесь различаются намеренно:
+// получить любую из них можно только с настоящим 256-битным секретом, так что
+// оракула для перебора они не дают, а гостю нужен понятный текст.
+var (
+	ErrGuestLinkInvalid      = errors.New("guest link invalid")
+	ErrGuestLinkExpired      = errors.New("guest link expired")
+	ErrGuestLinkRevoked      = errors.New("guest link revoked")
+	ErrGuestCallEnded        = errors.New("guest call ended")
+	ErrGuestLinkClosed       = errors.New("guest link closed to new guests")
+	ErrGuestLinksDisabled    = errors.New("guest links disabled on this server")
+	ErrGuestBanned           = errors.New("guest banned from this call")
+	ErrGuestCallFull         = errors.New("call guest limit reached")
+	ErrGuestLobbyFull        = errors.New("guest lobby limit reached")
+	ErrGuestLinkExhausted    = errors.New("guest link join limit reached")
+	ErrInvalidGuestName      = errors.New("invalid guest name")
+	ErrReservedGuestName     = errors.New("reserved guest name")
+	ErrGuestSessionInvalid   = errors.New("guest session invalid")
+	ErrGuestNotAdmitted      = errors.New("guest not admitted")
+	ErrNotInCall             = errors.New("user is not in the call")
+	ErrCallNotActive         = errors.New("no active call in channel")
+	ErrTooManyGuestLinks     = errors.New("too many active guest links")
+	ErrGuestAlreadyDecided   = errors.New("guest already decided")
+	ErrGuestLinkNotFound     = errors.New("guest link not found")
+	ErrGuestNotFound         = errors.New("guest not found")
+	ErrGuestNotActive        = errors.New("guest is no longer active")
+	ErrGuestMessageTooLong   = errors.New("guest message too long")
+	ErrGuestMentionForbidden = errors.New("guests cannot mention")
+)

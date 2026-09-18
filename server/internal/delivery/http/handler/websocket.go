@@ -26,8 +26,15 @@ var upgrader = websocket.Upgrader{
 	},
 }
 
+// GuestMirror forwards a member's own media events to the guests of the call
+// they are in. Optional: nil keeps the pre-guest behaviour.
+type GuestMirror interface {
+	MirrorFromUser(userID uuid.UUID, msgType string, payload json.RawMessage)
+}
+
 type WebSocketHandler struct {
 	hub           *ws.Hub
+	guestMirror   GuestMirror
 	authUseCase   domain.AuthUseCase
 	callUseCase   domain.CallUseCase
 	userUseCase   domain.UserUseCase
@@ -51,6 +58,16 @@ func NewWebSocketHandler(hub *ws.Hub, authUseCase domain.AuthUseCase, callUseCas
 		pongWait:      defaultPongWait,
 		pingPeriod:    defaultPingPeriod,
 	}
+}
+
+// SetGuestMirror installs the mirror. Called once from main.go.
+func (h *WebSocketHandler) SetGuestMirror(m GuestMirror) { h.guestMirror = m }
+
+func (h *WebSocketHandler) mirrorToGuests(userID uuid.UUID, msgType string, payload json.RawMessage) {
+	if h.guestMirror == nil {
+		return
+	}
+	h.guestMirror.MirrorFromUser(userID, msgType, payload)
 }
 
 func (h *WebSocketHandler) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
@@ -624,6 +641,7 @@ func (h *WebSocketHandler) handleScreenShareStarted(client *ws.Client) {
 		Type:    "screen_share_started",
 		Payload: mustMarshal(map[string]interface{}{"user_id": client.UserID.String()}),
 	})
+	h.mirrorToGuests(client.UserID, "screen_share_started", mustMarshal(map[string]interface{}{"user_id": client.UserID.String()}))
 }
 
 func (h *WebSocketHandler) handleScreenShareStopped(client *ws.Client) {
@@ -632,6 +650,7 @@ func (h *WebSocketHandler) handleScreenShareStopped(client *ws.Client) {
 		Type:    "screen_share_stopped",
 		Payload: mustMarshal(map[string]interface{}{"user_id": client.UserID.String()}),
 	})
+	h.mirrorToGuests(client.UserID, "screen_share_stopped", mustMarshal(map[string]interface{}{"user_id": client.UserID.String()}))
 }
 
 func (h *WebSocketHandler) handleMicMuted(client *ws.Client) {
@@ -640,6 +659,7 @@ func (h *WebSocketHandler) handleMicMuted(client *ws.Client) {
 		Type:    "mic_muted",
 		Payload: mustMarshal(map[string]interface{}{"user_id": client.UserID.String()}),
 	})
+	h.mirrorToGuests(client.UserID, "mic_muted", mustMarshal(map[string]interface{}{"user_id": client.UserID.String()}))
 }
 
 func (h *WebSocketHandler) handleMicUnmuted(client *ws.Client) {
@@ -648,6 +668,7 @@ func (h *WebSocketHandler) handleMicUnmuted(client *ws.Client) {
 		Type:    "mic_unmuted",
 		Payload: mustMarshal(map[string]interface{}{"user_id": client.UserID.String()}),
 	})
+	h.mirrorToGuests(client.UserID, "mic_unmuted", mustMarshal(map[string]interface{}{"user_id": client.UserID.String()}))
 }
 
 func (h *WebSocketHandler) handleConnectionQuality(client *ws.Client, msg *ws.Message) {
@@ -665,16 +686,15 @@ func (h *WebSocketHandler) handleConnectionQuality(client *ws.Client, msg *ws.Me
 	default:
 		return
 	}
-	h.hub.BroadcastMessage(&ws.Message{
-		Type: "connection_quality",
-		Payload: mustMarshal(map[string]interface{}{
-			"user_id":     client.UserID.String(),
-			"level":       payload.Level,
-			"packet_loss": payload.PacketLoss,
-			"rtt":         payload.RTT,
-			"bitrate":     payload.Bitrate,
-		}),
+	qualityPayload := mustMarshal(map[string]interface{}{
+		"user_id":     client.UserID.String(),
+		"level":       payload.Level,
+		"packet_loss": payload.PacketLoss,
+		"rtt":         payload.RTT,
+		"bitrate":     payload.Bitrate,
 	})
+	h.hub.BroadcastMessage(&ws.Message{Type: "connection_quality", Payload: qualityPayload})
+	h.mirrorToGuests(client.UserID, "connection_quality", qualityPayload)
 }
 
 func (h *WebSocketHandler) handlePing(client *ws.Client) {

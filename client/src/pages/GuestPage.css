@@ -1,0 +1,441 @@
+/*
+ * Страница гостя. Экраны до звонка живут на обычных поверхностях приложения,
+ * сам звонок — на театральной группе --stage-*, которая тёмная в обеих темах
+ * (см. client/docs/design-system.md, «Theme-invariant families»).
+ */
+
+.guest-page {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  padding: 24px 16px;
+  background: var(--canvas);
+  color: var(--ink);
+  font-family: var(--font-sans);
+}
+
+.guest-page-stage {
+  /* Высота фиксирована, а не min-height: иначе плитка со своим
+     aspect-ratio растягивает колонку, и панель управления уезжает за экран
+     (поймано снимком харнесса). */
+  flex-direction: column;
+
+  /* stretch, а не унаследованный center: иначе панель управления и сетка
+     сжимаются по содержимому и висят посреди экрана. */
+  align-items: stretch;
+  height: 100vh;
+  min-height: 0;
+  padding: 0;
+  background: var(--stage);
+  color: var(--stage-ink);
+}
+
+.guest-card {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  width: 100%;
+  max-width: 460px;
+  padding: 24px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-modal);
+  background: var(--canvas-2);
+  box-shadow: var(--shadow-card);
+}
+
+.guest-card-narrow {
+  align-items: center;
+  max-width: 380px;
+  text-align: center;
+}
+
+.guest-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.guest-header-server {
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.guest-header-channel {
+  color: var(--muted);
+}
+
+.guest-header-count {
+  color: var(--muted-2);
+}
+
+.guest-title {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 600;
+}
+
+.guest-hint {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+.guest-warning {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--warning-text);
+}
+
+.guest-error {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--danger-text);
+}
+
+.guest-preview {
+  position: relative;
+  overflow: hidden;
+  aspect-ratio: 16 / 9;
+  border-radius: var(--radius-tile);
+  background: var(--stage-tile);
+}
+
+.guest-preview video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transform: scaleX(-1);
+}
+
+.guest-preview video.is-hidden {
+  display: none;
+}
+
+.guest-preview-off {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  font-size: 13px;
+  color: var(--stage-muted);
+}
+
+.guest-meter {
+  position: absolute;
+  right: 10px;
+  bottom: 10px;
+  left: 10px;
+}
+
+.guest-toggles {
+  display: flex;
+  gap: 8px;
+}
+
+.guest-toggle {
+  display: flex;
+  flex: 1;
+  gap: 8px;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+}
+
+.guest-toggle.is-off {
+  color: var(--muted);
+}
+
+.guest-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.guest-field-label {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.guest-submit {
+  width: 100%;
+}
+
+.guest-spinner {
+  color: var(--muted);
+  animation: guest-spin 1.2s linear infinite;
+}
+
+@keyframes guest-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .guest-spinner {
+    animation: none;
+  }
+}
+
+.guest-ended-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: center;
+  width: 100%;
+}
+
+/* ── Звонок ─────────────────────────────────────────────────────────────── */
+
+.guest-status {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  justify-content: center;
+  height: 100vh;
+  font-size: 14px;
+  color: var(--stage-muted);
+}
+
+.guest-stage {
+  display: flex;
+  flex: 1;
+  gap: 12px;
+  width: 100%;
+  min-height: 0;
+  padding: 12px;
+}
+
+.guest-grid {
+  display: grid;
+  flex: 1;
+  gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  grid-auto-rows: minmax(0, 1fr);
+  place-content: center;
+  justify-items: center;
+  overflow: hidden;
+  min-height: 0;
+}
+
+.guest-tile {
+  position: relative;
+  width: 100%;
+  min-height: 0;
+  max-height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  aspect-ratio: 16 / 9;
+  border-radius: var(--radius-tile);
+  background: var(--stage-tile);
+}
+
+.guest-tile video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.guest-tile video.is-hidden {
+  display: none;
+}
+
+.guest-tile-avatar {
+  width: 64px;
+  height: 64px;
+  border-radius: var(--radius-pill);
+  font-size: 22px;
+}
+
+.guest-tile-label {
+  position: absolute;
+  bottom: 8px;
+  left: 8px;
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  max-width: calc(100% - 16px);
+  padding: 4px 8px;
+  border-radius: var(--radius-chip);
+  background: var(--stage-plate);
+  font-size: 12px;
+  color: var(--stage-ink);
+}
+
+.guest-tile-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.guest-tile-badge {
+  padding: 1px 6px;
+  border-radius: var(--radius-pill);
+  background: var(--stage-chip);
+  font-size: 11px;
+  color: var(--stage-muted);
+}
+
+.guest-tile-you {
+  font-size: 11px;
+  color: var(--stage-muted);
+}
+
+.guest-controls {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: center;
+  padding: 12px;
+  background: var(--stage-bar);
+}
+
+.guest-control {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border: none;
+  border-radius: var(--radius-pill);
+  background: var(--stage-toggle);
+  color: var(--stage-ink);
+  cursor: pointer;
+  transition: background var(--transition) var(--ease-out);
+}
+
+.guest-control:disabled {
+  color: var(--stage-muted);
+  cursor: not-allowed;
+}
+
+.guest-control:hover:not(:disabled) {
+  background: var(--stage-chip);
+}
+
+.guest-control.is-off {
+  color: var(--stage-muted);
+}
+
+.guest-control.is-active {
+  background: var(--stage-accent);
+}
+
+.guest-control-leave {
+  background: var(--stage-danger);
+  color: var(--stage);
+}
+
+.guest-control-badge {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  min-width: 16px;
+  padding: 0 4px;
+  border-radius: var(--radius-pill);
+  background: var(--stage-accent);
+  font-size: 10px;
+  line-height: 16px;
+  color: var(--stage-ink);
+}
+
+.guest-control-count {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  margin: 0 8px;
+  font-size: 13px;
+  color: var(--stage-muted);
+}
+
+/* ── Чат гостя ──────────────────────────────────────────────────────────── */
+
+.guest-chat {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 300px;
+  padding: 12px;
+  border-radius: var(--radius-card);
+  background: var(--stage-tile-2);
+}
+
+.guest-chat-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 13px;
+  color: var(--stage-ink);
+}
+
+.guest-chat-close {
+  color: var(--stage-muted);
+}
+
+.guest-chat-list {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 8px;
+  overflow-y: auto;
+  min-height: 0;
+}
+
+.guest-chat-message {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 13px;
+}
+
+.guest-chat-author {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  font-size: 12px;
+  color: var(--stage-muted);
+}
+
+.guest-chat-text {
+  overflow-wrap: anywhere;
+  color: var(--stage-ink);
+}
+
+.guest-chat-composer {
+  display: flex;
+  gap: 6px;
+}
+
+.guest-chat-send {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 10px;
+}
+
+.guest-chat-hint {
+  margin: 0;
+  font-size: 11px;
+  color: var(--stage-muted);
+}
+
+@media (width <= 640px) {
+  .guest-stage {
+    flex-direction: column;
+  }
+
+  .guest-chat {
+    width: 100%;
+    max-height: 40vh;
+  }
+}
