@@ -322,12 +322,25 @@ async function enterCall(roomId: string, set: Setter, get: Getter): Promise<void
     return;
   }
 
+  // groupCall отдаёт звонок с живым микрофоном и намеренно погашенной камерой
+  // (см. doJoinGroupCall: «video starts disabled»). Гость же выбрал состояние
+  // устройств в предпросмотре — приводим дорожки к этому выбору. Без сверки
+  // выключенный в предпросмотре микрофон продолжал вещать, а кнопка камеры
+  // показывала «включено» при выключённом треке.
+  const local = groupCallService.localStreamState ?? null;
   const micAvailable = groupCallService.isMicrophoneAvailable;
+  const wantMuted = !micAvailable || get().isMuted;
+  const hasCamera = (local?.getVideoTracks().length ?? 0) > 0;
+
+  const isMuted = wantMuted && micAvailable ? groupCallService.toggleMuteAudio() : wantMuted;
+  const isVideoOff = get().isVideoOff || !hasCamera ? true : groupCallService.toggleMuteVideo();
+
   set({
     phase: 'in_call',
     isMicAvailable: micAvailable,
-    isMuted: !micAvailable || get().isMuted,
-    localStream: groupCallService.localStreamState ?? null,
+    isMuted,
+    isVideoOff,
+    localStream: local,
   });
 
   // История чата с момента впуска: события шлюза приносят только новые.

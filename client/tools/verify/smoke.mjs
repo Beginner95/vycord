@@ -38,8 +38,14 @@ const CHROME = (() => {
   return candidates[0];
 })();
 const API = process.env.VYCORD_SMOKE_API || 'https://api.vycord.webvaha.ru';
-const APP = 'http://localhost:3000';
+// Адрес приложения: по умолчанию локальный dev-сервер, но проверку можно
+// направить и на боевой фронт через VYCORD_SMOKE_APP.
+const APP = process.env.VYCORD_SMOKE_APP || 'http://localhost:3000';
 const CREDS = { email: process.env.VYCORD_SMOKE_EMAIL, password: process.env.VYCORD_SMOKE_PASSWORD };
+// Потолок одного вызова CDP. Тридцати секунд хватает любой обычной пробе, но
+// не той, что ждёт живого человека или реального звонка: --eval-file с
+// ожиданием впуска гостя упирался ровно в этот таймаут и валил весь прогон.
+const CDP_TIMEOUT = Number(process.env.VYCORD_SMOKE_CDP_TIMEOUT || '30000');
 
 function arg(name, fallback = null) {
   const i = process.argv.indexOf(`--${name}`);
@@ -103,7 +109,7 @@ class CDP {
           this.pending.delete(id);
           reject(new Error(`CDP timeout: ${method}`));
         }
-      }, 30000);
+      }, CDP_TIMEOUT);
     });
   }
   // userGesture: Runtime.evaluate can grant TRANSIENT USER ACTIVATION to the

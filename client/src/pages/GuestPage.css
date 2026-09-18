@@ -250,10 +250,14 @@
 }
 
 .guest-tile-avatar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
   width: 64px;
   height: 64px;
   border-radius: var(--radius-pill);
   font-size: 22px;
+  object-fit: cover;
 }
 
 .guest-tile-label {

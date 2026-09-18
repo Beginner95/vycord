@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import { useAuthStore } from '@/stores/authStore';
 import { useCallStore, callWatchState } from '@/stores/callStore';
+import { useServerStore } from '@/stores/serverStore';
 import type { RemoteParticipant } from '@/stores/callStore';
 import { groupCallService } from '@/services/groupCall';
 import type { ScreenQuality } from '@/services/groupCall';
@@ -453,6 +454,12 @@ export function CallStage({ onMobileBackToChat }: CallStageProps) {
   // канал, а обработка стримов/реконнекта/метрик должна это пережить.
   const setCall = useCallStore.setState;
   const callChannelId = useCallStore((s) => s.callChannelId);
+  const callServerId = useCallStore((s) => s.callServerId);
+  // Кнопка приглашения есть только там, где владелец сервера разрешил гостей:
+  // иначе создание ссылки всё равно вернёт 403 (спека, раздел 4).
+  const guestLinksEnabled = useServerStore(
+    (store) => store.servers.find((srv) => srv.id === callServerId)?.guest_links_enabled ?? false,
+  );
   const isInGroupCall = callChannelId !== null;
   // Гости звонка: их имена приходят событиями хаба, а не из userCache —
   // в users их нет и быть не может.
@@ -1177,6 +1184,7 @@ export function CallStage({ onMobileBackToChat }: CallStageProps) {
           </button>
           <span className="stage-ctl-label">{t('call.ctlScreen')}</span>
         </div>
+        {guestLinksEnabled && (
         <div className="stage-ctl">
           <button
             ref={inviteBtnRef}
@@ -1196,6 +1204,7 @@ export function CallStage({ onMobileBackToChat }: CallStageProps) {
           </button>
           <span className="stage-ctl-label">{t('guestInvite.button')}</span>
         </div>
+        )}
         <div className="stage-ctl-divider" />
         {/* M6 T15, from manual QA: this was the only control in the bar whose
             label sat INSIDE the button, as a pill, while mic / camera / screen
