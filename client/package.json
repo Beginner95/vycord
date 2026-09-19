@@ -1,7 +1,7 @@
 {
   "name": "vycord",
   "private": true,
-  "version": "2.5.0",
+  "version": "2.5.1",
   "description": "Vy Cord application with noise cancellation",
   "author": "Vy Cord Team",
   "license": "MIT",
@@ -60,6 +60,7 @@
   },
   "main": "electron-dist/main.js",
   "build": {
+    "afterPack": "build/afterPack.cjs",
     "appId": "com.vycord.app",
     "productName": "Vy Cord",
     "directories": {

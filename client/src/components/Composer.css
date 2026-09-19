@@ -15,12 +15,6 @@
   border: 1px solid var(--line-strong);
   border-radius: 14px;
   box-shadow: var(--shadow-row);
-  transition: border-color var(--transition), box-shadow var(--transition);
-}
-
-.composer-field:focus-within {
-  border-color: var(--accent);
-  box-shadow: var(--focus-ring);
 }
 
 .composer-input {
