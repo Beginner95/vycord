@@ -18,7 +18,7 @@ import { logger } from '@/utils/logger';
  * (docs/superpowers/specs/2026-09-17-guest-call-link-design.md, раздел 4).
  */
 
-export type GuestPhase = 'entry' | 'joining' | 'lobby' | 'connecting' | 'in_call' | 'ended';
+export type GuestPhase = 'entry' | 'resuming' | 'joining' | 'lobby' | 'connecting' | 'in_call' | 'ended';
 
 export type GuestEndReason =
   | 'left'
@@ -28,7 +28,8 @@ export type GuestEndReason =
   | 'call_ended'
   | 'rejected'
   | 'lobby_timeout'
-  | 'disconnected';
+  | 'disconnected'
+  | 'session_expired';
 
 export interface GuestRemote {
   userId: string;
@@ -65,6 +66,8 @@ interface GuestCallState {
   chatUnread: number;
 
   loadPreview: (secret: string) => Promise<void>;
+  /** Возвращает гостя в звонок после перезагрузки вкладки. false — сессии нет. */
+  resume: () => boolean;
   join: (secret: string, displayName: string, opts: { muted: boolean; videoOff: boolean }) => Promise<void>;
   cancelLobby: () => Promise<void>;
   leave: () => Promise<void>;
@@ -107,6 +110,68 @@ function errorInfo(err: unknown): GuestErrorInfo {
 
 let callbacksInstalled = false;
 
+/**
+ * Сессия гостя в sessionStorage: переживает перезагрузку вкладки, но не её
+ * закрытие (спека, «Сессия гостя»). Секрет ссылки сюда не попадает — только
+ * сессионный токен, который сервер гасит при любом финальном статусе.
+ */
+const SESSION_KEY = 'vycord.guestSession';
+
+interface StoredGuestSession {
+  token: string;
+  guestId: string;
+  displayName: string;
+  isMuted: boolean;
+  isVideoOff: boolean;
+  preview: GuestPreview | null;
+}
+
+function saveSession(session: StoredGuestSession): void {
+  try {
+    sessionStorage.setItem(SESSION_KEY, JSON.stringify(session));
+  } catch {
+    // Хранилище недоступно (приватный режим, запрет сайта): звонок работает,
+    // просто не переживёт перезагрузку.
+  }
+}
+
+function patchSession(patch: Partial<StoredGuestSession>): void {
+  const current = loadSession();
+  if (current) saveSession({ ...current, ...patch });
+}
+
+function loadSession(): StoredGuestSession | null {
+  try {
+    const raw = sessionStorage.getItem(SESSION_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Partial<StoredGuestSession>;
+    if (typeof parsed.token !== 'string' || typeof parsed.guestId !== 'string') return null;
+    return {
+      token: parsed.token,
+      guestId: parsed.guestId,
+      displayName: typeof parsed.displayName === 'string' ? parsed.displayName : '',
+      isMuted: Boolean(parsed.isMuted),
+      isVideoOff: Boolean(parsed.isVideoOff),
+      preview: parsed.preview ?? null,
+    };
+  } catch {
+    return null;
+  }
+}
+
+/** Есть ли во вкладке сессия гостя, которую можно вернуть после перезагрузки. */
+export function hasStoredGuestSession(): boolean {
+  return loadSession() !== null;
+}
+
+function clearSession(): void {
+  try {
+    sessionStorage.removeItem(SESSION_KEY);
+  } catch {
+    // см. saveSession
+  }
+}
+
 export const useGuestCallStore = create<GuestCallState>((set, get) => ({
   ...idle(),
 
@@ -117,6 +182,29 @@ export const useGuestCallStore = create<GuestCallState>((set, get) => ({
     } catch (err) {
       set({ preview: null, previewError: errorInfo(err) });
     }
+  },
+
+  resume: () => {
+    const session = loadSession();
+    if (!session) return false;
+
+    set({
+      ...idle(),
+      phase: 'resuming',
+      guestId: session.guestId,
+      displayName: session.displayName,
+      isMuted: session.isMuted,
+      isVideoOff: session.isVideoOff,
+      preview: session.preview,
+    });
+
+    guestApi.setSessionToken(session.token);
+    installCallbacks(set, get);
+    setCallCredentials(guestApi.credentials());
+    // Дальше всё решает шлюз: admitted → обратно в звонок, lobby_waiting →
+    // в лобби, session_invalid → сессия уже мертва.
+    guestGateway.connect(session.token, (event) => handleEvent(event, set, get));
+    return true;
   },
 
   join: async (secret, displayName, opts) => {
@@ -138,6 +226,14 @@ export const useGuestCallStore = create<GuestCallState>((set, get) => ({
       isMuted: opts.muted,
       isVideoOff: opts.videoOff,
     });
+    saveSession({
+      token: joined.session_token,
+      guestId: joined.guest_id,
+      displayName: joined.display_name,
+      isMuted: opts.muted,
+      isVideoOff: opts.videoOff,
+      preview: get().preview,
+    });
 
     installCallbacks(set, get);
     // Гость ходит в SFU по своим кредам — их ставит шов, а groupCall о госте
@@ -152,6 +248,7 @@ export const useGuestCallStore = create<GuestCallState>((set, get) => ({
     } catch (err) {
       logger.report('[guest] leave request failed', {}, { error: String(err) });
     }
+    clearSession();
     teardown();
     set({ ...idle(), phase: 'entry' });
   },
@@ -163,13 +260,22 @@ export const useGuestCallStore = create<GuestCallState>((set, get) => ({
       logger.report('[guest] leave request failed', {}, { error: String(err) });
     }
     groupCallService.leaveGroupCall();
+    clearSession();
     teardown();
     set({ phase: 'ended', endReason: 'left', remotes: [], localStream: null });
   },
 
-  toggleMute: () => set({ isMuted: groupCallService.toggleMuteAudio() }),
+  toggleMute: () => {
+    const isMuted = groupCallService.toggleMuteAudio();
+    set({ isMuted });
+    patchSession({ isMuted });
+  },
 
-  toggleVideo: () => set({ isVideoOff: groupCallService.toggleMuteVideo() }),
+  toggleVideo: () => {
+    const isVideoOff = groupCallService.toggleMuteVideo();
+    set({ isVideoOff });
+    patchSession({ isVideoOff });
+  },
 
   sendChat: async (text) => {
     const content = text.trim();
@@ -179,6 +285,9 @@ export const useGuestCallStore = create<GuestCallState>((set, get) => ({
 
   markChatRead: () => set({ chatUnread: 0 }),
 
+  // Сессию из sessionStorage reset не трогает: он же срабатывает при
+  // размонтировании страницы (и дважды в StrictMode), а перезагрузка должна
+  // её найти.
   reset: () => {
     teardown();
     set(idle());
@@ -244,7 +353,7 @@ function installCallbacks(set: Setter, get: Getter): void {
 function handleEvent(event: GuestGatewayEvent, set: Setter, get: Getter): void {
   switch (event.type) {
     case 'lobby_waiting':
-      if (get().phase === 'joining') set({ phase: 'lobby' });
+      if (get().phase === 'joining' || get().phase === 'resuming') set({ phase: 'lobby' });
       return;
 
     case 'admitted':
@@ -302,6 +411,10 @@ function handleEvent(event: GuestGatewayEvent, set: Setter, get: Getter): void {
         : 'kicked', set, get);
       return;
 
+    case 'session_invalid':
+      endCall('session_expired', set, get);
+      return;
+
     case 'closed':
       // Обрыв — не выход: шлюз переподключается сам, гость остаётся в звонке.
       return;
@@ -354,6 +467,7 @@ async function enterCall(roomId: string, set: Setter, get: Getter): Promise<void
 
 function endCall(reason: GuestEndReason, set: Setter, get: Getter): void {
   if (get().phase === 'ended') return;
+  clearSession();
   groupCallService.leaveGroupCall();
   teardown();
   set({ phase: 'ended', endReason: reason, remotes: [], localStream: null });

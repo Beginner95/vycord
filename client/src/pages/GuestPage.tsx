@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Mic, MicOff, Video, VideoOff, PhoneOff, MessageSquare, Send, Users, Loader2 } from 'lucide-react';
-import { useGuestCallStore, type GuestEndReason } from '@/stores/guestCallStore';
+import { hasStoredGuestSession, useGuestCallStore, type GuestEndReason } from '@/stores/guestCallStore';
 import { hasKey } from '@/i18n';
 import { useT, type TFunc, type TKey } from '@/i18n';
 import { Avatar } from '@/components/Avatar';
@@ -49,21 +49,30 @@ const END_REASON_KEYS: Record<GuestEndReason, TKey> = {
   rejected: 'guest.endedRejected',
   lobby_timeout: 'guest.endedTimeout',
   disconnected: 'guest.endedDisconnected',
+  session_expired: 'guest.endedSessionExpired',
 };
 
 export function GuestPage() {
   const t = useT();
   const [secret] = useState(readSecretFromFragment);
+  // Fragment стёрт при первом заходе, поэтому после перезагрузки его нет —
+  // гостя возвращает сессия из sessionStorage, а не ссылка.
+  const [hasSession] = useState(hasStoredGuestSession);
   const phase = useGuestCallStore((s) => s.phase);
   const preview = useGuestCallStore((s) => s.preview);
   const previewError = useGuestCallStore((s) => s.previewError);
   const loadPreview = useGuestCallStore((s) => s.loadPreview);
+  const resume = useGuestCallStore((s) => s.resume);
   const reset = useGuestCallStore((s) => s.reset);
 
   useEffect(() => {
+    if (hasSession) {
+      resume();
+      return;
+    }
     if (!secret) return;
     void loadPreview(secret);
-  }, [secret, loadPreview]);
+  }, [hasSession, secret, loadPreview, resume]);
 
   useEffect(() => () => reset(), [reset]);
 
@@ -71,7 +80,7 @@ export function GuestPage() {
     return <GuestNotice title={t('guest.unsupported')} hint={t('guest.unsupportedHint')} />;
   }
 
-  if (!secret) {
+  if (!secret && !hasSession) {
     return <GuestNotice title={t('guest.linkMissing')} hint={t('guest.linkMissingHint')} />;
   }
 
@@ -88,12 +97,17 @@ export function GuestPage() {
     return <GuestEnded />;
   }
 
-  if (phase === 'in_call' || phase === 'connecting') {
+  if (phase === 'in_call' || phase === 'connecting' || phase === 'resuming') {
     return <GuestCall />;
   }
 
   if (phase === 'lobby' || phase === 'joining') {
     return <GuestLobby />;
+  }
+
+  // Первый кадр до эффекта, который запускает resume().
+  if (hasSession && phase === 'entry') {
+    return null;
   }
 
   return <GuestEntry secret={secret} previewReady={Boolean(preview)} />;
@@ -418,7 +432,7 @@ function GuestCall() {
     return names;
   }, [participants]);
 
-  if (phase === 'connecting') {
+  if (phase === 'connecting' || phase === 'resuming') {
     return (
       <div className="guest-page guest-page-stage">
         <div className="guest-status">

@@ -543,6 +543,7 @@ export const en: Dictionary = {
     endedRejected: 'Your request was declined',
     endedTimeout: 'Nobody answered your request',
     endedDisconnected: 'Lost connection to the call',
+    endedSessionExpired: 'Your guest session has expired. Open the invite link again to come back',
     close: 'Close',
     signUpPrompt: 'Liked it? Create a VYCORD account',
     signUp: 'Create an account',

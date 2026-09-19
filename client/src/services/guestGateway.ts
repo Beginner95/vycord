@@ -31,6 +31,7 @@ export type GuestGatewayEvent =
   | { type: 'chat_message'; message: GuestChatMessage }
   | { type: 'message_delete'; id: string }
   | { type: 'peer_signal'; signal: string; userId: string; payload: Record<string, unknown> }
+  | { type: 'session_invalid' }
   | { type: 'closed' };
 
 /** Сигналы других участников, которые сервер зеркалит гостю. */
@@ -43,7 +44,7 @@ const PEER_SIGNALS = new Set([
 ]);
 
 /** После этих событий переподключаться незачем: гостя в звонке больше нет. */
-const TERMINAL = new Set(['rejected', 'lobby_timeout', 'kicked', 'call_ended']);
+const TERMINAL = new Set(['rejected', 'lobby_timeout', 'kicked', 'call_ended', 'session_invalid']);
 
 const RECONNECT_DELAYS_MS = [500, 1000, 2000, 4000, 8000];
 
@@ -156,6 +157,8 @@ class GuestGateway {
         return { type: 'kicked', reason: String(payload.reason ?? 'kicked') };
       case 'call_ended':
         return { type: 'call_ended' };
+      case 'session_invalid':
+        return { type: 'session_invalid' };
       case 'participants':
         return {
           type: 'participants',

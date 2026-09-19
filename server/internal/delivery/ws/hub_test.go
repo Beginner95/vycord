@@ -897,3 +897,18 @@ func TestHub_ReconcileReportsDisappearedParticipants(t *testing.T) {
 	rec.mu.Unlock()
 	assert.Equal(t, []participantJoinedCall{{channelID, vanishes}}, left)
 }
+
+func TestBroadcastVoiceParticipants_NotifiesObserver(t *testing.T) {
+	h := newTestHub()
+	// Ошибка резолвера режет рассылку аккаунтам, но не гостям звонка: их
+	// список участников строится отдельно и по своим правилам.
+	h.SetVoiceAudienceResolver(func(uuid.UUID) ([]uuid.UUID, error) { return nil, errors.New("db down") })
+
+	var got []uuid.UUID
+	h.SetVoiceParticipantsObserver(func(channelID uuid.UUID) { got = append(got, channelID) })
+
+	channelID := uuid.New()
+	h.BroadcastVoiceParticipants(channelID, []uuid.UUID{uuid.New()})
+
+	assert.Equal(t, []uuid.UUID{channelID}, got)
+}

@@ -266,6 +266,7 @@ func main() {
 	}
 
 	wsHandler.SetGuestMirror(guestEvents)
+	hub.SetVoiceParticipantsObserver(guestEvents.VoiceParticipantsChanged)
 	messageHandler.SetGuestChat(guestEvents)
 	guestHandler.SetGuestChat(guestEvents)
 

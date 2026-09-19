@@ -29,6 +29,11 @@ type Hub struct {
 	// voiceAudienceResolver: read under h.mu, CALLED outside it (it goes to
 	// the DB and calls back into the hub via SendToChannel).
 	callSessionRecorder CallSessionRecorder
+	// voiceParticipantsObserver, when set, hears about every roster change
+	// that goes through BroadcastVoiceParticipants. The guest gateway hangs
+	// off it: guests are not hub clients and would otherwise never learn that
+	// a member joined or left. Same locking discipline as above.
+	voiceParticipantsObserver func(channelID uuid.UUID)
 }
 
 type Message struct {
@@ -274,6 +279,14 @@ func (h *Hub) SetCallSessionRecorder(recorder CallSessionRecorder) {
 	h.callSessionRecorder = recorder
 }
 
+// SetVoiceParticipantsObserver installs the roster-change observer. nil keeps
+// the hub's pre-existing behavior.
+func (h *Hub) SetVoiceParticipantsObserver(observer func(channelID uuid.UUID)) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.voiceParticipantsObserver = observer
+}
+
 // BroadcastVoiceParticipants notifies clients about the current participant
 // list for a voice channel. When a voiceAudienceResolver is set and returns
 // a non-nil audience for channelID (a private channel), delivery is
@@ -301,7 +314,14 @@ func (h *Hub) BroadcastVoiceParticipants(channelID uuid.UUID, participants []uui
 
 	h.mu.RLock()
 	resolver := h.voiceAudienceResolver
+	observer := h.voiceParticipantsObserver
 	h.mu.RUnlock()
+
+	// Before the resolver: its failure drops the members' event (fail-closed),
+	// but the guests' roster has its own audience and must not go stale.
+	if observer != nil {
+		observer(channelID)
+	}
 
 	if resolver != nil {
 		audience, err := resolver(channelID)

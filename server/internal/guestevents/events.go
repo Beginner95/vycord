@@ -200,6 +200,26 @@ func (e *Events) Participants(channelID uuid.UUID) *guestws.Message {
 	return guestws.Marshal("participants", map[string]any{"users": users, "guests": guests})
 }
 
+// VoiceParticipantsChanged re-sends the roster to a call's guests whenever a
+// member joins or leaves. Hooked to Hub.SetVoiceParticipantsObserver.
+func (e *Events) VoiceParticipantsChanged(channelID uuid.UUID) {
+	// Хаб зовёт это на каждый вход и выход в любом канале, а Participants
+	// ходит в БД. Без гостей на шлюзе в этом канале слать некому.
+	if !e.hasConnectedGuests(channelID) {
+		return
+	}
+	e.gw.Broadcast(channelID, e.Participants(channelID))
+}
+
+func (e *Events) hasConnectedGuests(channelID uuid.UUID) bool {
+	for _, ch := range e.gw.Connected() {
+		if ch == channelID {
+			return true
+		}
+	}
+	return false
+}
+
 // MirrorFromUser forwards a member's event to the guests of the call that
 // member is in — and only that call.
 func (e *Events) MirrorFromUser(userID uuid.UUID, msgType string, payload json.RawMessage) {

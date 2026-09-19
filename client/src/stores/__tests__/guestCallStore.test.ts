@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const gatewayHandlers: { onEvent?: (e: unknown) => void } = {};
@@ -50,12 +51,14 @@ vi.mock('@/services/callCredentials', () => ({
 }));
 
 import { guestApi } from '@/services/guestApi';
+import { guestGateway } from '@/services/guestGateway';
 import { groupCallService } from '@/services/groupCall';
 import { useGuestCallStore } from '../guestCallStore';
 
 const emit = (event: unknown) => gatewayHandlers.onEvent?.(event);
 
 beforeEach(() => {
+  sessionStorage.clear();
   useGuestCallStore.getState().reset();
   vi.clearAllMocks();
 });
@@ -143,5 +146,76 @@ describe('guestCallStore', () => {
     expect(groupCallService.leaveGroupCall).toHaveBeenCalled();
     expect(useGuestCallStore.getState().phase).toBe('ended');
     expect(useGuestCallStore.getState().endReason).toBe('left');
+  });
+
+  describe('surviving a page reload', () => {
+    const joinAs = async () => {
+      vi.mocked(guestApi.join).mockResolvedValue({ guest_id: 'g1', session_token: 'tok', display_name: 'Вася' });
+      await useGuestCallStore.getState().join('secret', 'Вася', { muted: true, videoOff: true });
+    };
+
+    it('has nothing to resume before a join', () => {
+      expect(useGuestCallStore.getState().resume()).toBe(false);
+      expect(guestGateway.connect).not.toHaveBeenCalled();
+    });
+
+    it('reconnects with the stored session and returns to the call', async () => {
+      await joinAs();
+      emit({ type: 'admitted', room_id: 'room-1' });
+      await vi.waitFor(() => expect(useGuestCallStore.getState().phase).toBe('in_call'));
+
+      // Перезагрузка: модульное состояние теряется, sessionStorage — нет.
+      useGuestCallStore.getState().reset();
+      vi.clearAllMocks();
+
+      expect(useGuestCallStore.getState().resume()).toBe(true);
+      expect(useGuestCallStore.getState().phase).toBe('resuming');
+      expect(guestApi.setSessionToken).toHaveBeenCalledWith('tok');
+      expect(guestGateway.connect).toHaveBeenCalledWith('tok', expect.any(Function));
+      expect(useGuestCallStore.getState().displayName).toBe('Вася');
+
+      emit({ type: 'admitted', room_id: 'room-1' });
+      await vi.waitFor(() => expect(useGuestCallStore.getState().phase).toBe('in_call'));
+      expect(groupCallService.joinGroupCall).toHaveBeenCalledWith('room-1', 'guest:g1');
+    });
+
+    it('goes back to the lobby when the guest was still waiting', async () => {
+      await joinAs();
+      useGuestCallStore.getState().reset();
+
+      useGuestCallStore.getState().resume();
+      emit({ type: 'lobby_waiting' });
+
+      expect(useGuestCallStore.getState().phase).toBe('lobby');
+    });
+
+    it('forgets the session once the guest has left', async () => {
+      await joinAs();
+      await useGuestCallStore.getState().leave();
+      useGuestCallStore.getState().reset();
+
+      expect(useGuestCallStore.getState().resume()).toBe(false);
+    });
+
+    it('forgets the session when the call is over for the guest', async () => {
+      await joinAs();
+      emit({ type: 'kicked', reason: 'kicked' });
+      useGuestCallStore.getState().reset();
+
+      expect(useGuestCallStore.getState().resume()).toBe(false);
+    });
+
+    it('ends and forgets a session the server no longer accepts', async () => {
+      await joinAs();
+      useGuestCallStore.getState().reset();
+      useGuestCallStore.getState().resume();
+
+      emit({ type: 'session_invalid' });
+
+      expect(useGuestCallStore.getState().phase).toBe('ended');
+      expect(useGuestCallStore.getState().endReason).toBe('session_expired');
+      useGuestCallStore.getState().reset();
+      expect(useGuestCallStore.getState().resume()).toBe(false);
+    });
   });
 });

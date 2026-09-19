@@ -2,6 +2,7 @@ package handler
 
 import (
 	"encoding/json"
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
@@ -119,9 +120,26 @@ func TestGuestWS_RejectsBadToken(t *testing.T) {
 	conn := dialGuestWS(t, srv)
 	sendFrame(t, conn, "auth", map[string]string{"token": "bad"})
 
+	// Клиент должен отличить мёртвую сессию от обрыва: иначе он
+	// переподключается к ней бесконечно.
+	assert.Equal(t, "session_invalid", readFrame(t, conn).Type)
+
 	require.NoError(t, conn.SetReadDeadline(time.Now().Add(3*time.Second)))
 	_, _, err := conn.ReadMessage()
 	assert.Error(t, err, "the socket closes instead of serving an unauthenticated guest")
+	assert.Empty(t, gw.Connected())
+}
+
+func TestGuestWS_TransientAuthFailureIsNotSessionInvalid(t *testing.T) {
+	srv, gw, _ := newGuestWSServer(t, nil, errors.New("db is down"))
+	conn := dialGuestWS(t, srv)
+	sendFrame(t, conn, "auth", map[string]string{"token": "good"})
+
+	// Сбой БД — не приговор сессии: сокет просто закрывается, и клиент
+	// переподключится.
+	require.NoError(t, conn.SetReadDeadline(time.Now().Add(3*time.Second)))
+	_, _, err := conn.ReadMessage()
+	assert.Error(t, err)
 	assert.Empty(t, gw.Connected())
 }
 

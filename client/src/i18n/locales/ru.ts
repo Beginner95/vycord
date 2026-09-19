@@ -556,6 +556,7 @@ export const ru = {
     endedRejected: 'Вам отказали во входе',
     endedTimeout: 'Никто не ответил на ваш запрос',
     endedDisconnected: 'Связь со звонком потеряна',
+    endedSessionExpired: 'Сессия гостя истекла. Чтобы вернуться, откройте ссылку-приглашение ещё раз',
     close: 'Закрыть',
     signUpPrompt: 'Понравилось? Заведите аккаунт VYCORD',
     signUp: 'Создать аккаунт',

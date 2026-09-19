@@ -252,3 +252,22 @@ func TestChatMessageAndDeletionReachGuests(t *testing.T) {
 	f.events.MessageDeleted(f.channel, msg.ID)
 	assert.Equal(t, []string{"chat_message", "message_delete"}, f.gw.broadcast[f.channel])
 }
+
+func TestVoiceParticipantsChangedRefreshesGuestRoster(t *testing.T) {
+	f := newFixture(t)
+	f.gw.connected[uuid.New()] = f.channel
+
+	f.events.VoiceParticipantsChanged(f.channel)
+
+	assert.Equal(t, []string{"participants"}, f.gw.broadcast[f.channel],
+		"guests learn about members joining and leaving the call")
+}
+
+func TestVoiceParticipantsChangedSkipsChannelsWithoutGuests(t *testing.T) {
+	f := newFixture(t)
+	f.gw.connected[uuid.New()] = uuid.New() // гость есть, но в другом звонке
+
+	f.events.VoiceParticipantsChanged(f.channel)
+
+	assert.Empty(t, f.gw.broadcast[f.channel])
+}

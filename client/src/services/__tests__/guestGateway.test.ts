@@ -94,4 +94,19 @@ describe('guestGateway', () => {
     expect(FakeSocket.last).toBe(socket);
     expect(guestGateway.isConnected()).toBe(false);
   });
+
+  it('gives up on a session the server rejected instead of retrying forever', () => {
+    vi.useFakeTimers();
+    const events: GuestGatewayEvent[] = [];
+    guestGateway.connect('dead', (e) => events.push(e));
+    const socket = FakeSocket.last!;
+    socket.open();
+    socket.deliver('session_invalid');
+    socket.close();
+    vi.advanceTimersByTime(10_000);
+    vi.useRealTimers();
+
+    expect(events).toContainEqual({ type: 'session_invalid' });
+    expect(FakeSocket.last).toBe(socket);
+  });
 });

@@ -2,6 +2,7 @@ package handler
 
 import (
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"net/http"
 	"time"
@@ -110,9 +111,27 @@ func (h *GuestWSHandler) authenticate(conn *websocket.Conn) (*domain.GuestContex
 	guest, err := h.guests.Authenticate(payload.Token)
 	if err != nil {
 		h.log.Warn("guest websocket authentication failed", "error", err)
+		if errors.Is(err, domain.ErrGuestSessionInvalid) {
+			// Сессия мертва навсегда (гость вышел, выгнан, звонок закрыт или
+			// его сняли за отсутствие). Говорим это явно: молча закрытый сокет
+			// клиент принимает за обрыв и переподключается бесконечно. Сбой БД
+			// сюда не попадает — после него переподключение как раз нужно.
+			h.rejectSession(conn)
+		}
 		return nil, false
 	}
 	return guest, true
+}
+
+func (h *GuestWSHandler) rejectSession(conn *websocket.Conn) {
+	data, err := json.Marshal(guestws.Marshal("session_invalid", nil))
+	if err != nil {
+		return
+	}
+	_ = conn.SetWriteDeadline(time.Now().Add(h.writeWait))
+	_ = conn.WriteMessage(websocket.TextMessage, data)
+	_ = conn.WriteMessage(websocket.CloseMessage,
+		websocket.FormatCloseMessage(websocket.ClosePolicyViolation, "session invalid"))
 }
 
 func (h *GuestWSHandler) readPump(client *guestws.Client, guest *domain.GuestContext) {
