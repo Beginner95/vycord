@@ -269,6 +269,7 @@ func main() {
 	hub.SetVoiceParticipantsObserver(guestEvents.VoiceParticipantsChanged)
 	messageHandler.SetGuestChat(guestEvents)
 	guestHandler.SetGuestChat(guestEvents)
+	guestHandler.SetAttachmentSigner(attachmentSigner)
 
 	// Setup router
 	router := http.NewServeMux()

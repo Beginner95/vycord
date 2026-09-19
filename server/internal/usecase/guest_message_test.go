@@ -181,3 +181,29 @@ func TestDeleteGuestMessage(t *testing.T) {
 		assert.ErrorIs(t, uc.DeleteMessage(channelID, messageID, userID), domain.ErrForbidden)
 	})
 }
+
+func TestListGuestMessagesCarriesAttachments(t *testing.T) {
+	channelID := uuid.New()
+	admittedAt := time.Now()
+	gc := admittedGuest(channelID, admittedAt)
+
+	withFile := &domain.GuestChatMessage{ID: uuid.New(), Content: "смотри"}
+	plain := &domain.GuestChatMessage{ID: uuid.New(), Content: "ок"}
+	file := &domain.Attachment{ID: uuid.New(), FileName: "фото.png"}
+
+	msgRepo := new(MockMessageRepository)
+	msgRepo.On("ListForGuest", channelID, admittedAt, (*domain.Message)(nil), 50).
+		Return([]*domain.GuestChatMessage{withFile, plain}, nil)
+	attachRepo := new(MockAttachmentRepository)
+	attachRepo.On("ListByMessageIDs", []uuid.UUID{withFile.ID, plain.ID}).
+		Return(map[uuid.UUID][]*domain.Attachment{withFile.ID: {file}}, nil)
+
+	uc := usecase.NewMessageUseCase(msgRepo, new(MockChannelRepository), new(MockServerRepository),
+		&MockStickerRepository{}, new(MockPermissionUseCase), attachRepo, new(MockStorage))
+	list, err := uc.ListGuestMessages(gc, nil, 0)
+	require.NoError(t, err)
+
+	require.Len(t, list, 2)
+	assert.Equal(t, []*domain.Attachment{file}, list[0].Attachments, "a guest sees the files members post")
+	assert.Empty(t, list[1].Attachments)
+}

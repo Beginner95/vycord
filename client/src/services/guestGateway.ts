@@ -60,6 +60,8 @@ class GuestGateway {
   private attempt = 0;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private stopped = false;
+  /** Сырые кадры по типу — для callBus: мост звонка слушает их так же, как wsService. */
+  private listeners = new Map<string, Set<(payload: unknown) => void>>();
 
   connect(sessionToken: string, onEvent: (e: GuestGatewayEvent) => void): void {
     this.disconnect();
@@ -84,6 +86,18 @@ class GuestGateway {
       socket.onerror = null;
       socket.close();
     }
+  }
+
+  on(type: string, listener: (payload: unknown) => void): () => void {
+    let set = this.listeners.get(type);
+    if (!set) {
+      set = new Set();
+      this.listeners.set(type, set);
+    }
+    set.add(listener);
+    return () => {
+      this.listeners.get(type)?.delete(listener);
+    };
   }
 
   isConnected(): boolean {
@@ -115,6 +129,7 @@ class GuestGateway {
         return;
       }
       if (!frame.type) return;
+      this.listeners.get(frame.type)?.forEach((listener) => listener(frame.payload ?? {}));
       const translated = this.translate(frame.type, frame.payload ?? {});
       if (!translated) return;
       if (TERMINAL.has(frame.type)) {

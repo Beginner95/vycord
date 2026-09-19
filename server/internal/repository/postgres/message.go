@@ -524,10 +524,12 @@ func (r *messageRepository) ListForGuest(channelID uuid.UUID, since time.Time, a
 	}
 
 	rows, err := r.db.Query(ctx, `
-		SELECT m.id, m.content, m.created_at, m.user_id, u.username, u.avatar_url, m.guest_id, cg.display_name
+		SELECT m.id, m.content, m.created_at, m.updated_at, m.user_id, u.username, u.avatar_url, m.guest_id, cg.display_name,
+		       s.id, s.name, s.image_url, s.server_id
 		FROM messages m
 		LEFT JOIN users u ON u.id = m.user_id
 		LEFT JOIN call_guests cg ON cg.id = m.guest_id
+		LEFT JOIN stickers s ON s.id = m.sticker_id
 		WHERE m.channel_id = $1 AND m.kind = 'user' AND m.created_at >= $2
 		  AND ($3::timestamptz IS NULL OR (m.created_at, m.id) > ($3::timestamptz, $4::uuid))
 		ORDER BY m.created_at ASC, m.id ASC
@@ -542,8 +544,15 @@ func (r *messageRepository) ListForGuest(channelID uuid.UUID, since time.Time, a
 		m := &domain.GuestChatMessage{}
 		var userID, guestID *uuid.UUID
 		var username, displayName, avatarURL *string
-		if err := rows.Scan(&m.ID, &m.Content, &m.CreatedAt, &userID, &username, &avatarURL, &guestID, &displayName); err != nil {
+		var sID, sServerID *uuid.UUID
+		var sName, sURL *string
+		if err := rows.Scan(&m.ID, &m.Content, &m.CreatedAt, &m.UpdatedAt, &userID, &username, &avatarURL, &guestID, &displayName,
+			&sID, &sName, &sURL, &sServerID); err != nil {
 			return nil, fmt.Errorf("failed to scan guest message: %w", err)
+		}
+		if sID != nil {
+			m.StickerID = sID
+			m.Sticker = &domain.Sticker{ID: *sID, Name: *sName, ImageURL: *sURL, ServerID: *sServerID}
 		}
 		if userID != nil {
 			m.Author = domain.GuestChatAuthor{Kind: "user", UserID: userID, AvatarURL: avatarURL}

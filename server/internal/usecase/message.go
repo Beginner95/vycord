@@ -463,5 +463,24 @@ func (uc *messageUseCase) ListGuestMessages(guest *domain.GuestContext, afterID 
 			after = m
 		}
 	}
-	return uc.messageRepo.ListForGuest(guest.Guest.ChannelID, since, after, limit)
+	list, err := uc.messageRepo.ListForGuest(guest.Guest.ChannelID, since, after, limit)
+	if err != nil || len(list) == 0 {
+		return list, err
+	}
+
+	ids := make([]uuid.UUID, len(list))
+	for i, m := range list {
+		ids[i] = m.ID
+	}
+	// Вложения — дополнение к ленте, не её условие: как и attachToMessages,
+	// сбой здесь оставляет сообщения без файлов, а не роняет весь список.
+	byMsg, err := uc.attachRepo.ListByMessageIDs(ids)
+	if err != nil {
+		slog.Error("list attachments for guest messages failed", "channel_id", guest.Guest.ChannelID, "error", err)
+		return list, nil
+	}
+	for _, m := range list {
+		m.Attachments = byMsg[m.ID]
+	}
+	return list, nil
 }

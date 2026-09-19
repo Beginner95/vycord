@@ -14,6 +14,7 @@ import (
 	"github.com/vycord/server/internal/delivery/http/ratelimit"
 	"github.com/vycord/server/internal/delivery/ws"
 	"github.com/vycord/server/internal/domain"
+	"github.com/vycord/server/pkg/attachlink"
 )
 
 // guestBodyLimit — потолок тела гостевого запроса. Гость не аутентифицирован
@@ -39,6 +40,9 @@ type GuestHandler struct {
 	hub       *ws.Hub
 	limits    GuestRateLimits
 	log       *slog.Logger
+	// signer подписывает ссылки на вложения в ленте гостя: <img src> не
+	// умеет слать токен, доступ даёт подпись в URL.
+	signer *attachlink.Signer
 }
 
 func NewGuestHandler(guests domain.GuestUseCase, messages domain.MessageUseCase, hub *ws.Hub, limits GuestRateLimits, log *slog.Logger) *GuestHandler {
@@ -62,6 +66,9 @@ type guestVoiceTokenResponse struct {
 	Token  string    `json:"token"`
 	RoomID uuid.UUID `json:"room_id"`
 }
+
+// SetAttachmentSigner installs the attachment-link signer. Called once from main.go.
+func (h *GuestHandler) SetAttachmentSigner(s *attachlink.Signer) { h.signer = s }
 
 // SetGuestChat installs the guest chat fan-out. Called once from main.go.
 func (h *GuestHandler) SetGuestChat(f GuestChatFanout) { h.guestChat = f }
@@ -203,6 +210,11 @@ func (h *GuestHandler) ListMessages(w http.ResponseWriter, r *http.Request) {
 	}
 	if list == nil {
 		list = []*domain.GuestChatMessage{}
+	}
+	if h.signer != nil {
+		for _, m := range list {
+			SignAttachments(h.signer, m.Attachments)
+		}
 	}
 	writeGuestJSON(w, http.StatusOK, list)
 }

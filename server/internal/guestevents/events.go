@@ -244,7 +244,12 @@ func (e *Events) MessageDeleted(channelID, messageID uuid.UUID) {
 }
 
 func guestChatMessage(msg *domain.Message, author *domain.User) domain.GuestChatMessage {
-	out := domain.GuestChatMessage{ID: msg.ID, Content: msg.Content, CreatedAt: msg.CreatedAt}
+	// Вложения к этому моменту уже подписаны (MessageHandler.CreateMessage
+	// подписывает их до рассылки), поэтому гость может открыть их как есть.
+	out := domain.GuestChatMessage{
+		ID: msg.ID, Content: msg.Content, CreatedAt: msg.CreatedAt, UpdatedAt: msg.UpdatedAt,
+		Attachments: msg.Attachments, StickerID: msg.StickerID, Sticker: msg.Sticker,
+	}
 	switch {
 	case msg.GuestID != nil:
 		out.Author = domain.GuestChatAuthor{Kind: "guest", GuestID: msg.GuestID}

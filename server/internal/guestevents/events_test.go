@@ -271,3 +271,21 @@ func TestVoiceParticipantsChangedSkipsChannelsWithoutGuests(t *testing.T) {
 
 	assert.Empty(t, f.gw.broadcast[f.channel])
 }
+
+func TestChatMessageCarriesAttachmentsAndSticker(t *testing.T) {
+	f := newFixture(t)
+	userID := f.member
+	stickerID := uuid.New()
+	msg := &domain.Message{
+		ID: uuid.New(), ChannelID: f.channel, UserID: &userID, Content: "смотри",
+		Attachments: []*domain.Attachment{{ID: uuid.New(), FileName: "фото.png", URL: "/signed"}},
+		StickerID:   &stickerID,
+		Sticker:     &domain.Sticker{ID: stickerID, Name: "кот", ImageURL: "/uploads/cat.png"},
+	}
+
+	out := guestChatMessage(msg, &domain.User{ID: userID, Username: "вася"})
+
+	assert.Equal(t, msg.Attachments, out.Attachments)
+	assert.Equal(t, msg.Sticker, out.Sticker)
+	assert.Equal(t, &stickerID, out.StickerID)
+}

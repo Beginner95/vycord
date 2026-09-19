@@ -25,8 +25,14 @@ vi.mock('@/services/guestGateway', () => ({
     }),
     disconnect: vi.fn(),
     send: vi.fn(),
+    on: vi.fn(() => () => {}),
     isConnected: vi.fn(() => true),
   },
+}));
+
+vi.mock('@/services/callBus', () => ({
+  callBus: { send: vi.fn(), on: vi.fn(() => () => {}) },
+  setCallTransport: vi.fn(),
 }));
 
 vi.mock('@/services/groupCall', () => ({
@@ -53,6 +59,8 @@ vi.mock('@/services/callCredentials', () => ({
 import { guestApi } from '@/services/guestApi';
 import { guestGateway } from '@/services/guestGateway';
 import { groupCallService } from '@/services/groupCall';
+import { callBus, setCallTransport } from '@/services/callBus';
+import { useCallStore } from '../callStore';
 import { useGuestCallStore } from '../guestCallStore';
 
 const emit = (event: unknown) => gatewayHandlers.onEvent?.(event);
@@ -60,6 +68,7 @@ const emit = (event: unknown) => gatewayHandlers.onEvent?.(event);
 beforeEach(() => {
   sessionStorage.clear();
   useGuestCallStore.getState().reset();
+  useCallStore.getState().reset();
   vi.clearAllMocks();
 });
 
@@ -112,18 +121,16 @@ describe('guestCallStore', () => {
     expect(groupCallService.leaveGroupCall).toHaveBeenCalled();
   });
 
-  it('tracks participants, peer mute state and chat', async () => {
+  it('tracks participants and chat', async () => {
     vi.mocked(guestApi.join).mockResolvedValue({ guest_id: 'g1', session_token: 'tok', display_name: 'Вася' });
     await useGuestCallStore.getState().join('secret', 'Вася', { muted: false, videoOff: false });
 
     emit({ type: 'participants', users: [{ user_id: 'u1', username: 'аня' }], guests: [{ id: 'guest:g1', display_name: 'Вася' }] });
     expect(useGuestCallStore.getState().participants.users).toHaveLength(1);
     expect(useGuestCallStore.getState().participants.guests).toHaveLength(1);
-
-    emit({ type: 'peer_signal', signal: 'mic_muted', userId: 'u1', payload: {} });
-    expect(useGuestCallStore.getState().mutedPeers.has('u1')).toBe(true);
-    emit({ type: 'peer_signal', signal: 'mic_unmuted', userId: 'u1', payload: {} });
-    expect(useGuestCallStore.getState().mutedPeers.has('u1')).toBe(false);
+    // Имена для сцены звонка: /users/{id} гостю недоступен.
+    expect(useCallStore.getState().directory['u1']).toMatchObject({ username: 'аня', isGuest: false });
+    expect(useCallStore.getState().directory['guest:g1']).toMatchObject({ username: 'Вася', isGuest: true });
 
     emit({
       type: 'chat_message',
@@ -216,6 +223,47 @@ describe('guestCallStore', () => {
       expect(useGuestCallStore.getState().endReason).toBe('session_expired');
       useGuestCallStore.getState().reset();
       expect(useGuestCallStore.getState().resume()).toBe(false);
+    });
+  });
+
+  describe('the call itself runs on the shared callStore', () => {
+    it('enters through callStore as guest:<id>, over the guest transport', async () => {
+      vi.mocked(guestApi.join).mockResolvedValue({ guest_id: 'g1', session_token: 'tok', display_name: 'Вася' });
+      await useGuestCallStore.getState().join('secret', 'Вася', { muted: false, videoOff: true });
+      expect(setCallTransport).toHaveBeenCalledWith('guest');
+
+      emit({ type: 'admitted', room_id: 'room-1' });
+      await vi.waitFor(() => expect(useGuestCallStore.getState().phase).toBe('in_call'));
+
+      const call = useCallStore.getState();
+      expect(call.callChannelId).toBe('room-1');
+      expect(call.guestSelf).toEqual({ id: 'guest:g1', username: 'Вася' });
+      expect(groupCallService.joinGroupCall).toHaveBeenCalledWith('room-1', 'guest:g1');
+    });
+
+    it('applies the mic choice from the preview and tells the others', async () => {
+      vi.mocked(guestApi.join).mockResolvedValue({ guest_id: 'g1', session_token: 'tok', display_name: 'Вася' });
+      await useGuestCallStore.getState().join('secret', 'Вася', { muted: true, videoOff: true });
+
+      emit({ type: 'admitted', room_id: 'room-1' });
+      await vi.waitFor(() => expect(useGuestCallStore.getState().phase).toBe('in_call'));
+
+      expect(groupCallService.toggleMuteAudio).toHaveBeenCalled();
+      expect(useCallStore.getState().isMuted).toBe(true);
+      expect(callBus.send).toHaveBeenCalledWith('mic_muted');
+    });
+
+    it('treats a call dropped under it as a lost connection', async () => {
+      vi.mocked(guestApi.join).mockResolvedValue({ guest_id: 'g1', session_token: 'tok', display_name: 'Вася' });
+      await useGuestCallStore.getState().join('secret', 'Вася', { muted: false, videoOff: true });
+      emit({ type: 'admitted', room_id: 'room-1' });
+      await vi.waitFor(() => expect(useGuestCallStore.getState().phase).toBe('in_call'));
+
+      useCallStore.getState().reset(); // так мост сбрасывает звонок на onCallEnded/onError
+
+      expect(useGuestCallStore.getState().phase).toBe('ended');
+      expect(useGuestCallStore.getState().endReason).toBe('disconnected');
+      expect(setCallTransport).toHaveBeenLastCalledWith('account');
     });
   });
 });

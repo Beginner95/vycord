@@ -9,13 +9,17 @@ import {
 } from '@/services/guestGateway';
 import { groupCallService } from '@/services/groupCall';
 import { accountCallCredentials, setCallCredentials } from '@/services/callCredentials';
+import { callBus, setCallTransport } from '@/services/callBus';
+import { initCallBridge, useCallStore, type CallDirectoryEntry } from '@/stores/callStore';
 import { logger } from '@/utils/logger';
 
 /**
- * Состояние гостя: от предпросмотра ссылки до конца звонка. Стор намеренно не
- * знает ни про authStore, ни про wsService — у гостя нет аккаунта, и весь его
- * реальный тайм идёт через guestGateway
- * (docs/superpowers/specs/2026-09-17-guest-call-link-design.md, раздел 4).
+ * Жизненный цикл гостя: от предпросмотра ссылки до конца звонка. Сам звонок —
+ * медиа, участники, демонстрация, качество — живёт в общем callStore, как у
+ * участника с аккаунтом; гость отличается только транспортом (callBus →
+ * гостевой шлюз), кредами SFU и тем, откуда берутся имена
+ * (docs/superpowers/specs/2026-09-17-guest-call-link-design.md, раздел 4,
+ * «Швы в существующем коде звонка»).
  */
 
 export type GuestPhase = 'entry' | 'resuming' | 'joining' | 'lobby' | 'connecting' | 'in_call' | 'ended';
@@ -30,11 +34,6 @@ export type GuestEndReason =
   | 'lobby_timeout'
   | 'disconnected'
   | 'session_expired';
-
-export interface GuestRemote {
-  userId: string;
-  stream: MediaStream | null;
-}
 
 export interface GuestErrorInfo {
   code?: string;
@@ -52,15 +51,9 @@ interface GuestCallState {
   endReason: GuestEndReason | null;
 
   participants: { users: GuestParticipantUser[]; guests: GuestParticipantGuest[] };
-  remotes: GuestRemote[];
-  mutedPeers: Set<string>;
-  sharingPeers: Set<string>;
-
-  localStream: MediaStream | null;
-  isMuted: boolean;
-  isVideoOff: boolean;
-  isSharing: boolean;
-  isMicAvailable: boolean;
+  /** Выбор в предпросмотре: применяется к звонку при входе и после перезагрузки. */
+  wantMuted: boolean;
+  wantVideoOff: boolean;
 
   messages: GuestChatMessage[];
   chatUnread: number;
@@ -71,8 +64,6 @@ interface GuestCallState {
   join: (secret: string, displayName: string, opts: { muted: boolean; videoOff: boolean }) => Promise<void>;
   cancelLobby: () => Promise<void>;
   leave: () => Promise<void>;
-  toggleMute: () => void;
-  toggleVideo: () => void;
   sendChat: (text: string) => Promise<void>;
   markChatRead: () => void;
   reset: () => void;
@@ -88,14 +79,8 @@ const idle = () => ({
   roomId: null,
   endReason: null,
   participants: { users: [], guests: [] },
-  remotes: [],
-  mutedPeers: new Set<string>(),
-  sharingPeers: new Set<string>(),
-  localStream: null,
-  isMuted: false,
-  isVideoOff: false,
-  isSharing: false,
-  isMicAvailable: true,
+  wantMuted: false,
+  wantVideoOff: false,
   messages: [],
   chatUnread: 0,
 });
@@ -107,8 +92,6 @@ function errorInfo(err: unknown): GuestErrorInfo {
   const anyErr = err as { code?: string; message?: string } | undefined;
   return { code: anyErr?.code, message: anyErr?.message ?? 'unknown error' };
 }
-
-let callbacksInstalled = false;
 
 /**
  * Сессия гостя в sessionStorage: переживает перезагрузку вкладки, но не её
@@ -193,17 +176,13 @@ export const useGuestCallStore = create<GuestCallState>((set, get) => ({
       phase: 'resuming',
       guestId: session.guestId,
       displayName: session.displayName,
-      isMuted: session.isMuted,
-      isVideoOff: session.isVideoOff,
+      wantMuted: session.isMuted,
+      wantVideoOff: session.isVideoOff,
       preview: session.preview,
     });
 
     guestApi.setSessionToken(session.token);
-    installCallbacks(set, get);
-    setCallCredentials(guestApi.credentials());
-    // Дальше всё решает шлюз: admitted → обратно в звонок, lobby_waiting →
-    // в лобби, session_invalid → сессия уже мертва.
-    guestGateway.connect(session.token, (event) => handleEvent(event, set, get));
+    connectGateway(session.token, set, get);
     return true;
   },
 
@@ -223,8 +202,8 @@ export const useGuestCallStore = create<GuestCallState>((set, get) => ({
       phase: 'lobby',
       guestId: joined.guest_id,
       displayName: joined.display_name,
-      isMuted: opts.muted,
-      isVideoOff: opts.videoOff,
+      wantMuted: opts.muted,
+      wantVideoOff: opts.videoOff,
     });
     saveSession({
       token: joined.session_token,
@@ -235,11 +214,7 @@ export const useGuestCallStore = create<GuestCallState>((set, get) => ({
       preview: get().preview,
     });
 
-    installCallbacks(set, get);
-    // Гость ходит в SFU по своим кредам — их ставит шов, а groupCall о госте
-    // ничего не знает.
-    setCallCredentials(guestApi.credentials());
-    guestGateway.connect(joined.session_token, (event) => handleEvent(event, set, get));
+    connectGateway(joined.session_token, set, get);
   },
 
   cancelLobby: async () => {
@@ -254,27 +229,17 @@ export const useGuestCallStore = create<GuestCallState>((set, get) => ({
   },
 
   leave: async () => {
+    // Фаза — первой: подписка на callStore ниже не должна принять
+    // собственный выход за обрыв.
+    set({ phase: 'ended', endReason: 'left' });
+    clearSession();
     try {
       await guestApi.leave();
     } catch (err) {
       logger.report('[guest] leave request failed', {}, { error: String(err) });
     }
-    groupCallService.leaveGroupCall();
-    clearSession();
+    useCallStore.getState().leave();
     teardown();
-    set({ phase: 'ended', endReason: 'left', remotes: [], localStream: null });
-  },
-
-  toggleMute: () => {
-    const isMuted = groupCallService.toggleMuteAudio();
-    set({ isMuted });
-    patchSession({ isMuted });
-  },
-
-  toggleVideo: () => {
-    const isVideoOff = groupCallService.toggleMuteVideo();
-    set({ isVideoOff });
-    patchSession({ isVideoOff });
   },
 
   sendChat: async (text) => {
@@ -294,60 +259,63 @@ export const useGuestCallStore = create<GuestCallState>((set, get) => ({
   },
 }));
 
+type Setter = (partial: Partial<GuestCallState> | ((s: GuestCallState) => Partial<GuestCallState>)) => void;
+type Getter = () => GuestCallState;
+
+function connectGateway(token: string, set: Setter, get: Getter): void {
+  installCallWatch(set, get);
+  // Гость ходит в SFU по своим кредам и шлёт события звонка в свой шлюз —
+  // оба шва ставятся здесь, callStore и groupCall о госте ничего не знают.
+  setCallCredentials(guestApi.credentials());
+  setCallTransport('guest');
+  initCallBridge();
+  // Дальше всё решает шлюз: admitted → в звонок, lobby_waiting → в лобби,
+  // session_invalid → сессия уже мертва.
+  guestGateway.connect(token, (event) => handleEvent(event, set, get));
+}
+
 function teardown(): void {
   guestGateway.disconnect();
   guestApi.setSessionToken(null);
   setCallCredentials(accountCallCredentials);
+  setCallTransport('account');
 }
 
-type Setter = (partial: Partial<GuestCallState> | ((s: GuestCallState) => Partial<GuestCallState>)) => void;
-type Getter = () => GuestCallState;
+let callWatchInstalled = false;
 
-/** Колбэки звонка ставятся один раз: groupCallService — синглтон. */
-function installCallbacks(set: Setter, get: Getter): void {
-  if (callbacksInstalled) return;
-  callbacksInstalled = true;
+/**
+ * Звонок может кончиться и без шлюза: SFU выгнал, реконнект исчерпан, ошибка
+ * медиа — тогда мост сбрасывает callStore. Гостю это «связь потеряна», а
+ * мик и камеру, которые он переключает прямо в сцене, помним для перезагрузки.
+ */
+function installCallWatch(set: Setter, get: Getter): void {
+  if (callWatchInstalled) return;
+  callWatchInstalled = true;
 
-  groupCallService.init({
-    onRemoteStream: (userId, stream) => {
-      set((s) => {
-        const known = s.remotes.find((r) => r.userId === userId);
-        return known
-          ? { remotes: s.remotes.map((r) => (r.userId === userId ? { ...r, stream } : r)) }
-          : { remotes: [...s.remotes, { userId, stream }] };
-      });
-    },
-    onRemoteScreenStream: () => {
-      // Просмотр чужой демонстрации гостю в первой версии не нужен: он видит
-      // её как обычное видео участника, отдельной подписки нет.
-    },
-    onPeerJoined: (userId) => {
-      set((s) =>
-        s.remotes.find((r) => r.userId === userId)
-          ? {}
-          : { remotes: [...s.remotes, { userId, stream: null }] },
-      );
-    },
-    onPeerLeft: (userId) => {
-      set((s) => ({ remotes: s.remotes.filter((r) => r.userId !== userId) }));
-    },
-    onPeerSnapshot: (userIds) => {
-      set((s) => {
-        const ids = new Set(userIds);
-        const kept = s.remotes.filter((r) => ids.has(r.userId));
-        const keptIds = new Set(kept.map((r) => r.userId));
-        const added = userIds.filter((id) => !keptIds.has(id)).map((id) => ({ userId: id, stream: null }));
-        return { remotes: [...kept, ...added] };
-      });
-    },
-    onCallEnded: () => {
-      if (get().phase === 'ended') return;
-      set({ phase: 'ended', endReason: 'disconnected', remotes: [] });
-    },
-    onError: (error) => {
-      logger.report('[guest] call error', {}, { error: String(error) });
-    },
+  useCallStore.subscribe((call, prev) => {
+    const phase = get().phase;
+    if (phase !== 'in_call') return;
+    if (prev.callChannelId !== null && call.callChannelId === null) {
+      set({ phase: 'ended', endReason: 'disconnected' });
+      teardown();
+      return;
+    }
+    if (call.isMuted !== prev.isMuted || call.isVideoOff !== prev.isVideoOff) {
+      set({ wantMuted: call.isMuted, wantVideoOff: call.isVideoOff });
+      patchSession({ isMuted: call.isMuted, isVideoOff: call.isVideoOff });
+    }
   });
+}
+
+function directoryFrom(participants: GuestCallState['participants']): Record<string, CallDirectoryEntry> {
+  const out: Record<string, CallDirectoryEntry> = {};
+  participants.users.forEach((user) => {
+    out[user.user_id] = { username: user.username ?? user.user_id.slice(0, 8), avatar_url: user.avatar_url, isGuest: false };
+  });
+  participants.guests.forEach((guest) => {
+    out[guest.id] = { username: guest.display_name, isGuest: true };
+  });
+  return out;
 }
 
 function handleEvent(event: GuestGatewayEvent, set: Setter, get: Getter): void {
@@ -360,27 +328,10 @@ function handleEvent(event: GuestGatewayEvent, set: Setter, get: Getter): void {
       void enterCall(event.room_id, set, get);
       return;
 
-    case 'participants':
-      set({ participants: { users: event.users, guests: event.guests } });
-      return;
-
-    case 'peer_signal': {
-      if (event.signal === 'mic_muted' || event.signal === 'mic_unmuted') {
-        set((s) => {
-          const next = new Set(s.mutedPeers);
-          if (event.signal === 'mic_muted') next.add(event.userId);
-          else next.delete(event.userId);
-          return { mutedPeers: next };
-        });
-      }
-      if (event.signal === 'screen_share_started' || event.signal === 'screen_share_stopped') {
-        set((s) => {
-          const next = new Set(s.sharingPeers);
-          if (event.signal === 'screen_share_started') next.add(event.userId);
-          else next.delete(event.userId);
-          return { sharingPeers: next };
-        });
-      }
+    case 'participants': {
+      const participants = { users: event.users, guests: event.guests };
+      set({ participants });
+      useCallStore.setState({ directory: directoryFrom(participants) });
       return;
     }
 
@@ -415,6 +366,11 @@ function handleEvent(event: GuestGatewayEvent, set: Setter, get: Getter): void {
       endCall('session_expired', set, get);
       return;
 
+    case 'peer_signal':
+      // mic/демонстрация/качество участников обрабатывает мост callStore:
+      // он слушает те же кадры шлюза через callBus.
+      return;
+
     case 'closed':
       // Обрыв — не выход: шлюз переподключается сам, гость остаётся в звонке.
       return;
@@ -422,39 +378,50 @@ function handleEvent(event: GuestGatewayEvent, set: Setter, get: Getter): void {
 }
 
 async function enterCall(roomId: string, set: Setter, get: Getter): Promise<void> {
-  if (get().phase === 'in_call' || get().phase === 'connecting') return;
+  const phase = get().phase;
+  if (phase === 'in_call' || phase === 'connecting' || phase === 'ended') return;
   const guestId = get().guestId;
   if (!guestId) return;
 
   set({ phase: 'connecting', roomId });
+  const selfId = `guest:${guestId}`;
+  const { preview, displayName } = get();
+  useCallStore.setState({
+    guestSelf: { id: selfId, username: displayName },
+    directory: directoryFrom(get().participants),
+  });
+
   try {
-    await groupCallService.joinGroupCall(roomId, `guest:${guestId}`);
+    await useCallStore.getState().join({
+      channelId: roomId,
+      channelName: preview?.channel_name ?? '',
+      serverId: null,
+      serverName: preview?.server_name ?? null,
+      userId: selfId,
+      userName: displayName,
+    });
   } catch (err) {
     logger.report('[guest] failed to join the call', {}, { error: String(err) });
-    set({ phase: 'ended', endReason: 'disconnected' });
+    endCall('disconnected', set, get);
     return;
   }
+  if (get().phase !== 'connecting') return; // пока входили, гостя выгнали
 
-  // groupCall отдаёт звонок с живым микрофоном и намеренно погашенной камерой
-  // (см. doJoinGroupCall: «video starts disabled»). Гость же выбрал состояние
-  // устройств в предпросмотре — приводим дорожки к этому выбору. Без сверки
-  // выключенный в предпросмотре микрофон продолжал вещать, а кнопка камеры
-  // показывала «включено» при выключённом треке.
-  const local = groupCallService.localStreamState ?? null;
-  const micAvailable = groupCallService.isMicrophoneAvailable;
-  const wantMuted = !micAvailable || get().isMuted;
-  const hasCamera = (local?.getVideoTracks().length ?? 0) > 0;
+  // callStore.join отдаёт звонок с живым микрофоном и погашенной камерой.
+  // Гость же выбрал устройства в предпросмотре (или до перезагрузки) —
+  // приводим дорожки к этому выбору и сообщаем участникам про мик.
+  const call = useCallStore.getState();
+  if (get().wantMuted && call.isMicAvailable && !call.isMuted) {
+    const muted = groupCallService.toggleMuteAudio();
+    useCallStore.setState({ isMuted: muted });
+    callBus.send(muted ? 'mic_muted' : 'mic_unmuted');
+  }
+  const hasCamera = (groupCallService.localStreamState?.getVideoTracks().length ?? 0) > 0;
+  if (!get().wantVideoOff && hasCamera && useCallStore.getState().isVideoOff) {
+    useCallStore.setState({ isVideoOff: groupCallService.toggleMuteVideo() });
+  }
 
-  const isMuted = wantMuted && micAvailable ? groupCallService.toggleMuteAudio() : wantMuted;
-  const isVideoOff = get().isVideoOff || !hasCamera ? true : groupCallService.toggleMuteVideo();
-
-  set({
-    phase: 'in_call',
-    isMicAvailable: micAvailable,
-    isMuted,
-    isVideoOff,
-    localStream: local,
-  });
+  set({ phase: 'in_call' });
 
   // История чата с момента впуска: события шлюза приносят только новые.
   try {
@@ -467,8 +434,9 @@ async function enterCall(roomId: string, set: Setter, get: Getter): Promise<void
 
 function endCall(reason: GuestEndReason, set: Setter, get: Getter): void {
   if (get().phase === 'ended') return;
+  set({ phase: 'ended', endReason: reason });
   clearSession();
   groupCallService.leaveGroupCall();
+  useCallStore.getState().reset();
   teardown();
-  set({ phase: 'ended', endReason: reason, remotes: [], localStream: null });
 }

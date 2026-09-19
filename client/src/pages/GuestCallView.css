@@ -1,0 +1,186 @@
+/*
+ * Звонок гостя: сцена звонка (CallStage, группа --stage-*, тёмная в обеих
+ * темах) и боковая панель чата/участников на обычных поверхностях
+ * приложения — так же, как сцена и чат делят колонку у участника с
+ * аккаунтом (AppPage).
+ */
+
+.guest-call {
+  position: relative;
+  display: flex;
+  height: 100vh;
+  height: 100dvh;
+  background: var(--stage);
+  font-family: var(--font-sans);
+}
+
+.guest-call-main {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-width: 0;
+
+  /* Свой контекст наложения: z-index внутри сцены (плашки, тосты) не
+     вылезают над боковой панелью, которая на узком экране ложится сверху. */
+  isolation: isolate;
+}
+
+/* Вне AppPage у сцены нет .channel-body с --call-stage-height: здесь она
+   занимает всю колонку. */
+.guest-call-main .call-stage {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+/* ── Бейдж непрочитанного на кнопке чата ── */
+
+.guest-ctl-wrap {
+  position: relative;
+  display: flex;
+}
+
+.guest-ctl-badge {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: var(--radius-pill);
+  background: var(--stage-danger);
+  color: var(--white);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 18px;
+  text-align: center;
+  pointer-events: none;
+}
+
+/* ── Боковая панель ── */
+
+.guest-side {
+  display: flex;
+  flex: 0 0 360px;
+  flex-direction: column;
+  min-width: 0;
+  border-left: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--ink);
+}
+
+.guest-side-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  height: 56px;
+  padding: 0 12px 0 16px;
+  border-bottom: 1px solid var(--line);
+}
+
+.guest-side-title {
+  font-size: 15px;
+  font-weight: 700;
+}
+
+/* ── Чат ── */
+
+.guest-chat-feed {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 8px 0 12px;
+}
+
+.guest-chat-hint {
+  margin: 4px 16px 8px;
+  font-size: 12px;
+  color: var(--muted);
+  text-align: center;
+}
+
+.guest-chat-error {
+  margin: 0 16px 8px;
+  font-size: 12px;
+  color: var(--danger-text);
+}
+
+.guest-chat-composer {
+  padding: 0 12px 12px;
+}
+
+/* ── Участники ── */
+
+.guest-roster {
+  flex: 1 1 auto;
+  min-height: 0;
+  margin: 0;
+  padding: 8px;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.guest-roster-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 8px;
+  border-radius: var(--radius-row);
+}
+
+.guest-roster-row:hover {
+  background: var(--canvas-2);
+}
+
+.guest-roster-avatar {
+  flex: 0 0 auto;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-pill);
+  font-size: 13px;
+}
+
+.guest-roster-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  font-size: 14px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.guest-roster-chip {
+  flex: 0 0 auto;
+  padding: 1px 6px;
+  border-radius: var(--radius-chip);
+  background: var(--accent-soft);
+  color: var(--accent-text);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.guest-roster-chip.is-self {
+  background: var(--canvas-2);
+  color: var(--muted);
+}
+
+.guest-roster-mic {
+  display: flex;
+  flex: 0 0 auto;
+  color: var(--muted);
+}
+
+.guest-roster-mic.is-muted {
+  color: var(--danger-text);
+}
+
+/* На узком экране панель ложится поверх сцены (внутри .guest-call, не
+   fixed — это не модальный слой и хоткеи не блокирует). */
+@media (width <= 720px) {
+  .guest-side {
+    position: absolute;
+    inset: 0;
+    border-left: none;
+  }
+}

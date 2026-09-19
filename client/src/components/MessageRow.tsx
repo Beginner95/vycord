@@ -130,10 +130,16 @@ interface MessageRowProps {
    * `msg.attachments`; ChatArea narrows it to the media subset.
    */
   onOpenAttachment?: (index: number) => void;
+  /**
+   * false — своё сообщение нельзя ни править, ни удалять (гость звонка: у
+   * него нет таких эндпоинтов). Цитата остаётся.
+   */
+  canModify?: boolean;
 }
 
 export function MessageRow(props: MessageRowProps) {
   const { msg, isOwn, isContinuation, displayName, avatarUrl, isEditing, highlighted, entered } = props;
+  const canModify = isOwn && props.canModify !== false;
   const t = useT();
   const { formatTime } = useDateFormat();
   const isEdited = msg.updated_at !== msg.created_at;
@@ -199,19 +205,19 @@ export function MessageRow(props: MessageRowProps) {
       {/* A sticker row has nothing to quote (quoting it inserts a bare `> `)
           and nothing to edit, so for someone else's sticker the popover would
           be an empty bordered chip on hover — don't render the wrapper at all. */}
-      {!isEditing && !msg.deliveryState && (!msg.sticker_id || isOwn) && (
+      {!isEditing && !msg.deliveryState && (!msg.sticker_id || canModify) && (
         <div className="msg-actions">
           {!msg.sticker_id && (
             <button type="button" className="msg-action-btn" aria-label={t('chat.quote')} title={t('chat.quote')} onClick={props.onQuote}>
               <Quote size={15} strokeWidth={1.8} />
             </button>
           )}
-          {isOwn && !msg.sticker_id && (
+          {canModify && !msg.sticker_id && (
             <button type="button" className="msg-action-btn" aria-label={t('common.edit')} title={t('common.edit')} onClick={props.onStartEdit}>
               <Pencil size={15} strokeWidth={1.8} />
             </button>
           )}
-          {isOwn && (
+          {canModify && (
             <button type="button" className="msg-action-btn is-danger" aria-label={t('common.delete')} title={t('common.delete')} onClick={props.onDelete}>
               <Trash2 size={15} strokeWidth={1.8} />
             </button>

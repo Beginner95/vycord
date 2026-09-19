@@ -1,10 +1,10 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Mic, MicOff, Video, VideoOff, PhoneOff, MessageSquare, Send, Users, Loader2 } from 'lucide-react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { Mic, MicOff, Video, VideoOff, Loader2 } from 'lucide-react';
 import { hasStoredGuestSession, useGuestCallStore, type GuestEndReason } from '@/stores/guestCallStore';
-import { hasKey } from '@/i18n';
-import { useT, type TFunc, type TKey } from '@/i18n';
-import { Avatar } from '@/components/Avatar';
+import { useT, type TKey } from '@/i18n';
 import { useMicLevel } from '@/hooks/useMicLevel';
+import { GuestCallView } from './GuestCallView';
+import { guestErrorText } from './guestErrors';
 import './GuestPage.css';
 
 /**
@@ -23,17 +23,6 @@ function readSecretFromFragment(): string {
     window.history.replaceState(null, '', window.location.pathname + window.location.search);
   }
   return raw.trim();
-}
-
-/**
- * Текст ошибки гостя. Сервер присылает стабильный code — по нему и переводим;
- * если код клиенту неизвестен (старый клиент против нового сервера), остаётся
- * серверный текст, как и в apiErrorText для аккаунта.
- */
-function guestErrorText(error: { code?: string; message: string } | null, t: TFunc): string {
-  if (!error) return '';
-  const key = `errors.${error.code ?? ''}`;
-  return error.code && hasKey(key) ? t(key as TKey) : error.message;
 }
 
 function supportsCalls(): boolean {
@@ -98,7 +87,7 @@ export function GuestPage() {
   }
 
   if (phase === 'in_call' || phase === 'connecting' || phase === 'resuming') {
-    return <GuestCall />;
+    return <GuestCallView />;
   }
 
   if (phase === 'lobby' || phase === 'joining') {
@@ -290,221 +279,6 @@ function GuestLobby() {
         <p className="guest-hint">{t('guest.lobbyHint')}</p>
         <button type="button" className="btn btn-secondary" onClick={() => void cancelLobby()}>
           {t('guest.cancel')}
-        </button>
-      </div>
-    </div>
-  );
-}
-
-// ─── Звонок ──────────────────────────────────────────────────────────────────
-
-function GuestTile({
-  name,
-  stream,
-  muted,
-  isGuest,
-  isLocal,
-}: {
-  name: string;
-  stream: MediaStream | null;
-  muted: boolean;
-  isGuest: boolean;
-  isLocal?: boolean;
-}) {
-  const t = useT();
-  const videoRef = useRef<HTMLVideoElement>(null);
-
-  useEffect(() => {
-    if (videoRef.current) {
-      videoRef.current.srcObject = stream;
-    }
-  }, [stream]);
-
-  const hasVideo = Boolean(stream?.getVideoTracks().some((track) => track.enabled));
-
-  return (
-    <div className="guest-tile">
-      <video ref={videoRef} autoPlay playsInline muted={isLocal} className={hasVideo ? undefined : 'is-hidden'} />
-      {!hasVideo && <Avatar username={name} className="guest-tile-avatar" />}
-      <div className="guest-tile-label">
-        {muted && <MicOff size={12} strokeWidth={1.8} />}
-        <span className="guest-tile-name">{name}</span>
-        {isGuest && <span className="guest-tile-badge">{t('guest.guestBadge')}</span>}
-        {isLocal && <span className="guest-tile-you">{t('guest.youBadge')}</span>}
-      </div>
-    </div>
-  );
-}
-
-function GuestChat({ onClose }: { onClose: () => void }) {
-  const t = useT();
-  const messages = useGuestCallStore((s) => s.messages);
-  const sendChat = useGuestCallStore((s) => s.sendChat);
-  const [draft, setDraft] = useState('');
-  const [error, setError] = useState<{ code?: string; message: string } | null>(null);
-  const listRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    listRef.current?.scrollTo({ top: listRef.current.scrollHeight });
-  }, [messages.length]);
-
-  const send = async () => {
-    const text = draft.trim();
-    if (!text) return;
-    setDraft('');
-    try {
-      await sendChat(text);
-      setError(null);
-    } catch (err) {
-      const apiErr = err as { code?: string; message?: string };
-      setError({ code: apiErr.code, message: apiErr.message ?? '' });
-    }
-  };
-
-  return (
-    <aside className="guest-chat">
-      <div className="guest-chat-head">
-        <span>{t('guest.chat')}</span>
-        <button type="button" className="btn btn-ghost guest-chat-close" onClick={onClose}>
-          {t('guest.close')}
-        </button>
-      </div>
-      <div className="guest-chat-list" ref={listRef}>
-        {messages.map((message) => (
-          <div key={message.id} className="guest-chat-message">
-            <span className="guest-chat-author">
-              {message.author.kind === 'guest' ? message.author.display_name : message.author.username}
-              {message.author.kind === 'guest' && (
-                <span className="guest-tile-badge">{t('guest.guestBadge')}</span>
-              )}
-            </span>
-            <span className="guest-chat-text">{message.content}</span>
-          </div>
-        ))}
-      </div>
-      {error && <p className="guest-error">{guestErrorText(error, t)}</p>}
-      <div className="guest-chat-composer">
-        <input
-          className="input"
-          value={draft}
-          placeholder={t('guest.chatPlaceholder')}
-          maxLength={2000}
-          onChange={(e) => setDraft(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') void send();
-          }}
-        />
-        <button type="button" className="btn btn-primary guest-chat-send" onClick={() => void send()}>
-          <Send size={16} strokeWidth={1.8} />
-        </button>
-      </div>
-      <p className="guest-chat-hint">{t('guest.chatHint')}</p>
-    </aside>
-  );
-}
-
-function GuestCall() {
-  const t = useT();
-  const phase = useGuestCallStore((s) => s.phase);
-  const remotes = useGuestCallStore((s) => s.remotes);
-  const participants = useGuestCallStore((s) => s.participants);
-  const mutedPeers = useGuestCallStore((s) => s.mutedPeers);
-  const localStream = useGuestCallStore((s) => s.localStream);
-  const isMuted = useGuestCallStore((s) => s.isMuted);
-  const isVideoOff = useGuestCallStore((s) => s.isVideoOff);
-  const isMicAvailable = useGuestCallStore((s) => s.isMicAvailable);
-  const displayName = useGuestCallStore((s) => s.displayName);
-  const chatUnread = useGuestCallStore((s) => s.chatUnread);
-  const toggleMute = useGuestCallStore((s) => s.toggleMute);
-  const toggleVideo = useGuestCallStore((s) => s.toggleVideo);
-  const leave = useGuestCallStore((s) => s.leave);
-  const markChatRead = useGuestCallStore((s) => s.markChatRead);
-  const [chatOpen, setChatOpen] = useState(false);
-
-  const nameFor = useMemo(() => {
-    const names = new Map<string, { name: string; isGuest: boolean }>();
-    participants.users.forEach((user) => {
-      names.set(user.user_id, { name: user.username ?? user.user_id.slice(0, 8), isGuest: false });
-    });
-    participants.guests.forEach((guest) => {
-      names.set(guest.id, { name: guest.display_name, isGuest: true });
-    });
-    return names;
-  }, [participants]);
-
-  if (phase === 'connecting' || phase === 'resuming') {
-    return (
-      <div className="guest-page guest-page-stage">
-        <div className="guest-status">
-          <Loader2 size={28} strokeWidth={1.8} className="guest-spinner" />
-          <span>{t('guest.connecting')}</span>
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="guest-page guest-page-stage">
-      <div className="guest-stage">
-        <div className="guest-grid">
-          <GuestTile name={displayName} stream={localStream} muted={isMuted} isGuest isLocal />
-          {remotes.map((remote) => {
-            const known = nameFor.get(remote.userId);
-            return (
-              <GuestTile
-                key={remote.userId}
-                name={known?.name ?? remote.userId.replace('guest:', '').slice(0, 8)}
-                stream={remote.stream}
-                muted={mutedPeers.has(remote.userId)}
-                isGuest={known?.isGuest ?? remote.userId.startsWith('guest:')}
-              />
-            );
-          })}
-        </div>
-        {chatOpen && <GuestChat onClose={() => setChatOpen(false)} />}
-      </div>
-
-      <div className="guest-controls">
-        <button
-          type="button"
-          className={`guest-control${isMuted ? ' is-off' : ''}`}
-          onClick={toggleMute}
-          disabled={!isMicAvailable}
-          title={isMuted ? t('guest.micOff') : t('guest.micOn')}
-        >
-          {isMuted ? <MicOff size={20} strokeWidth={1.8} /> : <Mic size={20} strokeWidth={1.8} />}
-        </button>
-        <button
-          type="button"
-          className={`guest-control${isVideoOff ? ' is-off' : ''}`}
-          onClick={toggleVideo}
-          title={isVideoOff ? t('guest.cameraOff') : t('guest.cameraOn')}
-        >
-          {isVideoOff ? <VideoOff size={20} strokeWidth={1.8} /> : <Video size={20} strokeWidth={1.8} />}
-        </button>
-        <button
-          type="button"
-          className={`guest-control${chatOpen ? ' is-active' : ''}`}
-          onClick={() => {
-            setChatOpen((open) => !open);
-            markChatRead();
-          }}
-          title={t('guest.chat')}
-        >
-          <MessageSquare size={20} strokeWidth={1.8} />
-          {chatUnread > 0 && !chatOpen && <span className="guest-control-badge">{chatUnread}</span>}
-        </button>
-        <span className="guest-control-count">
-          <Users size={16} strokeWidth={1.8} />
-          {participants.users.length + participants.guests.length}
-        </span>
-        <button
-          type="button"
-          className="guest-control guest-control-leave"
-          onClick={() => void leave()}
-          title={t('guest.leave')}
-        >
-          <PhoneOff size={20} strokeWidth={1.8} />
         </button>
       </div>
     </div>

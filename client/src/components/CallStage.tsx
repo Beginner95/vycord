@@ -10,7 +10,7 @@ import { useServerStore } from '@/stores/serverStore';
 import type { RemoteParticipant } from '@/stores/callStore';
 import { groupCallService } from '@/services/groupCall';
 import type { ScreenQuality } from '@/services/groupCall';
-import { wsService } from '@/services/websocket';
+import { callBus } from '@/services/callBus';
 import { apiService } from '@/services/api';
 import { logger } from '@/utils/logger';
 import { collectUnresolvedUserIds } from '@/utils/userCache';
@@ -440,15 +440,29 @@ interface CallStageProps {
   // сплит одной колонки — колбэк переключает мобильную панель обратно на
   // чат. На десктопе не передаётся: там обе панели видны одновременно.
   onMobileBackToChat?: () => void;
+  /**
+   * Гостевой режим (страница /guest): вместо выхода через callStore.leave
+   * зовётся этот колбэк — гостю нужно ещё сказать серверу «ушёл» и показать
+   * экран конца. Заодно прячет то, что гостю не положено: приглашение гостей
+   * и тост лобби.
+   */
+  onLeave?: () => void;
+  /** Дополнительные кнопки панели управления перед «Выйти» (чат, участники гостя). */
+  extraControls?: React.ReactNode;
 }
 
 // Сцена звонка. Рендерится только когда открытый канал совпадает с каналом
 // звонка (см. AppPage), поэтому монтируется и размонтируется вместе с
 // переключением каналов — всё состояние звонка живёт в сторе, а не здесь.
-export function CallStage({ onMobileBackToChat }: CallStageProps) {
+export function CallStage({ onMobileBackToChat, onLeave, extraControls }: CallStageProps) {
   const t = useT();
   const tp = useTp();
-  const { user } = useAuthStore();
+  const authUser = useAuthStore((s) => s.user);
+  // У гостя нет аккаунта: он сам и имена участников приходят через callStore.
+  const guestSelf = useCallStore((s) => s.guestSelf);
+  const directory = useCallStore((s) => s.directory);
+  const isGuestMode = guestSelf !== null;
+  const user = guestSelf ?? authUser;
   // Состояние звонка живёт в сторе: подписка на groupCallService переехала в
   // initCallBridge(), потому что сцена звонка размонтируется при уходе в другой
   // канал, а обработка стримов/реконнекта/метрик должна это пережить.
@@ -459,7 +473,7 @@ export function CallStage({ onMobileBackToChat }: CallStageProps) {
   // иначе создание ссылки всё равно вернёт 403 (спека, раздел 4).
   const guestLinksEnabled = useServerStore(
     (store) => store.servers.find((srv) => srv.id === callServerId)?.guest_links_enabled ?? false,
-  );
+  ) && !isGuestMode;
   const isInGroupCall = callChannelId !== null;
   // Гости звонка: их имена приходят событиями хаба, а не из userCache —
   // в users их нет и быть не может.
@@ -476,6 +490,8 @@ export function CallStage({ onMobileBackToChat }: CallStageProps) {
   // Гость никогда не попадёт в userCache: его имя знает только хаб.
   const nameFor = useCallback(
     (id: string): string => {
+      const known = directory[id];
+      if (known) return known.username;
       if (id.startsWith('guest:')) {
         for (const guests of channelGuests.values()) {
           const match = guests.find((guest) => guest.id === id);
@@ -485,7 +501,7 @@ export function CallStage({ onMobileBackToChat }: CallStageProps) {
       }
       return userCache.get(id) ?? id.slice(0, 8);
     },
-    [channelGuests, userCache],
+    [channelGuests, userCache, directory],
   );
   useEffect(() => {
     userCacheRef.current = userCache;
@@ -769,11 +785,16 @@ export function CallStage({ onMobileBackToChat }: CallStageProps) {
   }, [fullscreenTarget]);
 
   const handleLeaveGroupCall = useCallback(() => {
+    if (onLeave) {
+      onLeave();
+      if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+      return;
+    }
     // leave() сбрасывает стор к IDLE целиком — участники, шареры, фокус и флаги
     // экрана чистятся там же, отдельные setState здесь больше не нужны.
     useCallStore.getState().leave();
     if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
-  }, []);
+  }, [onLeave]);
 
   const handleVolumeChange = useCallback((userId: string, value: number) => {
     setCall((s) => ({ participantVolumes: { ...s.participantVolumes, [userId]: value } }));
@@ -789,7 +810,7 @@ export function CallStage({ onMobileBackToChat }: CallStageProps) {
   const handleToggleMute = useCallback(() => {
     const muted = groupCallService.toggleMuteAudio();
     setCall({ isMuted: muted });
-    wsService.send(muted ? 'mic_muted' : 'mic_unmuted', {});
+    callBus.send(muted ? 'mic_muted' : 'mic_unmuted', {});
   }, []);
 
   const handleToggleVideo = useCallback(() => {
@@ -801,7 +822,7 @@ export function CallStage({ onMobileBackToChat }: CallStageProps) {
     if (isScreenSharing) {
       await groupCallService.stopScreenShare();
       setCall({ isScreenSharing: false });
-      wsService.send('screen_share_stopped', {});
+      callBus.send('screen_share_stopped', {});
       return;
     }
 
@@ -840,7 +861,7 @@ export function CallStage({ onMobileBackToChat }: CallStageProps) {
     try {
       await groupCallService.startScreenShare(sourceId, quality);
       setCall({ isScreenSharing: true });
-      wsService.send('screen_share_started', {});
+      callBus.send('screen_share_started', {});
     } catch (err) {
       // NotAllowedError covers both an explicit permission deny AND the user
       // just closing the OS/browser share picker without choosing anything —
@@ -856,6 +877,8 @@ export function CallStage({ onMobileBackToChat }: CallStageProps) {
   }, [selectedSourceId, t]);
 
   useEffect(() => {
+    // Гостю /users/{id} недоступен: имена он знает только из состава звонка.
+    if (isGuestMode) return;
     const fetchUsernames = async () => {
       const userIds = collectUnresolvedUserIds(
         participants.map((p) => p.userId),
@@ -877,7 +900,7 @@ export function CallStage({ onMobileBackToChat }: CallStageProps) {
       }
     };
     if (participants.length > 0) fetchUsernames();
-  }, [participants, user]);
+  }, [participants, user, isGuestMode]);
 
   if (!isInGroupCall) return null;
 
@@ -1048,7 +1071,7 @@ export function CallStage({ onMobileBackToChat }: CallStageProps) {
                     className={isScreenSharing ? 'is-screen' : 'is-mirrored'}
                   />
                   {isVideoOff && !isScreenSharing && (
-                    <Avatar username={user?.username ?? '?'} url={user?.avatar_url} className="stage-thumb-avatar" />
+                    <Avatar username={user?.username ?? '?'} url={user?.avatar_url ?? undefined} className="stage-thumb-avatar" />
                   )}
                   {isScreenSharing && (
                     <div className="stage-thumb-badge">
@@ -1102,7 +1125,7 @@ export function CallStage({ onMobileBackToChat }: CallStageProps) {
                   className={`stage-tile-video${isScreenSharing ? ' is-screen' : ' is-mirrored'}`}
                 />
                 {isVideoOff && !isScreenSharing && (
-                  <Avatar username={user?.username ?? '?'} url={user?.avatar_url} className="stage-tile-avatar" />
+                  <Avatar username={user?.username ?? '?'} url={user?.avatar_url ?? undefined} className="stage-tile-avatar" />
                 )}
                 {isScreenSharing && (
                   <div className="stage-share-badge">
@@ -1149,7 +1172,7 @@ export function CallStage({ onMobileBackToChat }: CallStageProps) {
         </div>
       </div>
 
-      <GuestLobbyToast />
+      {!isGuestMode && <GuestLobbyToast />}
 
       <div className="stage-controls">
         <div className="stage-ctl">
@@ -1205,6 +1228,7 @@ export function CallStage({ onMobileBackToChat }: CallStageProps) {
           <span className="stage-ctl-label">{t('guestInvite.button')}</span>
         </div>
         )}
+        {extraControls}
         <div className="stage-ctl-divider" />
         {/* M6 T15, from manual QA: this was the only control in the bar whose
             label sat INSIDE the button, as a pill, while mic / camera / screen

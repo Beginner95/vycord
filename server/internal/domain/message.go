@@ -125,11 +125,16 @@ type GuestChatAuthor struct {
 	DisplayName string     `json:"display_name,omitempty"`
 }
 
-// GuestChatMessage — сообщение канала в гостевом формате: только текст,
-// без вложений, стикеров и реакций.
+// GuestChatMessage — сообщение канала в гостевом формате. Гость видит его
+// так же, как участник: с вложениями (подписанные ссылки) и стикером. Сам
+// он по-прежнему пишет только текст (CreateGuestMessage).
 type GuestChatMessage struct {
-	ID        uuid.UUID       `json:"id"`
-	Content   string          `json:"content"`
-	CreatedAt time.Time       `json:"created_at"`
-	Author    GuestChatAuthor `json:"author"`
+	ID          uuid.UUID       `json:"id"`
+	Content     string          `json:"content"`
+	CreatedAt   time.Time       `json:"created_at"`
+	UpdatedAt   time.Time       `json:"updated_at"`
+	Author      GuestChatAuthor `json:"author"`
+	Attachments []*Attachment   `json:"attachments,omitempty"`
+	StickerID   *uuid.UUID      `json:"sticker_id,omitempty"`
+	Sticker     *Sticker        `json:"sticker,omitempty"`
 }

@@ -1,6 +1,7 @@
 import { API_BASE_URL, ApiError } from './api';
 import { STUN_SERVERS } from './iceConfig';
 import type { CallCredentials } from './callCredentials';
+import type { Attachment, Sticker } from '@/types';
 
 /**
  * Гостевой клиент API. Никогда не использует токен аккаунта: у гостя есть
@@ -34,7 +35,12 @@ export interface GuestChatMessage {
   id: string;
   content: string;
   created_at: string;
+  updated_at?: string;
   author: GuestChatAuthor;
+  /** Вложения участников — с подписанными ссылками, открываются без аккаунта. */
+  attachments?: Attachment[];
+  sticker_id?: string;
+  sticker?: Sticker;
 }
 
 interface TurnCredentialsResponse {

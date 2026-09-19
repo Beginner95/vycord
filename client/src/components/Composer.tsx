@@ -57,7 +57,7 @@ export interface ComposerHandle {
 }
 
 interface ComposerProps {
-  channel: Channel;
+  channel: Pick<Channel, 'id' | 'name' | 'server_id'>;
   members: MemberWithUser[];
   canMentionEveryone: boolean;
   /**
@@ -72,11 +72,17 @@ interface ComposerProps {
    * carrying and its retry can re-send the same ids.
    */
   onSend: (content: string, attachments?: Attachment[]) => void;
-  serverStickers: ServerSticker[];
+  serverStickers?: ServerSticker[];
   /** Resolves `true` on success; the picker stays open on failure. */
-  onSendSticker: (sticker: ServerSticker) => Promise<boolean>;
-  canManageStickers: boolean;
-  onOpenStickerManager: () => void;
+  onSendSticker?: (sticker: ServerSticker) => Promise<boolean>;
+  canManageStickers?: boolean;
+  onOpenStickerManager?: () => void;
+  /**
+   * Гость звонка: пишет только текст (спека гостевого входа). Эмодзи и
+   * форматирование остаются, вложений и стикеров нет — загрузка файлов
+   * требует аккаунта.
+   */
+  textOnly?: boolean;
 }
 
 /**
@@ -85,7 +91,10 @@ interface ComposerProps {
  * supplies the send callbacks and the sticker inventory.
  */
 export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Composer(
-  { channel, members, canMentionEveryone, onSend, serverStickers, onSendSticker, canManageStickers, onOpenStickerManager },
+  {
+    channel, members, canMentionEveryone, onSend,
+    serverStickers = [], onSendSticker, canManageStickers = false, onOpenStickerManager, textOnly = false,
+  },
   ref,
 ) {
   const t = useT();
@@ -243,7 +252,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
   // pasting a file (usually a screenshot) is an attachment, not text.
   const handlePaste = (e: ClipboardEvent<HTMLTextAreaElement>) => {
     const files = e.clipboardData?.files;
-    if (files && files.length > 0) {
+    if (!textOnly && files && files.length > 0) {
       e.preventDefault();
       uploads.addFiles(files);
       return;
@@ -318,7 +327,9 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
       )}
       {/* Pending uploads sit above the input row, so the chips never push the
           field off its baseline mid-type. Renders nothing when empty. */}
-      <AttachmentTray drafts={uploads.drafts} onCancel={uploads.cancel} onRetry={uploads.retry} />
+      {!textOnly && (
+        <AttachmentTray drafts={uploads.drafts} onCancel={uploads.cancel} onRetry={uploads.retry} />
+      )}
       <form className="composer-field" onSubmit={handleSubmit}>
         <textarea
           ref={inputRef}
@@ -360,12 +371,14 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
         >
           <Smile size={17} strokeWidth={1.8} />
         </button>
-        <AttachmentButton
-          open={attachOpen}
-          onToggle={() => togglePicker('attach')}
-          onClose={() => setAttachOpen(false)}
-          onFiles={(files) => uploads.addFiles(files)}
-        />
+        {!textOnly && (
+          <AttachmentButton
+            open={attachOpen}
+            onToggle={() => togglePicker('attach')}
+            onClose={() => setAttachOpen(false)}
+            onFiles={(files) => uploads.addFiles(files)}
+          />
+        )}
         <button
           type="submit"
           className="composer-send"
@@ -379,14 +392,14 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
       <p className="composer-hint">{t('chat.composerHint')}</p>
       {pickerOpen && (
         <ExpressionPicker
-          tabs={['emoji', 'stickers']}
+          tabs={textOnly || !onSendSticker ? ['emoji'] : ['emoji', 'stickers']}
           initialTab="emoji"
           onClose={() => setPickerOpen(false)}
           // Emoji leaves the picker open — inserting several in a row is the
           // common case (Telegram's behaviour). A sticker is a whole message,
           // not a character, so sending one closes the surface below.
           onSelectEmoji={(emoji) => insertAtCaret(target, emoji)}
-          stickers={{
+          stickers={textOnly || !onSendSticker ? undefined : {
             serverId: channel.server_id,
             items: serverStickers,
             onSend: async (sticker) => {
@@ -394,7 +407,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
               if (ok) setPickerOpen(false);
               return ok;
             },
-            onManage: canManageStickers
+            onManage: canManageStickers && onOpenStickerManager
               ? () => { setPickerOpen(false); onOpenStickerManager(); }
               : undefined,
           }}

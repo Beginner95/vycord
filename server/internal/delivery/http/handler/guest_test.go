@@ -18,6 +18,7 @@ import (
 	"github.com/vycord/server/internal/delivery/http/middleware"
 	"github.com/vycord/server/internal/delivery/http/ratelimit"
 	"github.com/vycord/server/internal/domain"
+	"github.com/vycord/server/pkg/attachlink"
 )
 
 func newGuestHandler(t *testing.T) (*GuestHandler, *mockGuestUseCase, *mockMessageUseCase) {
@@ -231,4 +232,21 @@ func TestGuestHandler_Leave(t *testing.T) {
 	rec := httptest.NewRecorder()
 	h.Leave(rec, guestRequest(http.MethodPost, "/x", "", gc))
 	assert.Equal(t, http.StatusNoContent, rec.Code)
+}
+
+func TestGuestHandler_ListMessagesSignsAttachments(t *testing.T) {
+	gc := admittedGuestContext(uuid.New())
+	fileID := uuid.New()
+
+	h, _, messages := newGuestHandler(t)
+	h.SetAttachmentSigner(attachlink.NewSigner("secret", time.Hour))
+	messages.On("ListGuestMessages", gc, (*uuid.UUID)(nil), 0).Return([]*domain.GuestChatMessage{{
+		ID: uuid.New(), Attachments: []*domain.Attachment{{ID: fileID, Kind: domain.AttachmentKindImage}},
+	}}, nil)
+
+	rec := httptest.NewRecorder()
+	h.ListMessages(rec, guestRequest(http.MethodGet, "/x", "", gc))
+	require.Equal(t, http.StatusOK, rec.Code)
+	// <img src> не шлёт токен: без подписи в URL гость картинку не откроет.
+	assert.Contains(t, rec.Body.String(), "/api/v1/attachments/"+fileID.String()+"/content?")
 }
