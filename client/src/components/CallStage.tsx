@@ -1225,7 +1225,7 @@ export function CallStage({ onMobileBackToChat, onLeave, extraControls }: CallSt
           >
             <UserPlus size={16} strokeWidth={1.8} />
           </button>
-          <span className="stage-ctl-label">{t('guestInvite.button')}</span>
+          <span className="stage-ctl-label">{t('call.ctlGuests')}</span>
         </div>
         )}
         {extraControls}

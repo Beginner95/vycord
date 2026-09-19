@@ -223,6 +223,7 @@ export const ru = {
     ctlMic: 'Микрофон',
     ctlCamera: 'Камера',
     ctlScreen: 'Экран',
+    ctlGuests: 'Гости',
     leaveLabel: 'Выйти',
 
     // Ошибки демонстрации экрана

@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import { Loader2, MessageSquare, MicOff, Mic, Users, X } from 'lucide-react';
 import { CallStage } from '@/components/CallStage';
-import { Composer } from '@/components/Composer';
+import { Composer, type ComposerHandle } from '@/components/Composer';
 import { MessageRow } from '@/components/MessageRow';
 import { DayDivider } from '@/components/DayDivider';
 import { MediaLightbox, pickLightboxMedia } from '@/components/MediaLightbox';
@@ -144,6 +144,7 @@ function GuestChatPanel() {
   const [error, setError] = useState<{ code?: string; message: string } | null>(null);
   const [lightbox, setLightbox] = useState<{ attachments: Attachment[]; index: number } | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
+  const composerRef = useRef<ComposerHandle>(null);
 
   const messages = useMemo(() => rawMessages.map((m) => toChatMessage(m, channelId)), [rawMessages, channelId]);
 
@@ -203,7 +204,7 @@ function GuestChatPanel() {
                 onCancelEdit={() => {}}
                 onSaveEdit={async () => {}}
                 onDelete={() => {}}
-                onQuote={() => {}}
+                onQuote={() => composerRef.current?.insertQuote(msg.content)}
                 onOpenAttachment={(index) => setLightbox(pickLightboxMedia(msg.attachments ?? [], index))}
               />
             </Fragment>
@@ -213,6 +214,7 @@ function GuestChatPanel() {
       {error && <p className="guest-chat-error">{guestErrorText(error, t)}</p>}
       <div className="guest-chat-composer">
         <Composer
+          ref={composerRef}
           channel={{ id: channelId, name: channelName, server_id: '' }}
           members={members}
           canMentionEveryone={false}

@@ -132,12 +132,18 @@
   background: var(--canvas-2);
 }
 
+/* Avatar отдаёт либо <img>, либо <div> с буквой — центрирование и обрезка
+   нужны для обоих. */
 .guest-roster-avatar {
+  display: flex;
   flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
   width: 32px;
   height: 32px;
   border-radius: var(--radius-pill);
   font-size: 13px;
+  object-fit: cover;
 }
 
 .guest-roster-name {

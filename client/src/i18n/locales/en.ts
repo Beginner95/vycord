@@ -212,6 +212,7 @@ export const en: Dictionary = {
     ctlMic: 'Mic',
     ctlCamera: 'Camera',
     ctlScreen: 'Screen',
+    ctlGuests: 'Guests',
     leaveLabel: 'Leave',
 
     // Screen share errors
