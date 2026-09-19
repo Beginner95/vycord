@@ -4,7 +4,7 @@ import { callService } from '@/services/call';
 import { useT } from '@/i18n';
 import './UpdateBanner.css';
 
-type UpdateStatus = 'idle' | 'available' | 'ready' | 'error';
+type UpdateStatus = 'idle' | 'available' | 'manual' | 'ready' | 'error';
 
 const CALL_POLL_INTERVAL_MS = 5000;
 
@@ -48,6 +48,11 @@ export function UpdateBanner() {
     api.onAvailable((v) => {
       setVersion(v);
       setStatus('available');
+      setDismissed(false);
+    });
+    api.onManual((v) => {
+      setVersion(v);
+      setStatus('manual');
       setDismissed(false);
     });
     api.onReady((v) => {
@@ -107,6 +112,20 @@ export function UpdateBanner() {
               </button>
             </>
           )}
+        </>
+      )}
+      {status === 'manual' && (
+        <>
+          <span>{t('update.available', { version })}</span>
+          <button className="btn btn-primary" onClick={handleManualDownload}>
+            {t('update.downloadManually')}
+          </button>
+          <button
+            className="update-banner-dismiss btn btn-ghost"
+            onClick={() => setDismissed(true)}
+          >
+            {t('update.later')}
+          </button>
         </>
       )}
       {status === 'ready' && (

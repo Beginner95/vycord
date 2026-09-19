@@ -39,6 +39,7 @@ export interface ElectronAPI {
   setTheme?: (theme: string) => void;
   update: {
     onAvailable: (cb: (version: string) => void) => void;
+    onManual: (cb: (version: string) => void) => void;
     onReady: (cb: (version: string) => void) => void;
     onError: (cb: () => void) => void;
     confirmInstall: () => Promise<void>;
