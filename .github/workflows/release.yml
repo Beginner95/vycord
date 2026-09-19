@@ -33,6 +33,19 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Verify macOS helper camera/mic usage descriptions
+        if: matrix.os == 'macos-latest'
+        working-directory: client
+        run: |
+          for DIR in release/mac release/mac-arm64; do
+            for HELPER in "$DIR/Vy Cord.app/Contents/Frameworks/"*Helper*.app; do
+              for KEY in NSCameraUsageDescription NSMicrophoneUsageDescription; do
+                plutil -extract "$KEY" raw "$HELPER/Contents/Info.plist" >/dev/null 2>&1 \
+                  || { echo "::error::$KEY missing in $HELPER"; exit 1; }
+              done
+            done
+          done
+
       - name: Verify macOS arm64 entitlements
         if: matrix.os == 'macos-latest'
         working-directory: client

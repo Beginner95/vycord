@@ -35,4 +35,24 @@ describe('getDeniedMediaKinds', () => {
     const result = await getDeniedMediaKinds(api);
     expect(result).toEqual({ cameraDenied: false, microphoneDenied: false });
   });
+
+  it('asks the main process to prompt (TCC) first when requestMediaAccess exists', async () => {
+    const api = {
+      getMediaAccessStatus: vi.fn().mockResolvedValue({ camera: 'not-determined', microphone: 'not-determined' }),
+      requestMediaAccess: vi.fn().mockResolvedValue({ camera: 'denied', microphone: 'granted' }),
+    };
+    const result = await getDeniedMediaKinds(api);
+    expect(api.requestMediaAccess).toHaveBeenCalledTimes(1);
+    expect(api.getMediaAccessStatus).not.toHaveBeenCalled();
+    expect(result).toEqual({ cameraDenied: true, microphoneDenied: false });
+  });
+
+  it('falls back to the plain status check if the prompt IPC rejects', async () => {
+    const api = {
+      getMediaAccessStatus: vi.fn().mockResolvedValue({ camera: 'denied', microphone: 'granted' }),
+      requestMediaAccess: vi.fn().mockRejectedValue(new Error('ipc down')),
+    };
+    const result = await getDeniedMediaKinds(api);
+    expect(result).toEqual({ cameraDenied: true, microphoneDenied: false });
+  });
 });

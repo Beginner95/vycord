@@ -13,12 +13,15 @@ contextBridge.exposeInMainWorld('electronAPI', {
   platform: process.platform,
   getScreenSources: () => ipcRenderer.invoke('get-screen-sources'),
   getMediaAccessStatus: () => ipcRenderer.invoke('get-media-access-status'),
+  requestMediaAccess: () => ipcRenderer.invoke('request-media-access'),
   audioAssetsUrl,
   setLocale: (locale: string) => ipcRenderer.send('locale:changed', locale),
   setTheme: (theme: string) => ipcRenderer.send('theme:changed', theme),
   update: {
     onAvailable: (cb: (version: string) => void) =>
       ipcRenderer.on('update:available', (_event, data: { version: string }) => cb(data.version)),
+    onManual: (cb: (version: string) => void) =>
+      ipcRenderer.on('update:manual', (_event, data: { version: string }) => cb(data.version)),
     onReady: (cb: (version: string) => void) =>
       ipcRenderer.on('update:ready', (_event, data: { version: string }) => cb(data.version)),
     onError: (cb: () => void) =>

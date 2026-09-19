@@ -243,7 +243,7 @@ ipcMain.handle('get-screen-sources', async () => {
   }
 });
 
-ipcMain.handle('get-media-access-status', () => {
+function getMediaAccessStatuses() {
   // Only macOS has a TCC-style per-app camera/mic gate; report "granted" on
   // every other platform so callers don't need a platform check of their own.
   if (process.platform !== 'darwin') {
@@ -253,6 +253,22 @@ ipcMain.handle('get-media-access-status', () => {
     camera: systemPreferences.getMediaAccessStatus('camera'),
     microphone: systemPreferences.getMediaAccessStatus('microphone'),
   };
+}
+
+ipcMain.handle('get-media-access-status', () => getMediaAccessStatuses());
+
+// Запрос TCC делаем из главного процесса, чьи Info.plist и bundle пользователь
+// видит в системном диалоге: иначе первый доступ к устройству случается внутри
+// хелпера Chromium, а процесс без разрешения macOS может просто убить.
+ipcMain.handle('request-media-access', async () => {
+  if (process.platform === 'darwin') {
+    for (const kind of ['microphone', 'camera'] as const) {
+      if (systemPreferences.getMediaAccessStatus(kind) === 'not-determined') {
+        await systemPreferences.askForMediaAccess(kind).catch(() => false);
+      }
+    }
+  }
+  return getMediaAccessStatuses();
 });
 
 app.whenReady().then(() => {

@@ -30,6 +30,9 @@ export interface ElectronAPI {
   // Опционально по той же причине, что и setLocale/setTheme: старые сборки
   // клиента и веб-сборка этого метода не имеют.
   getMediaAccessStatus?: () => Promise<MediaAccessStatusResult>;
+  // Показывает системный запрос macOS (TCC) для ещё не решённых камеры/микрофона
+  // и возвращает итоговые статусы. Опционально по той же причине.
+  requestMediaAccess?: () => Promise<MediaAccessStatusResult>;
   audioAssetsUrl: string;
   // Опционально: в веб-сборке electronAPI нет вовсе, а у клиентов,
   // собранных до появления локализации, нет этого метода.
@@ -39,6 +42,7 @@ export interface ElectronAPI {
   setTheme?: (theme: string) => void;
   update: {
     onAvailable: (cb: (version: string) => void) => void;
+    onManual: (cb: (version: string) => void) => void;
     onReady: (cb: (version: string) => void) => void;
     onError: (cb: () => void) => void;
     confirmInstall: () => Promise<void>;
