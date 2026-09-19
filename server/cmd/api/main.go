@@ -10,14 +10,19 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/joho/godotenv"
 	"github.com/vycord/server/internal/attachments"
 	"github.com/vycord/server/internal/config"
+	"github.com/vycord/server/internal/delivery/guestws"
 	"github.com/vycord/server/internal/delivery/http/handler"
 	"github.com/vycord/server/internal/delivery/http/middleware"
+	"github.com/vycord/server/internal/delivery/http/ratelimit"
 	"github.com/vycord/server/internal/delivery/ws"
+	"github.com/vycord/server/internal/guestevents"
 	presencepkg "github.com/vycord/server/internal/presence"
 	"github.com/vycord/server/internal/repository/postgres"
+	"github.com/vycord/server/internal/sfuclient"
 	"github.com/vycord/server/internal/usecase"
 	"github.com/vycord/server/pkg/attachlink"
 	"github.com/vycord/server/pkg/filestorage"
@@ -86,6 +91,7 @@ func main() {
 	attachmentRepo := postgres.NewAttachmentRepository(db)
 	planRepo := postgres.NewPlanRepository(db)
 	otpRepo := postgres.NewOTPRepository(db)
+	guestRepo := postgres.NewGuestRepository(db)
 
 	// Initialize file storage
 	storage, err := filestorage.NewLocal(cfg.UploadDir, "/uploads")
@@ -152,6 +158,39 @@ func main() {
 	callRecorder := usecase.NewCallSessionRecorder(messageRepo, hub)
 	hub.SetCallSessionRecorder(callRecorder)
 
+	// Гостевой вход в звонок по ссылке
+	// (docs/superpowers/specs/2026-09-17-guest-call-link-design.md).
+	// События (хаб, гостевой шлюз, kick в SFU) подключает план 3 через
+	// guestUseCase.SetEvents; до тех пор жизненный цикл гостя работает, но
+	// никого не уведомляет.
+	guestUseCase := usecase.NewGuestUseCase(usecase.GuestUseCaseDeps{
+		Repo:      guestRepo,
+		Servers:   serverRepo,
+		Access:    serverUseCase,
+		Perms:     permissionUseCase,
+		Presence:  hub,
+		TURN:      turnUseCase,
+		JWTSecret: cfg.JWTSecret,
+	})
+
+	guestGateway := guestws.NewGateway(log)
+
+	// Внутренний клиент SFU: кик гостя и гостевой presence. Пустая конфигурация
+	// не фатальна — доступ к медиа держат сессия гостя и его соединение со
+	// шлюзом, вызов SFU лишь подстраховывает их.
+	var sfuInternal *sfuclient.Client
+	if cfg.SFUInternalURL != "" && cfg.SFUInternalSecret != "" {
+		sfuInternal = sfuclient.New(cfg.SFUInternalURL, cfg.SFUInternalSecret)
+	} else {
+		log.Warn("SFU_INTERNAL_URL or SFU_INTERNAL_SECRET not set — guests will not be evicted from the SFU on kick/revoke")
+	}
+
+	guestEvents := guestevents.New(hub, guestGateway, sfuInternal, guestRepo, userRepo, log)
+	guestUseCase.SetEvents(guestEvents)
+
+	// Ссылки создателя закрываются для новых гостей, когда он выходит из звонка.
+	callRecorder.SetParticipantLeftHook(guestUseCase.OnParticipantLeft)
+
 	// Незакрытые с прошлого запуска закрываем ДО hub.Run(): клиентов ещё
 	// нет, рассылать некому — это и есть причина существования
 	// call_last_seen_at (design doc "Старт API").
@@ -183,6 +222,13 @@ func main() {
 		log.Warn("SFU_INTERNAL_URL or SFU_INTERNAL_SECRET not set — voice-presence reconciliation disabled (call messages still work via hub-driven join/leave, just without self-healing against a crashed client)")
 	}
 
+	// Гость, пропавший и из шлюза, и из SFU дольше GuestAbsenceGrace, отпускается.
+	go guestevents.RunAbsenceSweep(bgCtx, guestUseCase, guestGateway, sfuInternal, 15*time.Second)
+
+	// Уборка гостей: зависшие в лобби и гости закрытых звонков. Состояние в
+	// БД — источник правды, даже если событие конца звонка не дошло.
+	go usecase.RunGuestMaintenance(bgCtx, guestUseCase, 30*time.Second)
+
 	// Уборщик брошенных (не привязанных к сообщению) и протухших вложений.
 	janitor := attachments.NewJanitor(attachmentRepo, storage, log)
 	go janitor.Run(bgCtx)
@@ -205,12 +251,32 @@ func main() {
 	voiceTokenHandler := handler.NewVoiceTokenHandler(voiceTokenUseCase, log)
 	attachmentHandler := handler.NewAttachmentHandler(attachmentUseCase, quotaUseCase, attachmentSigner, cfg.MaxUploadBytes, log)
 	friendHandler := handler.NewFriendHandler(friendUseCase, hub, log)
+	guestLinkHandler := handler.NewGuestLinkHandler(guestUseCase, serverUseCase, hub, log)
+	guestHandler := handler.NewGuestHandler(guestUseCase, messageUseCase, hub, handler.GuestRateLimits{
+		Preview:        ratelimit.New(10, time.Minute),
+		Join:           ratelimit.New(5, time.Minute),
+		SecretFailures: ratelimit.New(20, time.Hour),
+		Messages:       ratelimit.New(5, 10*time.Second),
+	}, log)
+	guestLinkLimiter := ratelimit.New(10, time.Minute)
+	guestWSHandler := handler.NewGuestWSHandler(guestUseCase, guestGateway, guestEvents, log)
+	perUserKey := func(r *http.Request) string {
+		userID, _ := r.Context().Value("user_id").(uuid.UUID)
+		return userID.String()
+	}
+
+	wsHandler.SetGuestMirror(guestEvents)
+	hub.SetVoiceParticipantsObserver(guestEvents.VoiceParticipantsChanged)
+	messageHandler.SetGuestChat(guestEvents)
+	guestHandler.SetGuestChat(guestEvents)
+	guestHandler.SetAttachmentSigner(attachmentSigner)
 
 	// Setup router
 	router := http.NewServeMux()
 
 	// Middleware
 	authMid := middleware.NewAuthMiddleware(authUseCase, log)
+	guestAuth := middleware.NewGuestAuth(guestUseCase, log)
 
 	// Health check for uptime monitoring
 	router.HandleFunc("GET /health", func(w http.ResponseWriter, _ *http.Request) {
@@ -316,6 +382,26 @@ func main() {
 
 	// TURN credentials for WebRTC (ephemeral, per-user)
 	router.HandleFunc("GET /api/v1/turn/credentials", authMid.RequireAuth(turnHandler.GetCredentials))
+
+	// Гостевые ссылки — аккаунтная сторона
+	router.HandleFunc("POST /api/v1/channels/{channel_id}/guest-links", authMid.RequireAuth(guestLinkLimiter.Middleware(perUserKey, guestLinkHandler.CreateLink)))
+	router.HandleFunc("GET /api/v1/channels/{channel_id}/guest-links", authMid.RequireAuth(guestLinkHandler.ListLinks))
+	router.HandleFunc("DELETE /api/v1/guest-links/{id}", authMid.RequireAuth(guestLinkHandler.RevokeLink))
+	router.HandleFunc("POST /api/v1/call-guests/{id}/admit", authMid.RequireAuth(guestLinkHandler.Admit))
+	router.HandleFunc("POST /api/v1/call-guests/{id}/reject", authMid.RequireAuth(guestLinkHandler.Reject))
+	router.HandleFunc("POST /api/v1/call-guests/{id}/kick", authMid.RequireAuth(guestLinkHandler.Kick))
+	router.HandleFunc("PUT /api/v1/servers/{id}/guest-links", authMid.RequireAuth(guestLinkHandler.SetServerGuestLinks))
+
+	// Гостевая сторона. Ни один маршрут здесь не проходит через RequireAuth:
+	// граница — GuestAuth с собственным типом ключа контекста.
+	router.HandleFunc("GET /api/v1/guest/ws", guestWSHandler.HandleWebSocket)
+	router.HandleFunc("POST /api/v1/guest/preview", guestHandler.Preview)
+	router.HandleFunc("POST /api/v1/guest/join", guestHandler.Join)
+	router.HandleFunc("POST /api/v1/guest/voice-token", guestAuth.Require(guestHandler.VoiceToken))
+	router.HandleFunc("GET /api/v1/guest/turn-credentials", guestAuth.Require(guestHandler.TURNCredentials))
+	router.HandleFunc("POST /api/v1/guest/messages", guestAuth.Require(guestHandler.PostMessage))
+	router.HandleFunc("GET /api/v1/guest/messages", guestAuth.Require(guestHandler.ListMessages))
+	router.HandleFunc("POST /api/v1/guest/leave", guestAuth.Require(guestHandler.Leave))
 
 	// Статика загрузок: только публичные подкаталоги (см. newUploadsHandler).
 	router.Handle("GET /uploads/", newUploadsHandler(cfg.UploadDir))

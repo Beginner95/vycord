@@ -82,8 +82,12 @@ export function useMentionAutocomplete({
     const atIndex = upToCaret.lastIndexOf('@');
     if (atIndex === -1) return;
 
+    // User mentions insert as readable "@username" — the field is a plain
+    // textarea that can't display anything the raw value doesn't already
+    // say, so the wire form (<@uuid>, mentions.go's own regex) only exists
+    // outside the input: mentions.ts converts at submit/load time.
     const token =
-      entry.kind === 'user' ? `<@${entry.id}>` :
+      entry.kind === 'user' ? `@${entry.label}` :
       entry.kind === 'role' ? `<@&${entry.role}>` :
       '@everyone';
 

@@ -23,6 +23,64 @@ func NewMessageRepository(db *pgxpool.Pool) domain.MessageRepository {
 	return &messageRepository{db: db}
 }
 
+// messageColumns / messageJoins — единый список колонок для чтения сообщения.
+// Три запроса (GetByID, GetByChannelID, GetAround) читали одно и то же с тремя
+// копиями Scan; nullable-автор и гость добавили бы в каждую ещё по три поля.
+const messageColumns = `
+	m.id, m.channel_id, m.user_id, m.guest_id, cg.display_name, m.content, m.sticker_id,
+	m.kind, m.call_started_at, m.call_ended_at, m.call_participant_ids,
+	CASE WHEN m.kind = 'call'
+	     THEN (SELECT count(*) FROM call_guests g WHERE g.call_message_id = m.id AND g.admitted_at IS NOT NULL)
+	     ELSE 0 END,
+	m.created_at, m.updated_at,
+	s.id, s.name, s.image_url, s.server_id`
+
+const messageJoins = `
+	FROM messages m
+	LEFT JOIN stickers s ON s.id = m.sticker_id
+	LEFT JOIN call_guests cg ON cg.id = m.guest_id`
+
+func scanMessage(row pgx.Row) (*domain.Message, error) {
+	msg := &domain.Message{}
+	var guestName *string
+	var msgStickerID, sID, sServerID *uuid.UUID
+	var sName, sURL *string
+	if err := row.Scan(
+		&msg.ID, &msg.ChannelID, &msg.UserID, &msg.GuestID, &guestName, &msg.Content, &msgStickerID,
+		&msg.Kind, &msg.CallStartedAt, &msg.CallEndedAt, &msg.CallParticipantIDs,
+		&msg.CallGuestCount,
+		&msg.CreatedAt, &msg.UpdatedAt,
+		&sID, &sName, &sURL, &sServerID,
+	); err != nil {
+		return nil, err
+	}
+	if msg.GuestID != nil && guestName != nil {
+		msg.Guest = &domain.MessageGuest{ID: *msg.GuestID, DisplayName: *guestName}
+	}
+	if msgStickerID != nil {
+		msg.StickerID = msgStickerID
+		msg.Sticker = &domain.Sticker{ID: *sID, Name: *sName, ImageURL: *sURL, ServerID: *sServerID}
+	}
+	return msg, nil
+}
+
+// callReturning — RETURNING для EndCall/CloseCallsMissingFrom: те же поля
+// call-плашки, что клиент получает в message_update.
+const callReturning = `
+	RETURNING id, channel_id, user_id, content, kind, call_started_at, call_ended_at, call_participant_ids,
+	          (SELECT count(*) FROM call_guests g WHERE g.call_message_id = messages.id AND g.admitted_at IS NOT NULL),
+	          created_at, updated_at`
+
+func scanCallReturning(row pgx.Row) (*domain.Message, error) {
+	msg := &domain.Message{}
+	err := row.Scan(
+		&msg.ID, &msg.ChannelID, &msg.UserID, &msg.Content, &msg.Kind,
+		&msg.CallStartedAt, &msg.CallEndedAt, &msg.CallParticipantIDs, &msg.CallGuestCount,
+		&msg.CreatedAt, &msg.UpdatedAt,
+	)
+	return msg, err
+}
+
 func (r *messageRepository) Create(msg *domain.Message) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -56,59 +114,13 @@ func (r *messageRepository) GetByID(id uuid.UUID) (*domain.Message, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	query := `
-		SELECT m.id, m.channel_id, m.user_id, m.content, m.sticker_id,
-		       m.kind, m.call_started_at, m.call_ended_at, m.call_participant_ids,
-		       m.created_at, m.updated_at,
-		       s.id, s.name, s.image_url, s.server_id
-		FROM messages m
-		LEFT JOIN stickers s ON s.id = m.sticker_id
-		WHERE m.id = $1
-	`
-
-	msg := &domain.Message{}
-	var msgStickerID *uuid.UUID
-	var sID *uuid.UUID
-	var sName *string
-	var sURL *string
-	var sServerID *uuid.UUID
-	err := r.db.QueryRow(ctx, query, id).Scan(
-		&msg.ID,
-		&msg.ChannelID,
-		&msg.UserID,
-		&msg.Content,
-		&msgStickerID,
-		&msg.Kind,
-		&msg.CallStartedAt,
-		&msg.CallEndedAt,
-		&msg.CallParticipantIDs,
-		&msg.CreatedAt,
-		&msg.UpdatedAt,
-		&sID,
-		&sName,
-		&sURL,
-		&sServerID,
-	)
-	if err != nil {
-		return nil, err
-	}
-	if msgStickerID != nil {
-		msg.StickerID = msgStickerID
-		msg.Sticker = &domain.Sticker{
-			ID:       *sID,
-			Name:     *sName,
-			ImageURL: *sURL,
-			ServerID: *sServerID,
-		}
-	}
-
+	msg, err := scanMessage(r.db.QueryRow(ctx, `SELECT `+messageColumns+messageJoins+` WHERE m.id = $1`, id))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, fmt.Errorf("message %s: %w", id, domain.ErrMessageNotFound)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to get message: %w", err)
 	}
-
 	return msg, nil
 }
 
@@ -116,17 +128,10 @@ func (r *messageRepository) GetByChannelID(channelID uuid.UUID, limit, offset in
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	query := `
-		SELECT m.id, m.channel_id, m.user_id, m.content, m.sticker_id,
-		       m.kind, m.call_started_at, m.call_ended_at, m.call_participant_ids,
-		       m.created_at, m.updated_at,
-		       s.id, s.name, s.image_url, s.server_id
-		FROM messages m
-		LEFT JOIN stickers s ON s.id = m.sticker_id
+	query := `SELECT ` + messageColumns + messageJoins + `
 		WHERE m.channel_id = $1
 		ORDER BY m.created_at DESC
-		LIMIT $2 OFFSET $3
-	`
+		LIMIT $2 OFFSET $3`
 
 	rows, err := r.db.Query(ctx, query, channelID, limit, offset)
 	if err != nil {
@@ -136,39 +141,9 @@ func (r *messageRepository) GetByChannelID(channelID uuid.UUID, limit, offset in
 
 	var messages []*domain.Message
 	for rows.Next() {
-		msg := &domain.Message{}
-		var msgStickerID *uuid.UUID
-		var sID *uuid.UUID
-		var sName *string
-		var sURL *string
-		var sServerID *uuid.UUID
-		if err := rows.Scan(
-			&msg.ID,
-			&msg.ChannelID,
-			&msg.UserID,
-			&msg.Content,
-			&msgStickerID,
-			&msg.Kind,
-			&msg.CallStartedAt,
-			&msg.CallEndedAt,
-			&msg.CallParticipantIDs,
-			&msg.CreatedAt,
-			&msg.UpdatedAt,
-			&sID,
-			&sName,
-			&sURL,
-			&sServerID,
-		); err != nil {
+		msg, err := scanMessage(rows)
+		if err != nil {
 			return nil, fmt.Errorf("failed to scan message: %w", err)
-		}
-		if msgStickerID != nil {
-			msg.StickerID = msgStickerID
-			msg.Sticker = &domain.Sticker{
-				ID:       *sID,
-				Name:     *sName,
-				ImageURL: *sURL,
-				ServerID: *sServerID,
-			}
 		}
 		messages = append(messages, msg)
 	}
@@ -252,9 +227,11 @@ func (r *messageRepository) Search(channelID uuid.UUID, query string, limit, off
 	}
 
 	searchQuery := `
-		SELECT m.id, m.channel_id, m.user_id, m.content, m.kind, m.created_at, m.updated_at, u.username
+		SELECT m.id, m.channel_id, m.user_id, m.guest_id, m.content, m.kind, m.created_at, m.updated_at,
+		       COALESCE(u.username, cg.display_name, '')
 		FROM messages m
-		JOIN users u ON u.id = m.user_id
+		LEFT JOIN users u ON u.id = m.user_id
+		LEFT JOIN call_guests cg ON cg.id = m.guest_id
 		WHERE m.channel_id = $1 AND m.content ILIKE $2 ESCAPE '\' AND m.kind = 'user'
 		ORDER BY m.created_at DESC
 		LIMIT $3 OFFSET $4
@@ -269,16 +246,13 @@ func (r *messageRepository) Search(channelID uuid.UUID, query string, limit, off
 	for rows.Next() {
 		res := &domain.MessageWithAuthor{}
 		if err := rows.Scan(
-			&res.ID,
-			&res.ChannelID,
-			&res.UserID,
-			&res.Content,
-			&res.Kind,
-			&res.CreatedAt,
-			&res.UpdatedAt,
-			&res.Username,
+			&res.ID, &res.ChannelID, &res.UserID, &res.GuestID, &res.Content, &res.Kind,
+			&res.CreatedAt, &res.UpdatedAt, &res.Username,
 		); err != nil {
 			return nil, 0, fmt.Errorf("failed to scan search result: %w", err)
+		}
+		if res.GuestID != nil {
+			res.Guest = &domain.MessageGuest{ID: *res.GuestID, DisplayName: res.Username}
 		}
 		results = append(results, res)
 	}
@@ -302,24 +276,14 @@ func (r *messageRepository) GetAround(channelID, messageID uuid.UUID, limit int)
 	// Тай-брейк по id, т.к. created_at не уникален.
 	query := `
 		(
-			SELECT m.id, m.channel_id, m.user_id, m.content, m.sticker_id,
-			       m.kind, m.call_started_at, m.call_ended_at, m.call_participant_ids,
-			       m.created_at, m.updated_at,
-			       s.id, s.name, s.image_url, s.server_id
-			FROM messages m
-			LEFT JOIN stickers s ON s.id = m.sticker_id
+			SELECT ` + messageColumns + messageJoins + `
 			WHERE m.channel_id = $1 AND (m.created_at, m.id) <= ($2, $3)
 			ORDER BY m.created_at DESC, m.id DESC
 			LIMIT $4
 		)
 		UNION ALL
 		(
-			SELECT m.id, m.channel_id, m.user_id, m.content, m.sticker_id,
-			       m.kind, m.call_started_at, m.call_ended_at, m.call_participant_ids,
-			       m.created_at, m.updated_at,
-			       s.id, s.name, s.image_url, s.server_id
-			FROM messages m
-			LEFT JOIN stickers s ON s.id = m.sticker_id
+			SELECT ` + messageColumns + messageJoins + `
 			WHERE m.channel_id = $1 AND (m.created_at, m.id) > ($2, $3)
 			ORDER BY m.created_at ASC, m.id ASC
 			LIMIT $4
@@ -333,39 +297,9 @@ func (r *messageRepository) GetAround(channelID, messageID uuid.UUID, limit int)
 
 	var messages []*domain.Message
 	for rows.Next() {
-		msg := &domain.Message{}
-		var msgStickerID *uuid.UUID
-		var sID *uuid.UUID
-		var sName *string
-		var sURL *string
-		var sServerID *uuid.UUID
-		if err := rows.Scan(
-			&msg.ID,
-			&msg.ChannelID,
-			&msg.UserID,
-			&msg.Content,
-			&msgStickerID,
-			&msg.Kind,
-			&msg.CallStartedAt,
-			&msg.CallEndedAt,
-			&msg.CallParticipantIDs,
-			&msg.CreatedAt,
-			&msg.UpdatedAt,
-			&sID,
-			&sName,
-			&sURL,
-			&sServerID,
-		); err != nil {
+		msg, err := scanMessage(rows)
+		if err != nil {
 			return nil, fmt.Errorf("failed to scan message: %w", err)
-		}
-		if msgStickerID != nil {
-			msg.StickerID = msgStickerID
-			msg.Sticker = &domain.Sticker{
-				ID:       *sID,
-				Name:     *sName,
-				ImageURL: *sURL,
-				ServerID: *sServerID,
-			}
 		}
 		messages = append(messages, msg)
 	}
@@ -462,13 +396,9 @@ func (r *messageRepository) EndCall(channelID uuid.UUID) (*domain.Message, bool,
 		UPDATE messages
 		SET call_ended_at = now()
 		WHERE channel_id = $1 AND kind = 'call' AND call_ended_at IS NULL
-		RETURNING id, channel_id, user_id, content, kind, call_started_at, call_ended_at, call_participant_ids, created_at, updated_at
+		` + callReturning + `
 	`
-	msg := &domain.Message{}
-	err := r.db.QueryRow(ctx, query, channelID).Scan(
-		&msg.ID, &msg.ChannelID, &msg.UserID, &msg.Content, &msg.Kind,
-		&msg.CallStartedAt, &msg.CallEndedAt, &msg.CallParticipantIDs, &msg.CreatedAt, &msg.UpdatedAt,
-	)
+	msg, err := scanCallReturning(r.db.QueryRow(ctx, query, channelID))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, false, nil
 	}
@@ -521,8 +451,7 @@ func (r *messageRepository) CloseCallsMissingFrom(channelIDs []uuid.UUID, minAge
 		WHERE kind = 'call' AND call_ended_at IS NULL
 		  AND channel_id <> ALL($1)
 		  AND call_started_at < now() - make_interval(secs => $2)
-		RETURNING id, channel_id, user_id, content, kind, call_started_at, call_ended_at, call_participant_ids, created_at, updated_at
-	`, channelIDs, minAge.Seconds())
+		`+callReturning, channelIDs, minAge.Seconds())
 	if err != nil {
 		return nil, fmt.Errorf("failed to close missing calls: %w", err)
 	}
@@ -530,11 +459,8 @@ func (r *messageRepository) CloseCallsMissingFrom(channelIDs []uuid.UUID, minAge
 
 	var closed []*domain.Message
 	for rows.Next() {
-		msg := &domain.Message{}
-		if err := rows.Scan(
-			&msg.ID, &msg.ChannelID, &msg.UserID, &msg.Content, &msg.Kind,
-			&msg.CallStartedAt, &msg.CallEndedAt, &msg.CallParticipantIDs, &msg.CreatedAt, &msg.UpdatedAt,
-		); err != nil {
+		msg, err := scanCallReturning(rows)
+		if err != nil {
 			return nil, fmt.Errorf("failed to scan closed call: %w", err)
 		}
 		closed = append(closed, msg)
@@ -571,4 +497,75 @@ func (r *messageRepository) Delete(id uuid.UUID) error {
 	}
 
 	return nil
+}
+
+func (r *messageRepository) CreateGuest(msg *domain.Message) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	_, err := r.db.Exec(ctx, `
+		INSERT INTO messages (id, channel_id, guest_id, content, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6)`,
+		msg.ID, msg.ChannelID, msg.GuestID, msg.Content, msg.CreatedAt, msg.UpdatedAt)
+	if err != nil {
+		return fmt.Errorf("failed to create guest message: %w", err)
+	}
+	return nil
+}
+
+func (r *messageRepository) ListForGuest(channelID uuid.UUID, since time.Time, after *domain.Message, limit int) ([]*domain.GuestChatMessage, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	var afterAt *time.Time
+	var afterID *uuid.UUID
+	if after != nil {
+		afterAt, afterID = &after.CreatedAt, &after.ID
+	}
+
+	rows, err := r.db.Query(ctx, `
+		SELECT m.id, m.content, m.created_at, m.updated_at, m.user_id, u.username, u.avatar_url, m.guest_id, cg.display_name,
+		       s.id, s.name, s.image_url, s.server_id
+		FROM messages m
+		LEFT JOIN users u ON u.id = m.user_id
+		LEFT JOIN call_guests cg ON cg.id = m.guest_id
+		LEFT JOIN stickers s ON s.id = m.sticker_id
+		WHERE m.channel_id = $1 AND m.kind = 'user' AND m.created_at >= $2
+		  AND ($3::timestamptz IS NULL OR (m.created_at, m.id) > ($3::timestamptz, $4::uuid))
+		ORDER BY m.created_at ASC, m.id ASC
+		LIMIT $5`, channelID, since, afterAt, afterID, limit)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list guest messages: %w", err)
+	}
+	defer rows.Close()
+
+	out := []*domain.GuestChatMessage{}
+	for rows.Next() {
+		m := &domain.GuestChatMessage{}
+		var userID, guestID *uuid.UUID
+		var username, displayName, avatarURL *string
+		var sID, sServerID *uuid.UUID
+		var sName, sURL *string
+		if err := rows.Scan(&m.ID, &m.Content, &m.CreatedAt, &m.UpdatedAt, &userID, &username, &avatarURL, &guestID, &displayName,
+			&sID, &sName, &sURL, &sServerID); err != nil {
+			return nil, fmt.Errorf("failed to scan guest message: %w", err)
+		}
+		if sID != nil {
+			m.StickerID = sID
+			m.Sticker = &domain.Sticker{ID: *sID, Name: *sName, ImageURL: *sURL, ServerID: *sServerID}
+		}
+		if userID != nil {
+			m.Author = domain.GuestChatAuthor{Kind: "user", UserID: userID, AvatarURL: avatarURL}
+			if username != nil {
+				m.Author.Username = *username
+			}
+		} else {
+			m.Author = domain.GuestChatAuthor{Kind: "guest", GuestID: guestID}
+			if displayName != nil {
+				m.Author.DisplayName = *displayName
+			}
+		}
+		out = append(out, m)
+	}
+	return out, rows.Err()
 }

@@ -19,6 +19,11 @@ export function EditServerModal({ server, onClose }: EditServerModalProps) {
   const t = useT();
   const [name, setName] = useState(server.name);
   const [isPrivate, setIsPrivate] = useState(server.is_private);
+  // Гостевые ссылки сохраняются отдельным запросом: их выключение — не правка
+  // названия, а отзыв всех ссылок сервера с выкидыванием гостей
+  // (docs/superpowers/specs/2026-09-17-guest-call-link-design.md).
+  const [guestLinks, setGuestLinks] = useState(server.guest_links_enabled);
+  const [guestLinksSaving, setGuestLinksSaving] = useState(false);
   const [cropFile, setCropFile] = useState<File | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [removingIcon, setRemovingIcon] = useState(false);
@@ -149,6 +154,34 @@ export function EditServerModal({ server, onClose }: EditServerModalProps) {
                 {t('server.privateLabel')}
               </label>
               {isPrivate && <p className="modal-hint">{t('server.privateHint')}</p>}
+            </div>
+            <div className="form-group form-checkbox">
+              <label>
+                <input
+                  type="checkbox"
+                  checked={guestLinks}
+                  disabled={guestLinksSaving}
+                  onChange={async (e) => {
+                    const enabled = e.target.checked;
+                    setGuestLinks(enabled);
+                    setGuestLinksSaving(true);
+                    try {
+                      const updated = await apiService.setServerGuestLinks(server.id, enabled);
+                      useServerStore.getState().patchServer(server.id, {
+                        guest_links_enabled: updated.guest_links_enabled,
+                      });
+                      setError(null);
+                    } catch (err) {
+                      setGuestLinks(!enabled);
+                      setError(apiErrorText(err, t));
+                    } finally {
+                      setGuestLinksSaving(false);
+                    }
+                  }}
+                />
+                {t('guestInvite.serverToggle')}
+              </label>
+              <p className="modal-hint">{t('guestInvite.serverToggleHint')}</p>
             </div>
             {error && <p className="modal-error">{error}</p>}
             <div className="modal-actions">

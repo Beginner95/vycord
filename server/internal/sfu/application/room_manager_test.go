@@ -7,6 +7,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
+	"github.com/stretchr/testify/assert"
+
 	sfuwebrtc "github.com/vycord/server/internal/sfu/infrastructure/webrtc"
 )
 
@@ -128,4 +131,68 @@ func equalStrings(a, b []string) bool {
 		}
 	}
 	return true
+}
+
+func TestRoomManager_PresenceSeparatesGuests(t *testing.T) {
+	m, roomID := newPresenceTestManager(t)
+	userID := uuid.NewString()
+	guestID := "guest:" + uuid.NewString()
+	joinTestParticipant(t, m, roomID, userID)
+	joinTestParticipant(t, m, roomID, guestID)
+
+	presence := m.Presence()
+	assert.Equal(t, []string{userID}, presence[roomID], "guests never appear in /presence")
+
+	guests := m.GuestPresence()
+	assert.Equal(t, []string{guestID}, guests[roomID])
+}
+
+func TestRoomManager_KickGuestAndDenyList(t *testing.T) {
+	m, roomID := newPresenceTestManager(t)
+	guestID := "guest:" + uuid.NewString()
+	joinTestParticipant(t, m, roomID, guestID)
+
+	assert.False(t, m.GuestDenied(guestID))
+	assert.True(t, m.KickGuest(roomID, guestID))
+	assert.Empty(t, m.GuestPresence()[roomID], "the kicked guest is gone from the room")
+	assert.True(t, m.GuestDenied(guestID), "a kicked guest cannot walk back in with an unused token")
+
+	// Idempotent: kicking someone who is not there still deny-lists them, so a
+	// token minted a moment before the kick cannot be redeemed.
+	other := "guest:" + uuid.NewString()
+	assert.False(t, m.KickGuest(roomID, other))
+	assert.True(t, m.GuestDenied(other))
+	assert.False(t, m.KickGuest("no-such-room", "guest:"+uuid.NewString()))
+}
+
+// Н4
+func TestRoomManager_JTIIsSingleUse(t *testing.T) {
+	m, _ := newPresenceTestManager(t)
+	exp := time.Now().Add(time.Minute)
+	assert.True(t, m.UseJTI("jti-1", exp))
+	assert.False(t, m.UseJTI("jti-1", exp))
+	assert.True(t, m.UseJTI("jti-2", exp))
+
+	// An expired entry is forgotten rather than kept forever.
+	assert.True(t, m.UseJTI("jti-old", time.Now().Add(-time.Second)))
+	assert.True(t, m.UseJTI("jti-old", time.Now().Add(time.Minute)))
+}
+
+func newPresenceTestManager(t *testing.T) (*RoomManager, string) {
+	t.Helper()
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	pf, err := sfuwebrtc.NewPeerFactory([]string{}, "")
+	if err != nil {
+		t.Fatalf("NewPeerFactory: %v", err)
+	}
+	m := NewRoomManager(pf, log)
+	t.Cleanup(m.Shutdown)
+	return m, uuid.NewString()
+}
+
+func joinTestParticipant(t *testing.T, m *RoomManager, roomID, userID string) {
+	t.Helper()
+	if _, _, err := m.Join(roomID, uuid.NewString(), userID, &fakeSignalingSession{}); err != nil {
+		t.Fatalf("Join(%s): %v", userID, err)
+	}
 }

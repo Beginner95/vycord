@@ -4,9 +4,14 @@ import { isSameCalendarDay } from '@/i18n';
 /** Spec §5 M2: grouping window is 5 minutes (was 7 before the redesign). */
 export const GROUP_WINDOW_MS = 300_000;
 
+/** Автор сообщения: пользователь или гость звонка (у гостя user_id === null). */
+function authorKey(m: Message): string {
+  return m.guest ? `guest:${m.guest.id}` : `user:${m.user_id ?? ''}`;
+}
+
 /** A grouped continuation row: same author, same local calendar day, < 5 min apart. */
 export function isContinuation(prev: Message | undefined, msg: Message): boolean {
-  if (!prev || prev.user_id !== msg.user_id) return false;
+  if (!prev || authorKey(prev) !== authorKey(msg)) return false;
   // A call placard always breaks grouping — whatever comes after it gets its
   // own avatar/name even if it's the same author who was talking before the
   // call (spec: "kind === 'call' у предыдущего сообщения считается разрывом").

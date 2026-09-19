@@ -1,4 +1,5 @@
 import type { TKey } from '@/i18n';
+import type { MemberWithUser } from '@/types';
 
 /** Роли из старой системы: встречаются в исторических сообщениях как <@&owner>. */
 export type LegacyMentionRole = 'owner' | 'admin' | 'member';
@@ -45,4 +46,38 @@ export function tokenizeMentions(content: string): MentionToken[] {
     tokens.push({ type: 'text', value: content.slice(lastIndex) });
   }
   return tokens;
+}
+
+// A plain <textarea> has one editable string — it can't show "@username"
+// while secretly holding "<@uuid>" the way the rendered message can. These
+// two functions move a draft across that boundary: display form in the
+// input the user edits, wire form (what the backend's own mention regex in
+// server/internal/usecase/mentions.go parses) everywhere else.
+
+/** Wire (`<@uuid>`) -> display (`@username`) for loading a draft into an editable field. */
+export function toDisplayMentions(content: string, members: MemberWithUser[]): string {
+  return tokenizeMentions(content)
+    .map((token) => {
+      switch (token.type) {
+        case 'text':
+          return token.value;
+        case 'role':
+          return `<@&${token.value}>`;
+        case 'everyone':
+          return token.value;
+        case 'user': {
+          const member = members.find((m) => m.user_id === token.value);
+          return member ? `@${member.username}` : `<@${token.value}>`;
+        }
+      }
+    })
+    .join('');
+}
+
+/** Display (`@username`) -> wire (`<@uuid>`) for the text a draft actually sends. */
+export function toWireMentions(content: string, members: MemberWithUser[]): string {
+  return content.replace(/@(\S+)/g, (match, name: string) => {
+    const member = members.find((m) => m.username === name);
+    return member ? `<@${member.user_id}>` : match;
+  });
 }

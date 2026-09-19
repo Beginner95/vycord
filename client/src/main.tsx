@@ -16,7 +16,11 @@ import { initErrorReporting } from './services/errorReporting';
 import { apiService } from './services/api';
 
 initErrorReporting();
-apiService.initAuthLifecycle();
+// На странице гостя аккаунта нет: обновлять токены и ходить в /auth/me незачем,
+// а лишний 401 в консоли только путает.
+if (!window.location.pathname.startsWith('/guest')) {
+  apiService.initAuthLifecycle();
+}
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>

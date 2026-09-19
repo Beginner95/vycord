@@ -8,6 +8,7 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"time"
 
@@ -15,13 +16,59 @@ import (
 	"github.com/google/uuid"
 )
 
+// Token kinds, carried in the "typ" claim. A validator accepts exactly one
+// kind: before typ existed, a 60-second voice (room) token carried user_id and
+// therefore passed ValidateToken — i.e. worked against RequireAuth and the /ws
+// hub. See docs/superpowers/specs/2026-09-17-guest-call-link-design.md,
+// section 1 «Тип токена».
+const (
+	TypAccess    = "access"
+	TypRoom      = "room"
+	TypGuestRoom = "guest_room"
+)
+
+// acceptUntypedTokens keeps tokens issued by the release before typ existed
+// valid across the deploy: access tokens live JWT_EXPIRATION (15 min by
+// default), room tokens 60 s. Flip to false one release later — tracked in
+// docs/superpowers/backlog/2026-09-17-token-typ-mandatory.md.
+//
+// It never lets a room- or guest-scoped token through ValidateToken: those are
+// rejected by their room_id / guest_id claim regardless of typ.
+const acceptUntypedTokens = true
+
+var errWrongTokenType = errors.New("wrong token type")
+
+// checkTyp requires the typ claim to equal want. A missing typ is accepted
+// only while acceptUntypedTokens is on; a present-but-wrong or non-string typ
+// is always rejected.
+func checkTyp(claims jwt.MapClaims, want string) error {
+	raw, present := claims["typ"]
+	if !present {
+		if acceptUntypedTokens {
+			return nil
+		}
+		return errWrongTokenType
+	}
+	typ, ok := raw.(string)
+	if !ok || typ != want {
+		return errWrongTokenType
+	}
+	return nil
+}
+
 func parseClaims(secret, tokenString string) (jwt.MapClaims, error) {
+	return parseClaimsWithKey([]byte(secret), tokenString)
+}
+
+// parseClaimsWithKey verifies an HMAC-signed token against key. Only HMAC
+// methods are accepted — anything else, including alg=none, is rejected.
+func parseClaimsWithKey(key []byte, tokenString string, opts ...jwt.ParserOption) (jwt.MapClaims, error) {
 	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
 		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
 			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
 		}
-		return []byte(secret), nil
-	})
+		return key, nil
+	}, opts...)
 	if err != nil {
 		return nil, fmt.Errorf("invalid token: %w", err)
 	}
@@ -48,10 +95,22 @@ func userIDFromClaims(claims jwt.MapClaims) (uuid.UUID, error) {
 // ValidateToken parses tokenString, verifies its HMAC signature and standard
 // claims (including exp) against secret, and returns the user ID from the
 // user_id claim. Only HMAC signing methods are accepted — anything else,
-// including alg=none, is rejected.
+// including alg=none, is rejected. Tokens carrying room_id or guest_id, or a
+// typ other than "access", are rejected too.
 func ValidateToken(secret, tokenString string) (uuid.UUID, error) {
 	claims, err := parseClaims(secret, tokenString)
 	if err != nil {
+		return uuid.Nil, err
+	}
+	// A token scoped to a room or to a guest is never an access token, typed
+	// or not — this is what closes the untyped-legacy-room-token path.
+	if _, ok := claims["room_id"]; ok {
+		return uuid.Nil, errWrongTokenType
+	}
+	if _, ok := claims["guest_id"]; ok {
+		return uuid.Nil, errWrongTokenType
+	}
+	if err := checkTyp(claims, TypAccess); err != nil {
 		return uuid.Nil, err
 	}
 	return userIDFromClaims(claims)
@@ -63,6 +122,7 @@ func ValidateToken(secret, tokenString string) (uuid.UUID, error) {
 // docs/superpowers/specs/2026-08-04-private-channels-design.md.
 func GenerateRoomToken(secret string, userID, roomID uuid.UUID, ttl time.Duration) (string, error) {
 	claims := jwt.MapClaims{
+		"typ":     TypRoom,
 		"user_id": userID.String(),
 		"room_id": roomID.String(),
 		"exp":     time.Now().Add(ttl).Unix(),
@@ -78,6 +138,9 @@ func GenerateRoomToken(secret string, userID, roomID uuid.UUID, ttl time.Duratio
 func ValidateRoomToken(secret, tokenString string) (userID, roomID uuid.UUID, err error) {
 	claims, err := parseClaims(secret, tokenString)
 	if err != nil {
+		return uuid.Nil, uuid.Nil, err
+	}
+	if err := checkTyp(claims, TypRoom); err != nil {
 		return uuid.Nil, uuid.Nil, err
 	}
 	userID, err = userIDFromClaims(claims)

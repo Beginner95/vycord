@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/mock"
@@ -21,6 +22,12 @@ type mockTURNUseCase struct{ mock.Mock }
 
 func (m *mockTURNUseCase) GetCredentials(userID uuid.UUID) (*domain.TURNCredentials, error) {
 	args := m.Called(userID)
+	c, _ := args.Get(0).(*domain.TURNCredentials)
+	return c, args.Error(1)
+}
+
+func (m *mockTURNUseCase) GetCredentialsForIdentity(identity string, ttl time.Duration) (*domain.TURNCredentials, error) {
+	args := m.Called(identity, ttl)
 	c, _ := args.Get(0).(*domain.TURNCredentials)
 	return c, args.Error(1)
 }

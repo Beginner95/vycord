@@ -80,3 +80,31 @@ func TestTURNGetCredentialsNotConfigured(t *testing.T) {
 		})
 	}
 }
+
+func TestTURNGetCredentialsForIdentity(t *testing.T) {
+	now := time.Unix(1751856800, 0)
+	uc := NewTURNUseCase("test-turn-secret", []string{"turn:turn.example.com:3478"}, 12*time.Hour)
+	uc.(*turnUseCase).now = func() time.Time { return now }
+
+	creds, err := uc.GetCredentialsForIdentity("guest:3f2504e0-4f89-11d3-9a0c-0305e82c3301", time.Hour)
+	if err != nil || creds == nil {
+		t.Fatalf("GetCredentialsForIdentity = (%v, %v)", creds, err)
+	}
+	wantUser := "1751860400:guest:3f2504e0-4f89-11d3-9a0c-0305e82c3301"
+	if creds.Username != wantUser {
+		t.Fatalf("username = %q, want %q", creds.Username, wantUser)
+	}
+	if creds.TTLSeconds != 3600 {
+		t.Fatalf("ttl = %d, want 3600", creds.TTLSeconds)
+	}
+	mac := hmac.New(sha1.New, []byte("test-turn-secret"))
+	mac.Write([]byte(wantUser))
+	if creds.Credential != base64.StdEncoding.EncodeToString(mac.Sum(nil)) {
+		t.Fatal("credential is not the coturn REST HMAC of the username")
+	}
+
+	unconfigured := NewTURNUseCase("", nil, time.Hour)
+	if c, err := unconfigured.GetCredentialsForIdentity("guest:x", time.Hour); c != nil || err != nil {
+		t.Fatalf("unconfigured TURN must return (nil, nil), got (%v, %v)", c, err)
+	}
+}

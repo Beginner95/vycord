@@ -25,21 +25,25 @@ type fakeCallMessageRepo struct {
 	closeCallsMissingFn  func(channelIDs []uuid.UUID, minAge time.Duration) ([]*domain.Message, error)
 }
 
-func (f *fakeCallMessageRepo) CreateCall(msg *domain.Message) (bool, error) { return f.createCallFn(msg) }
+func (f *fakeCallMessageRepo) CreateCall(msg *domain.Message) (bool, error) {
+	return f.createCallFn(msg)
+}
 func (f *fakeCallMessageRepo) EndCall(channelID uuid.UUID) (*domain.Message, bool, error) {
 	return f.endCallFn(channelID)
 }
 func (f *fakeCallMessageRepo) AddCallParticipant(channelID, userID uuid.UUID) error {
 	return f.addCallParticipantFn(channelID, userID)
 }
-func (f *fakeCallMessageRepo) TouchCalls(channelIDs []uuid.UUID) error { return f.touchCallsFn(channelIDs) }
+func (f *fakeCallMessageRepo) TouchCalls(channelIDs []uuid.UUID) error {
+	return f.touchCallsFn(channelIDs)
+}
 func (f *fakeCallMessageRepo) CloseCallsMissingFrom(channelIDs []uuid.UUID, minAge time.Duration) ([]*domain.Message, error) {
 	return f.closeCallsMissingFn(channelIDs, minAge)
 }
 func (f *fakeCallMessageRepo) CloseOrphanedCalls() error { return nil }
 
-func (f *fakeCallMessageRepo) Create(*domain.Message) error                   { return nil }
-func (f *fakeCallMessageRepo) GetByID(uuid.UUID) (*domain.Message, error)     { return nil, nil }
+func (f *fakeCallMessageRepo) Create(*domain.Message) error               { return nil }
+func (f *fakeCallMessageRepo) GetByID(uuid.UUID) (*domain.Message, error) { return nil, nil }
 func (f *fakeCallMessageRepo) GetByChannelID(uuid.UUID, int, int) ([]*domain.Message, error) {
 	return nil, nil
 }
@@ -47,6 +51,10 @@ func (f *fakeCallMessageRepo) Search(uuid.UUID, string, int, int) ([]*domain.Mes
 	return nil, 0, nil
 }
 func (f *fakeCallMessageRepo) GetAround(uuid.UUID, uuid.UUID, int) ([]*domain.Message, error) {
+	return nil, nil
+}
+func (f *fakeCallMessageRepo) CreateGuest(*domain.Message) error { return nil }
+func (f *fakeCallMessageRepo) ListForGuest(uuid.UUID, time.Time, *domain.Message, int) ([]*domain.GuestChatMessage, error) {
 	return nil, nil
 }
 func (f *fakeCallMessageRepo) Update(uuid.UUID, map[string]interface{}) error { return nil }
@@ -80,7 +88,9 @@ func TestCallSessionRecorder_CallStarted_InsertsAndBroadcasts(t *testing.T) {
 
 	if assert.NotNil(t, created) {
 		assert.Equal(t, "call", created.Kind)
-		assert.Equal(t, starterID, created.UserID)
+		if assert.NotNil(t, created.UserID) {
+			assert.Equal(t, starterID, *created.UserID)
+		}
 	}
 	deadline := time.After(time.Second)
 	for {

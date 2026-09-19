@@ -1,5 +1,5 @@
 import { PhoneCall, Phone } from 'lucide-react';
-import { useT, useDateFormat } from '@/i18n';
+import { useT, useTp, useDateFormat } from '@/i18n';
 import { useLocaleStore } from '@/stores/localeStore';
 import { formatCallDuration } from '@/i18n/format';
 import type { ChatMessage } from '@/stores/messageStore';
@@ -20,6 +20,7 @@ interface CallEventRowProps {
 
 export function CallEventRow({ msg, starterName, participantNames = [] }: CallEventRowProps) {
   const t = useT();
+  const tp = useTp();
   const { formatTime } = useDateFormat();
   const locale = useLocaleStore((s) => s.locale);
   const isActive = !msg.call_ended_at;
@@ -39,6 +40,13 @@ export function CallEventRow({ msg, starterName, participantNames = [] }: CallEv
     label = others
       ? t('chat.callEndedWithParticipants', { name: starterName, others, duration })
       : t('chat.callEnded', { name: starterName, duration });
+
+    // Гости в состав call_participant_ids не попадают: там UUID пользователей.
+    // Их видно только счётчиком.
+    const guestCount = msg.call_guest_count ?? 0;
+    if (guestCount > 0) {
+      label = `${label} ${tp('guestInvite.withGuests', guestCount)}`;
+    }
   }
 
   return (

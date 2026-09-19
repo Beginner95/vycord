@@ -9,6 +9,7 @@ import { wsService } from '@/services/websocket';
 import { audioService } from '@/services/audio';
 import { useServerStore } from '@/stores/serverStore';
 import { useCallStore } from '@/stores/callStore';
+import { useGuestManagementStore } from '@/stores/guestManagementStore';
 import { logger } from '@/utils/logger';
 import { collectUnresolvedUserIds } from '@/utils/userCache';
 import { isContinuation } from '@/utils/messageGroups';
@@ -72,6 +73,10 @@ export function ChatArea({ channel, user, onMobileBack, onShowMembers, onJoinVoi
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const pendingSeqRef = useRef(0);
   const composerRef = useRef<ComposerHandle>(null);
+  // Гости звонка читают новые сообщения канала, поэтому участники должны это
+  // видеть, а не догадываться (2026-09-17-guest-call-link-design.md, У11).
+  const channelGuests = useGuestManagementStore((store) => store.channelGuests);
+  const guestCount = channel ? (channelGuests.get(channel.id) ?? []).length : 0;
   const chatMessagesRef = useRef<HTMLDivElement>(null);
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchSeed, setSearchSeed] = useState<{ id: number; query: string } | null>(null);
@@ -301,9 +306,12 @@ export function ChatArea({ channel, user, onMobileBack, onShowMembers, onJoinVoi
   // Fetch usernames for all unique user_ids in messages
   useEffect(() => {
     const fetchUsernames = async () => {
-      const candidateIds = messages.flatMap((msg) =>
-        msg.kind === 'call' ? [msg.user_id, ...(msg.call_participant_ids ?? [])] : [msg.user_id]
-      );
+      // Сообщение гостя не имеет user_id — у него нет профиля, спрашивать нечего.
+      const candidateIds = messages
+        .flatMap((msg) =>
+          msg.kind === 'call' ? [msg.user_id, ...(msg.call_participant_ids ?? [])] : [msg.user_id],
+        )
+        .filter((id): id is string => id !== null);
       const userIds = collectUnresolvedUserIds(
         candidateIds,
         user?.id,
@@ -778,9 +786,16 @@ logger.error('Failed to jump to message:', err, { module: 'chat' });
               uid === user?.id
                 ? user!.username
                 : (members.find((m) => m.user_id === uid)?.username ?? userCache.get(uid)?.username ?? uid.slice(0, 8));
-            const member = !isOwn ? members.find((m) => m.user_id === msg.user_id) : undefined;
-            const cached = !isOwn ? userCache.get(msg.user_id) : undefined;
-            const displayName = resolveParticipantName(msg.user_id);
+            // Автор-гость приходит в самом сообщении: ни в members, ни в
+            // userCache его нет и не будет.
+            const authorId = msg.user_id;
+            const member = !isOwn && authorId ? members.find((m) => m.user_id === authorId) : undefined;
+            const cached = !isOwn && authorId ? userCache.get(authorId) : undefined;
+            const displayName = msg.guest
+              ? msg.guest.display_name
+              : authorId
+                ? resolveParticipantName(authorId)
+                : '';
             const avatarUrl = isOwn ? user?.avatar_url : (member?.avatar_url ?? cached?.avatar_url);
             const participantNames = msg.kind === 'call'
               ? (msg.call_participant_ids ?? []).filter((id) => id !== msg.user_id).map(resolveParticipantName)
@@ -836,6 +851,10 @@ logger.error('Failed to jump to message:', err, { module: 'chat' });
         <div className="error-toast">
           {sendError}
         </div>
+      )}
+
+      {guestCount > 0 && (
+        <div className="chat-guest-banner">{tp('guestInvite.banner', guestCount)}</div>
       )}
 
       <Composer
