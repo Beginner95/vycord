@@ -193,3 +193,122 @@ func TestHashRefreshToken_DeterministicAndDistinct(t *testing.T) {
 		t.Fatalf("expected a 32-byte SHA-256 hash, got %d bytes", len(h1))
 	}
 }
+
+// --- typ claim (guest-call-link spec, section 1 «Тип токена») ---
+
+func TestValidateToken_AcceptsAccessTyp(t *testing.T) {
+	want := uuid.New()
+	tok := hs256(t, secret, jwt.MapClaims{
+		"typ":     TypAccess,
+		"user_id": want.String(),
+		"exp":     time.Now().Add(time.Hour).Unix(),
+	})
+	got, err := ValidateToken(secret, tok)
+	if err != nil {
+		t.Fatalf("ValidateToken: %v", err)
+	}
+	if got != want {
+		t.Fatalf("user id = %s, want %s", got, want)
+	}
+}
+
+// Н6: the voice token GenerateRoomToken issues must never work as an access
+// token. Before this change it did — it carries user_id and nothing else was
+// checked.
+func TestValidateToken_RejectsTokenFromGenerateRoomToken(t *testing.T) {
+	tok, err := GenerateRoomToken(secret, uuid.New(), uuid.New(), time.Hour)
+	if err != nil {
+		t.Fatalf("GenerateRoomToken: %v", err)
+	}
+	if _, err := ValidateToken(secret, tok); err == nil {
+		t.Fatal("room token accepted as an access token")
+	}
+}
+
+// Н6, transition: a legacy UNTYPED token that carries room_id is still a room
+// token, never an access token.
+func TestValidateToken_RejectsUntypedTokenWithRoomID(t *testing.T) {
+	tok := hs256(t, secret, jwt.MapClaims{
+		"user_id": uuid.NewString(),
+		"room_id": uuid.NewString(),
+		"exp":     time.Now().Add(time.Hour).Unix(),
+	})
+	if _, err := ValidateToken(secret, tok); err == nil {
+		t.Fatal("untyped token with room_id accepted as an access token")
+	}
+}
+
+func TestValidateToken_RejectsTokenWithGuestIDClaim(t *testing.T) {
+	tok := hs256(t, secret, jwt.MapClaims{
+		"user_id":  uuid.NewString(),
+		"guest_id": uuid.NewString(),
+		"exp":      time.Now().Add(time.Hour).Unix(),
+	})
+	if _, err := ValidateToken(secret, tok); err == nil {
+		t.Fatal("token with guest_id accepted as an access token")
+	}
+}
+
+func TestValidateToken_RejectsForeignTyp(t *testing.T) {
+	for _, typ := range []any{TypRoom, TypGuestRoom, "refresh", "", 42} {
+		tok := hs256(t, secret, jwt.MapClaims{
+			"typ":     typ,
+			"user_id": uuid.NewString(),
+			"exp":     time.Now().Add(time.Hour).Unix(),
+		})
+		if _, err := ValidateToken(secret, tok); err == nil {
+			t.Fatalf("token with typ=%v accepted as an access token", typ)
+		}
+	}
+}
+
+func TestGenerateRoomToken_SetsRoomTyp(t *testing.T) {
+	tok, err := GenerateRoomToken(secret, uuid.New(), uuid.New(), time.Hour)
+	if err != nil {
+		t.Fatalf("GenerateRoomToken: %v", err)
+	}
+	claims := jwt.MapClaims{}
+	if _, err := jwt.ParseWithClaims(tok, claims, func(*jwt.Token) (any, error) {
+		return []byte(secret), nil
+	}); err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if claims["typ"] != TypRoom {
+		t.Fatalf("typ = %v, want %q", claims["typ"], TypRoom)
+	}
+}
+
+// Transition: room tokens issued by the previous release have no typ and must
+// keep working for their 60 s lifetime across a deploy.
+func TestValidateRoomToken_AcceptsUntypedLegacyRoomToken(t *testing.T) {
+	userID, roomID := uuid.New(), uuid.New()
+	tok := hs256(t, secret, jwt.MapClaims{
+		"user_id": userID.String(),
+		"room_id": roomID.String(),
+		"exp":     time.Now().Add(time.Hour).Unix(),
+	})
+	gotUser, gotRoom, err := ValidateRoomToken(secret, tok)
+	if err != nil {
+		t.Fatalf("ValidateRoomToken: %v", err)
+	}
+	if gotUser != userID || gotRoom != roomID {
+		t.Fatalf("got (%s, %s), want (%s, %s)", gotUser, gotRoom, userID, roomID)
+	}
+}
+
+// Н7 (main-key half): a guest_room-typed token signed with the MAIN key — a
+// forgery attempt by someone who somehow holds JWT_SECRET-signed material —
+// is still not a room token.
+func TestValidateRoomToken_RejectsForeignTyp(t *testing.T) {
+	for _, typ := range []any{TypAccess, TypGuestRoom, "", 7} {
+		tok := hs256(t, secret, jwt.MapClaims{
+			"typ":     typ,
+			"user_id": uuid.NewString(),
+			"room_id": uuid.NewString(),
+			"exp":     time.Now().Add(time.Hour).Unix(),
+		})
+		if _, _, err := ValidateRoomToken(secret, tok); err == nil {
+			t.Fatalf("token with typ=%v accepted as a room token", typ)
+		}
+	}
+}

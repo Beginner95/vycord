@@ -59,6 +59,9 @@ export interface Server {
   icon_url?: string;
   owner_id: string;
   is_private: boolean;
+  // Владелец разрешил гостевые ссылки в звонки этого сервера. По умолчанию
+  // выключено (docs/superpowers/specs/2026-09-17-guest-call-link-design.md).
+  guest_links_enabled: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -82,6 +85,34 @@ export interface Invite {
   uses: number;
 }
 
+/** Гостевая ссылка в звонок. Секрета здесь нет: сервер отдаёт его один раз. */
+export interface GuestLink {
+  id: string;
+  channel_id: string;
+  created_by: string | null;
+  created_at: string;
+  expires_at: string;
+  uses: number;
+  closed_at?: string;
+}
+
+/** Гость звонка — не пользователь: у него нет ни аккаунта, ни профиля. */
+export interface CallGuest {
+  id: string;
+  link_id: string;
+  channel_id: string;
+  display_name: string;
+  status: string;
+  banned: boolean;
+  created_at: string;
+  admitted_at?: string;
+}
+
+export interface GuestCallState {
+  links: GuestLink[];
+  guests: CallGuest[];
+}
+
 export interface InvitePreview {
   server_id: string;
   server_name: string;
@@ -101,7 +132,10 @@ export interface Sticker {
 export interface Message {
   id: string;
   channel_id: string;
-  user_id: string;
+  /** null у сообщения гостя звонка: у него нет строки в users. */
+  user_id: string | null;
+  /** Автор-гость. Взаимоисключим с user_id — это держит CHECK в базе. */
+  guest?: { id: string; display_name: string };
   content: string;
   /** 'call' rows are a system placard, not a chat message — see CallEventRow. */
   kind: 'user' | 'call';
@@ -115,6 +149,8 @@ export interface Message {
    * Only meaningful once call_ended_at is set — the active placard never
    * shows a live-updating list (see CallEventRow). */
   call_participant_ids?: string[];
+  /** Сколько гостей впускали в этот звонок (только для kind === 'call'). */
+  call_guest_count?: number;
   created_at: string;
   updated_at: string;
 }

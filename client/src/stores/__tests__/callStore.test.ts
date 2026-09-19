@@ -251,6 +251,12 @@ describe('callStore', () => {
     it('подписан на входящие WS-события звонка', () => {
       expect([...wsHandlers.keys()].sort()).toEqual([
         'connection_quality',
+        // Гости звонка доходят до участников только этими событиями: в хабе
+        // гостя нет (2026-09-17-guest-call-link-design.md).
+        'guest_links_changed',
+        'guest_lobby_request',
+        'guest_lobby_resolved',
+        'guest_participants',
         'mic_muted',
         'mic_unmuted',
         'screen_share_started',

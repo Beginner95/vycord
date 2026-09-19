@@ -523,3 +523,13 @@
   pointer-events: none; /* иначе оверлей сам съест событие drop */
 }
 
+
+/* Пока в звонке канала есть гости, участники видят это над композером:
+   гость читает новые сообщения канала (2026-09-17-guest-call-link-design.md). */
+.chat-guest-banner {
+  padding: 6px 16px;
+  border-top: 1px solid var(--line);
+  background: var(--canvas-2);
+  font-size: 12px;
+  color: var(--muted);
+}

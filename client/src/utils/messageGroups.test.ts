@@ -27,4 +27,16 @@ describe('isContinuation', () => {
       msg({ kind: 'call' }),
       msg({ id: '2', created_at: '2026-08-25T12:00:30Z' }),
     )).toBe(false));
+  // У всех гостей звонка user_id === null: сравнение одних user_id склеивало
+  // двух разных гостей в одну группу с именем первого.
+  it('false for two different guests', () =>
+    expect(isContinuation(
+      msg({ user_id: null, guest: { id: 'g1', display_name: 'Вася' } }),
+      msg({ id: '2', user_id: null, guest: { id: 'g2', display_name: 'Петя' }, created_at: '2026-08-25T12:01:00Z' }),
+    )).toBe(false));
+  it('true for the same guest within 5 min', () =>
+    expect(isContinuation(
+      msg({ user_id: null, guest: { id: 'g1', display_name: 'Вася' } }),
+      msg({ id: '2', user_id: null, guest: { id: 'g1', display_name: 'Вася' }, created_at: '2026-08-25T12:01:00Z' }),
+    )).toBe(true));
 });

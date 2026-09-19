@@ -9,6 +9,7 @@ import { ServerMenu } from '@/components/ServerMenu';
 import { apiService, apiErrorText } from '@/services/api';
 import { useServerStore } from '@/stores/serverStore';
 import { useCallStore } from '@/stores/callStore';
+import { useGuestManagementStore } from '@/stores/guestManagementStore';
 import { can, PERMISSIONS } from '@/utils/permissions';
 import { useT } from '@/i18n';
 import './ChannelSidebar.css';
@@ -42,6 +43,10 @@ export function ChannelSidebar({
   onServerDeleted,
   onCreateChannel,
 }: ChannelSidebarProps) {
+  // Гости звонка приходят событиями хаба: в ростере они идут после участников
+  // с аккаунтом и всегда с меткой.
+  const channelGuests = useGuestManagementStore((store) => store.channelGuests);
+
   const t = useT();
   const [channelMenu, setChannelMenu] = useState<{ x: number; y: number; channel: Channel } | null>(null);
   const [editingChannel, setEditingChannel] = useState<Channel | null>(null);
@@ -213,6 +218,13 @@ export function ChannelSidebar({
                       </div>
                     );
                   })}
+                  {(channelGuests.get(channel.id) ?? []).map((guest) => (
+                    <div key={guest.id} className="voice-participant" onClick={() => onSelectChannel(channel)}>
+                      <Avatar username={guest.display_name} className="voice-participant-avatar" />
+                      <span className="voice-participant-name">{guest.display_name}</span>
+                      <span className="voice-participant-guest">{t('guest.guestBadge')}</span>
+                    </div>
+                  ))}
                 </div>
                 {!isCallChannel && (
                   <button type="button" className="voice-card-join" onClick={() => onJoinVoice(channel)}>

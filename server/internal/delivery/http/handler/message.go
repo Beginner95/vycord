@@ -17,7 +17,15 @@ import (
 	"github.com/vycord/server/pkg/attachlink"
 )
 
+// GuestChatFanout pushes channel chat to the guests of an ongoing call — they
+// are not on the hub, so SendToChannel never reaches them. Optional.
+type GuestChatFanout interface {
+	ChatMessage(channelID uuid.UUID, msg *domain.Message, author *domain.User)
+	MessageDeleted(channelID, messageID uuid.UUID)
+}
+
 type MessageHandler struct {
+	guestChat      GuestChatFanout
 	messageUseCase domain.MessageUseCase
 	hub            *ws.Hub
 	log            *slog.Logger
@@ -38,6 +46,9 @@ type CreateMessageRequest struct {
 	StickerID     *uuid.UUID  `json:"sticker_id"`
 	AttachmentIDs []uuid.UUID `json:"attachment_ids"`
 }
+
+// SetGuestChat installs the guest chat fan-out. Called once from main.go.
+func (h *MessageHandler) SetGuestChat(f GuestChatFanout) { h.guestChat = f }
 
 func (h *MessageHandler) CreateMessage(w http.ResponseWriter, r *http.Request) {
 	userID := r.Context().Value("user_id").(uuid.UUID)
@@ -78,6 +89,11 @@ func (h *MessageHandler) CreateMessage(w http.ResponseWriter, r *http.Request) {
 		Type:    "chat_message",
 		Payload: payload,
 	})
+
+	if h.guestChat != nil {
+		author, _ := r.Context().Value("user").(*domain.User)
+		h.guestChat.ChatMessage(channelID, msg, author)
+	}
 
 	h.sendJSON(w, http.StatusCreated, msg)
 }
@@ -261,6 +277,10 @@ func (h *MessageHandler) DeleteMessage(w http.ResponseWriter, r *http.Request) {
 		Type:    "message_delete",
 		Payload: payload,
 	})
+
+	if h.guestChat != nil {
+		h.guestChat.MessageDeleted(channelID, messageID)
+	}
 
 	w.WriteHeader(http.StatusNoContent)
 }

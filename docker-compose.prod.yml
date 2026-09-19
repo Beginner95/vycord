@@ -199,6 +199,7 @@ services:
         VITE_API_URL: ${VITE_API_URL}
         VITE_WS_URL: ${VITE_WS_URL}
         VITE_SFU_URL: ${VITE_SFU_URL}
+        VITE_PUBLIC_WEB_URL: ${VITE_PUBLIC_WEB_URL}
         VITE_SENTRY_DSN: ${VITE_SENTRY_DSN}
     container_name: vycord-client
     ports:

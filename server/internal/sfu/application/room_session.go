@@ -604,6 +604,28 @@ func (rs *RoomSession) SetSharingActive(publisherParticipantID string, active bo
 	}
 }
 
+// KickByUserID evicts the participant with this identity, telling them why
+// before the socket dies. Used for guests only (RoomManager.KickGuest): an
+// account participant is never removed from the outside.
+func (rs *RoomSession) KickByUserID(userID string) bool {
+	rs.mu.RLock()
+	participantID, _, ok := rs.findByUserIDLocked(userID)
+	var ps *ParticipantSession
+	if ok {
+		ps = rs.sessions[participantID]
+	}
+	rs.mu.RUnlock()
+	if !ok || ps == nil {
+		return false
+	}
+
+	// Notify before Leave: Leave closes the session, and a closed session
+	// cannot deliver anything.
+	_ = ps.session.Notify("kicked", map[string]any{"user_id": userID})
+	rs.Leave(participantID)
+	return true
+}
+
 // findByUserIDLocked looks up a session by the participant's UserID (as
 // opposed to the internal participantID keying rs.sessions). Callers targeting
 // another participant only know them by UserID (that's all the client ever

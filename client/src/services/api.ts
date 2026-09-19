@@ -1,5 +1,5 @@
 import { useAuthStore } from '@/stores/authStore';
-import type { Server, User, Role, PermissionsResponse, Invite, InvitePreview, Sticker, Attachment, LastSeenInfo, PrivacyMode, UserBrief, FriendProfile, FriendRequest } from '@/types';
+import type { Server, User, Role, PermissionsResponse, Invite, InvitePreview, Sticker, Attachment, LastSeenInfo, PrivacyMode, UserBrief, FriendProfile, FriendRequest, GuestCallState } from '@/types';
 import { hasKey, type TFunc, type TKey } from '@/i18n';
 import { decodeJwtExpMs } from '@/utils/jwt';
 import { ACCESS_TOKEN_KEY, REFRESH_TOKEN_KEY } from '@/stores/authStore';
@@ -569,6 +569,44 @@ class ApiService {
 
   async joinViaInvite(code: string): Promise<Server> {
     return this.request(`/api/v1/invites/${code}/join`, { method: 'POST' });
+  }
+
+  // ── Гостевые ссылки в звонки ────────────────────────────────────────────
+  // Секрет возвращается ровно один раз, в ответе на создание: в базе лежит
+  // только его хеш (2026-09-17-guest-call-link-design.md, раздел 1).
+
+  async createGuestLink(channelId: string): Promise<{ id: string; secret: string; expires_at: string }> {
+    return this.request(`/api/v1/channels/${channelId}/guest-links`, { method: 'POST' });
+  }
+
+  async listGuestLinks(channelId: string): Promise<GuestCallState> {
+    return this.request(`/api/v1/channels/${channelId}/guest-links`);
+  }
+
+  async revokeGuestLink(linkId: string): Promise<void> {
+    await this.request(`/api/v1/guest-links/${linkId}`, { method: 'DELETE' });
+  }
+
+  async admitGuest(guestId: string): Promise<void> {
+    await this.request(`/api/v1/call-guests/${guestId}/admit`, { method: 'POST' });
+  }
+
+  async rejectGuest(guestId: string): Promise<void> {
+    await this.request(`/api/v1/call-guests/${guestId}/reject`, { method: 'POST' });
+  }
+
+  async kickGuest(guestId: string, ban: boolean): Promise<void> {
+    await this.request(`/api/v1/call-guests/${guestId}/kick`, {
+      method: 'POST',
+      body: JSON.stringify({ ban }),
+    });
+  }
+
+  async setServerGuestLinks(serverId: string, enabled: boolean): Promise<Server> {
+    return this.request(`/api/v1/servers/${serverId}/guest-links`, {
+      method: 'PUT',
+      body: JSON.stringify({ enabled }),
+    });
   }
 
   async getVoiceToken(channelId: string): Promise<{ token: string }> {

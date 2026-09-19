@@ -456,3 +456,13 @@
     border-radius: 11px;
   }
 }
+
+/* Автор-гость. Метка — отдельный элемент, а не часть имени: подделать имя
+   можно, метку нельзя (2026-09-17-guest-call-link-design.md, У8). */
+.msg-guest-chip {
+  padding: 1px 6px;
+  border-radius: var(--radius-pill);
+  background: var(--canvas-2);
+  font-size: 11px;
+  color: var(--muted-2);
+}

@@ -206,7 +206,9 @@ func TestCreateMessage_WithSendPermission_Success(t *testing.T) {
 	assert.NoError(t, err)
 	assert.NotNil(t, msg)
 	assert.Equal(t, "hello", msg.Content)
-	assert.Equal(t, userID, msg.UserID)
+	if assert.NotNil(t, msg.UserID) {
+		assert.Equal(t, userID, *msg.UserID)
+	}
 	msgRepo.AssertCalled(t, "Create", mock.AnythingOfType("*domain.Message"))
 }
 
@@ -337,7 +339,7 @@ func TestUpdateMessage_Author_ContentChanged_Success(t *testing.T) {
 	perms := permsWith(serverID, userID, domain.PermSendMessages)
 
 	chRepo.On("GetByID", channelID).Return(&domain.Channel{ID: channelID, ServerID: serverID}, nil)
-	existing := &domain.Message{ID: messageID, ChannelID: channelID, UserID: userID, Content: "old"}
+	existing := &domain.Message{ID: messageID, ChannelID: channelID, UserID: &userID, Content: "old"}
 	msgRepo.On("GetByID", messageID).Return(existing, nil)
 	msgRepo.On("Update", messageID, map[string]interface{}{"content": "new"}).Return(nil)
 
@@ -361,7 +363,7 @@ func TestUpdateMessage_ContentUnchanged_NoOp(t *testing.T) {
 	perms := permsWith(serverID, userID, domain.PermSendMessages)
 
 	chRepo.On("GetByID", channelID).Return(&domain.Channel{ID: channelID, ServerID: serverID}, nil)
-	existing := &domain.Message{ID: messageID, ChannelID: channelID, UserID: userID, Content: "same"}
+	existing := &domain.Message{ID: messageID, ChannelID: channelID, UserID: &userID, Content: "same"}
 	msgRepo.On("GetByID", messageID).Return(existing, nil)
 
 	uc := usecase.NewMessageUseCase(msgRepo, chRepo, srvRepo, &MockStickerRepository{}, perms, new(MockAttachmentRepository), new(MockStorage))
@@ -381,7 +383,7 @@ func TestUpdateMessage_NotAuthor_Forbidden(t *testing.T) {
 	perms := permsWith(serverID, userID, domain.PermSendMessages)
 
 	chRepo.On("GetByID", channelID).Return(&domain.Channel{ID: channelID, ServerID: serverID}, nil)
-	existing := &domain.Message{ID: messageID, ChannelID: channelID, UserID: authorID, Content: "old"}
+	existing := &domain.Message{ID: messageID, ChannelID: channelID, UserID: &authorID, Content: "old"}
 	msgRepo.On("GetByID", messageID).Return(existing, nil)
 
 	uc := usecase.NewMessageUseCase(msgRepo, chRepo, srvRepo, &MockStickerRepository{}, perms, new(MockAttachmentRepository), new(MockStorage))
@@ -419,7 +421,7 @@ func TestUpdateMessage_WrongChannel_NotFound(t *testing.T) {
 	perms := permsWith(serverID, userID, domain.PermSendMessages)
 
 	chRepo.On("GetByID", channelID).Return(&domain.Channel{ID: channelID, ServerID: serverID}, nil)
-	existing := &domain.Message{ID: messageID, ChannelID: otherChannelID, UserID: userID, Content: "old"}
+	existing := &domain.Message{ID: messageID, ChannelID: otherChannelID, UserID: &userID, Content: "old"}
 	msgRepo.On("GetByID", messageID).Return(existing, nil)
 
 	uc := usecase.NewMessageUseCase(msgRepo, chRepo, srvRepo, &MockStickerRepository{}, perms, new(MockAttachmentRepository), new(MockStorage))
@@ -457,7 +459,7 @@ func TestDeleteMessage_Author_Success(t *testing.T) {
 	perms := permsWith(serverID, userID, domain.PermSendMessages)
 
 	chRepo.On("GetByID", channelID).Return(&domain.Channel{ID: channelID, ServerID: serverID}, nil)
-	existing := &domain.Message{ID: messageID, ChannelID: channelID, UserID: userID, Content: "bye"}
+	existing := &domain.Message{ID: messageID, ChannelID: channelID, UserID: &userID, Content: "bye"}
 	msgRepo.On("GetByID", messageID).Return(existing, nil)
 	msgRepo.On("Delete", messageID).Return(nil)
 	attachRepo := new(MockAttachmentRepository)
@@ -485,7 +487,7 @@ func TestDeleteMessageRemovesAttachmentFiles(t *testing.T) {
 
 	chRepo.On("GetByID", channelID).Return(&domain.Channel{ID: channelID, ServerID: serverID}, nil)
 	msgRepo.On("GetByID", messageID).
-		Return(&domain.Message{ID: messageID, ChannelID: channelID, UserID: userID}, nil)
+		Return(&domain.Message{ID: messageID, ChannelID: channelID, UserID: &userID}, nil)
 	msgRepo.On("Delete", messageID).Return(nil)
 	attachRepo.On("ListByMessageIDs", []uuid.UUID{messageID}).Return(
 		map[uuid.UUID][]*domain.Attachment{messageID: {
@@ -517,7 +519,7 @@ func TestDeleteMessageSurvivesStorageFailure(t *testing.T) {
 
 	chRepo.On("GetByID", channelID).Return(&domain.Channel{ID: channelID, ServerID: serverID}, nil)
 	msgRepo.On("GetByID", messageID).
-		Return(&domain.Message{ID: messageID, ChannelID: channelID, UserID: userID}, nil)
+		Return(&domain.Message{ID: messageID, ChannelID: channelID, UserID: &userID}, nil)
 	msgRepo.On("Delete", messageID).Return(nil)
 	attachRepo.On("ListByMessageIDs", []uuid.UUID{messageID}).Return(
 		map[uuid.UUID][]*domain.Attachment{messageID: {
@@ -539,7 +541,7 @@ func TestDeleteMessage_NotAuthor_Forbidden(t *testing.T) {
 	perms := permsWith(serverID, userID, domain.PermSendMessages)
 
 	chRepo.On("GetByID", channelID).Return(&domain.Channel{ID: channelID, ServerID: serverID}, nil)
-	existing := &domain.Message{ID: messageID, ChannelID: channelID, UserID: authorID, Content: "bye"}
+	existing := &domain.Message{ID: messageID, ChannelID: channelID, UserID: &authorID, Content: "bye"}
 	msgRepo.On("GetByID", messageID).Return(existing, nil)
 
 	uc := usecase.NewMessageUseCase(msgRepo, chRepo, srvRepo, &MockStickerRepository{}, perms, new(MockAttachmentRepository), new(MockStorage))
@@ -575,7 +577,7 @@ func TestDeleteMessage_WrongChannel_NotFound(t *testing.T) {
 	perms := permsWith(serverID, userID, domain.PermSendMessages)
 
 	chRepo.On("GetByID", channelID).Return(&domain.Channel{ID: channelID, ServerID: serverID}, nil)
-	existing := &domain.Message{ID: messageID, ChannelID: otherChannelID, UserID: userID, Content: "bye"}
+	existing := &domain.Message{ID: messageID, ChannelID: otherChannelID, UserID: &userID, Content: "bye"}
 	msgRepo.On("GetByID", messageID).Return(existing, nil)
 
 	uc := usecase.NewMessageUseCase(msgRepo, chRepo, srvRepo, &MockStickerRepository{}, perms, new(MockAttachmentRepository), new(MockStorage))
@@ -611,7 +613,7 @@ func TestUpdateMessage_RejectsCallMessage(t *testing.T) {
 	perms := permsWith(serverID, userID, domain.PermSendMessages)
 
 	chRepo.On("GetByID", channelID).Return(&domain.Channel{ID: channelID, ServerID: serverID}, nil)
-	existing := &domain.Message{ID: messageID, ChannelID: channelID, UserID: userID, Kind: "call"}
+	existing := &domain.Message{ID: messageID, ChannelID: channelID, UserID: &userID, Kind: "call"}
 	msgRepo.On("GetByID", messageID).Return(existing, nil)
 
 	uc := usecase.NewMessageUseCase(msgRepo, chRepo, srvRepo, &MockStickerRepository{}, perms, new(MockAttachmentRepository), new(MockStorage))
@@ -631,7 +633,7 @@ func TestDeleteMessage_RejectsCallMessage(t *testing.T) {
 	perms := permsWith(serverID, userID, domain.PermSendMessages)
 
 	chRepo.On("GetByID", channelID).Return(&domain.Channel{ID: channelID, ServerID: serverID}, nil)
-	existing := &domain.Message{ID: messageID, ChannelID: channelID, UserID: userID, Kind: "call"}
+	existing := &domain.Message{ID: messageID, ChannelID: channelID, UserID: &userID, Kind: "call"}
 	msgRepo.On("GetByID", messageID).Return(existing, nil)
 
 	uc := usecase.NewMessageUseCase(msgRepo, chRepo, srvRepo, &MockStickerRepository{}, perms, new(MockAttachmentRepository), new(MockStorage))
@@ -847,7 +849,7 @@ func TestUpdateMessage_MentionNonMember_InvalidMention(t *testing.T) {
 
 	chRepo.On("GetByID", channelID).Return(&domain.Channel{ID: channelID, ServerID: serverID}, nil)
 	srvRepo.On("IsMember", serverID, mentionedID).Return(false, nil)
-	existing := &domain.Message{ID: messageID, ChannelID: channelID, UserID: userID, Content: "old"}
+	existing := &domain.Message{ID: messageID, ChannelID: channelID, UserID: &userID, Content: "old"}
 	msgRepo.On("GetByID", messageID).Return(existing, nil)
 
 	content := "hi <@" + mentionedID.String() + ">"
@@ -1052,7 +1054,7 @@ func TestUpdateMessageKeepsAttachments(t *testing.T) {
 
 	chRepo.On("GetByID", channelID).Return(&domain.Channel{ID: channelID, ServerID: serverID}, nil)
 	perms.On("Resolve", serverID, userID).Return(domain.PermissionSet{Bits: domain.PermAll}, nil)
-	msgRepo.On("GetByID", msgID).Return(&domain.Message{ID: msgID, ChannelID: channelID, UserID: userID}, nil)
+	msgRepo.On("GetByID", msgID).Return(&domain.Message{ID: msgID, ChannelID: channelID, UserID: &userID}, nil)
 	msgRepo.On("Update", msgID, mock.Anything).Return(nil)
 	attachRepo.On("ListByMessageIDs", []uuid.UUID{msgID}).
 		Return(map[uuid.UUID][]*domain.Attachment{msgID: {{ID: attID, Kind: domain.AttachmentKindImage}}}, nil)
@@ -1092,4 +1094,14 @@ func TestCreateMessageSurfacesRollbackFailure(t *testing.T) {
 	// HTTP-статус; сведения о провале отката добавляются к тексту.
 	assert.ErrorIs(t, err, domain.ErrAttachmentNotFound)
 	assert.Contains(t, err.Error(), "откат не удался")
+}
+
+func (m *MockMessageRepository) CreateGuest(msg *domain.Message) error {
+	return m.Called(msg).Error(0)
+}
+
+func (m *MockMessageRepository) ListForGuest(channelID uuid.UUID, since time.Time, after *domain.Message, limit int) ([]*domain.GuestChatMessage, error) {
+	args := m.Called(channelID, since, after, limit)
+	list, _ := args.Get(0).([]*domain.GuestChatMessage)
+	return list, args.Error(1)
 }

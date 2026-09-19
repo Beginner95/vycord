@@ -7,6 +7,10 @@ export function collectUnresolvedUserIds(
   const result: string[] = [];
   const seen = new Set<string>();
   for (const id of ids) {
+    // «guest:<uuid>» — гость звонка, а не пользователь: строки в users для него
+    // нет, и запрос за профилем гарантированно вернул бы 404
+    // (docs/superpowers/specs/2026-09-17-guest-call-link-design.md).
+    if (id.startsWith('guest:')) continue;
     if (id === currentUserId || isCached(id) || isPending(id) || seen.has(id)) continue;
     seen.add(id);
     result.push(id);

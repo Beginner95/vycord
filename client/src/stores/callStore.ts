@@ -1,7 +1,13 @@
 import { create } from 'zustand';
 import { useAuthStore } from '@/stores/authStore';
 import { groupCallService } from '@/services/groupCall';
-import { wsService } from '@/services/websocket';
+import { callBus } from '@/services/callBus';
+import {
+  useGuestManagementStore,
+  type GuestLobbyRequest,
+  type GuestLobbyResolved,
+  type GuestParticipantsEvent,
+} from '@/stores/guestManagementStore';
 import { audioService } from '@/services/audio';
 import { logger } from '@/utils/logger';
 import type { ConnectionQualityMetrics, QualityLevel } from '@/utils/callQuality';
@@ -11,6 +17,23 @@ export type CallStatus = 'idle' | 'joining' | 'connected' | 'reconnecting';
 export interface RemoteParticipant {
   userId: string;
   stream: MediaStream | null;
+}
+
+/**
+ * Кто звонит, если это не пользователь из authStore. Задаётся только гостем:
+ * у него нет аккаунта, и сцена звонка берёт его имя отсюда.
+ */
+export interface CallSelf {
+  id: string;
+  username: string;
+  avatar_url?: string | null;
+}
+
+/** Имя и аватар участника, известные без запроса к API (шов ParticipantDirectory). */
+export interface CallDirectoryEntry {
+  username: string;
+  avatar_url?: string | null;
+  isGuest: boolean;
 }
 
 export interface JoinCallOptions {
@@ -62,6 +85,13 @@ interface CallState {
   participantVolumes: Record<string, number>;
   volumePopoverUserId: string | null;
   showSourcePicker: boolean;
+  /** Гость: он сам. null — звонит пользователь из authStore. */
+  guestSelf: CallSelf | null;
+  /**
+   * id → имя участника, пришедшее вместе с составом звонка. Гость заполняет
+   * его из payload `participants` шлюза: /users/{id} ему недоступен.
+   */
+  directory: Record<string, CallDirectoryEntry>;
 
   join: (opts: JoinCallOptions) => Promise<void>;
   leave: () => void;
@@ -98,6 +128,8 @@ const idle = () => ({
   participantVolumes: {} as Record<string, number>,
   volumePopoverUserId: null,
   showSourcePicker: false,
+  guestSelf: null as CallSelf | null,
+  directory: {} as Record<string, CallDirectoryEntry>,
 });
 
 export const useCallStore = create<CallState>((set, get) => ({
@@ -126,7 +158,7 @@ export const useCallStore = create<CallState>((set, get) => ({
     }
 
     if (!alreadyInThisRoom && groupCallService.currentRoomIdState === opts.channelId) {
-      wsService.send('voice_joined', { channel_id: opts.channelId });
+      callBus.send('voice_joined', { channel_id: opts.channelId });
       audioService.playUserJoined();
     }
 
@@ -143,10 +175,10 @@ export const useCallStore = create<CallState>((set, get) => ({
       isMuted: !micAvailable,
       mediaWarning,
     });
-    wsService.send(micAvailable ? 'mic_unmuted' : 'mic_muted', {});
+    callBus.send(micAvailable ? 'mic_unmuted' : 'mic_muted', {});
 
     if (isFirst) {
-      wsService.send('voice_call_ring', {
+      callBus.send('voice_call_ring', {
         channel_id: opts.channelId,
         server_id: opts.serverId,
         caller_id: opts.userId,
@@ -159,23 +191,27 @@ export const useCallStore = create<CallState>((set, get) => ({
   leave: () => {
     const channelId = groupCallService.currentRoomIdState;
     if (groupCallService.isScreenSharing) {
-      wsService.send('screen_share_stopped', {});
+      callBus.send('screen_share_stopped', {});
     }
     if (channelId) {
-      wsService.send('voice_call_cancel', {
+      callBus.send('voice_call_cancel', {
         channel_id: channelId,
         server_id: get().callServerId,
       });
-      wsService.send('voice_left', { channel_id: channelId });
+      callBus.send('voice_left', { channel_id: channelId });
       // Звучит только осознанный выход. Обрыв, session_replaced и исчерпанный
       // реконнект приходят в reset() и остаются молчаливыми.
       audioService.playUserLeft();
     }
     groupCallService.leaveGroupCall();
+    useGuestManagementStore.getState().reset();
     set(idle());
   },
 
-  reset: () => set(idle()),
+  reset: () => {
+    useGuestManagementStore.getState().reset();
+    set(idle());
+  },
 
   setStatus: (status) => set({ status }),
 
@@ -219,7 +255,8 @@ const qualitySend: { lastLevel: QualityLevel | null; lastSentAt: number } = {
  * условия стали ранними выходами внутри обработчиков.
  */
 const inCall = (): boolean => useCallStore.getState().callChannelId !== null;
-const selfId = (): string | undefined => useAuthStore.getState().user?.id;
+const selfId = (): string | undefined =>
+  useCallStore.getState().guestSelf?.id ?? useAuthStore.getState().user?.id;
 const isCallParticipant = (userId: string): boolean =>
   useCallStore.getState().participants.some((p) => p.userId === userId);
 
@@ -275,7 +312,7 @@ export function initCallBridge(): void {
       // Fires both when I discover an already-present peer and when someone
       // joins after me — re-announcing my mic state either way is harmless
       // and closes the window where a newly-joined peer doesn't know it yet.
-      wsService.send(useCallStore.getState().isMuted ? 'mic_muted' : 'mic_unmuted', {});
+      callBus.send(useCallStore.getState().isMuted ? 'mic_muted' : 'mic_unmuted', {});
     },
     onPeerSnapshot: (userIds) => {
       // Fired once, right after a successful resume (VYC-78 step 3): while
@@ -381,14 +418,14 @@ export function initCallBridge(): void {
     },
     onCallEnded: () => {
       const channelId = groupCallService.currentRoomIdState;
-      if (channelId) wsService.send('voice_left', { channel_id: channelId });
+      if (channelId) callBus.send('voice_left', { channel_id: channelId });
       // Молчаливый сброс: обрыв/вытеснение сессии звука выхода не издаёт.
       useCallStore.getState().reset();
       if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
     },
     onError: (msg) => {
       const channelId = groupCallService.currentRoomIdState;
-      if (channelId) wsService.send('voice_left', { channel_id: channelId });
+      if (channelId) callBus.send('voice_left', { channel_id: channelId });
       logger.error('[GroupCall] Error:', msg, { module: 'groupCallUI' });
       useCallStore.getState().reset();
       if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
@@ -396,14 +433,14 @@ export function initCallBridge(): void {
     },
     onScreenShareEnded: () => {
       useCallStore.setState({ isScreenSharing: false });
-      wsService.send('screen_share_stopped', {});
+      callBus.send('screen_share_stopped', {});
     },
     onScreenShareRestored: () => {
       // Our reconnect made everyone else drop us from their screenSharers set
       // (their own onReconnecting/participant_left cleanup, or simply never
       // having seen the original broadcast). Re-announce so their Watch
       // overlay/banner comes back for the share that is still running.
-      wsService.send('screen_share_started', {});
+      callBus.send('screen_share_started', {});
     },
     onLocalQuality: (metrics) => {
       useCallStore.setState({ localQuality: metrics });
@@ -414,7 +451,7 @@ export function initCallBridge(): void {
       if (changed || heartbeat) {
         st.lastLevel = metrics.level;
         st.lastSentAt = now;
-        wsService.send('connection_quality', {
+        callBus.send('connection_quality', {
           level: metrics.level,
           packet_loss: metrics.packetLoss,
           rtt: metrics.rtt,
@@ -432,7 +469,7 @@ export function initCallBridge(): void {
   // сторе. Подписки не снимаются — мост идемпотентен и живёт всё время работы
   // приложения.
 
-  wsService.on('screen_share_started', (payload) => {
+  callBus.on('screen_share_started', (payload) => {
     const p = payload as { user_id: string };
     if (!inCall()) return;
     if (p.user_id === selfId()) return; // ignore own events
@@ -445,7 +482,7 @@ export function initCallBridge(): void {
     }));
   });
 
-  wsService.on('screen_share_stopped', (payload) => {
+  callBus.on('screen_share_stopped', (payload) => {
     const p = payload as { user_id: string };
     if (!inCall()) return;
     // Побочный эффект (выход из фуллскрина) держим снаружи апдейтера стора:
@@ -465,7 +502,7 @@ export function initCallBridge(): void {
     groupCallService.unwatchShare(p.user_id);
   });
 
-  wsService.on('mic_muted', (payload) => {
+  callBus.on('mic_muted', (payload) => {
     const p = payload as { user_id: string };
     if (!inCall()) return;
     if (p.user_id === selfId()) return;
@@ -473,7 +510,7 @@ export function initCallBridge(): void {
     useCallStore.setState((s) => ({ remoteMicMuted: new Map(s.remoteMicMuted).set(p.user_id, true) }));
   });
 
-  wsService.on('mic_unmuted', (payload) => {
+  callBus.on('mic_unmuted', (payload) => {
     const p = payload as { user_id: string };
     if (!inCall()) return;
     if (p.user_id === selfId()) return;
@@ -481,7 +518,32 @@ export function initCallBridge(): void {
     useCallStore.setState((s) => ({ remoteMicMuted: new Map(s.remoteMicMuted).set(p.user_id, false) }));
   });
 
-  wsService.on('connection_quality', (payload) => {
+  // ── Гости звонка (2026-09-17-guest-call-link-design.md) ──────────────────
+  // Гость не пользователь и не клиент хаба: до участников он доходит только
+  // этими событиями.
+
+  callBus.on('guest_lobby_request', (payload) => {
+    useGuestManagementStore.getState().onLobbyRequest(payload as GuestLobbyRequest);
+  });
+
+  callBus.on('guest_lobby_resolved', (payload) => {
+    useGuestManagementStore.getState().onLobbyResolved(payload as GuestLobbyResolved);
+  });
+
+  callBus.on('guest_participants', (payload) => {
+    useGuestManagementStore.getState().onGuestParticipants(payload as GuestParticipantsEvent);
+  });
+
+  callBus.on('guest_links_changed', (payload) => {
+    const { channel_id: channelId } = payload as { channel_id: string };
+    if (useCallStore.getState().callChannelId !== channelId) return;
+    void useGuestManagementStore.getState().refresh(channelId).catch(() => {
+      // Список гостей — вспомогательная панель: её неудачное обновление не
+      // должно ронять звонок.
+    });
+  });
+
+  callBus.on('connection_quality', (payload) => {
     const p = payload as { user_id: string; level: QualityLevel; packet_loss: number; rtt: number; bitrate: number };
     if (!inCall()) return;
     if (p.user_id === selfId()) return; // своё качество берём из локального сэмплера

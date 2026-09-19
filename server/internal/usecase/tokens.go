@@ -75,6 +75,7 @@ func (ti *tokenIssuer) issueRefreshToken(userID, familyID uuid.UUID) (string, *d
 
 func (ti *tokenIssuer) generateAccessToken(user *domain.User) (string, error) {
 	claims := jwt.MapClaims{
+		"typ":      authtoken.TypAccess,
 		"user_id":  user.ID.String(),
 		"username": user.Username,
 		"exp":      time.Now().Add(ti.jwtExpiration).Unix(),

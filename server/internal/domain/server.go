@@ -12,8 +12,12 @@ type Server struct {
 	IconURL   *string   `json:"icon_url,omitempty"`
 	OwnerID   uuid.UUID `json:"owner_id"`
 	IsPrivate bool      `json:"is_private"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+	// GuestLinksEnabled — владелец разрешил гостевые ссылки в звонки
+	// (по умолчанию выключено). Меняется только через
+	// PUT /api/v1/servers/{id}/guest-links.
+	GuestLinksEnabled bool      `json:"guest_links_enabled"`
+	CreatedAt         time.Time `json:"created_at"`
+	UpdatedAt         time.Time `json:"updated_at"`
 }
 
 type Channel struct {

@@ -7,7 +7,7 @@ import { LinkDialog } from '@/components/LinkDialog';
 import { MessageAttachments } from '@/components/MessageAttachments';
 import { useMentionAutocomplete } from '@/hooks/useMentionAutocomplete';
 import { toggleBullet, toggleNumbered, applyLineToggle, applyWrap, insertAtCaret, linkToken } from '@/utils/textTransforms';
-import { tokenizeMentions, LEGACY_ROLE_KEYS } from '@/utils/mentions';
+import { tokenizeMentions, toDisplayMentions, toWireMentions, LEGACY_ROLE_KEYS } from '@/utils/mentions';
 import { parseInline, blockify, normalizeLinkHref, type MdInlineNode } from '@/utils/markdown';
 import { resolveUploadUrl } from '@/services/api';
 import { useT, useDateFormat, type TFunc } from '@/i18n';
@@ -130,10 +130,16 @@ interface MessageRowProps {
    * `msg.attachments`; ChatArea narrows it to the media subset.
    */
   onOpenAttachment?: (index: number) => void;
+  /**
+   * false — своё сообщение нельзя ни править, ни удалять (гость звонка: у
+   * него нет таких эндпоинтов). Цитата остаётся.
+   */
+  canModify?: boolean;
 }
 
 export function MessageRow(props: MessageRowProps) {
   const { msg, isOwn, isContinuation, displayName, avatarUrl, isEditing, highlighted, entered } = props;
+  const canModify = isOwn && props.canModify !== false;
   const t = useT();
   const { formatTime } = useDateFormat();
   const isEdited = msg.updated_at !== msg.created_at;
@@ -154,12 +160,13 @@ export function MessageRow(props: MessageRowProps) {
       <div className="msg-gutter">
         {isContinuation
           ? <span className="msg-gutter-time">{time}</span>
-          : <Avatar url={avatarUrl} username={displayName} className="msg-avatar" />}
+          : <Avatar url={msg.guest ? undefined : avatarUrl} username={msg.guest ? msg.guest.display_name : displayName} className="msg-avatar" />}
       </div>
       <div className="msg-content">
         {!isContinuation && (
           <div className="msg-header">
-            <span className="msg-author">{displayName}</span>
+            <span className="msg-author">{msg.guest ? msg.guest.display_name : displayName}</span>
+            {msg.guest && <span className="msg-guest-chip">{t('guest.guestBadge')}</span>}
             {isOwn && <span className="msg-own-chip">{t('chat.youChip')}</span>}
             <span className="msg-time">
               {time}
@@ -198,19 +205,19 @@ export function MessageRow(props: MessageRowProps) {
       {/* A sticker row has nothing to quote (quoting it inserts a bare `> `)
           and nothing to edit, so for someone else's sticker the popover would
           be an empty bordered chip on hover — don't render the wrapper at all. */}
-      {!isEditing && !msg.deliveryState && (!msg.sticker_id || isOwn) && (
+      {!isEditing && !msg.deliveryState && (!msg.sticker_id || canModify) && (
         <div className="msg-actions">
           {!msg.sticker_id && (
             <button type="button" className="msg-action-btn" aria-label={t('chat.quote')} title={t('chat.quote')} onClick={props.onQuote}>
               <Quote size={15} strokeWidth={1.8} />
             </button>
           )}
-          {isOwn && !msg.sticker_id && (
+          {canModify && !msg.sticker_id && (
             <button type="button" className="msg-action-btn" aria-label={t('common.edit')} title={t('common.edit')} onClick={props.onStartEdit}>
               <Pencil size={15} strokeWidth={1.8} />
             </button>
           )}
-          {isOwn && (
+          {canModify && (
             <button type="button" className="msg-action-btn is-danger" aria-label={t('common.delete')} title={t('common.delete')} onClick={props.onDelete}>
               <Trash2 size={15} strokeWidth={1.8} />
             </button>
@@ -249,7 +256,7 @@ interface MessageEditorProps extends MessageRowProps {
  * has to live in ChatArea any more.
  */
 function MessageEditor({ initial, members, canMentionEveryone, onCancelEdit, onSaveEdit }: MessageEditorProps) {
-  const [value, setValue] = useState(initial);
+  const [value, setValue] = useState(() => toDisplayMentions(initial, members));
   const [linkOpen, setLinkOpen] = useState(false);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -268,7 +275,7 @@ function MessageEditor({ initial, members, canMentionEveryone, onCancelEdit, onS
     if (mention.handleKeyDown(e)) return;
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
-      void onSaveEdit(value.trim());
+      void onSaveEdit(toWireMentions(value, members).trim());
     } else if (e.key === 'Escape') {
       e.preventDefault();
       onCancelEdit();

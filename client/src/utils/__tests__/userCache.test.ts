@@ -39,3 +39,15 @@ describe('collectUnresolvedUserIds', () => {
     expect(result).toEqual([]);
   });
 });
+
+describe('collectUnresolvedUserIds with call guests', () => {
+  it('never asks the API for a guest identity', () => {
+    const result = collectUnresolvedUserIds(
+      ['guest:11111111-1111-1111-1111-111111111111', 'user-1'],
+      undefined,
+      () => false,
+      () => false,
+    );
+    expect(result).toEqual(['user-1']);
+  });
+});

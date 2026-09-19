@@ -3,8 +3,14 @@ import * as Sentry from '@sentry/react';
 // Strips `token=...` from a URL's query string — WS/SFU connection URLs
 // (see services/call.ts, services/groupCall.ts) carry the JWT as a query
 // param, and it must never leave the client in a breadcrumb or event.
-function stripToken(url: string): string {
-  return url.replace(/([?&]token=)[^&]+/i, '$1REDACTED');
+//
+// The fragment goes too: a guest link carries its 256-bit secret there
+// (docs/superpowers/specs/2026-09-17-guest-call-link-design.md, У10), and the
+// guest page is loaded with it in the address bar before it strips it.
+export function stripToken(url: string): string {
+  const withoutToken = url.replace(/([?&]token=)[^&]+/i, '$1REDACTED');
+  const hashIndex = withoutToken.indexOf('#');
+  return hashIndex >= 0 ? withoutToken.slice(0, hashIndex) : withoutToken;
 }
 
 function detectPlatform(): 'electron-renderer' | 'web' {
