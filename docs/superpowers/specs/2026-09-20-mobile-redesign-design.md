@@ -233,6 +233,27 @@ TDD на таймер/допуск.
 | `CommandPalette` (⌘K) | экран `search` |
 | `useDismissOnOutside`-поповеры | на мобиле не монтируются — их заменяют sheets (ловушка «внутри `.modal-overlay` теряется Escape» не возникает) |
 
+### 4.6 Контракт меню-шторок (этап 2)
+
+`ActionSheet` зовёт свой `onClose()` **до** `onClick` пункта. Поэтому
+`ServerMenuSheet` / `ChannelMenuSheet` держат внутреннее состояние потока
+(`none` / `confirm` / `rename` / `error`) и отдают `ActionSheet` отложенный на
+микрозадачу `closeSheet`. Проп `onClose` хоста означает «взаимодействие с меню
+закончено» и вызывается **ровно один раз**: либо шторку закрыли без выбора
+пункта с потоком, либо поток закончился (отмена, успех, ошибка — после тоста
+5 с). Хост держит сущность смонтированной (`open={x !== null}` + `server={x}`) и
+обнуляет её только в `onClose`; тост ошибки живёт внутри компонента. Без
+`onDeleted` пункт удаления скрыт. Пустое меню (нет прав) закрывается само. Стейл-
+результат запроса не может завершить более новый поток (`flowSeq`).
+
+Навигация из шторки: `nav.push` поверх записи `sheet` **заменяет** её. Порядок
+«закрыть шторку → push» безопасен только благодаря метке ожидающей навигации в
+`useMobileNav` (`location.key` + TTL): react-router 7 применяет `navigate()`
+через `startTransition`, и без неё срочный рендер от закрытия шторки затирал
+синхронный стек устаревшим — `useBackDismiss` вызывал `history.go(-1)` и откатывал
+переход (найдено только в настоящем браузере; в jsdom не воспроизводилось без
+специального теста).
+
 ## 5. Экраны аккаунта
 
 ### 5.1 Общее
@@ -502,22 +523,22 @@ safe-area, основная кнопка у низа, клавиатура не 
 | 3 | Подтверждение неподтверждённого email | `AuthPage` | `AuthPage` | 5 | план |
 | 4 | Выбор username при регистрации | `AuthPage` | `AuthPage` | 5 | план |
 | **Серверы** |
-| 5 | Список серверов | `ServerList` | вкладка «Серверы», `MobileListRow` | 2 | план |
+| 5 | Список серверов | `ServerList` | вкладка «Серверы», `MobileListRow` | 2 | ✅ этап 2 — `.superpowers/vyc95/s2/mobile/servers-390x844-{light,dark}.png`, `ServersScreen.test.tsx` |
 | 6 | «Главная» (друзья) | `ServerList` → `HomeView` | вкладка «Друзья» | 5 | план |
-| 7 | Создать сервер (имя, приватность) | модалка в `AppPage` | «Серверы» → «＋» → экран `createServer` | 2 | план |
-| 8 | Найти сервер по имени / коду, вступить, число участников | `FindServerModal` | «＋» → экран `findServer` | 2 | план |
-| 9 | Меню сервера | `ServerMenu` (`ContextMenu`) | long-press строки / «⋯» в `channels` → `ActionSheet` | 2 | план |
-| 10 | Настройки сервера: имя, иконка с кропом, приватность, тумблер гостевых ссылок | `EditServerModal`, `AvatarCropModal` | экран `serverSettings` (кроп — модалка sheet-стиля) | 2 | план |
-| 11 | Инвайт-ссылки: создать / копировать / отозвать, счётчик | `ManageInvitesModal` | экран `invites` | 2 | план |
-| 12 | Карточка «Пригласить друзей» | `ManageInvitesModal` / меню | экран `invites` + пункт меню сервера | 2 | план |
-| 13 | Удалить сервер (подтверждение) | `ServerMenu` → `ConfirmModal` | меню сервера → `ConfirmModal` (sheet-стиль) | 2 | план |
-| 14 | Стикеры сервера: загрузка, имя, удаление | `StickerManager` | экран `stickers` | 2 | план |
+| 7 | Создать сервер (имя, приватность) | модалка в `AppPage` | «Серверы» → «＋» → экран `createServer` | 2 | ✅ этап 2 — `.superpowers/vyc95/s2/mobile2/create-server-390x844-{light,dark}.png`, `CreateServerScreen.test.tsx` |
+| 8 | Найти сервер по имени / коду, вступить, число участников | `FindServerModal` | «＋» → экран `findServer` | 2 | ✅ этап 2 — `.superpowers/vyc95/s2/mobile2/find-server-390x844-{light,dark}.png`, `FindServerScreen.test.tsx`, `FindServerBody.test.tsx` |
+| 9 | Меню сервера | `ServerMenu` (`ContextMenu`) | long-press строки / «⋯» в `channels` → `ActionSheet` | 2 | ✅ этап 2 — `.superpowers/vyc95/s2/mobile/servers-menu-390x844-*.png`, `channels-server-menu-390x844-*.png`, `serverMenu.test.tsx` |
+| 10 | Настройки сервера: имя, иконка с кропом, приватность, тумблер гостевых ссылок | `EditServerModal`, `AvatarCropModal` | экран `serverSettings` (кроп — модалка sheet-стиля) | 2 | ✅ этап 2 — `.superpowers/vyc95/s2/mobile/server-settings-{375x812,390x844,768x1024}-*.png`; кроп-модалка — только тесты (jsdom не декодирует картинку) |
+| 11 | Инвайт-ссылки: создать / копировать / отозвать, счётчик | `ManageInvitesModal` | экран `invites` | 2 | ✅ этап 2 — `.superpowers/vyc95/s2/mobile/invites-390x844-*.png`, `InvitesScreen.test.tsx` |
+| 12 | Карточка «Пригласить друзей» | `ManageInvitesModal` / меню | экран `invites` + пункт меню сервера | 2 | ✅ этап 2 — карточка на `.superpowers/vyc95/s2/mobile/invites-390x844-*.png`; создание при первом копировании — `InvitesScreen.test.tsx` |
+| 13 | Удалить сервер (подтверждение) | `ServerMenu` → `ConfirmModal` | меню сервера → `ConfirmModal` (sheet-стиль) | 2 | ✅ этап 2 — `.superpowers/vyc95/s2/mobile/delete-confirm-390x844-*.png` (ConfirmModal шторкой), `serverMenu.test.tsx` (поток, ошибка, двойной тап) |
+| 14 | Стикеры сервера: загрузка, имя, удаление | `StickerManager` | экран `stickers` | 2 | ✅ этап 2 — `.superpowers/vyc95/s2/mobile/stickers-390x844-*.png`, `StickerManagerBody.test.tsx`; ⏳ подсказка дропзоны «Перетащите…» — десктопная строка, мобильная формулировка позже |
 | **Каналы** |
-| 15 | Список каналов | `ChannelSidebar` | экран `channels` | 2 | план |
-| 16 | Создать канал | `CreateChannelModal` | меню сервера → модалка sheet-стиля | 2 | план |
-| 17 | Переименовать канал | `EditChannelModal` | long-press канала / `channelInfo` → модалка | 2 | план |
-| 18 | Удалить канал (последний нельзя) | `ChannelSidebar` меню | long-press / `channelInfo`, `disabledReason` | 2 | план |
-| 19 | Индикатор голоса в канале и кто в нём | `ChannelSidebar`, `VoiceBanner` | вторая строка канала; `VoiceBanner` в чате | 2–3 | план |
+| 15 | Список каналов | `ChannelSidebar` | экран `channels` | 2 | ✅ этап 2 — `.superpowers/vyc95/s2/mobile/channels-{375x812,390x844}-*.png`, `ChannelsScreen.test.tsx` |
+| 16 | Создать канал | `CreateChannelModal` | меню сервера → модалка sheet-стиля | 2 | ⏳ этап 2: пункт «Создать канал» в меню сервера есть (тест); модалка открывается прежней `CreateChannelModal` в sheet-стиле этапа 1 — снимок этапа 7 |
+| 17 | Переименовать канал | `EditChannelModal` | long-press канала / `channelInfo` → модалка | 2 | ✅ этап 2 — пункт на `.superpowers/vyc95/s2/mobile/channel-menu-390x844-*.png`, `channelMenu.test.tsx` (в т.ч. гонка сохранения); снимка самой модалки нет |
+| 18 | Удалить канал (последний нельзя) | `ChannelSidebar` меню | long-press / `channelInfo`, `disabledReason` | 2 | ✅ этап 2 — пункты на `.superpowers/vyc95/s2/mobile/channel-menu-390x844-*.png`; `disabledReason` у последнего канала и повторная проверка при удалении — `channelMenu.test.tsx` |
+| 19 | Индикатор голоса в канале и кто в нём | `ChannelSidebar`, `VoiceBanner` | вторая строка канала; `VoiceBanner` в чате | 2–3 | ⏳ частично: вторая строка «Аня, Борис +1 в голосе» — unit-тесты `voiceLine`/`ChannelsScreen`/`ServersScreen`, снимка нет (в фикстурах нет голоса); `VoiceBanner` — этап 3 |
 | 20 | У канала и чат, и звонок | `ChatArea` + `CallStage` | `chat` + кнопка звонка → `call` | 3–4 | план |
 | **Чат** |
 | 21 | Лента, разделители дней, «Новые сообщения», «к последним», подгрузка истории | `ChatArea` | `chat` (та же `ChatArea`) | 3 | план |
@@ -538,7 +559,7 @@ safe-area, основная кнопка у низа, клавиатура не 
 | 36 | `AudioPlayer`, `VideoPlayer` | — | в ленте, тач-цели ≥ 44 | 3 | план |
 | 37 | Строки событий звонков (начал, длительность, участники, гости) | `CallEventRow` | в ленте, как есть | 3 | план |
 | 38 | Поиск по каналу | `MessageSearch` | иконка в шапке `chat` / `channelInfo` → полноэкранный режим | 3 | план |
-| 39 | Пустые состояния (нет серверов, тишина в канале, приветствие) | `ChatArea` | те же карточки в `chat` / «Серверы» | 2–3 | план |
+| 39 | Пустые состояния (нет серверов, тишина в канале, приветствие) | `ChatArea` | те же карточки в `chat` / «Серверы» | 2–3 | ⏳ частично: карточка «Нет серверов» — `.superpowers/vyc95/s2/mobile2/servers-empty-390x844-*.png`; «тишина в канале»/«приветствие» — этап 3 |
 | 40 | Бейдж гостя в сообщениях | `MessageRow` | как есть | 3 | план |
 | 41 | Баннер «N гостей видят сообщения» | `ChatArea` | под шапкой `chat` | 3 | план |
 | **Участники** |
@@ -596,11 +617,11 @@ safe-area, основная кнопка у низа, клавиатура не 
 | 88 | `UpdateBanner` (только Electron) | `UpdateBanner` | не показывается на вебе; проверка, что не ломает раскладку | 7 | план |
 | 89 | `ErrorBoundary` с отправкой фидбэка | `ErrorBoundary` | та же страница, мобильная вёрстка | 7 | план |
 | 90 | `ConfirmModal` | модалка | sheet-стиль (CSS) | 1 | ✅ этап 1 — `.superpowers/vyc95/s1/confirm-390-{light,dark}.png` |
-| 91 | Контекстные меню → touch-альтернатива везде | `ContextMenu` ×3 | `ActionSheet` (сервер, канал, друг) | 2, 5 | план |
+| 91 | Контекстные меню → touch-альтернатива везде | `ContextMenu` ×3 | `ActionSheet` (сервер, канал, друг) | 2, 5 | ⏳ частично: сервер и канал — ✅ этап 2 (`ActionSheet`, снимки выше); меню друга — этап 5 |
 | 92 | Hover-зависимые элементы → touch-эквивалент | разное | long-press / видимые кнопки (`(hover: none)`) | 3–4 | план |
 | **Архитектурные требования** |
 | 93 | Вкладка «Чаты» (VYC-91) добавляется без переделки | — | `TabId` + корень + `Screen` | 1 | ✅ этап 1 — `src/mobile/nav/types.ts`, `navReducer.test.ts` |
-| 94 | Превью / счётчики непрочитанного — точка расширения | — | `activity.ts`, оба состояния | 2 | план |
+| 94 | Превью / счётчики непрочитанного — точка расширения | — | `activity.ts`, оба состояния | 2 | ✅ этап 2 — оба состояния: с override (длинный текст, время, «99+», обе темы) `.superpowers/vyc95/s2/mobile/servers-activity-390x844-*.png`, `channels-activity-390x844-*.png`; без override — `servers-390x844-*.png`; `activity.test.tsx` |
 | 95 | PWA: манифест, иконки, theme-color достижимы | — | §8 | 1 | ✅ этап 1 — проба `probe-pwa.js` на `/app`, `/guest` и на `dist/` |
 | 95a | PWA: раскладка в standalone под вырезом и домашней полоской | — | §8 | 1 → проверка на устройстве | ⏳ верхний инсет отдан `.mobile-shell`; в эмуляции `env()` = 0, поэтому подтверждается только на реальном устройстве |
 | 96 | Один брейкпоинт | 3 значения | контрактный тест, пустой allowlist | 1, 7 | ⏳ этап 1 — `breakpoint-contract.test.ts` зелёный, allowlist наследия пока не пуст (этап 7) |
@@ -662,3 +683,20 @@ safe-area, основная кнопка у низа, клавиатура не 
 - `CLAUDE.md`: раздел про `redesign`/`develop` устарел.
 - Focus-ring `.composer-field` из `origin/develop` (6 строк) — при следующем
   выравнивании веток.
+
+### Этап 2 — отложено и найдено по пути
+
+- Мобильная формулировка подсказки дропзоны стикеров (сейчас «Перетащите файл…» —
+  десктопная строка); тот же вопрос для других строк, перенесённых с десктопа.
+- `--keyboard-inset` для липкой панели действий формы (§5.4): пока клавиатура,
+  открытая `autoFocus`, на iOS закроет кнопку. Этап 3 (`useVisualViewportInset`).
+- Две независимые копии состояния инвайтов: карточка «Пригласить друзей» и список
+  ссылок не видят ссылок друг друга — поднять `invites` в тело.
+- Неудачный `joinServer` глотается контроллером: на экране «Найти сервер» нет
+  обратной связи (десктопная модалка закрывалась).
+- Меню-шторки: «создать канал» открывает десктопную `CreateChannelModal` (в
+  sheet-стиле этапа 1) — полноэкранная форма в этапе 7 при необходимости.
+- Мёртвые ветки `onMobileBack` в `ChannelSidebar` — этап 7 (зачистка).
+- Унификация `use*MenuItems` с десктопными `ServerMenu`/`ChannelSidebar` (D1 плана) —
+  после этапа 7.
+- Голос в строках списков проверен только unit-тестами (в фикстурах нет голоса).

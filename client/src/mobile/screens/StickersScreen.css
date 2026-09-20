@@ -1,0 +1,47 @@
+/* VYC-95 §5.9. Вид дропзоны, превью и строк списка берёт StickerManager.css
+   (его импортирует тело); здесь — раскладка экрана и мобильные поправки под
+   .form-screen-body, десктопные правила не затронуты. */
+
+/* На десктопе колонку с зазором держит .sticker-manager; на экране её роль
+   играет эта обёртка. Нижний padding — вместо панели действий, которой у
+   экрана нет (D5), плюс safe-area. */
+.stickers-screen {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding-bottom: calc(16px + env(safe-area-inset-bottom));
+}
+
+/* Прокручивается всё тело экрана, а не список внутри 70vh-модалки. */
+.form-screen-body .sticker-manager-list {
+  flex: none;
+  overflow: visible;
+}
+
+.form-screen-body .input {
+  min-height: 44px;
+}
+
+/* Имя файла занимает свою строку, кнопки — под ним: в одну строку с двумя
+   кнопками по 44px оно схлопывалось бы в многоточие. */
+.form-screen-body .sticker-preview-info {
+  flex-wrap: wrap;
+}
+
+.form-screen-body .sticker-preview-name {
+  flex-basis: 100%;
+}
+
+.form-screen-body .sticker-preview-actions {
+  flex: 1;
+  justify-content: flex-end;
+}
+
+.form-screen-body .sticker-preview-actions .btn {
+  min-height: 44px;
+}
+
+.form-screen-body .sticker-manager-item .panel-icon-btn {
+  min-width: 44px;
+  min-height: 44px;
+}

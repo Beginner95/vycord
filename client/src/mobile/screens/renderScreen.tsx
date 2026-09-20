@@ -1,24 +1,25 @@
 import type { ReactNode } from 'react';
-import type { Channel } from '@/types';
 import type { Screen } from '@/mobile/nav/types';
-import type { MobileNav } from '@/mobile/nav/useMobileNav';
 import type { AppController } from '@/pages/app/useAppController';
-import { ServerList } from '@/components/ServerList';
-import { ChannelSidebar } from '@/components/ChannelSidebar';
 import { ChatArea } from '@/components/ChatArea';
 import { CallStage } from '@/components/CallStage';
 import { UserList } from '@/components/UserList';
 import { HomeView } from '@/components/HomeView';
 import { UserPanel } from '@/components/UserPanel';
 import { ScreenHeader } from '@/mobile/components/ScreenHeader';
+import { ServersScreen } from './ServersScreen';
+import { ChannelsScreen } from './ChannelsScreen';
+import { CreateServerScreen } from './CreateServerScreen';
+import { FindServerScreen } from './FindServerScreen';
+import { ServerSettingsScreen } from './ServerSettingsScreen';
+import { InvitesScreen } from './InvitesScreen';
+import { StickersScreen } from './StickersScreen';
 import { useCallStore } from '@/stores/callStore';
 import { useT } from '@/i18n';
 
-export interface ScreenCtx {
-  c: AppController;
-  nav: MobileNav;
-  joinVoice: (channel: Channel) => void; // вход + экран звонка
-}
+import type { ScreenCtx } from './types';
+
+export type { ScreenCtx } from './types';
 
 function ProfileRoot({ c }: { c: AppController }) {
   const t = useT();
@@ -29,27 +30,6 @@ function ProfileRoot({ c }: { c: AppController }) {
           вкладка — этап 5 (спека §5.8). */}
       <UserPanel user={c.user} onLogout={c.logout} onOpenSettings={() => c.ui.setSettingsOpen(true)} />
     </div>
-  );
-}
-
-function ChannelsScreen({ serverId, ctx }: { serverId: string; ctx: ScreenCtx }) {
-  const { c, nav, joinVoice } = ctx;
-  if (c.currentServer?.id !== serverId) return <div className="mobile-screen-loading" />;
-  return (
-    <ChannelSidebar
-      server={c.currentServer}
-      channels={c.channels}
-      currentChannel={c.currentChannel}
-      onSelectChannel={(ch) => nav.push({ kind: 'chat', channelId: ch.id })}
-      onJoinVoice={joinVoice}
-      user={c.user}
-      onMobileBack={nav.back}
-      voiceParticipants={c.voiceParticipants}
-      members={c.members}
-      onChannelDeleted={c.channelRemoved}
-      onServerDeleted={c.serverRemoved}
-      onCreateChannel={() => c.ui.setCreateChannelOpen(true)}
-    />
   );
 }
 
@@ -66,8 +46,8 @@ function ChatScreen({ channelId, ctx }: { channelId: string; ctx: ScreenCtx }) {
       onShowMembers={() => nav.push({ kind: 'channelInfo', channelId })}
       onJoinVoice={joinVoice}
       onShowCall={callChannelId === channelId ? () => nav.push({ kind: 'call' }) : undefined}
-      onCreateServer={() => c.ui.setCreateServerOpen(true)}
-      onFindServer={() => c.ui.setFindServerOpen(true)}
+      onCreateServer={() => nav.push({ kind: 'createServer' })}
+      onFindServer={() => nav.push({ kind: 'findServer' })}
       voiceParticipants={c.voiceParticipants}
     />
   );
@@ -79,34 +59,44 @@ function CallScreen({ ctx }: { ctx: ScreenCtx }) {
   return <CallStage onMobileBackToChat={ctx.nav.back} />;
 }
 
-/** Этап 1: экраны стека монтируют существующие панели (спека §9 п.1).
- *  Экраны следующих этапов пока не достижимы — рендерят пустой каркас. */
+/** Этап 2: серверы/каналы и формы — мобильные экраны; чат/звонок/друзья —
+ *  существующие панели (этапы 3–5). Остальные экраны рендерят пустой каркас. */
 export function renderScreen(screen: Screen, ctx: ScreenCtx): ReactNode {
   const { c, nav } = ctx;
   switch (screen.kind) {
     case 'servers':
-      // На этом экране может быть открыт сервер (стек: servers → channels →
-      // ...) — ServerList должен подсвечивать его, а не считать корень
-      // безусловно "без активного сервера".
-      return (
-        <ServerList
-          servers={c.servers}
-          currentServer={c.currentServer}
-          user={c.user}
-          onSelectServer={(s) => nav.push({ kind: 'channels', serverId: s.id })}
-          onCreateServer={() => c.ui.setCreateServerOpen(true)}
-          onOpenFindServer={() => c.ui.setFindServerOpen(true)}
-          onServerDeleted={c.serverRemoved}
-          onSelectHome={() => nav.switchTab('friends')}
-          pendingCount={c.pendingCount}
-        />
-      );
+      return <ServersScreen ctx={ctx} />;
     case 'friends':
       return <HomeView />;
     case 'profile':
       return <ProfileRoot c={c} />;
     case 'channels':
       return <ChannelsScreen serverId={screen.serverId} ctx={ctx} />;
+    case 'createServer':
+      return <CreateServerScreen onCreate={c.createServer} onBack={nav.back} />;
+    case 'findServer':
+      return (
+        <FindServerScreen
+          onJoinServer={c.joinServer}
+          onServerJoined={c.serverJoined}
+          // «Создать свой» ЗАМЕНЯЕТ экран поиска: после создания serverOpened
+          // подменяет стек корнем, и запись «найти» иначе осталась бы в истории.
+          onCreateServer={() => nav.replaceStack([...nav.stack.slice(0, -1), { kind: 'createServer' }])}
+          onBack={nav.back}
+        />
+      );
+    case 'serverSettings': {
+      // Сервер берём из списка, а не из currentServer: экран не должен зависеть
+      // от момента, когда reconcile сделает сервер текущим.
+      const server = c.servers.find((s) => s.id === screen.serverId);
+      return server
+        ? <ServerSettingsScreen server={server} onBack={nav.back} />
+        : <div className="mobile-screen-loading" />;
+    }
+    case 'invites':
+      return <InvitesScreen serverId={screen.serverId} onBack={nav.back} />;
+    case 'stickers':
+      return <StickersScreen serverId={screen.serverId} onBack={nav.back} />;
     case 'chat':
       return <ChatScreen channelId={screen.channelId} ctx={ctx} />;
     case 'channelInfo':

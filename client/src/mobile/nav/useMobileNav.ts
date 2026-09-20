@@ -30,6 +30,18 @@ export const latestStack = (): Stack | null => latest;
 // применяется в go() при каждой записи.
 let latestDepth: number | null = null;
 
+// Ожидающая навигация. react-router 7 применяет navigate() через
+// startTransition, поэтому срочный рендер от setState в том же клике (закрытие
+// ActionSheet) успевает пройти со СТАРЫМ location и перезаписал бы `latest`
+// устаревшим стеком — тогда useBackDismiss увидел бы свой уже заменённый sheet
+// наверху и вызвал back() (history.go(-1)), откатив push. Пока рендер видит тот
+// же location.key, с которого мы стартовали, `latest` не трогаем; первый рендер
+// с другим ключом (навигация применена либо пользователь ушёл сам) — принимаем
+// состояние из location. Таймаут — страховка на случай, если роутер молча
+// отбросил навигацию: `latest` не должен зависнуть навсегда.
+export const PENDING_NAV_TTL_MS = 500;
+let pending: { key: string; at: number } | null = null;
+
 function readState(raw: unknown): { nav: NavState | null } {
   const s = raw as Partial<NavState> | null | undefined;
   return { nav: s && isStack(s.m) ? { m: s.m, b: typeof s.b === 'number' ? s.b : 0 } : null };
@@ -41,8 +53,13 @@ export function useMobileNav(fallback: Screen = TAB_ROOT.servers): MobileNav {
   const { nav } = readState(location.state);
   const stack: Stack = nav?.m ?? [fallback];
   const depth = nav?.b ?? 0;
-  latest = stack;
-  latestDepth = depth;
+  if (pending && (pending.key !== location.key || Date.now() - pending.at >= PENDING_NAV_TTL_MS)) {
+    pending = null;
+  }
+  if (!pending) {
+    latest = stack;
+    latestDepth = depth;
+  }
 
   const go = useCallback(
     (m: Stack, b: number, replace: boolean) => {
@@ -53,6 +70,7 @@ export function useMobileNav(fallback: Screen = TAB_ROOT.servers): MobileNav {
       const safeB = Math.max(0, Math.min(b, m.length - 1));
       latest = m;
       latestDepth = safeB;
+      pending = { key: location.key, at: Date.now() };
       const base = (location.state && typeof location.state === 'object') ? location.state : {};
       navigate(`${location.pathname}${location.search}`, { state: { ...base, m, b: safeB }, replace });
     },

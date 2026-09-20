@@ -1,0 +1,6 @@
+/* VYC-95 §5.9. Блок иконки (.edit-server-icon-*) берёт вид из
+   EditServerModal.css; здесь — только мобильная поправка: кнопки «сменить» и
+   «удалить» не ниже 44px. */
+.form-screen-body .edit-server-icon-actions .btn {
+  min-height: 44px;
+}

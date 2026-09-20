@@ -1,0 +1,43 @@
+/* VYC-95 §5.9. Тело «Найти сервер» общее с десктопной модалкой, а её стили
+   привязаны к предку .find-server-modal (аватар) — на экране предка нет,
+   поэтому нужные find-server-специфичные правила повторены здесь под .form-screen-body. Вложенный
+   скролл списка (max-height) снят: прокручивается всё тело экрана. */
+
+/* Поле поиска — единственный input на экране; общий вид полей и 16px задают
+   primitives.css / FormScreen.css, здесь только гарантия зоны нажатия. */
+.form-screen-body .input {
+  min-height: 44px;
+}
+
+.form-screen-body .find-server-list {
+  max-height: none;
+  overflow-y: visible;
+}
+
+.form-screen-body .find-server-avatar {
+  width: 40px;
+  height: 40px;
+  border-radius: var(--radius-card);
+  flex: 0 0 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 15px;
+  object-fit: cover;
+}
+
+.form-screen-body .find-server-name {
+  font-size: 15px;
+}
+
+.form-screen-body .find-server-row .btn,
+.form-screen-body .find-server-footer .btn {
+  min-height: 44px;
+}
+
+.form-screen-body .find-server-footer {
+  flex-wrap: wrap;
+
+  /* Экран без .form-screen-actions: у нижнего края отступ даёт сам подвал. */
+  padding-bottom: calc(16px + env(safe-area-inset-bottom));
+}

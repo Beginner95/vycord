@@ -9,6 +9,9 @@ import { CreateServerModal } from './CreateServerModal';
 
 interface AppOverlaysProps {
   c: AppController;
+  /** Переопределения открытия форм (мобильная оболочка ведёт на экраны, а не в модалки). */
+  onOpenCreateServer?: () => void;
+  onOpenFindServer?: () => void;
   /** Выбор канала в палитре / вход по баннеру — оболочке нужно ещё и навигировать. */
   onPaletteSelectChannel: (channel: Channel) => void;
   onPaletteJoinVoice: (channel: Channel) => void;
@@ -17,8 +20,11 @@ interface AppOverlaysProps {
 
 /** Общие для обеих оболочек оверлеи, в ТОМ ЖЕ порядке DOM, что был в AppPage
  *  (FindServer → Settings → CreateChannel → CreateServer → CallNotif → Palette). */
-export function AppOverlays({ c, onPaletteSelectChannel, onPaletteJoinVoice, onPaletteShowChat }: AppOverlaysProps) {
-  const openCreateServer = () => c.ui.setCreateServerOpen(true);
+export function AppOverlays({
+  c, onOpenCreateServer, onOpenFindServer, onPaletteSelectChannel, onPaletteJoinVoice, onPaletteShowChat,
+}: AppOverlaysProps) {
+  const openCreateServer = onOpenCreateServer ?? (() => c.ui.setCreateServerOpen(true));
+  const openFindServer = onOpenFindServer ?? (() => c.ui.setFindServerOpen(true));
   return (
     <>
       <FindServerModal
@@ -48,7 +54,7 @@ export function AppOverlays({ c, onPaletteSelectChannel, onPaletteJoinVoice, onP
         onOpenSettings={() => c.ui.setSettingsOpen(true)}
         onCreateChannel={() => c.ui.setCreateChannelOpen(true)}
         onCreateServer={openCreateServer}
-        onFindServer={() => c.ui.setFindServerOpen(true)}
+        onFindServer={openFindServer}
         onJoinVoice={onPaletteJoinVoice}
         onShowChat={onPaletteShowChat}
       />

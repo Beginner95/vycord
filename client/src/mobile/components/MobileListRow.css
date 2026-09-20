@@ -1,0 +1,132 @@
+/* VYC-95 §5.1. Файл монтируется только мобильной оболочкой — медиазапросов нет. */
+.mobile-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 64px;
+  padding: 8px 16px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-touch-callout: none;
+  user-select: none;
+}
+
+.mobile-row:active {
+  background: var(--canvas-2);
+}
+
+.mobile-row-avatar {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 48px;
+}
+
+.mobile-row-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+
+  /* Хэрлайн с отступом под аватар: слева его не видно, как в телеграмных
+     списках. Псевдоэлемент, а не border строки, — иначе линия шла бы и под
+     аватаром. */
+  position: relative;
+  align-self: stretch;
+  justify-content: center;
+  padding: 8px 0;
+}
+
+.mobile-row-text::after {
+  content: '';
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: 1px;
+  background: var(--line);
+}
+
+.mobile-row:last-child .mobile-row-text::after {
+  display: none;
+}
+
+.mobile-row-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  overflow: hidden;
+  color: var(--ink);
+  font-size: 16px;
+  font-weight: 600;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.mobile-row-title-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mobile-row-sub {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 14px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.mobile-row-meta {
+  display: flex;
+  flex-shrink: 0;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+  align-self: stretch;
+  justify-content: center;
+  color: var(--muted-2);
+  font-size: 12px;
+}
+
+.mobile-row-meta:empty {
+  display: none;
+}
+
+.activity-time {
+  color: var(--muted-2);
+  font-size: 12px;
+  line-height: 1;
+}
+
+.activity-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: var(--radius-pill);
+  background: var(--accent);
+  color: var(--white);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1;
+}
+
+.activity-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: var(--radius-pill);
+  background: var(--accent);
+}

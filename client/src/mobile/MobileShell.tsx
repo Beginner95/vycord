@@ -118,6 +118,8 @@ export function MobileShell({ c }: { c: AppController }) {
       {root && <TabBar active={nav.tab} onSelect={nav.switchTab} friendsBadge={c.pendingCount} />}
       <AppOverlays
         c={c}
+        onOpenCreateServer={() => nav.push({ kind: 'createServer' })}
+        onOpenFindServer={() => nav.push({ kind: 'findServer' })}
         onPaletteSelectChannel={(ch) => openChannelDeep(ch.server_id, ch.id, false)}
         onPaletteJoinVoice={(ch) => { c.joinVoice(ch); openChannelDeep(ch.server_id, ch.id, true); }}
         onPaletteShowChat={() => {}}

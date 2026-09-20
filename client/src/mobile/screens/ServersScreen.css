@@ -1,0 +1,33 @@
+/* VYC-95 §5.2. Только мобильная оболочка — медиазапросов нет. */
+.servers-screen {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--canvas);
+}
+
+.servers-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+/* Аватар сервера: скруглённый квадрат на --canvas-2 с --ink. Стили рельса
+   (--rail-*) здесь НЕ используются: на --canvas они требуют переопределения и
+   фона, и текста (спека §5.2). */
+.server-avatar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 48px;
+  border-radius: var(--radius-card);
+  background: var(--canvas-2);
+  color: var(--ink);
+  font-size: 18px;
+  font-weight: 600;
+  object-fit: cover;
+}
