@@ -415,6 +415,25 @@
   }
 }
 
+/* VYC-95 §4.5: на мобиле малые модалки (ConfirmModal, LinkDialog, создание и
+   правка канала, создание сервера) садятся к низу, как sheet. Разметка и
+   useModalFocus те же — меняется только геометрия. (0,2,0) над базой.
+   .settings-modal сюда не входит: по спеке Settings переезжает на
+   полноэкранный экран стека этапом 5, а не становится шторкой — к тому же у
+   неё свои padding: 0 и overflow: hidden, и добавленный здесь padding-bottom
+   съел бы область прокрутки. */
+@media (width < 900px) {
+  .modal-overlay > .modal,
+  .modal-overlay > .confirm-modal {
+    width: 100%;
+    max-width: none;
+    align-self: flex-end;
+    border-radius: var(--radius-modal) var(--radius-modal) 0 0;
+    border-bottom: none;
+    padding-bottom: calc(24px + env(safe-area-inset-bottom));
+  }
+}
+
 .modal h2 {
   font-size: 19px;
   font-weight: 800;

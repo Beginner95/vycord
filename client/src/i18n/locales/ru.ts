@@ -606,6 +606,14 @@ export const ru = {
     serverToggleHint: 'Участники звонков смогут приглашать людей без аккаунта. Каждого гостя нужно впустить.',
   },
 
+  mobile: {
+    tabBar: 'Разделы',
+    tabServers: 'Серверы',
+    tabFriends: 'Друзья',
+    tabProfile: 'Профиль',
+    sheetHandle: 'Потяните вниз, чтобы закрыть',
+  },
+
   errors: {
     unknown: 'Неизвестная ошибка',
     internal_error: 'Внутренняя ошибка сервера',

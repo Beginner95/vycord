@@ -83,8 +83,10 @@ Zero raw colour values exist outside `tokens.css`. A tint derived from a token
 is fine: `color-mix(in srgb, var(--accent-500) 35%, transparent)`. The
 permanent non-CSS exemptions: `utils/avatarColor.ts` (the 8-colour avatar
 palette), canvas `fillStyle`/`strokeStyle` in `AvatarCropModal.tsx`, the
-`#FFFFFF` fallback in `Avatar.tsx`, and the inline-SVG `data:` URI checkmark in
-`primitives.css` (no custom property can reach any of them).
+`#FFFFFF` fallback in `Avatar.tsx`, the inline-SVG `data:` URI checkmark in
+`primitives.css` (no custom property can reach any of them), `public/manifest.webmanifest` and
+`<meta name="theme-color">` in `index.html` + `THEME_COLOR` in `stores/themeStore.ts`
+(values of `--canvas` in both themes — manifest and meta-tag do not read CSS).
 
 ### Custom properties crossing the JS/CSS boundary
 

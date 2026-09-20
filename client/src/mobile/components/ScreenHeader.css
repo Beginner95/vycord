@@ -1,0 +1,64 @@
+.screen-header {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+  min-height: 56px;
+
+  /* Верхний safe-area инсет теперь на .mobile-shell (MobileShell.css) — не
+     дублируем его здесь, иначе двойной отступ. */
+  padding: 0 8px;
+  background: var(--canvas);
+  border-bottom: 1px solid var(--line);
+}
+
+.screen-header-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  flex-shrink: 0;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-pill);
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.screen-header-title {
+  flex: 1;
+  min-width: 0;
+  padding: 0 8px;
+  background: transparent;
+  border: none;
+  color: inherit;
+  text-align: left;
+}
+
+.screen-header-title.is-tappable {
+  cursor: pointer;
+}
+
+.screen-header-name {
+  overflow: hidden;
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--ink);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  margin: 0;
+}
+
+.screen-header-sub {
+  overflow: hidden;
+  font-size: 13px;
+  color: var(--muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.screen-header-actions {
+  display: flex;
+  gap: 2px;
+}

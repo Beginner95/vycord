@@ -1,0 +1,114 @@
+/* VYC-95 §3.5. Оболочка рендерится только при (width < 900px) — JS-развилка
+   AppPage; поэтому здесь нет @media. */
+.mobile-shell {
+  display: flex;
+  flex-direction: column;
+  width: 100vw;
+  height: 100dvh;
+  overflow: hidden;
+  background: var(--canvas);
+
+  /* Верхний инсет принадлежит оболочке, не отдельным экранам: если бы каждая
+     шапка (ScreenHeader и легаси-панели этапа 1) добавляла его в padding
+     сама, при box-sizing: border-box (base.css) отступ съедал бы их
+     min-height и на устройстве с вырезом шапка схлопывалась бы. */
+  padding-top: env(safe-area-inset-top);
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
+}
+
+.mobile-stage {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  touch-action: pan-y;
+}
+
+.mobile-screen {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--canvas);
+}
+
+.mobile-screen.is-top {
+  animation: mobile-screen-in 0.22s var(--ease-out);
+}
+
+.mobile-screen.is-under {
+  visibility: hidden;
+}
+
+/* Под пальцем предыдущий экран должен быть виден. */
+.mobile-stage:has(.mobile-screen.is-top[style]) .mobile-screen.is-under {
+  visibility: visible;
+}
+
+/* Панели этапа 1 (спека §9 п.1) — это десктопные компоненты с фиксированными
+   ширинами колонок (rail 76, sidebar 252, members 236). На экране стека они
+   занимают всё. (0,2,0) — выигрываем у их (0,1,0) базы специфичностью, а не
+   порядком файлов. */
+.mobile-screen > .server-list,
+.mobile-screen > .channel-sidebar,
+.mobile-screen > .chat-area,
+.mobile-screen > .call-stage,
+.mobile-screen > .user-list,
+.mobile-screen > .home-view {
+  flex: 1;
+  width: 100%;
+  min-width: 0;
+  max-width: none;
+  min-height: 0;
+}
+
+/* Навигационные аффордансы панелей, перенесённые из AppPage.css (M6 T8):
+   их база — display: none, а компонентные блоки включают их только ≤ 768px.
+   Оболочка владеет навигацией — оболочка их и включает, на всей ширине < 900. */
+.mobile-shell .mobile-back-btn,
+.mobile-shell .chat-back-btn,
+.mobile-shell .chat-call-btn,
+.mobile-shell .chat-members-btn,
+.mobile-shell .stage-back-btn,
+.mobile-shell .user-list-mobile-header,
+.mobile-shell .home-view-mobile-header {
+  display: flex;
+}
+
+.mobile-profile {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+}
+
+.mobile-screen-loading {
+  flex: 1;
+  background: var(--canvas);
+}
+
+.mobile-call-dock {
+  flex-shrink: 0;
+  margin: 0 12px 8px;
+  border-radius: var(--radius-card);
+  overflow: hidden;
+  box-shadow: var(--shadow-card);
+}
+
+@keyframes mobile-screen-in {
+  from {
+    transform: translateX(24%);
+    opacity: 0.6;
+  }
+
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mobile-screen.is-top {
+    animation: fade-in 0.18s var(--ease-out);
+  }
+}

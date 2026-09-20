@@ -2,8 +2,19 @@
 <html lang="ru">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/favicon.png" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <!-- Ссылки на файлы из public/ добавляются в рантайме (src/main.tsx):
+         при base: './' Vite переписывает href в относительные пути, что ломает
+         работу на маршрутах вроде /app/ (со слэшем). В Electron (file://)
+         манифест не нужен. -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content" />
+    <!-- Литералы = --canvas светлой и тёмной темы (tokens.css). themeStore
+         переписывает первый мета-тег под выбранную в приложении тему. -->
+    <meta name="theme-color" content="#FFFFFF" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#0E1017" media="(prefers-color-scheme: dark)" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Vy Cord" />
     <title>Vy Cord</title>
   </head>
   <body>

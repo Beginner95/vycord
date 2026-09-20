@@ -587,6 +587,14 @@ export const en: Dictionary = {
     serverToggleHint: 'People in a call will be able to invite someone without an account. Every guest has to be let in.',
   },
 
+  mobile: {
+    tabBar: 'Sections',
+    tabServers: 'Servers',
+    tabFriends: 'Friends',
+    tabProfile: 'Profile',
+    sheetHandle: 'Drag down to close',
+  },
+
   errors: {
     unknown: 'Unknown error',
     internal_error: 'Internal server error',

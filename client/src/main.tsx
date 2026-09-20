@@ -22,6 +22,23 @@ if (!window.location.pathname.startsWith('/guest')) {
   apiService.initAuthLifecycle();
 }
 
+// Ссылки на файлы из public/ ставятся в рантайме: при base: './' Vite
+// переписал бы их href в относительные, и на маршруте с вложенным путём
+// (например /app/) манифест и иконки перестали бы находиться. В Electron
+// (file://) манифест не нужен вовсе.
+if (!window.electronAPI) {
+  const link = (rel: string, href: string, type?: string) => {
+    const el = document.createElement('link');
+    el.rel = rel;
+    el.href = href;
+    if (type) el.type = type;
+    document.head.appendChild(el);
+  };
+  link('manifest', '/manifest.webmanifest');
+  link('apple-touch-icon', '/icons/apple-touch-icon.png');
+  link('icon', '/favicon.png', 'image/png');
+}
+
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <App />
