@@ -169,6 +169,12 @@ export const en: Dictionary = {
     unitKbps: 'kbps',
     participantVolume: 'Participant volume',
 
+    // Mobile call overflow sheet (VYC-95 stage 4, T6): quality sub-sheet
+    // title, and the default-output label for the cycling output-device
+    // button (D7).
+    qualityDetails: 'Connection quality',
+    speakerDefault: 'Default speaker',
+
     // Screen source picker modal
     selectScreen: 'Select a screen to share',
     entireScreen: 'Entire Screen',
@@ -188,6 +194,9 @@ export const en: Dictionary = {
     // Header and banners
     live: 'LIVE',
     groupCallTitle: 'Group Call',
+    // Mobile call screen (MobileCallScreen, §6.2): "collapse" button in the
+    // screen's top bar.
+    collapseCall: 'Minimize call',
     resizeSplit: 'Resize call area',
     showCall: 'Call',
     isSharingScreen: '{{name}} is sharing their screen',
@@ -616,6 +625,13 @@ export const en: Dictionary = {
     channelsEmpty: 'This server has no channels yet',
     noServersBody: 'Create a server or enter an invite code.',
     msgActions: 'Message actions',
+    // Mobile call overflow sheet and its volume sub-sheet (VYC-95 stage 4, T6).
+    callActions: 'Call actions',
+    // The call panel's chat button (Minor M3, task-final-fix-report.md) — it
+    // opens chat, not the call screen itself, distinct from callActions/call.showCall.
+    callOpenChat: 'Open chat',
+    callVolumeAction: 'Participant volume',
+    callVolumeEmpty: 'No one else is in the call',
     msgQuote: 'Quote',
     msgCopy: 'Copy text',
     msgRetry: 'Retry sending',

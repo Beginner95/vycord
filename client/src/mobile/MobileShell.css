@@ -51,7 +51,6 @@
    ширинами колонок. На экране стека они занимают всё. (0,2,0) — выигрываем у
    их (0,1,0) базы специфичностью, а не порядком файлов. */
 .mobile-screen > .chat-area,
-.mobile-screen > .call-stage,
 .mobile-screen > .home-view {
   flex: 1;
   width: 100%;

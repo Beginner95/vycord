@@ -1,0 +1,32 @@
+.call-quality-sheet-body {
+  display: flex;
+  flex-direction: column;
+}
+
+.call-quality-sheet-level {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.call-quality-sheet-rows {
+  display: flex;
+  flex-direction: column;
+  margin-top: 12px;
+}
+
+.call-quality-sheet-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 0;
+  border-top: 1px solid var(--panel-line);
+  font-size: 13.5px;
+  color: var(--muted);
+}
+
+.call-quality-sheet-row span:last-child {
+  font-weight: 600;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}

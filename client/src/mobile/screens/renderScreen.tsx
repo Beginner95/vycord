@@ -1,7 +1,11 @@
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import type { Screen } from '@/mobile/nav/types';
 import type { AppController } from '@/pages/app/useAppController';
-import { CallStage } from '@/components/CallStage';
+import { MobileCallScreen } from '@/mobile/screens/MobileCallScreen';
+import { CallOverflowSheets } from '@/mobile/call/CallOverflowSheets';
+import type { CallOverflowSub } from '@/mobile/call/useCallOverflowItems';
+import { useCallStageModel } from '@/components/useCallStageModel';
+import { useGuestManagementStore } from '@/stores/guestManagementStore';
 import { HomeView } from '@/components/HomeView';
 import { UserPanel } from '@/components/UserPanel';
 import { ScreenHeader } from '@/mobile/components/ScreenHeader';
@@ -36,8 +40,42 @@ function ProfileRoot({ c }: { c: AppController }) {
 
 function CallScreen({ ctx }: { ctx: ScreenCtx }) {
   const callChannelId = useCallStore((s) => s.callChannelId);
+  // Единственный вызов useCallStageModel() для всего экрана звонка (Important
+  // I1, task-final-fix-report.md): раньше `MobileCallScreen` звало хук сам, и
+  // отдельно `onOpenOverflow`/`onOpenQuality` замораживали копию модели в
+  // useState в момент открытия шторки — useCallStageModel() возвращает новый
+  // объект на каждый рендер, а этот компонент сам не перерисовывался на
+  // изменения состояния звонка, так что замороженная копия не обновлялась
+  // (живые метрики CallQualitySheet и список/слайдеры CallVolumeSheet
+  // застывали). Теперь модель — одна ссылка, общая для `MobileCallScreen` и
+  // `CallOverflowSheets`.
+  const model = useCallStageModel();
+  const [overflowOpen, setOverflowOpen] = useState(false);
+  // D6: the header quality-indicator (onOpenQuality) jumps straight into
+  // CallQualitySheet; the «⋯» panel button (onOpenOverflow) opens the
+  // generic list. Reset to null on a plain overflow-open so a later generic
+  // open doesn't inherit a stale 'quality' from an earlier quality-open.
+  const [overflowInitialSub, setOverflowInitialSub] = useState<CallOverflowSub>(null);
+  const guestsPresent = useGuestManagementStore((s) => (callChannelId ? (s.channelGuests.get(callChannelId)?.length ?? 0) > 0 : false));
   if (!callChannelId || callChannelId !== ctx.c.currentChannel?.id) return <div className="mobile-screen-loading" />;
-  return <CallStage onMobileBackToChat={ctx.nav.back} />;
+  return (
+    <>
+      <MobileCallScreen
+        model={model}
+        onBack={ctx.nav.back}
+        onOpenChat={() => ctx.nav.push({ kind: 'chat', channelId: callChannelId })}
+        onOpenOverflow={() => { setOverflowInitialSub(null); setOverflowOpen(true); }}
+        onOpenQuality={() => { setOverflowInitialSub('quality'); setOverflowOpen(true); }}
+      />
+      <CallOverflowSheets
+        open={overflowOpen}
+        onClose={() => setOverflowOpen(false)}
+        model={model}
+        guestsPresent={guestsPresent}
+        initialSub={overflowInitialSub}
+      />
+    </>
+  );
 }
 
 /** Этап 2: серверы/каналы и формы — мобильные экраны; чат/звонок/друзья —

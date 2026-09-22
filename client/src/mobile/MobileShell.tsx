@@ -3,7 +3,7 @@ import { useCallStore } from '@/stores/callStore';
 import { useServerStore } from '@/stores/serverStore';
 import { usePaletteStore } from '@/stores/paletteStore';
 import { CallUI } from '@/components/CallUI';
-import { CallDock } from '@/components/CallDock';
+import { CallPill } from './components/CallPill';
 import type { Channel } from '@/types';
 import type { AppController } from '@/pages/app/useAppController';
 import { AppOverlays } from '@/pages/app/AppOverlays';
@@ -97,6 +97,7 @@ export function MobileShell({ c }: { c: AppController }) {
   };
 
   const root = isRoot(nav.stack);
+  const showPill = callStatus !== 'idle' && nav.top.kind !== 'call';
   useEdgeSwipeBack(stageRef, {
     enabled: !root && nav.top.kind !== 'call',
     onBack: nav.back,
@@ -124,9 +125,12 @@ export function MobileShell({ c }: { c: AppController }) {
           );
         })}
       </div>
-      {root && callStatus !== 'idle' && (
-        <div className="mobile-call-dock">
-          <CallDock onGoToCall={(serverId, channelId) => serverId && openChannelDeep(serverId, channelId, true)} />
+      {showPill && (
+        <div className={root ? 'mobile-call-dock' : undefined}>
+          <CallPill
+            variant={root ? 'root' : 'stacked'}
+            onGoToCall={(serverId, channelId) => serverId && openChannelDeep(serverId, channelId, true)}
+          />
         </div>
       )}
       {root && <TabBar active={nav.tab} onSelect={nav.switchTab} friendsBadge={c.pendingCount} />}

@@ -1,0 +1,534 @@
+/* ── Мобильная сцена группового звонка (спека §6.2) ──
+   Файлы под src/mobile/ не используют @media — экран монтируется только на
+   мобильном брейкпоинте (см. client/docs/verification.md). Цвета — токены
+   --stage-* (те же, что CallStage.css уже определяет глобально в :root/theme,
+   театрально-инвариантные — без редефайна и без тёмного оверрайда). */
+
+.mobile-call-screen {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  background: var(--stage);
+  color: var(--stage-ink);
+  overflow: hidden;
+}
+
+/* ── Шапка: своя safe-area плашка, не ScreenHeader (спека §6.2) ── */
+.mcs-topbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+  min-height: 56px;
+  padding: calc(env(safe-area-inset-top) + 8px) 12px 8px;
+  border-bottom: 1px solid var(--stage-line);
+}
+
+.mcs-collapse-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-row);
+  background: var(--stage-chip);
+  color: var(--stage-ink);
+  cursor: pointer;
+}
+
+.mcs-title {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+
+.mcs-title-name {
+  max-width: 100%;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: 14.5px;
+  font-weight: 700;
+  color: var(--stage-ink);
+}
+
+.mcs-title-timer {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--stage-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.mcs-quality-btn {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-row);
+  background: transparent;
+  cursor: pointer;
+}
+
+.mcs-quality-btn:active {
+  background: var(--stage-chip);
+}
+
+/* ── Плашка «Переподключение…» — в потоке, не оверлей ── */
+.mcs-reconnecting {
+  flex-shrink: 0;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--warning);
+  background: var(--stage-bar);
+  color: var(--warning);
+  font-size: 13px;
+  font-weight: 600;
+  text-align: center;
+}
+
+/* ── Баннер демонстрации экрана ── */
+.mcs-share-banner {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  background: var(--stage-bar);
+  border-bottom: 1px solid var(--stage-line);
+  color: var(--stage-ink);
+}
+
+.mcs-share-banner-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.mcs-share-banner-btn {
+  flex-shrink: 0;
+  height: 32px;
+  padding: 0 14px;
+  border: none;
+  border-radius: var(--radius-row);
+  background: var(--stage-accent);
+  color: var(--white);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.mcs-share-banner-btn:active {
+  background: var(--stage-accent-hover);
+}
+
+.mcs-share-banner-dismiss {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-row);
+  background: transparent;
+  color: var(--stage-muted);
+  cursor: pointer;
+}
+
+.mcs-share-banner-dismiss:active {
+  background: var(--stage-chip);
+  color: var(--stage-ink);
+}
+
+/* ── Область видео: сетка или фокус ── */
+.mcs-body {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* ── Сетка. columns приходит из mobileGridLayout как явный класс
+   (mcs-grid-cols-1/-2), не custom property — проще для stylelint's
+   value-no-unknown-custom-properties. position: relative делает эту сетку
+   позиционирующим контекстом для плавающего PiP-превью ниже. */
+.mcs-grid {
+  position: relative;
+  height: 100%;
+  display: grid;
+  grid-auto-rows: 1fr;
+  gap: 8px;
+  padding: 8px;
+}
+
+.mcs-grid-cols-1 {
+  grid-template-columns: 1fr;
+}
+
+.mcs-grid-cols-2 {
+  grid-template-columns: repeat(2, 1fr);
+}
+
+/* Blocker I3 (task-final-fix-report.md): grid-auto-rows: 1fr on the plain
+   grid above always divides the container's height exactly, so it can never
+   overflow — overflow-y: auto below never actually had anything to scroll,
+   and tiles just kept shrinking as participants piled up. A real minimum row
+   height makes the grid genuinely overflow once ≥5 participants no longer
+   fit at that height (spec §6.2: "≥ 5 → 2 колонки с прокруткой" — scrolling,
+   not shrinking). 160px leaves room for a tile's footer (name/mic plate,
+   camera-off chip) without collision, same spirit as the .stage-share-badge
+   shrink below. align-content: start keeps rows packed at their minimum
+   height instead of stretching to fill a taller-than-needed scroll area. */
+.mcs-grid.is-scroll {
+  grid-auto-rows: minmax(160px, 1fr);
+  align-content: start;
+  overflow-y: auto;
+}
+
+/* Плитка удалённого участника — общий `RemoteParticipantTile`/.stage-tile с
+   десктопом (D3), но CallStage.css несёт unscoped `aspect-ratio: 16 / 9`,
+   рассчитанный на широкую десктопную плитку. На узкой портретной сетке это
+   оставляло большую часть высоты .mcs-grid пустой (Blocker FOURTH FINDING,
+   task-9-verify-report.md). Оверрайд скопирован под .mobile-call-screen —
+   никогда не протечёт на десктоп, даже если брейкпоинт когда-нибудь
+   изменится. grid-auto-rows: 1fr на .mcs-grid выше — то, благодаря чему
+   height: 100% здесь вообще от чего-то отсчитывается: без него implicit-
+   строки сайзились бы по контенту (auto), а не делили высоту сетки поровну. */
+.mobile-call-screen .stage-tile {
+  aspect-ratio: unset;
+  height: 100%;
+}
+
+/* Blocker SIXTH FINDING (task-9-verify-report.md): на узкой 2-колоночной
+   сетке (~183px плитка) `.stage-share-badge` (десктопный unscoped left: 40px
+   + текст «Демонстрация») доставал до `.stage-focus-btn` (right: 44px) и
+   визуально сталкивался с ним — проблема ширины плитки, а не высоты, так что
+   растягивание строк (выше) её не решает. На мобиле бейдж сжимается до одной
+   иконки: font-size: 0 гасит соседний текстовый узел (у SVG-иконки
+   lucide-react свои width/height-атрибуты, от font-size не зависят), а
+   уменьшенные padding/gap держат итоговую иконку-чип в пределах полосы между
+   .stage-volume-btn и .stage-focus-btn. */
+.mobile-call-screen .stage-share-badge {
+  gap: 0;
+  padding: 6px;
+  font-size: 0;
+}
+
+/* ── Локальное превью (PiP): базовый вид плитки — видео/аватар в скруглённой
+   рамке. .mcs-pip поверх этого добавляет плавающее позиционирование. ── */
+.mcs-tile {
+  position: relative;
+  overflow: hidden;
+  border-radius: var(--radius-tile);
+  background: var(--stage-tile);
+}
+
+.mcs-tile video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.mcs-tile video.is-mirrored {
+  transform: scaleX(-1);
+}
+
+.mcs-tile video.is-screen {
+  object-fit: contain;
+  transform: none;
+}
+
+.mcs-tile-avatar {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  font-size: 22px;
+  object-fit: cover;
+}
+
+/* Плавает над сеткой в одном из четырёх углов — перетаскивается dragPip.
+   Ни одна другая плитка сетки не позиционирована абсолютно, поэтому порядок
+   DOM (PiP рендерится первым ребёнком .mcs-grid, но position: absolute всё
+   равно кладёт её поверх обычного потока) достаточен без числового z-index —
+   в этом файле нет других слоёв, конкурирующих за стек. */
+.mcs-pip {
+  position: absolute;
+  width: 96px;
+  height: 128px;
+  border: 2px solid var(--stage-line);
+  box-shadow: var(--shadow-card);
+  touch-action: none;
+}
+
+.mcs-pip.is-tl {
+  top: 12px;
+  left: 12px;
+}
+
+.mcs-pip.is-tr {
+  top: 12px;
+  right: 12px;
+}
+
+.mcs-pip.is-bl {
+  bottom: 12px;
+  left: 12px;
+}
+
+.mcs-pip.is-br {
+  bottom: 12px;
+  right: 12px;
+}
+
+/* ── Соло: только себя, 0 удалённых участников — весь экран, не плавающий
+   96×128px PiP (спека §6.2: «1 → весь экран»; Blocker THIRD FINDING,
+   task-9-verify-report.md). Свой контейнер, а не .mcs-tile.mcs-pip —
+   position: absolute; inset: 0 заполняет .mcs-body (уже position: relative),
+   видео теми же правилами, что и .mcs-tile video, для визуальной
+   консистентности. */
+.mcs-solo {
+  position: absolute;
+  inset: 0;
+}
+
+.mcs-solo video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.mcs-solo video.is-mirrored {
+  transform: scaleX(-1);
+}
+
+.mcs-solo video.is-screen {
+  object-fit: contain;
+  transform: none;
+}
+
+.mcs-solo-avatar {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  font-size: 48px;
+  object-fit: cover;
+}
+
+/* ── Фокус: главное видео с пинч-зумом + лента миниатюр внизу (Critical C1,
+   task-final-fix-report.md) — .mcs-focus теперь колонка из .mcs-focus-main
+   (видео + оверлеи, ровно то же самое, что раньше лежало прямо тут) и
+   .mcs-focus-thumbs, зеркалит десктопные `.stage-focus`/`.stage-focus-main`/
+   `.stage-thumbs` (CallStage.tsx/CallStage.css). */
+.mcs-focus {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  background: var(--stage);
+  overflow: hidden;
+}
+
+.mcs-focus-main {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.mcs-focus-video {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+}
+
+/* Имя фокусированного участника — оверлей внизу слева, в том же углу, что и
+   десктопный `.stage-focus-label` (CallStage.css). Без него камера-выкл.
+   фокус-вид был голым чёрным прямоугольником без единой подсказки, кого
+   смотришь (Important FIFTH FINDING, task-9-verify-report.md). */
+.mcs-focus-label {
+  position: absolute;
+  bottom: 14px;
+  left: 14px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: calc(100% - 28px);
+  overflow: hidden;
+  padding: 5px 10px;
+  border-radius: var(--radius-row);
+  background: var(--stage-plate);
+  color: var(--stage-ink);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.mcs-focus-name {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.mcs-focus-back {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-row);
+  background: var(--stage-plate);
+  color: var(--stage-ink);
+  cursor: pointer;
+}
+
+/* ── Лента миниатюр под главным фокус-видео (Critical C1). Тот же shared
+   `.stage-thumb` (CallStage.css, unscoped) as the grid branch's `.stage-tile`
+   reuse — height on the flex row is what `.stage-thumb`'s own
+   `height: 100%; aspect-ratio: 16 / 9` sizes against, so no override of the
+   tile itself is needed here (verified against CallStage.css's rules — see
+   below for the chips that DO need one). overflow: auto hidden is the
+   shorthand pair (not overflow-x/-y) — declaration-block-no-redundant-
+   longhand-properties, same reason CallStage.css's own .stage-thumbs uses
+   it. */
+.mcs-focus-thumbs {
+  display: flex;
+  flex-shrink: 0;
+  align-items: stretch;
+  gap: 8px;
+  height: 92px;
+  padding: 8px 12px;
+  overflow: auto hidden;
+  border-top: 1px solid var(--stage-line);
+  background: var(--stage-bar);
+  scrollbar-width: thin;
+}
+
+.mcs-focus-thumbs::-webkit-scrollbar {
+  height: 4px;
+}
+
+.mcs-focus-thumbs::-webkit-scrollbar-thumb {
+  background: var(--stage-toggle);
+  border-radius: 2px;
+}
+
+/* CallStage.css's thumb-scale chip shrink (its `.stage-thumbs .stage-thumb
+   .stage-volume-btn`/`.stage-conn` overrides) is scoped to the DESKTOP
+   `.stage-thumbs` ancestor class, which this strip deliberately doesn't
+   reuse (own class, own file — never leaks a rule onto the desktop scene).
+   Without an equivalent here, `.stage-volume-btn` falls back to
+   CallStage.css's real `@media (width <= 768px)` 40×40 touch-floor rule (a
+   genuine device-width query, so it fires on an actual phone regardless of
+   ancestor), and `.stage-conn` falls back to its 28px-tall default — both
+   sized for a full `.stage-tile`, not a ~76px-tall strip thumbnail, and
+   `.stage-conn`/`.stage-thumb-badge` land in the same top-right corner and
+   collide (the exact collision CallStage.css's own comment calls "Ruling
+   T4-a"). Re-scaled to the same values CallStage.css already measured
+   correct at thumb scale. */
+.mobile-call-screen .stage-thumb .stage-volume-btn {
+  width: 20px;
+  height: 20px;
+  top: 4px;
+  left: 4px;
+  opacity: 1;
+}
+
+.mobile-call-screen .stage-thumb .stage-conn {
+  top: 4px;
+  right: 4px;
+  height: 20px;
+  padding: 0 5px;
+}
+
+.mobile-call-screen .stage-thumb .stage-thumb-badge {
+  right: 28px;
+}
+
+.mobile-call-screen .stage-thumb .stage-conn-bar {
+  width: 2px;
+  margin-bottom: 4px;
+}
+
+.mobile-call-screen .stage-thumb .stage-conn-bar:nth-child(1) { height: 3px; }
+.mobile-call-screen .stage-thumb .stage-conn-bar:nth-child(2) { height: 6px; }
+.mobile-call-screen .stage-thumb .stage-conn-bar:nth-child(3) { height: 9px; }
+
+/* ── Нижняя панель: 56×56 кнопки (спека §6.2) ── */
+.mcs-panel {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: space-around;
+  gap: 6px;
+  padding: 8px 10px calc(env(safe-area-inset-bottom) + 8px);
+  background: var(--stage-bar);
+  border-top: 1px solid var(--stage-line);
+}
+
+.mcs-panel-btn {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 56px;
+  height: 56px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-btn);
+  background: var(--stage-toggle);
+  color: var(--stage-ink);
+  cursor: pointer;
+  transition: background var(--transition);
+}
+
+.mcs-panel-btn:active {
+  background: var(--stage-chip);
+}
+
+.mcs-panel-btn.is-off {
+  background: var(--danger);
+  color: var(--white);
+}
+
+.mcs-panel-btn.is-danger {
+  background: var(--danger);
+  color: var(--white);
+}
+
+.mcs-panel-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  pointer-events: none;
+}
