@@ -16,12 +16,15 @@ interface AppOverlaysProps {
   onPaletteSelectChannel: (channel: Channel) => void;
   onPaletteJoinVoice: (channel: Channel) => void;
   onPaletteShowChat: () => void;
+  /** Мобильная оболочка заменяет оверлей палитры экраном `search` (спека D8). */
+  showPalette?: boolean;
 }
 
 /** Общие для обеих оболочек оверлеи, в ТОМ ЖЕ порядке DOM, что был в AppPage
  *  (FindServer → Settings → CreateChannel → CreateServer → CallNotif → Palette). */
 export function AppOverlays({
   c, onOpenCreateServer, onOpenFindServer, onPaletteSelectChannel, onPaletteJoinVoice, onPaletteShowChat,
+  showPalette = true,
 }: AppOverlaysProps) {
   const openCreateServer = onOpenCreateServer ?? (() => c.ui.setCreateServerOpen(true));
   const openFindServer = onOpenFindServer ?? (() => c.ui.setFindServerOpen(true));
@@ -49,15 +52,17 @@ export function AppOverlays({
           onDismiss={c.dismissCallNotif}
         />
       )}
-      <CommandPalette
-        onSelectChannel={onPaletteSelectChannel}
-        onOpenSettings={() => c.ui.setSettingsOpen(true)}
-        onCreateChannel={() => c.ui.setCreateChannelOpen(true)}
-        onCreateServer={openCreateServer}
-        onFindServer={openFindServer}
-        onJoinVoice={onPaletteJoinVoice}
-        onShowChat={onPaletteShowChat}
-      />
+      {showPalette && (
+        <CommandPalette
+          onSelectChannel={onPaletteSelectChannel}
+          onOpenSettings={() => c.ui.setSettingsOpen(true)}
+          onCreateChannel={() => c.ui.setCreateChannelOpen(true)}
+          onCreateServer={openCreateServer}
+          onFindServer={openFindServer}
+          onJoinVoice={onPaletteJoinVoice}
+          onShowChat={onPaletteShowChat}
+        />
+      )}
     </>
   );
 }

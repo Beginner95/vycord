@@ -1,0 +1,30 @@
+/* MobileMessageSearch.css — рендерится только на мобиле, @media не нужен. */
+.chat-search-layer {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--canvas);
+}
+
+/* Слой идёт в DOM ПОСЛЕ композера и кнопки «к последним» — рисуется поверх них
+   порядком DOM (позиционированные элементы без z-index). Кнопка «к последним»
+   стоит позже слоя и иначе торчала бы поверх результатов. */
+.chat-search-layer ~ .chat-jump-btn {
+  display: none;
+}
+
+/* Панель поиска — не боковая колонка, а весь слой. (0,2,0) > базовый (0,1,0):
+   сбрасываем всё, что делало её боковой панелью — позицию, z-index, ширину,
+   границу, тень и анимацию въезда справа. */
+.chat-search-layer > .message-search {
+  position: static;
+  z-index: auto;
+  flex: 1;
+  width: 100%;
+  max-width: none;
+  min-height: 0;
+  border-left: none;
+  box-shadow: none;
+  animation: none;
+}

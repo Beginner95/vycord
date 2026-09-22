@@ -1,0 +1,76 @@
+/* VYC-95 §5.10. Только мобильная оболочка — медиазапросов нет. Шапка — общий
+   .screen-header (ScreenHeader.css). */
+.search-screen {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--canvas);
+}
+
+.search-input {
+  flex: 1;
+  min-width: 0;
+  height: 40px;
+  padding: 0 16px;
+  font-family: inherit;
+
+  /* 16px — иначе iOS Safari приближает страницу при фокусе. */
+  font-size: 16px;
+  color: var(--ink);
+  background: var(--canvas-2);
+  border: none;
+  border-radius: var(--radius-pill);
+  caret-color: var(--accent);
+}
+
+.search-input::placeholder {
+  color: var(--faint);
+}
+
+.search-input:focus-visible {
+  outline: none;
+}
+
+.search-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+.search-group {
+  margin: 0;
+  padding: 16px 16px 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.search-icon,
+.search-avatar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 48px;
+  border-radius: var(--radius-pill);
+}
+
+.search-icon {
+  background: var(--canvas-2);
+  color: var(--ink);
+}
+
+.search-status {
+  padding: 16px;
+  color: var(--muted);
+}
+
+/* Подсветка совпадения — те же токены, что и у десктопной палитры. */
+.search-screen mark {
+  font-weight: 700;
+  color: var(--hl-ink);
+  background: var(--hl-bg);
+}

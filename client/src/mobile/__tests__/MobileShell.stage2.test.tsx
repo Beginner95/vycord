@@ -1,6 +1,14 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import { render, act, cleanup, fireEvent } from '@testing-library/react';
+
+// themeStore читает matchMedia в момент импорта (SearchScreen тянет его через
+// renderScreen), а jsdom его не определяет.
+vi.hoisted(() => {
+  window.matchMedia = ((q: string) => ({
+    matches: false, media: q, addEventListener() {}, removeEventListener() {},
+  })) as unknown as typeof window.matchMedia;
+});
 import { MemoryRouter } from 'react-router-dom';
 import type { AppController } from '@/pages/app/useAppController';
 import type { Server, Channel } from '@/types';
@@ -12,6 +20,7 @@ vi.mock('@/components/CallDock', () => ({ CallDock: () => null }));
 
 import { MobileShell } from '@/mobile/MobileShell';
 import { useServerStore } from '@/stores/serverStore';
+import { usePaletteStore } from '@/stores/paletteStore';
 import { controller } from '@/mobile/screens/__tests__/fixtures';
 
 afterEach(cleanup);
@@ -94,5 +103,22 @@ describe('MobileShell stage 2 (real screens)', () => {
     expect(document.querySelector('.form-screen')).toBeNull();
     expect(document.querySelector('.servers-screen')).not.toBeNull();
     expect(document.querySelector('.tab-bar')).not.toBeNull();
+  });
+
+  it('the hardware ⌘K flag opens the search screen once and resets the store flag', async () => {
+    mount();
+    await flush();
+    act(() => { usePaletteStore.getState().open(); });
+    await flush();
+    expect(document.querySelector('.search-screen')).not.toBeNull();
+    expect(usePaletteStore.getState().isOpen).toBe(false);
+    // Повторное нажатие поверх уже открытого поиска стек не наращивает.
+    act(() => { usePaletteStore.getState().open(); });
+    await flush();
+    expect(document.querySelectorAll('.search-screen').length).toBe(1);
+    fireEvent.click(byLabel(document, BACK)!);
+    await flush();
+    expect(document.querySelector('.search-screen')).toBeNull();
+    expect(document.querySelector('.servers-screen')).not.toBeNull();
   });
 });

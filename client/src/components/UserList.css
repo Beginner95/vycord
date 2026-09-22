@@ -222,7 +222,7 @@
   border-bottom: 1px solid var(--line);
 }
 
-@media (width <= 768px) {
+@media (width < 900px) {
   .user-list {
     width: 100vw;
     min-width: 100vw;

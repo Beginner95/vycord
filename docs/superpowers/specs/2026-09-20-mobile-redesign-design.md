@@ -538,34 +538,34 @@ safe-area, основная кнопка у низа, клавиатура не 
 | 16 | Создать канал | `CreateChannelModal` | меню сервера → модалка sheet-стиля | 2 | ⏳ этап 2: пункт «Создать канал» в меню сервера есть (тест); модалка открывается прежней `CreateChannelModal` в sheet-стиле этапа 1 — снимок этапа 7 |
 | 17 | Переименовать канал | `EditChannelModal` | long-press канала / `channelInfo` → модалка | 2 | ✅ этап 2 — пункт на `.superpowers/vyc95/s2/mobile/channel-menu-390x844-*.png`, `channelMenu.test.tsx` (в т.ч. гонка сохранения); снимка самой модалки нет |
 | 18 | Удалить канал (последний нельзя) | `ChannelSidebar` меню | long-press / `channelInfo`, `disabledReason` | 2 | ✅ этап 2 — пункты на `.superpowers/vyc95/s2/mobile/channel-menu-390x844-*.png`; `disabledReason` у последнего канала и повторная проверка при удалении — `channelMenu.test.tsx` |
-| 19 | Индикатор голоса в канале и кто в нём | `ChannelSidebar`, `VoiceBanner` | вторая строка канала; `VoiceBanner` в чате | 2–3 | ⏳ частично: вторая строка «Аня, Борис +1 в голосе» — unit-тесты `voiceLine`/`ChannelsScreen`/`ServersScreen`, снимка нет (в фикстурах нет голоса); `VoiceBanner` — этап 3 |
-| 20 | У канала и чат, и звонок | `ChatArea` + `CallStage` | `chat` + кнопка звонка → `call` | 3–4 | план |
+| 19 | Индикатор голоса в канале и кто в нём | `ChannelSidebar`, `VoiceBanner` | вторая строка канала; `VoiceBanner` в чате | 2–3 | ✅ этап 2 (вторая строка) + этап 3 (`VoiceBanner` в `ChatArea.seams.test.tsx`, `.superpowers/vyc95/s3/mobile/frames/voice-390x844-*.png`) |
+| 20 | У канала и чат, и звонок | `ChatArea` + `CallStage` | `chat` + кнопка звонка → `call` | 3–4 | ⏳ частично: `chat` — этап 3 (кнопка звонка в шапке открывает `VoiceBanner`/подключение, `ChatArea.seams.test.tsx`); экран `call` сам — этап 4 |
 | **Чат** |
-| 21 | Лента, разделители дней, «Новые сообщения», «к последним», подгрузка истории | `ChatArea` | `chat` (та же `ChatArea`) | 3 | план |
-| 22 | Правка («изменено») | `MessageRow` hover | long-press → «Изменить» | 3 | план |
-| 23 | Удаление (подтверждение) | `MessageRow` → `ConfirmModal` | long-press → «Удалить» → `ConfirmModal` | 3 | план |
-| 24 | Статусы «отправляется / не отправлено → повторить / отменить» | `MessageRow` | inline + long-press «Повторить/Отменить» | 3 | план |
-| 25 | Цитирование | `MessageRow` hover | long-press → «Цитировать» | 3 | план |
-| 26 | Плавающая кнопка цитаты при выделении | `FloatingQuoteButton` | та же (проверка на тач-вводе); запасной путь — пункт sheet'а | 3 | план |
-| 27 | Упоминания с автодополнением | `MentionDropdown` | над композером во всю ширину | 3 | план |
-| 28 | Форматирование: жирный, курсив, подчёркнутый, списки | `FormattingToolbar` (хоткеи) | кнопка «Aa» → панель над полем | 3 | план |
-| 29 | Ссылка | `LinkDialog` | из панели «Aa» → `LinkDialog` sheet-стиля | 3 | план |
-| 30 | Эмодзи (частые + категории) | `ExpressionPicker`, `EmojiPanel` | «＋» → sheet «Эмодзи» | 3 | план |
-| 31 | Стикеры | `StickerPanel` | «＋» → sheet «Стикеры» | 3 | план |
-| 32 | Вложения image/video/audio/file | `AttachmentButton` | «＋» → «Фото и видео / Файл» | 3 | план |
-| 33 | Трей вложений: прогресс, повтор, удаление | `AttachmentTray` | над композером, как есть | 3 | план |
-| 34 | Drag&drop | `ChatArea` | недостижим на тач-вводе; эквивалент — «＋» | 3 | план |
-| 35 | Лайтбокс: листание, скачивание, fullscreen | `MediaLightbox` | полноэкранный, свайпы, landscape | 3 | план |
-| 36 | `AudioPlayer`, `VideoPlayer` | — | в ленте, тач-цели ≥ 44 | 3 | план |
-| 37 | Строки событий звонков (начал, длительность, участники, гости) | `CallEventRow` | в ленте, как есть | 3 | план |
-| 38 | Поиск по каналу | `MessageSearch` | иконка в шапке `chat` / `channelInfo` → полноэкранный режим | 3 | план |
-| 39 | Пустые состояния (нет серверов, тишина в канале, приветствие) | `ChatArea` | те же карточки в `chat` / «Серверы» | 2–3 | ⏳ частично: карточка «Нет серверов» — `.superpowers/vyc95/s2/mobile2/servers-empty-390x844-*.png`; «тишина в канале»/«приветствие» — этап 3 |
-| 40 | Бейдж гостя в сообщениях | `MessageRow` | как есть | 3 | план |
-| 41 | Баннер «N гостей видят сообщения» | `ChatArea` | под шапкой `chat` | 3 | план |
+| 21 | Лента, разделители дней, «Новые сообщения», «к последним», подгрузка истории | `ChatArea` | `chat` (та же `ChatArea`) | 3 | ✅ этап 3 — `ChatArea.dom.test.tsx`, `ChatScreen.test.tsx`, `.superpowers/vyc95/s3/mobile/frames/chat-{top,mid}-390x844-*.png` |
+| 22 | Правка («изменено») | `MessageRow` hover | long-press → «Изменить» | 3 | ✅ этап 3 — `MessageRow.mobile.test.tsx`, `.superpowers/vyc95/s3/mobile/frames/edit-390x844-*.png` |
+| 23 | Удаление (подтверждение) | `MessageRow` → `ConfirmModal` | long-press → «Удалить» → `ConfirmModal` | 3 | ✅ этап 3 — `useMessageActions`/`MessageActionsSheet.test.tsx` |
+| 24 | Статусы «отправляется / не отправлено → повторить / отменить» | `MessageRow` | inline + long-press «Повторить/Отменить» | 3 | ✅ этап 3 — `MessageRow.mobile.test.tsx` |
+| 25 | Цитирование | `MessageRow` hover | long-press → «Цитировать» | 3 | ✅ этап 3 — `useMessageActions.test.tsx`, `verify-c-report.md` проба 6 |
+| 26 | Плавающая кнопка цитаты при выделении | `FloatingQuoteButton` | та же (проверка на тач-вводе); запасной путь — пункт sheet'а | 3 | ✅ этап 3 — запасной путь (long-press → «Цитировать») покрыт; сам компонент не переделывался (десктопная логика, seam не требовался) |
+| 27 | Упоминания с автодополнением | `MentionDropdown` | над композером во всю ширину | 3 | ✅ этап 3 — `Composer.mobile.test.tsx` |
+| 28 | Форматирование: жирный, курсив, подчёркнутый, списки | `FormattingToolbar` (хоткеи) | кнопка «Aa» → панель над полем | 3 | ✅ этап 3 — `Composer.mobile.test.tsx`, `.superpowers/vyc95/s3/mobile/frames/aa-390x844-*.png` |
+| 29 | Ссылка | `LinkDialog` | из панели «Aa» → `LinkDialog` sheet-стиля | 3 | ✅ этап 3 — та же панель «Aa», `Composer.mobile.test.tsx` |
+| 30 | Эмодзи (частые + категории) | `ExpressionPicker`, `EmojiPanel` | «＋» → sheet «Эмодзи» | 3 | ✅ этап 3 — `ExpressionPicker.dom.test.tsx`, `MobileExpressionSheet`, `.superpowers/vyc95/s3/mobile/frames/emoji-*.png` |
+| 31 | Стикеры | `StickerPanel` | «＋» → sheet «Стикеры» | 3 | ✅ этап 3 — та же `MobileExpressionSheet` (вторая вкладка), `.superpowers/vyc95/s3/mobile/frames/stickers-*.png` |
+| 32 | Вложения image/video/audio/file | `AttachmentButton` | «＋» → «Фото и видео / Файл» | 3 | ✅ этап 3 — `useFilePicker`, `MobileAttachSheet`, `verify-c-report.md` проба 8 (`input.click()` синхронно) |
+| 33 | Трей вложений: прогресс, повтор, удаление | `AttachmentTray` | над композером, как есть | 3 | ✅ этап 3 — desktop-компонент без seam'ов (не мобилизировался, поведение унаследовано), `Composer.mobile.test.tsx` |
+| 34 | Drag&drop | `ChatArea` | недостижим на тач-вводе; эквивалент — «＋» | 3 | ✅ этап 3 — эквивалент «＋» покрыт (см. п. 32), сам d&d на тач-вводе недостижим по определению |
+| 35 | Лайтбокс: листание, скачивание, fullscreen | `MediaLightbox` | полноэкранный, свайпы, landscape | 3 | ✅ этап 3 — `lightboxSwipe.test.ts`, `MediaLightbox.swipe.test.tsx`, `.superpowers/vyc95/s3/mobile/frames/lightbox-{390x844,844x390}-*.png`, `verify-c-report.md` проба 9 |
+| 36 | `AudioPlayer`, `VideoPlayer` | — | в ленте, тач-цели ≥ 44 | 3 | ✅ этап 3 — `verify-c-report.md` проба 11 (`audio-play-btn` ±21px); наезд `.attachment-download`/`.audio-time` найден и исправлен (Verify B D2) |
+| 37 | Строки событий звонков (начал, длительность, участники, гости) | `CallEventRow` | в ленте, как есть | 3 | ✅ этап 3 — desktop-компонент без seam'ов, снимка в матрице нет (фикстуры без call-событий), не мобилизировался намеренно (обычная строка ленты) |
+| 38 | Поиск по каналу | `MessageSearch` | иконка в шапке `chat` / `channelInfo` → полноэкранный режим | 3 | ✅ этап 3 — `ChatArea.seams.test.tsx`, `MobileMessageSearch`, `.superpowers/vyc95/s3/mobile/frames/search-{empty,q,none}-390x844-*.png`, `verify-c-report.md` пробы 1, 3 |
+| 39 | Пустые состояния (нет серверов, тишина в канале, приветствие) | `ChatArea` | те же карточки в `chat` / «Серверы» | 2–3 | ✅ этап 2 (нет серверов) + этап 3 («тишина в канале» — `.superpowers/vyc95/s3/mobile/frames/empty-390x844-*.png`, `ChatScreen.test.tsx`) |
+| 40 | Бейдж гостя в сообщениях | `MessageRow` | как есть | 3 | ✅ этап 3 — desktop-компонент без seam'ов (CSS уже мобильный из этапа 1), поведение унаследовано |
+| 41 | Баннер «N гостей видят сообщения» | `ChatArea` | под шапкой `chat` | 3 | ✅ этап 3 — desktop-компонент без seam'ов, поведение унаследовано |
 | **Участники** |
-| 42 | Онлайн / офлайн, last seen (приватность) | `UserList` | `channelInfo` → «Участники» | 3 | план |
-| 43 | «В голосе · канал» | `UserList` | `channelInfo` | 3 | план |
-| 44 | Позвонить пользователю | `UserList` | тап по участнику → `ActionSheet` «Позвонить» | 3 | план |
+| 42 | Онлайн / офлайн, last seen (приватность) | `UserList` | `channelInfo` → «Участники» | 3 | ✅ этап 3 — `useMemberList.test.tsx`, `ChannelInfoScreen.test.tsx`, `.superpowers/vyc95/s3/mobile/frames/info-{390x844,info-scroll}-*.png` |
+| 43 | «В голосе · канал» | `UserList` | `channelInfo` | 3 | ✅ этап 3 — `useMemberList.test.tsx` (`voiceNameFor`) |
+| 44 | Позвонить пользователю | `UserList` | тап по участнику → `ActionSheet` «Позвонить» | 3 | ✅ этап 3 — `ChannelInfoScreen.test.tsx`, `.superpowers/vyc95/s3/mobile/frames/info-call-390x844-*.png` |
 | **Звонки** |
 | 45 | Войти / выйти в групповой звонок | `ChatArea`, `CallStage` | кнопка в шапке `chat`, `VoiceBanner`, `channelInfo`; «Выйти» на панели | 4 | план |
 | 46 | Сетка плиток | `CallStage` | `mobileGridLayout` | 4 | план |
@@ -613,7 +613,7 @@ safe-area, основная кнопка у низа, клавиатура не 
 | 85 | Выход из аккаунта | `UserPanel`, `Settings` | «Профиль» → «Выйти» → `ConfirmModal` | 5 | план |
 | 86 | Статус микрофона и шумодава | `UserPanel` | карточка «Профиль»; мик — `CallPill` / панель звонка | 5 | план |
 | **Прочее** |
-| 87 | Командная палитра: поиск каналов и сообщений, быстрые действия | `CommandPalette` (⌘K) | экран `search` (иконка на «Серверах») | 3 | план |
+| 87 | Командная палитра: поиск каналов и сообщений, быстрые действия | `CommandPalette` (⌘K) | экран `search` (иконка на «Серверах») | 3 | ✅ этап 3 — `usePaletteSearch.test.tsx`, `SearchScreen.test.tsx`, `.superpowers/vyc95/s3/mobile/frames/search-screen-*.png`, `verify-c-report.md` пробы 4–5 (цепочка навигации, ⌘K идемпотентен) |
 | 88 | `UpdateBanner` (только Electron) | `UpdateBanner` | не показывается на вебе; проверка, что не ломает раскладку | 7 | план |
 | 89 | `ErrorBoundary` с отправкой фидбэка | `ErrorBoundary` | та же страница, мобильная вёрстка | 7 | план |
 | 90 | `ConfirmModal` | модалка | sheet-стиль (CSS) | 1 | ✅ этап 1 — `.superpowers/vyc95/s1/confirm-390-{light,dark}.png` |
@@ -625,7 +625,7 @@ safe-area, основная кнопка у низа, клавиатура не 
 | 95 | PWA: манифест, иконки, theme-color достижимы | — | §8 | 1 | ✅ этап 1 — проба `probe-pwa.js` на `/app`, `/guest` и на `dist/` |
 | 95a | PWA: раскладка в standalone под вырезом и домашней полоской | — | §8 | 1 → проверка на устройстве | ⏳ верхний инсет отдан `.mobile-shell`; в эмуляции `env()` = 0, поэтому подтверждается только на реальном устройстве |
 | 96 | Один брейкпоинт | 3 значения | контрактный тест, пустой allowlist | 1, 7 | ⏳ этап 1 — `breakpoint-contract.test.ts` зелёный, allowlist наследия пока не пуст (этап 7) |
-| 97 | Десктоп не изменился | — | 1280×800 до/после, `compare -metric AE` = 0 | 1–7 | ✅ этап 1 — 14 состояний против нетронутого HEAD, все ≤ 2px при измеренном шуме 2px |
+| 97 | Десктоп не изменился | — | 1280×800 до/после, `compare -metric AE` = 0 | 1–7 | ✅ этап 1 — 14 состояний, ≤ 2px (шум 2px); ✅ этап 3 — 42 состояния (`desktop-identity.md`), 40×AE=0 + 2×AA-дрожание на контекстных меню (не регрессия, переснято 4×), плюс отдельная находка/фикс: правка D2 (аудио-вложение) изначально протекла на десктоп (AE=9810 на состоянии с аудио, вне исходных 42 состояний) — переведена внутрь `@media (width < 900px)`, повторный замер AE=2 |
 
 ## 11. Проверка
 
@@ -700,3 +700,72 @@ safe-area, основная кнопка у низа, клавиатура не 
 - Унификация `use*MenuItems` с десктопными `ServerMenu`/`ChannelSidebar` (D1 плана) —
   после этапа 7.
 - Голос в строках списков проверен только unit-тестами (в фикстурах нет голоса).
+
+### Этап 3 — отложено и найдено по пути
+
+- `ChatArea.welcome.html` (снимок Task 1) содержит vite-путь ассета — плохо
+  переживёт смену сборки; фикстура `m1 '<@u1>'` не валидный uuid-упоминание,
+  так что рендер упоминаний не покрыт базовым снимком.
+- `design-system.md:101` grep для JS-injected свойств использует
+  `--include='*.tsx'`, а `--keyboard-inset` инжектится в `keyboard.ts` —
+  расширить на `*.ts` при следующей правке документа.
+- `MessageActionsSheet`: пустое меню вызывает `onClose` дважды в dev
+  StrictMode — хост обязан быть идемпотентным (учтено в `ChatArea`, но не
+  закреплено тестом на уровне контракта).
+- `useLongPress`: таймер не отменяется, если `pressable` становится `false`
+  посреди удержания; `fired` сбрасывается только на touch-`pointerdown`
+  (хук ещё с этапа 1, не переписывался).
+- Мелкие тестовые пробелы (не влияют на поведение): file-picker не проверяет
+  `accept`/`change→addFiles`; нет теста Enter-приоритета между
+  mention-дропдауном и `enterSends=true`; `ExpressionPickerProps.tabs`
+  остался типизирован как `ExpressionTab[]`, а не `as const`-литерал.
+- `.chat-search-layer` без явного `z-index` — при одновременно открытом
+  `ExpressionPicker` (z-index 30) теоретически может перекрыть, но на
+  мобиле экспрешн-пикер живёт в sheet поверх, так что путь недостижим на
+  практике; закрепить явным токеном при следующей правке слоёв.
+- Лайтбокс: `setPointerCapture` больше не перехватывает клик по `<video>`
+  (Task 8, реальный баг, исправлен), но остаются мелочи — второй палец
+  мультитач перезаписывает `start`, `pointerup` не проверяет `pointerId`,
+  нет обработки `lostpointercapture`; тач-цели `.video-seek`/`.audio-seek`
+  всё ещё < 44px (спека §5.1).
+- `voiceNameFor` в строке участника `ChannelInfoScreen` вызывается дважды;
+  `.mobile-row.is-offline` живёт в `ChannelInfoScreen.css`, логичнее — в
+  общем `MobileListRow.css`; неактивные строки (сам себе/офлайн) остаются
+  `<button>`, хотя недоступны для тапа.
+- `SearchScreen`: `actions`-`useMemo` пересчитывается на каждый рендер
+  (зависимости `c`, `ctx`); переход «Войти в голос»/настройки/тема не
+  снимает `search` со стека (после звонка «назад» возвращает на экран
+  поиска, а не туда, откуда искали) — UX-заметка, не баг.
+- Дохлое правило `.mobile-shell .user-list-mobile-header` в
+  `MobileShell.css:71` — зачистка на этапе 7.
+- Мобильная опечатка десктопного паттерна: заголовок шторки эмодзи/стикеров
+  всегда «Эмодзи» независимо от активной вкладки (вероятно намеренно —
+  заголовок пикера, а не вкладки; не переделывалось).
+- `.attachment-download`/`.attachment-expand` (28×28) и `fmt-btn` вне
+  композера (`.msg-edit` теперь 44×44 явным правилом, но остальные места,
+  где `FormattingToolbar` мог бы встретиться, не проверялись) — не имеют
+  `::after`-компенсации тач-зоны, в отличие от `.audio-play-btn`; общая
+  зачистка паттерна — на этапе 7.
+- Найден и исправлен в приёмке (Verify B): аватар-инициал без картинки в
+  `channelInfo` не был центрирован (`.channel-info-avatar` без
+  `display:flex`) — блокер, исправлен; кнопка «Скачать» наезжала на
+  `.audio-time` у аудио-вложения на мобиле — исправлено, но первая версия
+  фикса протекла на десктоп (см. п. 97 таблицы покрытия) — исправлено
+  повторно, десктопная идентичность перепроверена.
+- Найдено в финальном ревью, исправлено: панель управления видео в ленте
+  (`.video-player-bar`, `VideoPlayer.css`) была невидима на тач-вводе (нет
+  hover) — тот же класс дефекта, что уже решён для `.attachment-download`;
+  инлайн-редактор сообщения игнорировал `enterSends` (Enter всегда сохранял
+  правку, перенос строки на мобильной клавиатуре ввести было нечем); мост
+  ⌘K (`MobileShell.tsx`) мог подменить в стеке открытую шторку вместо того,
+  чтобы не трогать её.
+- Найдено в финальном ревью, отложено (не подтверждено на живом
+  устройстве): вставка эмодзи из мобильной шторки программно фокусирует
+  поле ввода (`insertAtCaret`/`applyAndRestore`), что на Android Chrome
+  теоретически может поднять экранную клавиатуру поверх ещё открытой
+  `BottomSheet` (она портируется в `document.body`, вне сжатия
+  `--keyboard-inset`); на iOS `focus()` вне жеста клавиатуру не поднимает —
+  эффект платформозависимый, требует проверки на реальном Android.
+- Расширившаяся полоса смешения десктопной/мобильной вёрстки на `/guest`
+  (721–899px вместо 721–768px, после унификации брейкпоинта) — входные
+  данные для этапа 4 (гости), не дефект этого этапа.

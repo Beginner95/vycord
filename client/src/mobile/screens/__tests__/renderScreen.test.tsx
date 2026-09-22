@@ -1,9 +1,19 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { render, cleanup, fireEvent } from '@testing-library/react';
+
+// themeStore читает matchMedia в момент импорта (SearchScreen тянет его через
+// renderScreen), а jsdom его не определяет.
+vi.hoisted(() => {
+  window.matchMedia = ((q: string) => ({
+    matches: false, media: q, addEventListener() {}, removeEventListener() {},
+  })) as unknown as typeof window.matchMedia;
+});
 import { MemoryRouter } from 'react-router-dom';
 import { renderScreen } from '@/mobile/screens/renderScreen';
 import { controller, nav } from './fixtures';
+
+const SEARCH_IN = 'Искать в канале #общий';
 
 afterEach(cleanup);
 
@@ -63,7 +73,22 @@ describe('renderScreen (stage 2)', () => {
   });
 
   it('still falls back to the stub for screens of later stages', () => {
-    show({ kind: 'search' });
+    show({ kind: 'friendAdd' });
     expect(document.querySelector('.mobile-screen-loading')).not.toBeNull();
+  });
+
+  it('search renders the search screen; channelId is the chat directly below it', () => {
+    const c = controller();
+    const search = { kind: 'search' } as const;
+    const stack = [{ kind: 'servers' }, { kind: 'chat', channelId: 'c1' }, search] as const;
+    const n = { ...nav(), stack, top: search };
+    render(
+      <MemoryRouter initialEntries={[{ pathname: '/app', state: { m: [{ kind: 'servers' }], b: 0 } }]}>
+        {renderScreen(search, { c, nav: n, joinVoice: vi.fn() })}
+      </MemoryRouter>,
+    );
+    expect(document.querySelector('.search-screen')).not.toBeNull();
+    // Под search лежит чат c1 → доступна «искать в канале».
+    expect(document.body.textContent).toContain(SEARCH_IN);
   });
 });

@@ -24,18 +24,9 @@ const ALLOWED = new Set([
 const LEGACY: Record<string, Record<string, number>> = {
   'components/CallStage.css': { 'width <= 768px': 6, 'width <= 640px': 1 },
   'components/ChannelSidebar.css': { 'width <= 768px': 1 },
-  'components/ChatArea.css': { 'width <= 768px': 1 },
   'components/CommandPalette.css': { 'width <= 640px': 1 },
-  'components/Composer.css': { 'width <= 768px': 1 },
   'components/FriendsPanel.css': { 'width <= 768px': 1 },
-  'components/MediaLightbox.css': { 'width <= 768px': 1 },
-  'components/MessageAttachments.css': { 'width <= 768px': 1 },
-  'components/MessageRow.css': { 'width <= 768px': 1 },
-  'components/MessageSearch.css': { 'width <= 768px': 1 },
   'components/ServerList.css': { 'width <= 768px': 1 },
-  'components/UserList.css': { 'width <= 768px': 1 },
-  'components/VideoPlayer.css': { 'width <= 768px': 1 },
-  'components/VoiceBanner.css': { 'width <= 768px': 1 },
   'pages/GuestCallView.css': { 'width <= 720px': 1 },
 };
 

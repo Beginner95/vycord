@@ -92,10 +92,23 @@
   font-variant-numeric: tabular-nums;
 }
 
-@media (width <= 768px) {
+/* Кнопки 32px визуально, зона нажатия 44px за счёт ::after. */
+@media (width < 900px) {
+  .video-player-bar {
+    opacity: 1;
+  }
+
   .video-play-btn,
   .video-mute-btn {
+    position: relative;
     width: 32px;
     height: 32px;
+  }
+
+  .video-play-btn::after,
+  .video-mute-btn::after {
+    content: '';
+    position: absolute;
+    inset: -6px;
   }
 }

@@ -4,7 +4,7 @@
   display: flex;
   flex-direction: column;
   width: 100vw;
-  height: 100dvh;
+  height: calc(100dvh - var(--keyboard-inset, 0px));
   overflow: hidden;
   background: var(--canvas);
 
@@ -46,13 +46,12 @@
   visibility: visible;
 }
 
-/* Панели, ещё не переписанные под мобилу (этапы 3–5) — десктопные компоненты с
-   фиксированными ширинами колонок (members 236 и т.п.). На экране стека они
-   занимают всё. (0,2,0) — выигрываем у их (0,1,0) базы специфичностью, а не
-   порядком файлов. */
+/* Панели, ещё не переписанные под мобилу (этапы 4–5): корень ChatArea (всё ещё
+   панель), .call-stage и .home-view — десктопные компоненты с фиксированными
+   ширинами колонок. На экране стека они занимают всё. (0,2,0) — выигрываем у
+   их (0,1,0) базы специфичностью, а не порядком файлов. */
 .mobile-screen > .chat-area,
 .mobile-screen > .call-stage,
-.mobile-screen > .user-list,
 .mobile-screen > .home-view {
   flex: 1;
   width: 100%;

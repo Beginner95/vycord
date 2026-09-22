@@ -118,7 +118,7 @@
 }
 
 /* ═══ Mobile (board 1f) — safe-area inset + 16px field (iOS zooms below 16px) ═══ */
-@media (width <= 768px) {
+@media (width < 900px) {
   .composer-root {
     padding: 8px 10px calc(10px + env(safe-area-inset-bottom, 0px));
   }
@@ -127,14 +127,17 @@
     border-radius: 13px;
   }
 
+  /* Автогроу до 6 строк (спека §5.4): line-height 1.55 + вертикальный padding 5+5. */
   .composer-input {
+    max-height: calc(6 * 1.55em + 10px);
     font-size: 16px;
   }
 
+  .composer-plus-btn,
   .composer-aa,
   .composer-icon-btn {
-    width: 40px;
-    height: 40px;
+    width: 44px;
+    height: 44px;
   }
 
   .composer-send {
@@ -145,5 +148,26 @@
 
   .composer-hint {
     display: none;
+  }
+
+  /* Подсказка упоминаний — во всю ширину поля (специфичность (0,2,0) выигрывает
+     у `.mention-dropdown` из MentionDropdown.css независимо от порядка файлов). */
+  .composer-field .mention-dropdown {
+    right: 0;
+    left: 0;
+    min-width: 0;
+    max-height: 40dvh;
+  }
+
+  /* Полоса форматирования: один ряд с горизонтальным скроллом, кнопки ≥ 44. */
+  .composer-root .fmt-toolbar {
+    overflow-x: auto;
+    flex-wrap: nowrap;
+  }
+
+  .composer-root .fmt-btn {
+    flex-shrink: 0;
+    width: 44px;
+    height: 44px;
   }
 }

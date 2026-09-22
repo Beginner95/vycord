@@ -1,9 +1,7 @@
 import type { ReactNode } from 'react';
 import type { Screen } from '@/mobile/nav/types';
 import type { AppController } from '@/pages/app/useAppController';
-import { ChatArea } from '@/components/ChatArea';
 import { CallStage } from '@/components/CallStage';
-import { UserList } from '@/components/UserList';
 import { HomeView } from '@/components/HomeView';
 import { UserPanel } from '@/components/UserPanel';
 import { ScreenHeader } from '@/mobile/components/ScreenHeader';
@@ -14,6 +12,9 @@ import { FindServerScreen } from './FindServerScreen';
 import { ServerSettingsScreen } from './ServerSettingsScreen';
 import { InvitesScreen } from './InvitesScreen';
 import { StickersScreen } from './StickersScreen';
+import { ChatScreen } from './ChatScreen';
+import { ChannelInfoScreen } from './ChannelInfoScreen';
+import { SearchScreen } from './SearchScreen';
 import { useCallStore } from '@/stores/callStore';
 import { useT } from '@/i18n';
 
@@ -30,26 +31,6 @@ function ProfileRoot({ c }: { c: AppController }) {
           вкладка — этап 5 (спека §5.8). */}
       <UserPanel user={c.user} onLogout={c.logout} onOpenSettings={() => c.ui.setSettingsOpen(true)} />
     </div>
-  );
-}
-
-function ChatScreen({ channelId, ctx }: { channelId: string; ctx: ScreenCtx }) {
-  const { c, nav, joinVoice } = ctx;
-  const callChannelId = useCallStore((s) => s.callChannelId);
-  const channel = c.currentChannel?.id === channelId ? c.currentChannel : null;
-  if (!channel) return <div className="mobile-screen-loading" />;
-  return (
-    <ChatArea
-      channel={channel}
-      user={c.user}
-      onMobileBack={nav.back}
-      onShowMembers={() => nav.push({ kind: 'channelInfo', channelId })}
-      onJoinVoice={joinVoice}
-      onShowCall={callChannelId === channelId ? () => nav.push({ kind: 'call' }) : undefined}
-      onCreateServer={() => nav.push({ kind: 'createServer' })}
-      onFindServer={() => nav.push({ kind: 'findServer' })}
-      voiceParticipants={c.voiceParticipants}
-    />
   );
 }
 
@@ -100,7 +81,13 @@ export function renderScreen(screen: Screen, ctx: ScreenCtx): ReactNode {
     case 'chat':
       return <ChatScreen channelId={screen.channelId} ctx={ctx} />;
     case 'channelInfo':
-      return <UserList onMobileBack={nav.back} voiceParticipants={c.voiceParticipants} />;
+      return <ChannelInfoScreen channelId={screen.channelId} ctx={ctx} />;
+    case 'search': {
+      // Чат непосредственно под search — источник группы «Сообщения» (D8).
+      const idx = nav.stack.indexOf(screen);
+      const below = idx > 0 ? nav.stack[idx - 1] : undefined;
+      return <SearchScreen ctx={ctx} channelId={below?.kind === 'chat' ? below.channelId : null} />;
+    }
     case 'call':
       return <CallScreen ctx={ctx} />;
     default:

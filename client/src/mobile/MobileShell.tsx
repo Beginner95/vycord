@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useCallStore } from '@/stores/callStore';
 import { useServerStore } from '@/stores/serverStore';
+import { usePaletteStore } from '@/stores/paletteStore';
 import { CallUI } from '@/components/CallUI';
 import { CallDock } from '@/components/CallDock';
 import type { Channel } from '@/types';
@@ -11,6 +12,7 @@ import { isRoot, stripSheets } from './nav/navReducer';
 import { reconcile } from './nav/reconcile';
 import type { Screen } from './nav/types';
 import { useEdgeSwipeBack } from './gestures/useEdgeSwipeBack';
+import { useVisualViewportInset } from './keyboard';
 import { TabBar } from './components/TabBar';
 import { renderScreen, type ScreenCtx } from './screens/renderScreen';
 import './MobileShell.css';
@@ -21,8 +23,10 @@ export function MobileShell({ c }: { c: AppController }) {
   const nav = useMobileNav();
   const callStatus = useCallStore((s) => s.status);
   const serversLoaded = useServerStore((s) => s.serversLoaded);
+  const shellRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<HTMLDivElement>(null);
   const [swipeDx, setSwipeDx] = useState<number | null>(null);
+  useVisualViewportInset(shellRef);
 
   // Нормализация записи: нет стека → корень; sheet'ы после reload не живы.
   useEffect(() => {
@@ -68,6 +72,16 @@ export function MobileShell({ c }: { c: AppController }) {
     }
   }), [c, nav]);
 
+  // Мост аппаратного ⌘K (D8): хоткей открывает стор палитры, а оверлей на
+  // мобильной оболочке отключён — вместо него открываем экран `search`.
+  const paletteOpen = usePaletteStore((s) => s.isOpen);
+  useEffect(() => {
+    if (!paletteOpen) return;
+    usePaletteStore.getState().close();
+    if (nav.top.kind === 'sheet') return; // не подменяем открытую шторку — иначе она виснет поверх экрана поиска
+    if (nav.top.kind !== 'search') nav.push({ kind: 'search' });
+  }, [paletteOpen]); // nav — актуальный из рендера, эффект запускается сменой флага
+
   const joinVoice = (channel: Channel) => {
     c.joinVoice(channel);
     const onChat = nav.top.kind === 'chat' && nav.top.channelId === channel.id;
@@ -94,7 +108,7 @@ export function MobileShell({ c }: { c: AppController }) {
   const visible = nav.stack.map((s, i) => ({ s, i })).slice(-2).filter(({ s }) => s.kind !== 'sheet');
 
   return (
-    <div className="mobile-shell">
+    <div className="mobile-shell" ref={shellRef}>
       <div className="mobile-stage" ref={stageRef}>
         {visible.map(({ s, i }, idx) => {
           const isTop = idx === visible.length - 1;
@@ -123,6 +137,7 @@ export function MobileShell({ c }: { c: AppController }) {
         onPaletteSelectChannel={(ch) => openChannelDeep(ch.server_id, ch.id, false)}
         onPaletteJoinVoice={(ch) => { c.joinVoice(ch); openChannelDeep(ch.server_id, ch.id, true); }}
         onPaletteShowChat={() => {}}
+        showPalette={false}
       />
       <CallUI />
     </div>

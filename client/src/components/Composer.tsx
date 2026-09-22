@@ -9,11 +9,14 @@ import {
   type FormEvent,
   type KeyboardEvent,
 } from 'react';
-import { SendHorizontal, Smile } from 'lucide-react';
+import { Plus, SendHorizontal, Smile } from 'lucide-react';
 import { FormattingToolbar } from '@/components/FormattingToolbar';
 import { FloatingQuoteButton } from '@/components/FloatingQuoteButton';
 import { MentionDropdown } from '@/components/MentionDropdown';
 import { ExpressionPicker } from '@/components/ExpressionPicker';
+import { MobileAttachSheet } from '@/mobile/components/MobileAttachSheet';
+import { MobileExpressionSheet } from '@/mobile/components/MobileExpressionSheet';
+import { useFilePicker } from '@/mobile/hooks/useFilePicker';
 import { LinkDialog } from '@/components/LinkDialog';
 import { AttachmentButton } from '@/components/AttachmentButton';
 import { AttachmentTray } from '@/components/AttachmentTray';
@@ -32,6 +35,7 @@ import {
 import { isUnsafeUrl } from '@/utils/markdown';
 import { toWireMentions } from '@/utils/mentions';
 import { useT } from '@/i18n';
+import type { ExpressionTab } from '@/stores/expressionRecentsStore';
 import type { Attachment, Channel, MemberWithUser, Sticker as ServerSticker } from '@/types';
 import './Composer.css';
 
@@ -83,6 +87,16 @@ interface ComposerProps {
    * требует аккаунта.
    */
   textOnly?: boolean;
+  /**
+   * Мобильная раскладка кнопок: «＋» со шторкой вложений/эмодзи/стикеров,
+   * «Отправить» только при непустом черновике. Только раскладка — логика та же.
+   */
+  variant?: 'desktop' | 'mobile';
+  /**
+   * Enter отправляет (по умолчанию). На мобиле передают `!coarsePointer`:
+   * на экранной клавиатуре Enter — перевод строки, отправка — кнопкой.
+   */
+  enterSends?: boolean;
 }
 
 /**
@@ -94,6 +108,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
   {
     channel, members, canMentionEveryone, onSend,
     serverStickers = [], onSendSticker, canManageStickers = false, onOpenStickerManager, textOnly = false,
+    variant = 'desktop', enterSends = true,
   },
   ref,
 ) {
@@ -116,6 +131,9 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
   // below — the `emojiOpen`/`stickerOpen` pair it once paired with was
   // collapsed into the single `pickerOpen` in Task 5.
   const [attachOpen, setAttachOpen] = useState(false);
+  const mobile = variant === 'mobile';
+  // Вкладка, на которой откроется мобильная шторка пикера (десктоп всегда 'emoji').
+  const [pickerTab, setPickerTab] = useState<'emoji' | 'stickers'>('emoji');
 
   /**
    * The two popover surfaces are MUTUALLY EXCLUSIVE: opening one closes the
@@ -154,6 +172,8 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
   const readyAttachments = uploads.drafts
     .map((d) => d.attachment)
     .filter((a): a is Attachment => !!a);
+  const filePicker = useFilePicker((files) => uploads.addFiles(files));
+  const canSend = !!input.trim() || readyAttachments.length > 0;
 
   const mention = useMentionAutocomplete({
     value: input,
@@ -237,7 +257,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
 
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     if (mention.handleKeyDown(e)) return;
-    if (e.key === 'Enter' && !e.shiftKey) {
+    if (enterSends && e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       handleSubmit(e as unknown as FormEvent);
     }
@@ -331,6 +351,16 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
         <AttachmentTray drafts={uploads.drafts} onCancel={uploads.cancel} onRetry={uploads.retry} />
       )}
       <form className="composer-field" onSubmit={handleSubmit}>
+        {mobile && (
+          <button
+            type="button"
+            className="composer-icon-btn composer-plus-btn"
+            aria-label={t('mobile.composerPlus')}
+            onClick={() => setAttachOpen(true)}
+          >
+            <Plus size={22} strokeWidth={1.8} />
+          </button>
+        )}
         <textarea
           ref={inputRef}
           className="composer-input"
@@ -355,23 +385,25 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
         >
           Aa
         </button>
-        <button
-          type="button"
-          className={`composer-icon-btn${pickerOpen ? ' is-active' : ''}`}
-          aria-label={t('chat.emoji')}
-          title={t('chat.emoji')}
-          // useDismissOnOutside dismisses on BUBBLE-phase `mousedown`, so any
-          // button that opens a dismissible surface must stop propagation here
-          // or it closes-then-reopens: mousedown dismisses the picker, and the
-          // functional updater in onClick immediately turns it back on — the
-          // toggle can never close its own picker. Same opt-out as
-          // AttachmentButton's, which inherited it from develop.
-          onMouseDown={(e) => e.stopPropagation()}
-          onClick={() => togglePicker('picker')}
-        >
-          <Smile size={17} strokeWidth={1.8} />
-        </button>
-        {!textOnly && (
+        {!mobile && (
+          <button
+            type="button"
+            className={`composer-icon-btn${pickerOpen ? ' is-active' : ''}`}
+            aria-label={t('chat.emoji')}
+            title={t('chat.emoji')}
+            // useDismissOnOutside dismisses on BUBBLE-phase `mousedown`, so any
+            // button that opens a dismissible surface must stop propagation here
+            // or it closes-then-reopens: mousedown dismisses the picker, and the
+            // functional updater in onClick immediately turns it back on — the
+            // toggle can never close its own picker. Same opt-out as
+            // AttachmentButton's, which inherited it from develop.
+            onMouseDown={(e) => e.stopPropagation()}
+            onClick={() => togglePicker('picker')}
+          >
+            <Smile size={17} strokeWidth={1.8} />
+          </button>
+        )}
+        {!mobile && !textOnly && (
           <AttachmentButton
             open={attachOpen}
             onToggle={() => togglePicker('attach')}
@@ -379,30 +411,35 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
             onFiles={(files) => uploads.addFiles(files)}
           />
         )}
-        <button
-          type="submit"
-          className="composer-send"
-          aria-label={t('chat.send')}
-          disabled={(!input.trim() && readyAttachments.length === 0) || uploads.isUploading}
-        >
-          <SendHorizontal size={17} strokeWidth={1.8} />
-        </button>
+        {(!mobile || canSend) && (
+          <button
+            type="submit"
+            className="composer-send"
+            aria-label={t('chat.send')}
+            disabled={!canSend || uploads.isUploading}
+          >
+            <SendHorizontal size={17} strokeWidth={1.8} />
+          </button>
+        )}
+        {mobile && filePicker.input}
         <MentionDropdown mention={mention} />
       </form>
       <p className="composer-hint">{t('chat.composerHint')}</p>
-      {pickerOpen && (
-        <ExpressionPicker
-          tabs={textOnly || !onSendSticker ? ['emoji'] : ['emoji', 'stickers']}
-          initialTab="emoji"
-          onClose={() => setPickerOpen(false)}
+      {pickerOpen && (() => {
+        const noStickers = textOnly || !onSendSticker;
+        const tabs: ExpressionTab[] = noStickers ? ['emoji'] : ['emoji', 'stickers'];
+        const shared = {
+          tabs,
+          initialTab: mobile ? pickerTab : ('emoji' as const),
+          onClose: () => setPickerOpen(false),
           // Emoji leaves the picker open — inserting several in a row is the
           // common case (Telegram's behaviour). A sticker is a whole message,
           // not a character, so sending one closes the surface below.
-          onSelectEmoji={(emoji) => insertAtCaret(target, emoji)}
-          stickers={textOnly || !onSendSticker ? undefined : {
+          onSelectEmoji: (emoji: string) => insertAtCaret(target, emoji),
+          stickers: noStickers ? undefined : {
             serverId: channel.server_id,
             items: serverStickers,
-            onSend: async (sticker) => {
+            onSend: async (sticker: ServerSticker) => {
               const ok = await onSendSticker(sticker);
               if (ok) setPickerOpen(false);
               return ok;
@@ -410,7 +447,19 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
             onManage: canManageStickers && onOpenStickerManager
               ? () => { setPickerOpen(false); onOpenStickerManager(); }
               : undefined,
-          }}
+          },
+        };
+        return mobile ? <MobileExpressionSheet {...shared} /> : <ExpressionPicker {...shared} />;
+      })()}
+      {mobile && attachOpen && (
+        <MobileAttachSheet
+          textOnly={textOnly}
+          onClose={() => setAttachOpen(false)}
+          onPickFiles={(accept) => filePicker.open(accept)}
+          // ActionSheet зовёт onClose() ДО onClick: сначала гаснет attachOpen,
+          // затем поднимается pickerOpen — разные флаги, порядок безопасен.
+          onEmoji={() => { setPickerTab('emoji'); setPickerOpen(true); }}
+          onStickers={onSendSticker ? () => { setPickerTab('stickers'); setPickerOpen(true); } : undefined}
         />
       )}
       <LinkDialog

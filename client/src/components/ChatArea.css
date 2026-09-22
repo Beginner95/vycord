@@ -62,13 +62,11 @@
 
    Turned back on in TWO places, and the second one is the governing rule over
    most of the range — do not delete either without reading the other:
-     · the `width <= 768px` block at the bottom of this section, and
+     · the `width < 900px` block at the bottom of this section, and
      · the shell, `AppPage.css`'s `width < 900px` block, at (0,2,0).
-   The shell rule is what covers 769–899, where this file's 768 block does not
-   reach (M6 T8: those affordances were dark there, and the panel model had no
-   way out). Both set `display: flex`, so they never conflict — but deleting
-   the shell rule would silently re-open that trap, and deleting this file's
-   rule would leave 0–768 relying entirely on the shell. */
+   Since VYC-95 both blocks share one breakpoint (`< 900px`); before that this
+   file's block stopped at 768 and the shell alone covered 769–899 (M6 T8).
+   Both set `display: flex`, so they never conflict. */
 .chat-back-btn {
   display: none;
   align-items: center;
@@ -376,7 +374,7 @@
    lives in FloatingQuoteButton.tsx / .css (.quote-float-btn). */
 
 /* ═══ Mobile (board 1f) ═══ */
-@media (width <= 768px) {
+@media (width < 900px) {
   .chat-back-btn,
   .chat-call-btn {
     display: flex;
@@ -457,6 +455,7 @@
 
   .chat-messages {
     padding: 16px 12px 8px;
+    overscroll-behavior: contain;
   }
 }
 

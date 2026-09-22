@@ -25,6 +25,7 @@ const mount = (c: AppController, n: MobileNav = nav()) => render(
 );
 
 const PRIVATE_LABEL = 'Приватный сервер';
+const ADD_SERVER = 'Добавить сервер';
 const perms = (bits: bigint, isOwner = false): PermissionSet => ({ isOwner, bits, highestPosition: 0 });
 beforeEach(() => {
   vi.mocked(apiService.deleteServer).mockReset().mockResolvedValue(undefined);
@@ -144,7 +145,9 @@ describe('ServersScreen', () => {
   it('offers create and find from the header «+»', async () => {
     const n = nav();
     mount(controller(), n);
-    fireEvent.click(document.querySelector('.screen-header-actions button')!);
+    const add = [...document.querySelectorAll('.screen-header-actions button')]
+      .find((b) => b.getAttribute('aria-label') === ADD_SERVER)!;
+    fireEvent.click(add);
     await act(async () => {});
     const items = [...document.querySelectorAll('.action-sheet-item')];
     expect(items.length).toBe(2);

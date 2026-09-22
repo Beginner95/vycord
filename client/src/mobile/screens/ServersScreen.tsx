@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Lock, Plus } from 'lucide-react';
+import { Lock, Plus, Search } from 'lucide-react';
 import type { Server } from '@/types';
 import { resolveUploadUrl } from '@/services/api';
 import { useT } from '@/i18n';
@@ -43,9 +43,14 @@ export function ServersScreen({ ctx }: { ctx: ScreenCtx }) {
       <ScreenHeader
         title={t('mobile.tabServers')}
         actions={
-          <button type="button" className="screen-header-btn" aria-label={t('mobile.addServer')} onClick={() => setAddOpen(true)}>
-            <Plus size={24} strokeWidth={1.8} />
-          </button>
+          <>
+            <button type="button" className="screen-header-btn" aria-label={t('mobile.search')} onClick={() => nav.push({ kind: 'search' })}>
+              <Search size={24} strokeWidth={1.8} />
+            </button>
+            <button type="button" className="screen-header-btn" aria-label={t('mobile.addServer')} onClick={() => setAddOpen(true)}>
+              <Plus size={24} strokeWidth={1.8} />
+            </button>
+          </>
         }
       />
       <div className="servers-list">

@@ -11,7 +11,7 @@ const MIN_QUERY_LEN = 2;
 const PAGE_SIZE = 25;
 const DEBOUNCE_MS = 300;
 
-interface MessageSearchProps {
+export interface MessageSearchProps {
   channel: Channel;
   initialQuery?: string;
   onJumpToMessage: (messageId: string) => void;

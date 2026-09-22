@@ -60,3 +60,16 @@
   font-size: 11px;
   font-variant-numeric: tabular-nums;
 }
+
+/* Кнопка 32px визуально, зона нажатия 44px за счёт ::after. */
+@media (width < 900px) {
+  .audio-play-btn {
+    position: relative;
+  }
+
+  .audio-play-btn::after {
+    content: '';
+    position: absolute;
+    inset: -6px;
+  }
+}

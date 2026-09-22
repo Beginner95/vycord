@@ -94,11 +94,11 @@ Stylelint's `csstools/value-no-unknown-custom-properties` knows only
 `tokens.css` and `base.css`, so:
 
 - **JS-injected properties** (`--speak-level`, `--slider-fill`,
-  `--meter-level`, `--call-stage-height`, `--avatar-color`) are invisible to
+  `--meter-level`, `--call-stage-height`, `--avatar-color`, `--keyboard-inset`) are invisible to
   it — a `var()` reading one **must carry a fallback**. Regenerate the current
   injection sites with:
   ```bash
-  cd client && grep -rn -- "--speak-level\|--slider-fill\|--meter-level\|--call-stage-height\|--avatar-color" src --include='*.tsx'
+  cd client && grep -rn -- "--speak-level\|--slider-fill\|--meter-level\|--call-stage-height\|--avatar-color\|--keyboard-inset" src --include='*.tsx'
   ```
 - **Everywhere else, do not add a `var(--x, fallback)` you were not explicitly
   told to add.** A gratuitous fallback silently exempts that site from the
