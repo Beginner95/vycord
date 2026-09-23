@@ -1,0 +1,17 @@
+.guest-chat-screen {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.guest-chat-screen-body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.guest-chat-screen-body .guest-chat-feed {
+  flex: 1;
+  overflow-y: auto;
+}

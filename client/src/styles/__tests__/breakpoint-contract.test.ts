@@ -27,7 +27,6 @@ const LEGACY: Record<string, Record<string, number>> = {
   'components/CommandPalette.css': { 'width <= 640px': 1 },
   'components/FriendsPanel.css': { 'width <= 768px': 1 },
   'components/ServerList.css': { 'width <= 768px': 1 },
-  'pages/GuestCallView.css': { 'width <= 720px': 1 },
 };
 
 const SRC = resolve(dirname(fileURLToPath(import.meta.url)), '../..');

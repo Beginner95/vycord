@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import {
   ChevronDown, Mic, MicOff, Video, VideoOff, MessageSquare,
-  MoreHorizontal, PhoneOff, LayoutGrid, MonitorUp, Speaker, X,
+  MoreHorizontal, PhoneOff, LayoutGrid, MonitorUp, Speaker, X, Users,
 } from 'lucide-react';
 import type { CallStageModel } from '@/components/useCallStageModel';
 import { RemoteParticipantTile } from '@/components/call/RemoteParticipantTile';
@@ -16,13 +16,20 @@ import { useT } from '@/i18n';
 import './MobileCallScreen.css';
 
 interface MobileCallScreenProps {
-  // Владелец модели — `CallScreen` (renderScreen.tsx), выше этого компонента:
-  // один вызов useCallStageModel() на весь экран звонка, а не отдельный здесь
-  // и ещё один внутри CallOverflowSheets поверх того же звонка — иначе
+  // Владелец модели — вызывающий, выше этого компонента: `CallScreen`
+  // (renderScreen.tsx) у участника с аккаунтом или `GuestMobileCallShell`
+  // (pages/guest/) у гостя. Один вызов useCallStageModel() на весь экран
+  // звонка, а не отдельный здесь и ещё один внутри CallOverflowSheets поверх
+  // того же звонка — иначе
   // шторки «⋯»/качества рендерились бы от замороженной на момент открытия
   // копии модели (Important I1, task-final-fix-report.md).
   model: CallStageModel;
-  onBack: () => void;
+  /** Шеврон «свернуть» в шапке. Аутентифицированный `CallScreen` передаёт
+   *  его всегда (уход к чату канала). `GuestMobileCallShell` — нет: гостю
+   *  сворачивать некуда, а завязанный на leave() шеврон молча завершал бы
+   *  гостевую сессию. Без пропа кнопка не рендерится (тот же приём, что
+   *  `onOpenParticipants`/`chatUnreadCount` ниже). */
+  onBack?: () => void;
   onOpenChat: () => void;
   onOpenOverflow: () => void;
   // Хедер: тап по индикатору качества связи открывает CallQualitySheet
@@ -30,6 +37,19 @@ interface MobileCallScreenProps {
   // аргумент onOpenOverflow, чтобы её сигнатура осталась прежней для
   // остальных вызывающих и их тестов.
   onOpenQuality: () => void;
+  /** Бейдж непрочитанного на кнопке «Чат» (спека §7) — нужен только гостю:
+   *  у участника с аккаунтом непрочитанное в звонке отражается в обычном
+   *  списке каналов, отдельного счётчика тут никогда не было и не нужно.
+   *  Аутентифицированный `CallScreen` (renderScreen.tsx) этот проп не
+   *  передаёт — там всегда `undefined`, кнопка рендерится как раньше. */
+  chatUnreadCount?: number;
+  /** Открыть ростер (спека §7, `guestParticipants`) — нужен только гостю: у
+   *  гостя нет ни сайдбара, ни `channelInfo`, никакого другого способа
+   *  увидеть, кто в звонке. Аутентифицированный `CallScreen` этот проп не
+   *  передаёт (свой ростер — через `channelInfo`), поэтому кнопка там не
+   *  рендерится и его раскладка не меняется (тот же приём, что
+   *  `chatUnreadCount` выше). */
+  onOpenParticipants?: () => void;
 }
 
 function useOrientation(): 'portrait' | 'landscape' {
@@ -46,12 +66,13 @@ function useOrientation(): 'portrait' | 'landscape' {
 }
 
 /** Мобильная сцена группового звонка (спека §6.2). Навигация (T7) и
- *  содержимое «⋯»-шторки (T6, `CallOverflowSheets`) живут снаружи, в
- *  `renderScreen.tsx`'s `CallScreen`, которая также владеет `model` —
+ *  содержимое «⋯»-шторки (T6, `CallOverflowSheets`) живут снаружи — у
+ *  двух вызывающих: `renderScreen.tsx`'s `CallScreen` (участник с аккаунтом)
+ *  и `GuestMobileCallShell` (гость, спека §7); каждый также владеет `model` —
  *  `onOpenOverflow`/`onOpenQuality` здесь только переключают, какая шторка
  *  открыта, саму модель они больше не носят (Important I1,
  *  task-final-fix-report.md). */
-export function MobileCallScreen({ model: m, onBack, onOpenChat, onOpenOverflow, onOpenQuality }: MobileCallScreenProps) {
+export function MobileCallScreen({ model: m, onBack, onOpenChat, onOpenOverflow, onOpenQuality, chatUnreadCount, onOpenParticipants }: MobileCallScreenProps) {
   const t = useT();
   const audioOutput = useAudioOutput(m.applySinkId);
   const orientation = useOrientation();
@@ -108,13 +129,25 @@ export function MobileCallScreen({ model: m, onBack, onOpenChat, onOpenOverflow,
   return (
     <div className="mobile-call-screen">
       <div className="mcs-topbar">
-        <button type="button" className="mcs-collapse-btn" onClick={onBack} aria-label={t('call.collapseCall')}>
-          <ChevronDown size={22} strokeWidth={1.8} />
-        </button>
+        {onBack && (
+          <button type="button" className="mcs-collapse-btn" onClick={onBack} aria-label={t('call.collapseCall')}>
+            <ChevronDown size={22} strokeWidth={1.8} />
+          </button>
+        )}
         <div className="mcs-title">
           <span className="mcs-title-name">{m.callChannelName ? `#${m.callChannelName}` : t('call.groupCallTitle')}</span>
           <span className="mcs-title-timer"><StageTimer /></span>
         </div>
+        {onOpenParticipants && (
+          <button
+            type="button"
+            className="mcs-participants-btn"
+            onClick={() => onOpenParticipants()}
+            aria-label={t('guest.participants')}
+          >
+            <Users size={18} strokeWidth={1.8} />
+          </button>
+        )}
         <button
           type="button"
           className="mcs-quality-btn"
@@ -293,8 +326,9 @@ export function MobileCallScreen({ model: m, onBack, onOpenChat, onOpenOverflow,
             <Speaker size={22} strokeWidth={1.8} />
           </button>
         )}
-        <button type="button" className="mcs-panel-btn" onClick={onOpenChat} aria-label={t('mobile.callOpenChat')}>
+        <button type="button" className="mcs-panel-btn mcs-panel-btn-chat" onClick={onOpenChat} aria-label={t('mobile.callOpenChat')}>
           <MessageSquare size={22} strokeWidth={1.8} />
+          {Boolean(chatUnreadCount) && <span className="mcs-chat-badge">{chatUnreadCount! > 99 ? '99+' : chatUnreadCount}</span>}
         </button>
         <button type="button" className="mcs-panel-btn" onClick={() => onOpenOverflow()} aria-label={t('mobile.callActions')}>
           <MoreHorizontal size={22} strokeWidth={1.8} />

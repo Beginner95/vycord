@@ -3,8 +3,11 @@ import { Mic, MicOff, Video, VideoOff, Loader2 } from 'lucide-react';
 import { hasStoredGuestSession, useGuestCallStore, type GuestEndReason } from '@/stores/guestCallStore';
 import { useT, type TKey } from '@/i18n';
 import { useMicLevel } from '@/hooks/useMicLevel';
+import { useIsMobile } from '@/mobile/breakpoint';
 import { GuestCallView } from './GuestCallView';
+import { GuestMobileCallShell } from './guest/GuestMobileCallShell';
 import { guestErrorText } from './guestErrors';
+import { isInAppBrowser } from './guest/inAppBrowser';
 import './GuestPage.css';
 
 /**
@@ -43,6 +46,7 @@ const END_REASON_KEYS: Record<GuestEndReason, TKey> = {
 
 export function GuestPage() {
   const t = useT();
+  const isMobile = useIsMobile();
   const [secret] = useState(readSecretFromFragment);
   // Fragment стёрт при первом заходе, поэтому после перезагрузки его нет —
   // гостя возвращает сессия из sessionStorage, а не ссылка.
@@ -87,7 +91,7 @@ export function GuestPage() {
   }
 
   if (phase === 'in_call' || phase === 'connecting' || phase === 'resuming') {
-    return <GuestCallView />;
+    return isMobile ? <GuestMobileCallShell /> : <GuestCallView />;
   }
 
   if (phase === 'lobby' || phase === 'joining') {
@@ -195,7 +199,7 @@ function GuestEntry({ secret, previewReady }: { secret: string; previewReady: bo
 
   return (
     <div className="guest-page">
-      <div className="guest-card">
+      <div className="guest-card guest-card-entry">
         <GuestHeader />
         <h1 className="guest-title">{t('guest.joinTitle')}</h1>
 
@@ -210,6 +214,7 @@ function GuestEntry({ secret, previewReady }: { secret: string; previewReady: bo
         {denied && (
           <p className="guest-warning">
             {t('guest.mediaDenied')} {t('guest.mediaDeniedHint')}
+            {isInAppBrowser() && ` ${t('guest.inAppBrowserHint')}`}
           </p>
         )}
 
@@ -246,6 +251,8 @@ function GuestEntry({ secret, previewReady }: { secret: string; previewReady: bo
               if (e.key === 'Enter') submit();
             }}
             data-autofocus
+            autoComplete="nickname"
+            enterKeyHint="go"
           />
         </label>
 

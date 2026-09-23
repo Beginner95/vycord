@@ -560,6 +560,7 @@ export const en: Dictionary = {
     linkMissingHint: 'Ask whoever invited you for a new link.',
     mediaDenied: 'No access to the camera or microphone.',
     mediaDeniedHint: 'Allow access in your browser settings — or join without them.',
+    inAppBrowserHint: 'Looks like you opened this link inside another app. Open it in Chrome, Safari, or via "Open in browser".',
     unsupported: 'This browser cannot do calls',
     unsupportedHint: 'Open the link in a recent Chrome, Safari or Firefox over HTTPS.',
   },

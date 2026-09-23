@@ -186,6 +186,72 @@ describe('MobileCallScreen', () => {
     expect(onBack).toHaveBeenCalledOnce();
   });
 
+  it('omits the collapse button when onBack is not passed (guest shell: collapsing would end the guest session)', () => {
+    const model = baseModel();
+    render(<MobileCallScreen model={model} onOpenChat={vi.fn()} onOpenOverflow={vi.fn()} onOpenQuality={vi.fn()} />);
+    expect(document.querySelector('.mcs-collapse-btn')).toBeNull();
+    expect(byLabel('Свернуть звонок')).toBeUndefined();
+  });
+
+  describe('chatUnreadCount badge', () => {
+    const renderWith = (chatUnreadCount?: number) => render(
+      <MobileCallScreen
+        model={baseModel()}
+        onBack={vi.fn()}
+        onOpenChat={vi.fn()}
+        onOpenOverflow={vi.fn()}
+        onOpenQuality={vi.fn()}
+        chatUnreadCount={chatUnreadCount}
+      />,
+    );
+
+    it('renders the count on the chat button', () => {
+      renderWith(3);
+      const badge = byLabel('Открыть чат')!.querySelector('.mcs-chat-badge');
+      expect(badge?.textContent).toBe('3');
+    });
+
+    it('shows 99 as-is and caps anything above at "99+"', () => {
+      renderWith(99);
+      expect(document.querySelector('.mcs-chat-badge')?.textContent).toBe('99');
+      cleanup();
+      renderWith(100);
+      expect(document.querySelector('.mcs-chat-badge')?.textContent).toBe('99+');
+    });
+
+    it('is absent when the prop is omitted (authenticated CallScreen)', () => {
+      renderWith(undefined);
+      expect(document.querySelector('.mcs-chat-badge')).toBeNull();
+    });
+
+    it('is absent at 0', () => {
+      renderWith(0);
+      expect(document.querySelector('.mcs-chat-badge')).toBeNull();
+    });
+  });
+
+  it('the participants button calls onOpenParticipants when the prop is passed', () => {
+    const onOpenParticipants = vi.fn();
+    render(
+      <MobileCallScreen
+        model={baseModel()}
+        onBack={vi.fn()}
+        onOpenChat={vi.fn()}
+        onOpenOverflow={vi.fn()}
+        onOpenQuality={vi.fn()}
+        onOpenParticipants={onOpenParticipants}
+      />,
+    );
+    fireEvent.click(byLabel('Участники')!);
+    expect(onOpenParticipants).toHaveBeenCalledOnce();
+  });
+
+  it('omits the participants button when onOpenParticipants is not passed (authenticated CallScreen)', () => {
+    render(<MobileCallScreen model={baseModel()} onBack={vi.fn()} onOpenChat={vi.fn()} onOpenOverflow={vi.fn()} onOpenQuality={vi.fn()} />);
+    expect(document.querySelector('.mcs-participants-btn')).toBeNull();
+    expect(byLabel('Участники')).toBeUndefined();
+  });
+
   it('the overflow ("...") button calls onOpenOverflow with no arguments', () => {
     const model = baseModel({ totalParticipants: 4 });
     const onOpenOverflow = vi.fn();

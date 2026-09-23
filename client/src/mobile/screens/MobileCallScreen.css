@@ -84,6 +84,27 @@
   background: var(--stage-chip);
 }
 
+/* Кнопка «Участники» в шапке — только у гостя (спека §7, у гостя нет
+   channelInfo/сайдбара). См. `onOpenParticipants` в MobileCallScreen.tsx. */
+.mcs-participants-btn {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-row);
+  background: transparent;
+  color: var(--stage-ink);
+  cursor: pointer;
+}
+
+.mcs-participants-btn:active {
+  background: var(--stage-chip);
+}
+
 /* ── Плашка «Переподключение…» — в потоке, не оверлей ── */
 .mcs-reconnecting {
   flex-shrink: 0;
@@ -531,4 +552,26 @@
   opacity: 0.4;
   cursor: not-allowed;
   pointer-events: none;
+}
+
+.mcs-panel-btn-chat {
+  position: relative;
+}
+
+/* Тот же паттерн, что .guest-ctl-badge (GuestCallView.css) — тоже на тёмной
+   --stage-* сцене, поэтому --stage-danger, а не --danger. */
+.mcs-chat-badge {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: var(--radius-pill);
+  background: var(--stage-danger);
+  color: var(--white);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 16px;
+  text-align: center;
 }

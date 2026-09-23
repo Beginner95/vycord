@@ -1,0 +1,46 @@
+/* Мобильная оболочка гостевого звонка (спека §7). Рендерится только при
+   (width < 900px) — JS-развилка GuestPage (useIsMobile); поэтому без @media.
+   Размеры и инсеты — те же, что у .mobile-shell (MobileShell.css). */
+.guest-mobile-call-shell {
+  position: relative;
+  width: 100vw;
+
+  /* --keyboard-inset пишет useVisualViewportInset: на iOS клавиатура не
+     ужимает layout viewport, и без него композер чата уезжал бы под неё. */
+  height: calc(100dvh - var(--keyboard-inset, 0px));
+  overflow: hidden;
+  background: var(--stage);
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
+}
+
+.guest-mobile-call-layer {
+  height: 100%;
+}
+
+/* Под оверлеем чата/ростера слой звонка только прячется, а не
+   размонтируется: из его <video> играет удалённое аудио. Тот же приём, что
+   .mobile-screen.is-under в MobileShell.css — не display: none. */
+.guest-mobile-call-layer.is-hidden {
+  visibility: hidden;
+}
+
+/* Спиннер connecting/resuming: высота — от оболочки (уже за вычетом
+   клавиатуры), а не 100dvh из GuestPage.css (в т.ч. min-height мобильного
+   .guest-page там же). */
+.guest-mobile-call-layer > .guest-page-stage {
+  height: 100%;
+  min-height: 0;
+}
+
+/* Верхний инсет у слоя звонка несёт своя шапка (.mcs-topbar), поэтому
+   оболочка его не добавляет — только оверлей, у ScreenHeader своего нет.
+   inset: 0 отсчитывается от padding-box оболочки, поэтому боковые инсеты
+   оверлей тоже несёт сам. Экраны внутри — height: 100% от его content-box. */
+.guest-mobile-call-overlay {
+  position: absolute;
+  inset: 0;
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+  background: var(--canvas);
+  color: var(--ink);
+}

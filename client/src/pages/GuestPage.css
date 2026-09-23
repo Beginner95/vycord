@@ -203,3 +203,57 @@
   font-size: 14px;
   color: var(--stage-muted);
 }
+
+/* ── Мобильная раскладка (< 900px, спека §7) ──────────────────────────── */
+
+@media (width < 900px) {
+  .guest-page {
+    min-height: 100dvh;
+    padding: max(16px, env(safe-area-inset-top)) 16px max(16px, env(safe-area-inset-bottom));
+  }
+
+  .guest-card {
+    max-width: none;
+  }
+
+  /* Карточка входа: колонка на всю высоту, «Попросить войти» прижата к низу
+     (спека §7) — только здесь, не у узких карточек notice/lobby/ended, у
+     которых нет прижимаемого к низу CTA. Высоту даёт align-self: stretch, а
+     не height: 100%: у .guest-page только min-height, процент не от чего
+     считать. Однострочный flex-контейнер зажимает линию до своего
+     min-height, так что stretch растягивает карточку на всю высоту экрана
+     (минус padding страницы), а при длинном содержимом она просто растёт. */
+  .guest-card-entry {
+    align-self: stretch;
+    padding: 0;
+    border: none;
+    background: transparent;
+    box-shadow: none;
+  }
+
+  /* Прижимаем к низу только CTA, а не раздвигаем все дочерние
+     (space-between разнёс бы и заголовок, и превью, и поле). */
+  .guest-card-entry .guest-submit {
+    margin-top: auto;
+  }
+
+  /* Любая кнопка внутри карточки (toggle, submit, «Отменить» в GuestLobby,
+     «Создать аккаунт»/«Закрыть» в GuestEnded) — базовый `.btn` — 34px, ниже
+     обязательного минимума (см. Global Constraints). */
+  .guest-card .btn {
+    min-height: 44px;
+  }
+
+  .guest-field .input {
+    font-size: 16px;
+  }
+
+  /* Спека §7: превью камеры 4:3 на мобиле (десктоп остаётся 16:9). */
+  .guest-preview {
+    aspect-ratio: 4 / 3;
+  }
+
+  .guest-page-stage {
+    height: 100dvh;
+  }
+}
