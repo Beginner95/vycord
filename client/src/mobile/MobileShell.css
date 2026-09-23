@@ -46,12 +46,11 @@
   visibility: visible;
 }
 
-/* Панели, ещё не переписанные под мобилу (этапы 4–5): корень ChatArea (всё ещё
-   панель), .call-stage и .home-view — десктопные компоненты с фиксированными
-   ширинами колонок. На экране стека они занимают всё. (0,2,0) — выигрываем у
-   их (0,1,0) базы специфичностью, а не порядком файлов. */
-.mobile-screen > .chat-area,
-.mobile-screen > .home-view {
+/* Панели, ещё не переписанные под мобилу: корень ChatArea (всё ещё панель) и
+   .call-stage — десктопные компоненты с фиксированными ширинами колонок. На
+   экране стека они занимают всё. (0,2,0) — выигрываем у их (0,1,0) базы
+   специфичностью, а не порядком файлов. */
+.mobile-screen > .chat-area {
   flex: 1;
   width: 100%;
   min-width: 0;
@@ -67,15 +66,8 @@
 .mobile-shell .chat-call-btn,
 .mobile-shell .chat-members-btn,
 .mobile-shell .stage-back-btn,
-.mobile-shell .user-list-mobile-header,
-.mobile-shell .home-view-mobile-header {
+.mobile-shell .user-list-mobile-header {
   display: flex;
-}
-
-.mobile-profile {
-  display: flex;
-  flex-direction: column;
-  flex: 1;
 }
 
 .mobile-screen-loading {

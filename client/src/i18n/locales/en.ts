@@ -603,6 +603,7 @@ export const en: Dictionary = {
     tabProfile: 'Profile',
     search: 'Search',
     sheetHandle: 'Drag down to close',
+    addFriend: 'Add friend',
     addServer: 'Add server',
     createServerAction: 'Create server',
     findServerAction: 'Find a server or enter a code',

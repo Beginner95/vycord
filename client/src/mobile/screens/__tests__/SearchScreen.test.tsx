@@ -136,7 +136,7 @@ describe('SearchScreen', () => {
     fireEvent.click(row(A_FIND_SERVER));
     expect(n.push).toHaveBeenCalledWith({ kind: 'findServer' });
     fireEvent.click(row(A_SETTINGS));
-    expect(c.ui.setSettingsOpen).toHaveBeenCalledWith(true);
+    expect(n.push).toHaveBeenCalledWith({ kind: 'settings', section: 'profile' });
     fireEvent.click(row(A_CREATE_CHANNEL));
     expect(c.ui.setCreateChannelOpen).toHaveBeenCalledWith(true);
     fireEvent.click(row(A_JOIN_VOICE));

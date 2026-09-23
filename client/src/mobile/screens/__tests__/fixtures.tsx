@@ -4,7 +4,7 @@ import type { AppController } from '@/pages/app/useAppController';
 import type { MobileNav } from '@/mobile/nav/useMobileNav';
 
 /** Общие фикстуры тестов мобильных экранов (задачи 5, 6, 12). */
-export const user: User = { id: 'u1' } as User;
+export const user: User = { id: 'u1', username: 'anna', email: 'anna@example.com' } as User;
 export const s1: Server = { id: 's1', name: 'Волчья стая', owner_id: 'u1' } as Server;
 export const s2: Server = { id: 's2', name: 'Тихий омут', owner_id: 'u9', is_private: true } as Server;
 export const ch: Channel = { id: 'c1', server_id: 's1', name: 'общий', position: 0, created_at: '', updated_at: '' };

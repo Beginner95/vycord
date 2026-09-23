@@ -518,13 +518,13 @@ safe-area, основная кнопка у низа, клавиатура не 
 | # | Функция (промт §3) | Десктоп | Мобайл: где живёт | Этап | Проверка |
 |---|---|---|---|---|---|
 | **Auth** |
-| 1 | Вход по email-коду (OTP, повтор с таймером, смена email) | `AuthPage`, `OtpCodeInput` | `AuthPage` (CSS-полировка), OTP `one-time-code` + `numeric` | 5 | план |
-| 2 | Вход по паролю | `AuthPage` | `AuthPage` | 5 | план |
-| 3 | Подтверждение неподтверждённого email | `AuthPage` | `AuthPage` | 5 | план |
-| 4 | Выбор username при регистрации | `AuthPage` | `AuthPage` | 5 | план |
+| 1 | Вход по email-коду (OTP, повтор с таймером, смена email) | `AuthPage`, `OtpCodeInput` | `AuthPage` (CSS-полировка), OTP `one-time-code` + `numeric` | 5 | ✅ этап 5 — `.superpowers/vyc95/s5/auth-code-{light,dark}.png` (шаг `code`, таймер «Отправить повторно через 60 с», «Изменить email»), мок `POST /auth/otp/request` |
+| 2 | Вход по паролю | `AuthPage` | `AuthPage` | 5 | ✅ этап 5 — `.superpowers/vyc95/s5/auth-password-{light,dark}.png` |
+| 3 | Подтверждение неподтверждённого email | `AuthPage` | `AuthPage` | 5 | ✅ этап 5 (частично) — тот же шаг `code`/тот же JSX-блок `AuthPage.tsx`, что и п.1 (различается только текст `codeSent ? … : t('auth.emailNotVerifiedTitle')`, разметка идентична); скриншот снят для варианта `codeSent=true` (п.1), ветка `email_not_verified` (из `handlePasswordSubmit`) отдельно не переснята — общий CSS-полиш (T6) применяется к обеим веткам одинаково, т.к. в файле нет шаг-специфичных стилей |
+| 4 | Выбор username при регистрации | `AuthPage` | `AuthPage` | 5 | ✅ этап 5 — `.superpowers/vyc95/s5/auth-username-{light,dark}.png`, мок `POST /auth/otp/verify` → `username_required` |
 | **Серверы** |
 | 5 | Список серверов | `ServerList` | вкладка «Серверы», `MobileListRow` | 2 | ✅ этап 2 — `.superpowers/vyc95/s2/mobile/servers-390x844-{light,dark}.png`, `ServersScreen.test.tsx` |
-| 6 | «Главная» (друзья) | `ServerList` → `HomeView` | вкладка «Друзья» | 5 | план |
+| 6 | «Главная» (друзья) | `ServerList` → `HomeView` | вкладка «Друзья» | 5 | ✅ этап 5 — `.superpowers/vyc95/s5/friends-{online,all,pending,blocked}-{light,dark}.png`, `FriendsScreen.test.tsx` |
 | 7 | Создать сервер (имя, приватность) | модалка в `AppPage` | «Серверы» → «＋» → экран `createServer` | 2 | ✅ этап 2 — `.superpowers/vyc95/s2/mobile2/create-server-390x844-{light,dark}.png`, `CreateServerScreen.test.tsx` |
 | 8 | Найти сервер по имени / коду, вступить, число участников | `FindServerModal` | «＋» → экран `findServer` | 2 | ✅ этап 2 — `.superpowers/vyc95/s2/mobile2/find-server-390x844-{light,dark}.png`, `FindServerScreen.test.tsx`, `FindServerBody.test.tsx` |
 | 9 | Меню сервера | `ServerMenu` (`ContextMenu`) | long-press строки / «⋯» в `channels` → `ActionSheet` | 2 | ✅ этап 2 — `.superpowers/vyc95/s2/mobile/servers-menu-390x844-*.png`, `channels-server-menu-390x844-*.png`, `serverMenu.test.tsx` |
@@ -594,30 +594,30 @@ safe-area, основная кнопка у низа, клавиатура не 
 | 68 | `/guest`: экраны завершения (8 причин) + CTA регистрации | `GuestPage` | §7 `ended` | 6 | план |
 | 69 | `/guest`: неподдерживаемый браузер, нет доступа к медиа, битая ссылка | `GuestPage`, `guestErrors` | полноэкранные состояния | 6 | план |
 | **Друзья** |
-| 70 | Вкладки Онлайн / Все / Ожидают / Заблокированные | `FriendsPanel` | вкладка «Друзья», сегмент-контрол | 5 | план |
-| 71 | Входящие / исходящие: принять / отклонить / отменить | `FriendsPanel` | inline-кнопки в «Ожидают» | 5 | план |
-| 72 | Добавить друга по username | `AddFriendForm` | «＋» → sheet `friendAdd` | 5 | план |
-| 73 | Удалить, заблокировать / разблокировать | `FriendRow` `ContextMenu` | тап → `ActionSheet` | 5 | план |
-| 74 | Бейдж входящих заявок | `ServerList` «Дом» | иконка вкладки «Друзья» | 5 | план |
-| 75 | Позвонить другу | `FriendRow` | `ActionSheet` «Позвонить» | 5 | план |
+| 70 | Вкладки Онлайн / Все / Ожидают / Заблокированные | `FriendsPanel` | вкладка «Друзья», сегмент-контрол | 5 | ✅ этап 5 — `.superpowers/vyc95/s5/friends-{online,all,pending,blocked}-{light,dark}.png`, `FriendsScreen.test.tsx` |
+| 71 | Входящие / исходящие: принять / отклонить / отменить | `FriendsPanel` | inline-кнопки в «Ожидают» | 5 | ✅ этап 5 — кнопки на скриншоте `.superpowers/vyc95/s5/friends-pending-{light,dark}.png`; вызов `apiService.acceptFriendRequest`/`deleteFriendRequest` — `FriendsScreen.test.tsx` («инлайн «Принять» зовёт apiService.acceptFriendRequest»), клик «Принять/Отклонить/Отменить» через фикстуру не воспроизводился (нужен мок POST) |
+| 72 | Добавить друга по username | `AddFriendForm` | «＋» → sheet `friendAdd` | 5 | ✅ этап 5 — `.superpowers/vyc95/s5/friends-addsheet-{light,dark}.png`, `FriendsScreen.test.tsx` («+» открывает шторку); сама отправка — неизменённый `AddFriendForm` |
+| 73 | Удалить, заблокировать / разблокировать | `FriendRow` `ContextMenu` | тап → `ActionSheet` | 5 | ✅ этап 5 — `.superpowers/vyc95/s5/friends-actionsheet-{online,blocked}-{light,dark}.png` (разный набор пунктов: онлайн-друг — Позвонить/Удалить/Заблокировать, заблокированный — только Разблокировать), `FriendsScreen.test.tsx` |
+| 74 | Бейдж входящих заявок | `ServerList` «Дом» | иконка вкладки «Друзья» | 5 | ✅ этап 5 — бейдж «1» виден на всех скриншотах `.superpowers/vyc95/s5/friends-*.png` (таб-бар, иконка «Друзья») |
+| 75 | Позвонить другу | `FriendRow` | `ActionSheet` «Позвонить» | 5 | ✅ этап 5 — пункт «Позвонить Полина» на `.superpowers/vyc95/s5/friends-actionsheet-online-{light,dark}.png`, `FriendsScreen.test.tsx` («Позвонить» зовёт callService) |
 | **Профиль и настройки** |
-| 76 | Профиль: аватар с кропом, удаление, username, email | `ProfileSettings` | «Профиль» → `settings{profile}` | 5 | план |
-| 77 | Приватность: last seen, кто добавляет в друзья, кто пишет | `Settings` | `settings{privacy}` | 5 | план |
-| 78 | Звуки: сообщения, звонки, вход/выход, громкость, тест | `AudioSettings` | `settings{audio}` | 5 | план |
-| 79 | Шумодав DeepFilterNet3 с загрузкой модели | `AudioSettings` | `settings{audio}` | 5 | план |
-| 80 | Тест микрофона с уровнем | `AudioSettings` | `settings{audio}` | 5 | план |
-| 81 | Устройства ввода / вывода | `AudioSettings` | `settings{audio}` (вывод — где есть `setSinkId`) | 5 | план |
-| 82 | Выбор камеры | `VideoSettings` | `settings{video}` | 5 | план |
-| 83 | Тема | `AppearanceSettings` | `settings{appearance}` + действие в `search` | 5 | план |
-| 84 | Язык ru / en | `Settings` | `settings{language}` | 5 | план |
-| 85 | Выход из аккаунта | `UserPanel`, `Settings` | «Профиль» → «Выйти» → `ConfirmModal` | 5 | план |
-| 86 | Статус микрофона и шумодава | `UserPanel` | карточка «Профиль»; мик — `CallPill` / панель звонка | 5 | план |
+| 76 | Профиль: аватар с кропом, удаление, username, email | `ProfileSettings` | «Профиль» → `settings{profile}` | 5 | ✅ этап 5 (частично) — `.superpowers/vyc95/s5/settings-1-{light,dark}.png` (username/email, кнопки «Изменить аватар»/«Удалить аватар»); сам кроп-поповер (выбор файла) не открывается в headless-фикстуре — тот же пробел, что этап 2 отметил для десктопной версии того же `AvatarCropModal` |
+| 77 | Приватность: last seen, кто добавляет в друзья, кто пишет | `Settings` | `settings{privacy}` | 5 | ✅ этап 5 — `.superpowers/vyc95/s5/settings-2-{light,dark}.png` |
+| 78 | Звуки: сообщения, звонки, вход/выход, громкость, тест | `AudioSettings` | `settings{audio}` | 5 | ✅ этап 5 — найден и исправлен в приёмке T7: строка «Проверка звуков» наезжала на собственный текст на мобильной ширине, исправлено `@media (width < 900px)`-переопределением в `Settings.css` (`.setting-row-actions{flex-basis:100%}`), десктоп не тронут (`compare`/pixel-diff AE=0). До/после: `.superpowers/vyc95/s5/settings-3-{light,dark}.png` (было) vs `settings-3-{light,dark}-after-fix.png` (стало) — см. «Этап 5 — отложено» ниже |
+| 79 | Шумодав DeepFilterNet3 с загрузкой модели | `AudioSettings` | `settings{audio}` | 5 | ✅ этап 5 — тумблер и подпись «Шумоподавление (DeepFilterNet3)» на `.superpowers/vyc95/s5/settings-3-{light,dark}.png`; фактическая загрузка модели (сетевой воркер) не воспроизводилась |
+| 80 | Тест микрофона с уровнем | `AudioSettings` | `settings{audio}` | 5 | ✅ этап 5 — «Проверка микрофона» + кнопка «Проверить» + полоска уровня на `.superpowers/vyc95/s5/settings-3-{light,dark}.png` |
+| 81 | Устройства ввода / вывода | `AudioSettings` | `settings{audio}` (вывод — где есть `setSinkId`) | 5 | ✅ этап 5 — `.superpowers/vyc95/s5/settings-3-devices-light.png` (проскроллено ниже сгиба: «Устройство ввода»/«Устройство вывода») |
+| 82 | Выбор камеры | `VideoSettings` | `settings{video}` | 5 | ✅ этап 5 — `.superpowers/vyc95/s5/settings-4-{light,dark}.png` |
+| 83 | Тема | `AppearanceSettings` | `settings{appearance}` + действие в `search` | 5 | ✅ этап 5 — `.superpowers/vyc95/s5/settings-5-{light,dark}.png` |
+| 84 | Язык ru / en | `Settings` | `settings{language}` | 5 | ✅ этап 5 — `.superpowers/vyc95/s5/settings-6-{light,dark}.png`, `npm run check:i18n` |
+| 85 | Выход из аккаунта | `UserPanel`, `Settings` | «Профиль» → «Выйти» → `ConfirmModal` | 5 | ✅ этап 5 — `.superpowers/vyc95/s5/profile-logout-{light,dark}.png` (шторка подтверждения «Выйти из аккаунта?») |
+| 86 | Статус микрофона и шумодава | `UserPanel` | карточка «Профиль»; мик — `CallPill` / панель звонка | 5 | ✅ этап 5 — карточка профиля переключает «В сети» / «В сети · NC вкл.» в зависимости от `noiseCancellationService` — `.superpowers/vyc95/s5/profile-root-ncon-{light,dark}.png` vs `profile-root-ncoff-{light,dark}.png`; статус микрофона показывается вне карточки (`CallPill`/панель звонка) — вне периметра этого пункта на этой карточке |
 | **Прочее** |
 | 87 | Командная палитра: поиск каналов и сообщений, быстрые действия | `CommandPalette` (⌘K) | экран `search` (иконка на «Серверах») | 3 | ✅ этап 3 — `usePaletteSearch.test.tsx`, `SearchScreen.test.tsx`, `.superpowers/vyc95/s3/mobile/frames/search-screen-*.png`, `verify-c-report.md` пробы 4–5 (цепочка навигации, ⌘K идемпотентен) |
 | 88 | `UpdateBanner` (только Electron) | `UpdateBanner` | не показывается на вебе; проверка, что не ломает раскладку | 7 | план |
 | 89 | `ErrorBoundary` с отправкой фидбэка | `ErrorBoundary` | та же страница, мобильная вёрстка | 7 | план |
 | 90 | `ConfirmModal` | модалка | sheet-стиль (CSS) | 1 | ✅ этап 1 — `.superpowers/vyc95/s1/confirm-390-{light,dark}.png` |
-| 91 | Контекстные меню → touch-альтернатива везде | `ContextMenu` ×3 | `ActionSheet` (сервер, канал, друг) | 2, 5 | ⏳ частично: сервер и канал — ✅ этап 2 (`ActionSheet`, снимки выше); меню друга — этап 5 |
+| 91 | Контекстные меню → touch-альтернатива везде | `ContextMenu` ×3 | `ActionSheet` (сервер, канал, друг) | 2, 5 | ✅ этап 2+5 — сервер и канал: этап 2 (`ActionSheet`, снимки выше); меню друга: `.superpowers/vyc95/s5/friends-actionsheet-{online,blocked}-{light,dark}.png`, `FriendsScreen.test.tsx` |
 | 92 | Hover-зависимые элементы → touch-эквивалент | разное | long-press / видимые кнопки (`(hover: none)`) | 3–4 | ✅ этап 3+4 — этап 4 аудит `CallStage.css`/`CallUI.css`/`VolumeControlPopover.css`/`ScreenSharePicker.css`/`GuestInvitePopover.css` (приёмка T9, шаг 5): все hover-only места либо уже накрыты унаследованным `@media (width <= 768px)`-фоллбеком (`RemoteParticipantTile` — тот же компонент на десктопе и мобиле), либо принадлежат десктопной `.stage-focus-main`-разметке, которую `MobileCallScreen` не монтирует вовсе |
 | **Архитектурные требования** |
 | 93 | Вкладка «Чаты» (VYC-91) добавляется без переделки | — | `TabId` + корень + `Screen` | 1 | ✅ этап 1 — `src/mobile/nav/types.ts`, `navReducer.test.ts` |
@@ -625,7 +625,7 @@ safe-area, основная кнопка у низа, клавиатура не 
 | 95 | PWA: манифест, иконки, theme-color достижимы | — | §8 | 1 | ✅ этап 1 — проба `probe-pwa.js` на `/app`, `/guest` и на `dist/` |
 | 95a | PWA: раскладка в standalone под вырезом и домашней полоской | — | §8 | 1 → проверка на устройстве | ⏳ верхний инсет отдан `.mobile-shell`; в эмуляции `env()` = 0, поэтому подтверждается только на реальном устройстве |
 | 96 | Один брейкпоинт | 3 значения | контрактный тест, пустой allowlist | 1, 7 | ⏳ этап 1 — `breakpoint-contract.test.ts` зелёный, allowlist наследия пока не пуст (этап 7) |
-| 97 | Десктоп не изменился | — | 1280×800 до/после, `compare -metric AE` = 0 | 1–7 | ✅ этап 1 — 14 состояний, ≤ 2px (шум 2px); ✅ этап 3 — 42 состояния (`desktop-identity.md`), 40×AE=0 + 2×AA-дрожание на контекстных меню (не регрессия, переснято 4×), плюс отдельная находка/фикс: правка D2 (аудио-вложение) изначально протекла на десктоп (AE=9810 на состоянии с аудио, вне исходных 42 состояний) — переведена внутрь `@media (width < 900px)`, повторный замер AE=2; ✅ этап 4 — 7 новых звонковых состояний × 2 темы (сетка/фокус/демонстрация/поповер приглашения гостя/пикер качества демонстрации/p2p входящий/p2p активный), все AE=0 кроме p2p-входящего/светлая = AE 15 из ~1 024 000px (0.0015%) — объяснено фазой CSS-анимации пульсации иконки (`p2p-pulse`, не менялась этим этапом), не регрессия. Файловые снимки `CallStage.dom.test.tsx`/`CallUI.dom.test.tsx` (T1) оставались зелёными на каждой из 9 задач этапа, включая приёмочный фикс-раунд, подтверждая, что вынос `useCallStageModel`/`src/components/call/*` и правка `GuestInvitePopover.tsx`/`ScreenSharePicker.tsx` не тронули десктопный DOM |
+| 97 | Десктоп не изменился | — | 1280×800 до/после, `compare -metric AE` = 0 | 1–7 | ✅ этап 1 — 14 состояний, ≤ 2px (шум 2px); ✅ этап 3 — 42 состояния (`desktop-identity.md`), 40×AE=0 + 2×AA-дрожание на контекстных меню (не регрессия, переснято 4×), плюс отдельная находка/фикс: правка D2 (аудио-вложение) изначально протекла на десктоп (AE=9810 на состоянии с аудио, вне исходных 42 состояний) — переведена внутрь `@media (width < 900px)`, повторный замер AE=2; ✅ этап 4 — 7 новых звонковых состояний × 2 темы (сетка/фокус/демонстрация/поповер приглашения гостя/пикер качества демонстрации/p2p входящий/p2p активный), все AE=0 кроме p2p-входящего/светлая = AE 15 из ~1 024 000px (0.0015%) — объяснено фазой CSS-анимации пульсации иконки (`p2p-pulse`, не менялась этим этапом), не регрессия. Файловые снимки `CallStage.dom.test.tsx`/`CallUI.dom.test.tsx` (T1) оставались зелёными на каждой из 9 задач этапа, включая приёмочный фикс-раунд, подтверждая, что вынос `useCallStageModel`/`src/components/call/*` и правка `GuestInvitePopover.tsx`/`ScreenSharePicker.tsx` не тронули десктопный DOM; ✅ этап 5 — байтовая идентичность вместо AE-сравнения ДО фикс-раунда 1: `git diff` между деревом ДО задачи 1 (`abedee2d…`) и текущим рабочим деревом на момент первого прохода приёмки (`058f12a…`, см. `.superpowers/sdd/2026-09-22-mobile-stage5-friends-profile/{BASE_TREE,snap.sh}`) для `client/src/components/Settings.tsx`, `Settings.css`, `pages/app/DesktopShell.tsx` — пусто (файлы не менялись вообще, только новые mobile-файлы добавлены и `ProfileSettings.tsx` расщеплён на переиспользуемые тела в задаче 2); живой скриншот `Settings.tsx` 1280×800, 4 вкладки × 2 темы — `.superpowers/vyc95/s5/desktop-settings-{1,2,3,4}-{light,dark}.png`, визуальных отличий от эталона нет. Фикс-раунд 1 (п.78, «Проверка звуков») добавил в `Settings.css` РОВНО ОДИН новый блок `@media (width < 900px) { .setting-row-actions {…} }`, не трогающий ни одно безусловное/десктопное правило — байтовая идентичность для этого файла после фикс-раунда 1 закономерно уже не нулевая (диф есть), поэтому идентичность для конкретно этой правки доказана иначе: попарный pixel-diff `desktop-settings-2-{light,dark}.png` (до фикса) против `desktop-settings-2-{light,dark}-after-fix.png` (после) — `PIL.ImageChops.difference` даёт `bbox=None`/`extrema=((0,0),(0,0),(0,0))` на обе темы, т.е. AE=0 буквально на состоянии, где правка теоретически могла что-то задеть (подробности — «Этап 5 — отложено», запись про п.78) |
 
 ## 11. Проверка
 
@@ -866,3 +866,58 @@ safe-area, основная кнопка у низа, клавиатура не 
   оставляет узкий зазор справа из-за CSS-переконстрейна) — тот же нюанс,
   что уже отмечен и принят в ревью Task 8, подтверждён повторно финальным
   ревью ветки; не мешает реалистичному диапазону устройств этого приложения.
+
+### Этап 5 — отложено и найдено по пути
+
+- **Найдено и исправлено в приёмке (Task 7):** строка «Проверка звуков» в
+  `AudioSettings` (`settings{audio}`, п.78) на мобильной ширине (~390–500px)
+  визуально наезжала текстом заголовка/описания на 4 тестовые кнопки
+  (Сообщение/Звонок/Вход/Выход). Воспроизведено в обеих темах (до фикса):
+  `.superpowers/vyc95/s5/settings-3-{light,dark}.png`,
+  `settings-3-devices-light.png`. Корень (подтверждён `getBoundingClientRect`
+  пробой, не догадкой): `.setting-row-info { flex: 1; min-width: 0 }` в
+  `client/src/components/Settings.css` позволяет колонке заголовка/описания
+  сжаться почти до нуля (измерено: 23px при доступных ~468px), а
+  `flex-wrap: wrap` на `.setting-row` это не предотвращает — по спецификации
+  flexbox элемент с `flex-basis: 0%`/`min-width: 0` всегда «помещается» на
+  текущей строке, поэтому `.setting-row-actions` (кнопки) не переносится на
+  свою строку, а встаёт рядом со сжатой колонкой; неразрывные слова описания
+  визуально вылезают за пределы своего 23px-бокса поверх кнопок. Комментарий
+  в файле (`/* flex-wrap: wrap added in T7 */`, строка ~113) фиксирует более
+  раннюю находку той же природы и её частичное решение — на десктопной
+  панели настроек (`.settings-modal`, ~640px) колонка никогда не сжимается
+  настолько сильно, поэтому там дефект не проявлялся. Исправлено фикс-раундом
+  1 (после первого прохода приёмки): добавлен mobile-only override —
+  `@media (width < 900px) { .setting-row-actions { flex-basis: 100%;
+  justify-content: flex-start; } }` в конце `Settings.css`, форсирующий
+  перенос кнопок на свою строку независимо от найденной особенности
+  flex-wrap, не трогая ни одно десктопное правило. Подтверждено: мобильный
+  снимок после фикса — `settings-3-{light,dark}-after-fix.png` (текст больше
+  не перекрывается); десктопный `.settings-modal` на 1280×800 —
+  **пиксельно идентичен** снимку до фикса (`desktop-settings-2-{light,dark}
+  .png` vs `desktop-settings-2-{light,dark}-after-fix.png`, попарное
+  сравнение `PIL.ImageChops.difference` → `bbox=None`, `extrema=((0,0),
+  (0,0),(0,0))` на обе темы, т.е. AE=0 буквально, не «≤ 2px шума»);
+  `Settings.dom.test.tsx` снапшот не изменился (0 diff, CSS-only правка);
+  полный гейт-прогон после фикса — без регрессий (см. отчёт задачи 7,
+  «Fix round 1»).
+- **Найдено в приёмке, не дефект (уточнение для будущих проверок):**
+  визуальный харнесс (`tools/verify/smoke.mjs`) в этой рабочей среде не
+  соблюдает запрошенный `--size 390x844` буквально — реальный
+  `window.innerWidth/innerHeight` оказывается ~500×757 независимо от
+  контента страницы (подтверждено на голом `/app --anon`, без каких-либо
+  фикстур этой задачи). Не влияет на правильность выводов этой приёмки:
+  500px всё ещё меньше брейкпоинта мобильной оболочки (`< 900px`), и ни один
+  CSS-файл, тронутый в этапе 5 (`FriendsScreen.css`, `ProfileScreen.css`,
+  `SettingsScreen.css`), не содержит внутренних `@media`-точек уже, а
+  скриншоты этапов 2–4 (например `.superpowers/vyc95/s4/mobile/*.png`)
+  зафиксированы ровно 390×844 — то есть эффект либо специфичен для текущего
+  окружения/версии Chrome, либо для порядка флагов в этом сеансе; не
+  расследовано дальше (не относится к коду этого этапа), стоит перепроверить
+  перед следующей визуальной приёмкой.
+- Строки покрытия §10 п.3 («подтверждение неподтверждённого email») и п.76
+  (аватар-кроп) приняты с честной пометкой «частично» — см. сами строки:
+  первая делит JSX/CSS с уже подтверждённым п.1 и не была отдельно
+  переснята в ветке `email_not_verified`; второй — тот же
+  headless-ограниченный пробел (`<input type=file>`), что этап 2 уже отметил
+  для десктопного `AvatarCropModal`, не новый для этого этапа.

@@ -49,7 +49,7 @@ export function SearchScreen({ ctx, channelId }: { ctx: ScreenCtx; channelId: st
     if (channel && callChannelId !== channel.id) {
       defs.push({ id: 'join-voice', label: t('palette.joinVoice', { channel: channel.name }), run: () => ctx.joinVoice(channel) });
     }
-    defs.push({ id: 'open-settings', label: t('palette.openSettings'), run: () => c.ui.setSettingsOpen(true) });
+    defs.push({ id: 'open-settings', label: t('palette.openSettings'), run: () => nav.push({ kind: 'settings', section: 'profile' }) });
     defs.push({
       id: 'theme',
       label: theme === 'dark' ? t('palette.themeLight') : t('palette.themeDark'),

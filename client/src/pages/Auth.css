@@ -214,3 +214,19 @@
      (measured rgba(99, 102, 241, 0.3) before and after). */
   box-shadow: 0 4px 12px color-mix(in srgb, var(--accent-500) 30%, transparent);
 }
+
+@media (width < 900px) {
+  .auth-container {
+    min-height: 100dvh;
+    padding: max(24px, env(safe-area-inset-top)) max(24px, env(safe-area-inset-right))
+      max(24px, env(safe-area-inset-bottom)) max(24px, env(safe-area-inset-left));
+  }
+
+  /* 16px, не десктопные 14px — держит Safari/Chrome на iOS от автозума при
+     фокусе поля (спека §5.11). Кнопка отправки уже идёт последним элементом
+     формы (после полей) — на короткой одноколоночной карточке она и так
+     ближе к низу; здесь докладываем только safe-area/dvh. */
+  .form-group input {
+    font-size: 16px;
+  }
+}

@@ -1,14 +1,13 @@
 import { useState, type ReactNode } from 'react';
 import type { Screen } from '@/mobile/nav/types';
-import type { AppController } from '@/pages/app/useAppController';
 import { MobileCallScreen } from '@/mobile/screens/MobileCallScreen';
 import { CallOverflowSheets } from '@/mobile/call/CallOverflowSheets';
 import type { CallOverflowSub } from '@/mobile/call/useCallOverflowItems';
 import { useCallStageModel } from '@/components/useCallStageModel';
 import { useGuestManagementStore } from '@/stores/guestManagementStore';
-import { HomeView } from '@/components/HomeView';
-import { UserPanel } from '@/components/UserPanel';
-import { ScreenHeader } from '@/mobile/components/ScreenHeader';
+import { FriendsScreen } from './FriendsScreen';
+import { ProfileScreen } from './ProfileScreen';
+import { SettingsScreen } from './SettingsScreen';
 import { ServersScreen } from './ServersScreen';
 import { ChannelsScreen } from './ChannelsScreen';
 import { CreateServerScreen } from './CreateServerScreen';
@@ -20,23 +19,10 @@ import { ChatScreen } from './ChatScreen';
 import { ChannelInfoScreen } from './ChannelInfoScreen';
 import { SearchScreen } from './SearchScreen';
 import { useCallStore } from '@/stores/callStore';
-import { useT } from '@/i18n';
 
 import type { ScreenCtx } from './types';
 
 export type { ScreenCtx } from './types';
-
-function ProfileRoot({ c }: { c: AppController }) {
-  const t = useT();
-  return (
-    <div className="mobile-profile">
-      <ScreenHeader title={t('mobile.tabProfile')} />
-      {/* Этап 1: панель пользователя (настройки, выход, NC). Полноценная
-          вкладка — этап 5 (спека §5.8). */}
-      <UserPanel user={c.user} onLogout={c.logout} onOpenSettings={() => c.ui.setSettingsOpen(true)} />
-    </div>
-  );
-}
 
 function CallScreen({ ctx }: { ctx: ScreenCtx }) {
   const callChannelId = useCallStore((s) => s.callChannelId);
@@ -78,17 +64,21 @@ function CallScreen({ ctx }: { ctx: ScreenCtx }) {
   );
 }
 
-/** Этап 2: серверы/каналы и формы — мобильные экраны; чат/звонок/друзья —
- *  существующие панели (этапы 3–5). Остальные экраны рендерят пустой каркас. */
+/** Серверы/каналы/формы — мобильные экраны этапа 2; друзья/профиль/настройки —
+ *  мобильные экраны этапа 5; звонок — MobileCallScreen этапа 4. Чат — исключение:
+ *  переиспользует десктопную панель ChatArea, а не собственный экран.
+ *  Остальные экраны рендерят пустой каркас. */
 export function renderScreen(screen: Screen, ctx: ScreenCtx): ReactNode {
   const { c, nav } = ctx;
   switch (screen.kind) {
     case 'servers':
       return <ServersScreen ctx={ctx} />;
     case 'friends':
-      return <HomeView />;
+      return <FriendsScreen />;
     case 'profile':
-      return <ProfileRoot c={c} />;
+      return <ProfileScreen ctx={ctx} />;
+    case 'settings':
+      return <SettingsScreen section={screen.section} onBack={nav.back} />;
     case 'channels':
       return <ChannelsScreen serverId={screen.serverId} ctx={ctx} />;
     case 'createServer':

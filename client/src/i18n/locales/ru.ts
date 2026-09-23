@@ -622,6 +622,7 @@ export const ru = {
     tabProfile: 'Профиль',
     search: 'Поиск',
     sheetHandle: 'Потяните вниз, чтобы закрыть',
+    addFriend: 'Добавить в друзья',
     addServer: 'Добавить сервер',
     createServerAction: 'Создать сервер',
     findServerAction: 'Найти сервер или ввести код',
