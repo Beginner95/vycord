@@ -29,7 +29,7 @@
   color: var(--ink);
   background: transparent;
   border: none;
-  outline: none;
+  outline: none !important;
   resize: none;
 }
 
