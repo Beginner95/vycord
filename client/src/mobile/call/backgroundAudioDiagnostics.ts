@@ -79,6 +79,8 @@ export function buildBackgroundAudioReport(
     s_ctx: col((r) => r.snap.chain?.contextState ?? null),
     s_ctxTime: col((r) => round(r.snap.chain?.contextTime, 2)),
     s_micGain: col((r) => round(r.snap.chain?.micGain, 2)),
+    s_ncActive: col((r) => bit(r.snap.chain?.ncActive)),
+    s_ncBypass: col((r) => bit(r.snap.chain?.ncBypassed)),
     s_rawState: col((r) => r.snap.chain?.rawTrack?.readyState ?? null),
     s_rawMuted: col((r) => bit(r.snap.chain?.rawTrack?.muted)),
     s_rawEnabled: col((r) => bit(r.snap.chain?.rawTrack?.enabled)),

@@ -65,6 +65,8 @@ interface ChainDiagnostics {
   /** 0 — пользователь замьючен (setMicMuted). */
   micGain: number;
   ncActive: boolean;
+  /** Фоновый bypass (VYC-96) включён. */
+  ncBypassed: boolean;
   rawTrack: TrackDiagnostics | null;
   destTrack: TrackDiagnostics | null;
 }
@@ -96,6 +98,9 @@ interface AudioChain {
   stage: WorkletStage | null;
   /** true: source → worklet → micGain → destination; false: source → micGain → destination (bypass). */
   active: boolean;
+  /** VYC-96: worklet временно выведен из цепочки фоновым bypass'ом и вернётся
+   *  на возврате в приложение (stage при этом живой). Для UI считается active. */
+  backgroundBypassed: boolean;
 }
 
 function loadSettings(): NcSettings {
@@ -224,6 +229,8 @@ class NoiseCancellationService {
   /** Персистируемое намерение. Отличается от state.isEnabled только после
    *  runtime-ошибки (ошибка ≠ ручное выключение). */
   private intendedEnabled: boolean;
+  /** VYC-96: мобильное приложение свёрнуто — worklet выведен из цепочек. */
+  private backgroundBypass = false;
   private listeners = new Set<StateListener>();
   /** key — id стрима, который вернул createChain. */
   private chains = new Map<string, AudioChain>();
@@ -283,6 +290,7 @@ class NoiseCancellationService {
       baseLatency: chain.context.baseLatency ?? null,
       micGain: chain.micGain.gain.value,
       ncActive: chain.active,
+      ncBypassed: this.backgroundBypass,
       rawTrack: raw ? { readyState: raw.readyState, muted: raw.muted, enabled: raw.enabled } : null,
       destTrack: dest ? { readyState: dest.readyState, muted: dest.muted, enabled: dest.enabled } : null,
     };
@@ -375,6 +383,7 @@ class NoiseCancellationService {
       workletLoaded: false,
       stage: null,
       active: false,
+      backgroundBypassed: false,
     };
 
     const outputStream = new MediaStream();
@@ -382,10 +391,12 @@ class NoiseCancellationService {
     rawStream.getVideoTracks().forEach((t) => outputStream.addTrack(t));
     this.chains.set(outputStream.id, chain);
 
-    if (this.state.isEnabled) {
+    if (this.state.isEnabled && !this.backgroundBypass) {
       await this.activateChain(chain); // при ошибке сам уходит в bypass
     } else {
+      // Фоновый bypass (VYC-96): worklet подключится на возврате в приложение.
       this.wireBypass(chain);
+      chain.backgroundBypassed = this.backgroundBypass && this.state.isEnabled;
     }
     this.refreshActive();
     this.notify();
@@ -407,12 +418,51 @@ class NoiseCancellationService {
     this.persist();
     this.notify();
     for (const chain of this.chains.values()) {
-      if (enabled) {
+      if (enabled && this.backgroundBypass) {
+        // Тоггл нажат, пока приложение свёрнуто: worklet подключится на
+        // возврате (setBackgroundBypass(false) применит актуальное намерение).
+        chain.backgroundBypassed = true;
+      } else if (enabled) {
         await this.activateChain(chain);
       } else {
         this.wireBypass(chain);
+        chain.backgroundBypassed = false;
       }
     }
+    this.refreshActive();
+    this.notify();
+  }
+
+  /**
+   * VYC-96, только мобильная оболочка: пока приложение свёрнуто, микрофон идёт
+   * мимо worklet'а (source → micGain → destination). Гипотеза: в фоне worker
+   * DeepFilterNet (WASM) голодает по CPU, и worklet выдаёт нули. stage/worker
+   * НЕ уничтожаются — на возврате только перекоммутация. Пользовательское
+   * намерение (isEnabled/persist) не трогается; на возврате применяется
+   * актуальное. Сериализуется через opQueue с createChain/setEnabled.
+   */
+  setBackgroundBypass(bypass: boolean): Promise<void> {
+    return this.enqueue(() => this.doSetBackgroundBypass(bypass));
+  }
+
+  isBackgroundBypass(): boolean {
+    return this.backgroundBypass;
+  }
+
+  private async doSetBackgroundBypass(bypass: boolean): Promise<void> {
+    if (this.backgroundBypass === bypass) return;
+    this.backgroundBypass = bypass;
+    for (const chain of this.chains.values()) {
+      if (bypass) {
+        const wasActive = chain.active;
+        this.wireBypass(chain);
+        chain.backgroundBypassed = wasActive;
+      } else {
+        chain.backgroundBypassed = false;
+        if (this.state.isEnabled) await this.activateChain(chain);
+      }
+    }
+    // isActive в UI не мигает: backgroundBypassed-цепочки считаются активными.
     this.refreshActive();
     this.notify();
   }
@@ -551,7 +601,7 @@ class NoiseCancellationService {
   private refreshActive(): void {
     let active = false;
     for (const chain of this.chains.values()) {
-      if (chain.active) {
+      if (chain.active || chain.backgroundBypassed) {
         active = true;
         break;
       }

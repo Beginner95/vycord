@@ -18,7 +18,7 @@ const mocks = vi.hoisted(() => {
     localStreamState: { id: 'local', getAudioTracks: () => [] as unknown[] },
     getBackgroundAudioSnapshot: vi.fn(async () => ({
       chain: {
-        contextState: 'running', contextTime: 1, sampleRate: 48000, baseLatency: 0.01, micGain: 1, ncActive: true,
+        contextState: 'running', contextTime: 1, sampleRate: 48000, baseLatency: 0.01, micGain: 1, ncActive: false, ncBypassed: true,
         rawTrack: { readyState: 'live', muted: false, enabled: true },
         destTrack: { readyState: 'live', muted: false, enabled: true },
       },
@@ -89,6 +89,8 @@ describe('useBackgroundAudioDiagnostics', () => {
     expect(extra.snapshotCount).toBe(BG_SNAPSHOT_SCHEDULE_S.length + 1); // + снимок на возврате
     expect(extra.s_sched).toEqual([...BG_SNAPSHOT_SCHEDULE_S, -1]);
     expect(extra.s_pkts).toHaveLength(BG_SNAPSHOT_SCHEDULE_S.length + 1);
+    expect(new Set(extra.s_ncBypass)).toEqual(new Set([1]));
+    expect(new Set(extra.s_ncActive)).toEqual(new Set([0]));
     expect((extra.trackEvents as string[])[0]).toMatch(/^raw-mute@\d+$/);
     expect((extra.ctxEvents as string[])[0]).toMatch(/^suspended@\d+$/);
 
