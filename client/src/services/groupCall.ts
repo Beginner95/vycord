@@ -1,5 +1,5 @@
 import { isMobileViewport } from '@/mobile/breakpoint';
-import { noiseCancellationService } from './noiseCancellation';
+import { noiseCancellationService, type ChainDiagnostics } from './noiseCancellation';
 import { echoCancellationService } from './echoCancellation';
 import { STUN_SERVERS } from './iceConfig';
 import { getCallCredentials } from './callCredentials';
@@ -208,6 +208,20 @@ export interface GroupCallCallbacks {
 // Maps stream ID (= remote user ID) to the MediaStream accumulating their tracks.
 type RemoteStreams = Map<string, MediaStream>;
 
+/** VYC-96: one background-audio diagnostic sample (read-only). */
+export interface BackgroundAudioSnapshot {
+  chain: ChainDiagnostics | null;
+  micMuted: boolean;
+  pcState: string | null;
+  iceState: string | null;
+  senderTrack: { readyState: string; muted: boolean; enabled: boolean } | null;
+  packetsSent: number | null;
+  bytesSent: number | null;
+  audioLevel: number | null;
+  totalAudioEnergy: number | null;
+  totalSamplesDuration: number | null;
+}
+
 class GroupCallService {
   private ws: WebSocket | null = null;
   private pc: RTCPeerConnection | null = null;
@@ -309,6 +323,8 @@ class GroupCallService {
   // fire a report per tick per remote track and flood the issue.
   private vyc76LastReportAt = new Map<string, number>();
   private vyc76ReportCount = 0;
+  // VYC-96 background-audio diagnostics: own per-call budget (see reportBackgroundAudio).
+  private bgAudioReportCount = 0;
 
   // ── Mic-device watch ──
   // The mic is captured once from the OS default device and lives in a
@@ -416,6 +432,7 @@ class GroupCallService {
     this.micRebuildCount = 0;
     this.micRebuildFailures = 0;
     this.micRebuildBlockedUntil = 0;
+    this.bgAudioReportCount = 0;
 
     try {
       const api = (window as Window & typeof globalThis).electronAPI;
@@ -1186,6 +1203,71 @@ class GroupCallService {
     if (!t) return false;
     t.enabled = !t.enabled;
     return !t.enabled; // true = video off
+  }
+
+  // ── Background audio diagnostics (VYC-96, read-only) ──────────────────────
+  // Used only by the mobile shell's useBackgroundAudioDiagnostics.
+
+  /** Current mic-chain + mic-sender state. Never throws; missing parts are null. */
+  async getBackgroundAudioSnapshot(): Promise<BackgroundAudioSnapshot> {
+    const stream = this.localStream;
+    const chain = stream ? noiseCancellationService.getChainDiagnostics(stream.id) : null;
+    const snap: BackgroundAudioSnapshot = {
+      chain,
+      micMuted: this.micMuted,
+      pcState: this.pc?.connectionState ?? null,
+      iceState: this.pc?.iceConnectionState ?? null,
+      senderTrack: null,
+      packetsSent: null,
+      bytesSent: null,
+      audioLevel: null,
+      totalAudioEnergy: null,
+      totalSamplesDuration: null,
+    };
+    // Mic sender = FIRST audio sender (slot [0]); see sampleUplinkFast.
+    const sender = this.pc?.getSenders().find((s) => s.track?.kind === 'audio') ?? null;
+    if (sender?.track) {
+      snap.senderTrack = { readyState: sender.track.readyState, muted: sender.track.muted, enabled: sender.track.enabled };
+    }
+    if (!sender) return snap;
+    try {
+      const stats = await sender.getStats();
+      stats.forEach((r) => {
+        const rec = r as Record<string, unknown>;
+        if (r.type === 'outbound-rtp' && rec.kind === 'audio') {
+          snap.packetsSent = typeof rec.packetsSent === 'number' ? rec.packetsSent : null;
+          snap.bytesSent = typeof rec.bytesSent === 'number' ? rec.bytesSent : null;
+        } else if (r.type === 'media-source' && rec.kind === 'audio') {
+          snap.audioLevel = typeof rec.audioLevel === 'number' ? rec.audioLevel : null;
+          snap.totalAudioEnergy = typeof rec.totalAudioEnergy === 'number' ? rec.totalAudioEnergy : null;
+          snap.totalSamplesDuration = typeof rec.totalSamplesDuration === 'number' ? rec.totalSamplesDuration : null;
+        }
+      });
+    } catch {
+      // getStats throws on a closing pc — the snapshot keeps the nulls.
+    }
+    return snap;
+  }
+
+  /** Sends one background-audio diagnostic (module vyc76, kind
+   *  background-audio). Own budget — never eats the anomaly reports' budget. */
+  reportBackgroundAudio(extra: Record<string, unknown>): boolean {
+    if (this.bgAudioReportCount >= 5) return false;
+    this.bgAudioReportCount++;
+    const now = Date.now();
+    logger.report(
+      'Background audio diagnostics',
+      { module: 'vyc76', kind: 'background-audio' },
+      {
+        ...extra,
+        selfUserId: this.currentUserId.slice(0, 8),
+        roomId: this.currentRoomId.slice(0, 8),
+        elapsedFromJoinMs: this.joinedAt ? now - this.joinedAt : -1,
+        bgReportIndexInCall: this.bgAudioReportCount,
+      },
+      'info',
+    );
+    return true;
   }
 
   // ── Mobile background camera (VYC-96) ─────────────────────────────────────

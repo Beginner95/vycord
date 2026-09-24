@@ -201,3 +201,39 @@ describe('groupCallService — mic check after foreground (VYC-96)', () => {
     expect(rebuild).not.toHaveBeenCalled();
   });
 });
+
+describe('groupCallService — background audio diagnostics (VYC-96)', () => {
+  afterEach(() => {
+    internals.localStream = null;
+    internals.pc = null;
+    vi.restoreAllMocks();
+  });
+
+  it('snapshot reads mic-sender stats and the chain without throwing', async () => {
+    const mic = track('audio');
+    const stats = new Map<string, Record<string, unknown>>([
+      ['o', { type: 'outbound-rtp', kind: 'audio', packetsSent: 500, bytesSent: 40_000 }],
+      ['m', { type: 'media-source', kind: 'audio', audioLevel: 0.2, totalAudioEnergy: 1.5, totalSamplesDuration: 10 }],
+    ]);
+    internals.localStream = stream([mic]);
+    internals.pc = {
+      connectionState: 'connected',
+      iceConnectionState: 'connected',
+      getSenders: () => [{ track: mic, getStats: async () => stats }],
+    };
+    const snap = await groupCallService.getBackgroundAudioSnapshot();
+    expect(snap).toMatchObject({
+      packetsSent: 500, bytesSent: 40_000, audioLevel: 0.2, totalAudioEnergy: 1.5, totalSamplesDuration: 10,
+      pcState: 'connected', senderTrack: { readyState: 'live', muted: false, enabled: true },
+    });
+  });
+
+  it('report has its own per-call budget', async () => {
+    const { logger } = await import('@/utils/logger');
+    const spy = vi.spyOn(logger, 'report').mockImplementation(() => {});
+    (groupCallService as unknown as { bgAudioReportCount: number }).bgAudioReportCount = 0;
+    for (let i = 0; i < 8; i++) groupCallService.reportBackgroundAudio({ i });
+    expect(spy).toHaveBeenCalledTimes(5);
+    expect(spy.mock.calls[0][1]).toEqual({ module: 'vyc76', kind: 'background-audio' });
+  });
+});

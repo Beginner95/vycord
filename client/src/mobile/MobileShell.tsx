@@ -6,6 +6,7 @@ import { CallUI } from '@/components/CallUI';
 import { CallPill } from './components/CallPill';
 import { CallAudioHost, CallAudioHostContext } from './call/CallAudioHost';
 import { useBackgroundCamera } from './call/useBackgroundCamera';
+import { useBackgroundAudioDiagnostics } from './call/backgroundAudioDiagnostics';
 import type { Channel } from '@/types';
 import type { AppController } from '@/pages/app/useAppController';
 import { AppOverlays } from '@/pages/app/AppOverlays';
@@ -32,6 +33,8 @@ export function MobileShell({ c }: { c: AppController }) {
   // Свёрнутое приложение: камера выключается и освобождается (браузер всё
   // равно останавливает захват), на возврате — включается снова (VYC-96).
   useBackgroundCamera(callStatus !== 'idle');
+  // Только чтение: диагностика пропадания звука в фоне (VYC-96).
+  useBackgroundAudioDiagnostics(callStatus !== 'idle');
 
   // Нормализация записи: нет стека → корень; sheet'ы после reload не живы.
   useEffect(() => {

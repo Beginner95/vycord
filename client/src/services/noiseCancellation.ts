@@ -49,6 +49,26 @@ interface NoiseCancellationState {
 
 type StateListener = (state: NoiseCancellationState) => void;
 
+interface TrackDiagnostics {
+  readyState: MediaStreamTrackState;
+  muted: boolean;
+  enabled: boolean;
+}
+
+/** VYC-96: снимок цепочки для фоновой диагностики (только чтение). */
+interface ChainDiagnostics {
+  contextState: string;
+  /** Не растёт между снимками — рендер контекста стоит. */
+  contextTime: number;
+  sampleRate: number;
+  baseLatency: number | null;
+  /** 0 — пользователь замьючен (setMicMuted). */
+  micGain: number;
+  ncActive: boolean;
+  rawTrack: TrackDiagnostics | null;
+  destTrack: TrackDiagnostics | null;
+}
+
 interface WorkletStage {
   node: AudioWorkletNode;
   worker: Worker;
@@ -248,6 +268,35 @@ class NoiseCancellationService {
   /** Диагностика для логов звонков. */
   getChainContextState(streamId: string): string {
     return this.chains.get(streamId)?.context.state ?? 'no-ctx';
+  }
+
+  /** VYC-96, только чтение: состояние цепочки для фоновой диагностики звука. */
+  getChainDiagnostics(streamId: string): ChainDiagnostics | null {
+    const chain = this.chains.get(streamId);
+    if (!chain) return null;
+    const raw = chain.rawStream.getAudioTracks()[0] ?? null;
+    const dest = chain.destination.stream.getAudioTracks()[0] ?? null;
+    return {
+      contextState: chain.context.state,
+      contextTime: chain.context.currentTime,
+      sampleRate: chain.context.sampleRate,
+      baseLatency: chain.context.baseLatency ?? null,
+      micGain: chain.micGain.gain.value,
+      ncActive: chain.active,
+      rawTrack: raw ? { readyState: raw.readyState, muted: raw.muted, enabled: raw.enabled } : null,
+      destTrack: dest ? { readyState: dest.readyState, muted: dest.muted, enabled: dest.enabled } : null,
+    };
+  }
+
+  /** VYC-96, только чтение: подписка на statechange AudioContext цепочки
+   *  (для диагностики). Нет цепочки — no-op; возвращает отписку. */
+  onChainContextStateChange(streamId: string, listener: (state: string) => void): () => void {
+    const chain = this.chains.get(streamId);
+    if (!chain) return () => {};
+    const ctx = chain.context;
+    const handler = () => listener(ctx.state);
+    ctx.addEventListener('statechange', handler);
+    return () => ctx.removeEventListener('statechange', handler);
   }
 
   /** Сырой getUserMedia-аудиотрек цепочки — для наблюдения за миграцией
@@ -594,4 +643,4 @@ class NoiseCancellationService {
 
 export const noiseCancellationService = new NoiseCancellationService();
 export { NoiseCancellationService };
-export type { NoiseCancellationState };
+export type { NoiseCancellationState, ChainDiagnostics };

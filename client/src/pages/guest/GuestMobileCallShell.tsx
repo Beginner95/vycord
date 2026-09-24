@@ -9,6 +9,7 @@ import { useMobileNav, type MobileNav } from '@/mobile/nav/useMobileNav';
 import { stripSheets } from '@/mobile/nav/navReducer';
 import { useVisualViewportInset } from '@/mobile/keyboard';
 import { useBackgroundCamera } from '@/mobile/call/useBackgroundCamera';
+import { useBackgroundAudioDiagnostics } from '@/mobile/call/backgroundAudioDiagnostics';
 import { GuestChatScreen } from '@/mobile/screens/GuestChatScreen';
 import { GuestParticipantsScreen } from '@/mobile/screens/GuestParticipantsScreen';
 import { useT } from '@/i18n';
@@ -82,6 +83,7 @@ function GuestInCallStage({ nav }: { nav: MobileNav }) {
   const model = useCallStageModel({ onLeave: () => void leave() });
   // Как в MobileShell: при сворачивании камера выключается, на возврате — включается (VYC-96).
   useBackgroundCamera(true);
+  useBackgroundAudioDiagnostics(true);
   const [overflowOpen, setOverflowOpen] = useState(false);
   const [overflowInitialSub, setOverflowInitialSub] = useState<CallOverflowSub>(null);
 
