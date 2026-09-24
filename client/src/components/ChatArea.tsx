@@ -1,5 +1,5 @@
 import { Fragment, useState, useEffect, useRef, useCallback, type DragEvent, type ReactNode } from 'react';
-import { ArrowDown, ChevronLeft, Hash, Headphones, Mic, Plus, Search, Users } from 'lucide-react';
+import { ArrowDown, Hash, Headphones, Mic, Plus, Search, Users } from 'lucide-react';
 import { useMessageStore, type ChatMessage } from '@/stores/messageStore';
 import { useUnreadStore, firstUnreadId } from '@/stores/unreadStore';
 import { StickerManager } from '@/components/StickerManager';
@@ -18,6 +18,9 @@ import { useFloatingSelectionToolbar } from '@/hooks/useFloatingSelectionToolbar
 import { isBlockingOverlayOpen } from '@/hooks/useModalFocus';
 import { usePaletteStore } from '@/stores/paletteStore';
 import { MessageSearch } from '@/components/MessageSearch';
+import { MobileMessageSearch } from '@/mobile/components/MobileMessageSearch';
+import { BackDismissGate } from '@/mobile/sheets/BackDismissGate';
+import { MessageActionsSheet } from '@/mobile/chat/MessageActionsSheet';
 import { MessageRow } from '@/components/MessageRow';
 import { CallEventRow } from '@/components/CallEventRow';
 import { Composer, type ComposerHandle } from '@/components/Composer';
@@ -27,6 +30,7 @@ import { ConfirmModal } from '@/components/ConfirmModal';
 import { VoiceBanner } from '@/components/VoiceBanner';
 import { MediaLightbox, pickLightboxMedia } from '@/components/MediaLightbox';
 import { useAttachmentUpload } from '@/hooks/useAttachmentUpload';
+import { useStickToBottom } from '@/hooks/useStickToBottom';
 import type { Attachment, Channel, User } from '@/types';
 import type { Sticker } from '@/types';
 import { useT, useTp, useDateFormat, isSameCalendarDay } from '@/i18n';
@@ -48,19 +52,38 @@ function ChatEmptyCard({ tile, title, body, action, className }: { tile?: ReactN
   );
 }
 
+/** Что ChatArea отдаёт кастомной шапке (мобильная шапка живёт снаружи). */
+export interface ChatHeaderApi { openSearch(): void }
+
 interface ChatAreaProps {
   channel: Channel | null;
   user: User | null;
-  onMobileBack?: () => void;
   onShowMembers?: () => void;
   onJoinVoice?: (channel: Channel) => void;
   onShowCall?: () => void;
   onCreateServer?: () => void;
   onFindServer?: () => void;
   voiceParticipants?: Map<string, string[]>;
+  /** Есть → рисуется вместо встроенного `.chat-header`; функция получает `openSearch`. */
+  header?: ReactNode | ((api: ChatHeaderApi) => ReactNode);
+  /** 'screen' — поиск по каналу во весь экран (MobileMessageSearch). */
+  searchMode?: 'inline' | 'screen';
+  /** 'sheet' — долгое нажатие на сообщение открывает шторку действий. */
+  messageActions?: 'hover' | 'sheet';
+  composerVariant?: 'desktop' | 'mobile';
+  /** Enter отправляет сообщение (на мобиле — false: Enter даёт перенос строки). */
+  enterSends?: boolean;
+  /** Лайтбокс закрывается системным «назад» (запись в истории, BackDismissGate). */
+  historyOverlays?: boolean;
+  /** false — чат скрыт под другим экраном: команды палитры не обрабатываются. */
+  active?: boolean;
 }
 
-export function ChatArea({ channel, user, onMobileBack, onShowMembers, onJoinVoice, onShowCall, onCreateServer, onFindServer, voiceParticipants }: ChatAreaProps) {
+export function ChatArea({
+  channel, user, onShowMembers, onJoinVoice, onShowCall, onCreateServer, onFindServer, voiceParticipants,
+  header, searchMode = 'inline', messageActions = 'hover', composerVariant = 'desktop', enterSends = true,
+  historyOverlays = false, active = true,
+}: ChatAreaProps) {
   const callChannelId = useCallStore((s) => s.callChannelId);
   const t = useT();
   const tp = useTp();
@@ -80,6 +103,9 @@ export function ChatArea({ channel, user, onMobileBack, onShowMembers, onJoinVoi
   const chatMessagesRef = useRef<HTMLDivElement>(null);
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchSeed, setSearchSeed] = useState<{ id: number; query: string } | null>(null);
+  const openSearch = () => { setSearchSeed(null); setSearchOpen(true); };
+  const closeSearch = () => { setSearchOpen(false); setSearchSeed(null); };
+  const [actionsMsg, setActionsMsg] = useState<ChatMessage | null>(null);
   const paletteCommand = usePaletteStore((s) => s.command);
   const clearPaletteCommand = usePaletteStore((s) => s.clearCommand);
   const [historyMode, setHistoryMode] = useState(false);
@@ -134,14 +160,14 @@ export function ChatArea({ channel, user, onMobileBack, onShowMembers, onJoinVoi
   // paletteStore, а не прямым колбэком из AppPage.
   useEffect(() => {
     const cmd = paletteCommand;
-    if (!cmd) return;
+    if (!cmd || !active) return;
     // Снимаем команду ПЕРВЫМ делом: повторный заход эффекта становится no-op.
     clearPaletteCommand(cmd.id);
     // Канал мог смениться между открытием палитры и ↵ — тогда команда чужая.
     if (!channel || cmd.channelId !== channel.id) return;
     if (cmd.kind === 'chat-search') { setSearchSeed({ id: cmd.id, query: cmd.query }); setSearchOpen(true); }
     else jumpToMessage(cmd.messageId);
-  }, [paletteCommand, channel, clearPaletteCommand]);
+  }, [paletteCommand, channel, clearPaletteCommand, active]);
 
   // Unread divider anchor (spec §4.4): computed once per channel entry from
   // the persisted mark, then pinned — new messages arriving while the user is
@@ -167,10 +193,23 @@ export function ChatArea({ channel, user, onMobileBack, onShowMembers, onJoinVoi
   const canMentionEveryone = can(permissions, PERMISSIONS.MENTION_EVERYONE);
   const canManageStickers = can(permissions, PERMISSIONS.MANAGE_SERVER);
 
-  useEffect(() => {
-    if (historyMode) return; // в режиме просмотра истории не утаскиваем вниз
-    scrollToBottom();
-  }, [messages, historyMode]);
+  // Прокрутка к низу (см. useStickToBottom): при входе в канал — мгновенно и
+  // после отрисовки списка именно ЭТОГО канала (не скелетон и не хвост
+  // предыдущего), дальше низ держится, пока пользователь сам не ушёл вверх;
+  // новые сообщения приезжают плавно. В истории (jumpToMessage) и в скрытом
+  // под другим экраном чате вниз не утаскиваем.
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  };
+  const channelId = channel?.id;
+  const listReady = !loading && messages.length > 0 && messages[messages.length - 1].channel_id === channelId;
+  useStickToBottom(chatMessagesRef, {
+    resetKey: channelId,
+    ready: listReady,
+    disabled: historyMode || !active,
+    followKey: messages,
+    smoothToBottom: scrollToBottom,
+  });
 
   // Viewport mark-read: the persisted `lastRead` mark advances whenever the
   // bottom sentinel is visible, but (per the divider-pin behavior above) this
@@ -216,6 +255,7 @@ export function ChatArea({ channel, user, onMobileBack, onShowMembers, onJoinVoi
     setHistoryMode(false);
     setHighlightedId(null);
     setConfirmDeleteId(null);
+    setActionsMsg(null);
   }, [channel?.id]);
 
   // Only rows *appended* to the list already on screen animate in (220ms).
@@ -405,10 +445,6 @@ export function ChatArea({ channel, user, onMobileBack, onShowMembers, onJoinVoi
     };
   }, [updateMessage, removeMessage]);
 
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  };
-
   const jumpToMessage = async (messageId: string) => {
     if (!channel) return;
     try {
@@ -591,13 +627,7 @@ logger.error('Failed to jump to message:', err, { module: 'chat' });
   if (!channel) {
     return (
       <main className="chat-area">
-        <div className="chat-header">
-          {onMobileBack && (
-            <button type="button" className="chat-back-btn" onClick={onMobileBack} aria-label={t('chat.back')}>
-              <ChevronLeft size={18} strokeWidth={1.8} />
-            </button>
-          )}
-        </div>
+        <div className="chat-header" />
         {!serversLoaded ? null : servers.length === 0 ? (
           <ChatEmptyCard
             tile={
@@ -649,93 +679,91 @@ logger.error('Failed to jump to message:', err, { module: 'chat' });
           <span>{t('chat.dropFilesHere')}</span>
         </div>
       )}
-      <div className="chat-header">
-        {onMobileBack && (
-          <button type="button" className="chat-back-btn" onClick={onMobileBack} aria-label={t('chat.back')}>
-            <ChevronLeft size={18} strokeWidth={1.8} />
-          </button>
-        )}
-        <Hash size={17} strokeWidth={1.8} className="chat-header-hash" />
-        {/* The document's h1 (M6 T5). The open channel is what the page is
-            about, so the persistent header carries the level — NOT
-            `.chat-empty-title` (still an h2 at :41), which would either name an
-            absence in the no-channel state or produce a SECOND h1 whenever the
-            empty card renders inside an open channel.
-            BOTH copies below are h1, and that is deliberate: this name is
-            rendered twice on purpose (desktop one-liner + mobile two-line
-            wrapper) and two `display: none` rules in ChatArea.css hide exactly
-            one of them at every viewport — `.chat-header-title` in the base
-            block, and `.chat-header > .chat-header-name` inside
-            `@media (width <= 768px)`. **Cited by selector on purpose:** the
-            line numbers this comment used to give (:377/:381) were already
-            wrong before M6 closed — :377 is a brace and :381 is inside an
-            unrelated comment. Grep the two selectors; do not trust a number
-            here. display:none removes an element from the
-            accessibility tree, so precisely one h1 is ever exposed — whereas
-            promoting only one copy would leave the OTHER viewport with no h1
-            at all. */}
-        <h1 className="chat-header-name">{channel.name}</h1>
-        {/* Mobile-only two-line title (board 1f): the plain .chat-header-name
-            above hides on mobile, this wrapper (hidden on desktop) takes over
-            with the channel name plus a server/participants subtitle. */}
-        <div className="chat-header-title">
+      {header === undefined && (
+        <div className="chat-header">
+          <Hash size={17} strokeWidth={1.8} className="chat-header-hash" />
+          {/* The document's h1 (M6 T5). The open channel is what the page is
+              about, so the persistent header carries the level — NOT
+              `.chat-empty-title` (still an h2 at :41), which would either name an
+              absence in the no-channel state or produce a SECOND h1 whenever the
+              empty card renders inside an open channel.
+              BOTH copies below are h1, and that is deliberate: this name is
+              rendered twice on purpose (desktop one-liner + mobile two-line
+              wrapper) and two `display: none` rules in ChatArea.css hide exactly
+              one of them at every viewport — `.chat-header-title` in the base
+              block, and `.chat-header > .chat-header-name` inside
+              `@media (width < 900px)`. **Cited by selector on purpose:** the
+              line numbers this comment used to give (:377/:381) were already
+              wrong before M6 closed — :377 is a brace and :381 is inside an
+              unrelated comment. Grep the two selectors; do not trust a number
+              here. display:none removes an element from the
+              accessibility tree, so precisely one h1 is ever exposed — whereas
+              promoting only one copy would leave the OTHER viewport with no h1
+              at all. */}
           <h1 className="chat-header-name">{channel.name}</h1>
-          <div className="chat-header-sub">
-            {currentServer?.name} · {tp('call.participants', members.length)}
+          {/* Mobile-only two-line title (board 1f): the plain .chat-header-name
+              above hides on mobile, this wrapper (hidden on desktop) takes over
+              with the channel name plus a server/participants subtitle. */}
+          <div className="chat-header-title">
+            <h1 className="chat-header-name">{channel.name}</h1>
+            <div className="chat-header-sub">
+              {currentServer?.name} · {tp('call.participants', members.length)}
+            </div>
           </div>
-        </div>
-        <div className="chat-header-actions">
-          {onJoinVoice && (
+          <div className="chat-header-actions">
+            {onJoinVoice && (
+              <button
+                type="button"
+                className={`chat-voice-btn${callChannelId === channel.id ? ' is-in-call' : ''}`}
+                onClick={() => {
+                  if (callChannelId === channel.id) return;
+                  onJoinVoice(channel);
+                }}
+                disabled={callChannelId === channel.id}
+                title={
+                  callChannelId === channel.id
+                    ? t('call.inThisCall')
+                    : callChannelId
+                      ? t('call.goToCall')
+                      : t('call.joinVoice')
+                }
+              >
+                <Headphones size={16} strokeWidth={1.8} />
+                <span>
+                  {callChannelId === channel.id
+                    ? t('call.inThisCall')
+                    : callChannelId
+                      ? t('call.goToCall')
+                      : t('call.joinVoice')}
+                </span>
+              </button>
+            )}
             <button
               type="button"
-              className={`chat-voice-btn${callChannelId === channel.id ? ' is-in-call' : ''}`}
+              className={`chat-search-btn${searchOpen ? ' is-active' : ''}`}
               onClick={() => {
-                if (callChannelId === channel.id) return;
-                onJoinVoice(channel);
+                if (searchOpen) { setSearchOpen(false); setSearchSeed(null); }
+                else setSearchOpen(true);
               }}
-              disabled={callChannelId === channel.id}
-              title={
-                callChannelId === channel.id
-                  ? t('call.inThisCall')
-                  : callChannelId
-                    ? t('call.goToCall')
-                    : t('call.joinVoice')
-              }
+              aria-label={t('chat.searchMessages')}
+              title={t('chat.searchHint')}
             >
-              <Headphones size={16} strokeWidth={1.8} />
-              <span>
-                {callChannelId === channel.id
-                  ? t('call.inThisCall')
-                  : callChannelId
-                    ? t('call.goToCall')
-                    : t('call.joinVoice')}
-              </span>
+              <Search size={17} strokeWidth={1.8} />
             </button>
-          )}
-          <button
-            type="button"
-            className={`chat-search-btn${searchOpen ? ' is-active' : ''}`}
-            onClick={() => {
-              if (searchOpen) { setSearchOpen(false); setSearchSeed(null); }
-              else setSearchOpen(true);
-            }}
-            aria-label={t('chat.searchMessages')}
-            title={t('chat.searchHint')}
-          >
-            <Search size={17} strokeWidth={1.8} />
-          </button>
-          {onShowCall && (
-            <button type="button" className="chat-call-btn" onClick={onShowCall} aria-label={t('call.showCall')} title={t('call.showCall')}>
-              <Mic size={17} strokeWidth={1.8} />
-            </button>
-          )}
-          {onShowMembers && (
-            <button type="button" className="chat-members-btn" onClick={onShowMembers} aria-label={t('chat.members')} title={t('chat.members')}>
-              <Users size={17} strokeWidth={1.8} />
-            </button>
-          )}
+            {onShowCall && (
+              <button type="button" className="chat-call-btn" onClick={onShowCall} aria-label={t('call.showCall')} title={t('call.showCall')}>
+                <Mic size={17} strokeWidth={1.8} />
+              </button>
+            )}
+            {onShowMembers && (
+              <button type="button" className="chat-members-btn" onClick={onShowMembers} aria-label={t('chat.members')} title={t('chat.members')}>
+                <Users size={17} strokeWidth={1.8} />
+              </button>
+            )}
+          </div>
         </div>
-      </div>
+      )}
+      {header !== undefined && (typeof header === 'function' ? header({ openSearch }) : header)}
 
       <VoiceBanner
         channelName={channel.name}
@@ -837,6 +865,9 @@ logger.error('Failed to jump to message:', err, { module: 'chat' });
                     // pickLightboxMedia narrows the row-local index to the
                     // image/video subset and returns null for a non-media
                     // click (a pdf chip) — nothing to open fullscreen.
+                    onLongPress={messageActions === 'sheet' && msg.deliveryState !== 'sending' ? () => setActionsMsg(msg) : undefined}
+                    editActions={messageActions === 'sheet'}
+                    enterSends={enterSends}
                     onOpenAttachment={(index) => setLightbox(pickLightboxMedia(msg.attachments ?? [], index))}
                   />
                 )}
@@ -867,6 +898,8 @@ logger.error('Failed to jump to message:', err, { module: 'chat' });
         onSendSticker={sendSticker}
         canManageStickers={canManageStickers}
         onOpenStickerManager={() => setStickerManagerOpen(true)}
+        variant={composerVariant}
+        enterSends={enterSends}
       />
       {chatSelectionToolbar.visible && (
         <FloatingQuoteButton
@@ -875,7 +908,17 @@ logger.error('Failed to jump to message:', err, { module: 'chat' });
           onConfirm={chatSelectionToolbar.confirm}
         />
       )}
-      {searchOpen && (
+      {searchOpen && (searchMode === 'screen' ? (
+        <MobileMessageSearch
+          key={searchSeed?.id ?? 0}
+          channel={channel}
+          initialQuery={searchSeed?.query}
+          // Экран поиска закрывает весь чат: после выбора результата слой убираем,
+          // иначе прокрутка к сообщению происходила бы под ним.
+          onJumpToMessage={(id) => { closeSearch(); void jumpToMessage(id); }}
+          onClose={closeSearch}
+        />
+      ) : (
         <MessageSearch
           key={searchSeed?.id ?? 0}
           channel={channel}
@@ -883,7 +926,7 @@ logger.error('Failed to jump to message:', err, { module: 'chat' });
           onJumpToMessage={jumpToMessage}
           onClose={() => { setSearchOpen(false); setSearchSeed(null); }}
         />
-      )}
+      ))}
       {historyMode && (
         <button type="button" className="chat-jump-btn" onClick={backToLatest}>
           <ArrowDown size={16} strokeWidth={1.8} />
@@ -904,12 +947,15 @@ logger.error('Failed to jump to message:', err, { module: 'chat' });
           the Ctrl+Shift+F gate at the top of this file no longer toggles the
           search panel underneath an open lightbox. */}
       {lightbox && (
-        <MediaLightbox
-          attachments={lightbox.attachments}
-          index={lightbox.index}
-          onIndexChange={(index) => setLightbox((cur) => (cur ? { ...cur, index } : cur))}
-          onClose={() => setLightbox(null)}
-        />
+        <>
+          {historyOverlays && <BackDismissGate open onClose={() => setLightbox(null)} />}
+          <MediaLightbox
+            attachments={lightbox.attachments}
+            index={lightbox.index}
+            onIndexChange={(index) => setLightbox((cur) => (cur ? { ...cur, index } : cur))}
+            onClose={() => setLightbox(null)}
+          />
+        </>
       )}
       <ConfirmModal
         open={confirmDeleteId !== null}
@@ -919,6 +965,19 @@ logger.error('Failed to jump to message:', err, { module: 'chat' });
         onConfirm={confirmDelete}
         onCancel={() => setConfirmDeleteId(null)}
       />
+      {messageActions === 'sheet' && (
+        <MessageActionsSheet
+          msg={actionsMsg}
+          isOwn={actionsMsg?.user_id === user?.id}
+          members={members}
+          onClose={() => setActionsMsg(null)}
+          onQuote={(m) => insertQuoteIntoCompose(m.content)}
+          onEdit={(m) => setEditingId(m.id)}
+          onDelete={(m) => setConfirmDeleteId(m.id)}
+          onRetry={(m) => retrySend(m)}
+          onDiscard={(m) => removeMessage(m.id)}
+        />
+      )}
     </main>
   );
 }

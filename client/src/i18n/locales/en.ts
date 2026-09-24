@@ -74,7 +74,6 @@ export const en: Dictionary = {
     cancel: 'Cancel',
     deleteTitle: 'Delete message?',
     deleteBody: 'The message will be deleted forever. This cannot be undone.',
-    back: 'Back',
     welcomeTitle: 'Welcome to Vy Cord!',
     welcomeSubtitle: 'Select a channel to start chatting',
     searchMessages: 'Search messages',
@@ -169,6 +168,12 @@ export const en: Dictionary = {
     unitKbps: 'kbps',
     participantVolume: 'Participant volume',
 
+    // Mobile call overflow sheet (VYC-95 stage 4, T6): quality sub-sheet
+    // title, and the default-output label for the cycling output-device
+    // button (D7).
+    qualityDetails: 'Connection quality',
+    speakerDefault: 'Default speaker',
+
     // Screen source picker modal
     selectScreen: 'Select a screen to share',
     entireScreen: 'Entire Screen',
@@ -188,6 +193,9 @@ export const en: Dictionary = {
     // Header and banners
     live: 'LIVE',
     groupCallTitle: 'Group Call',
+    // Mobile call screen (MobileCallScreen, §6.2): "collapse" button in the
+    // screen's top bar.
+    collapseCall: 'Minimize call',
     resizeSplit: 'Resize call area',
     showCall: 'Call',
     isSharingScreen: '{{name}} is sharing their screen',
@@ -551,6 +559,7 @@ export const en: Dictionary = {
     linkMissingHint: 'Ask whoever invited you for a new link.',
     mediaDenied: 'No access to the camera or microphone.',
     mediaDeniedHint: 'Allow access in your browser settings — or join without them.',
+    inAppBrowserHint: 'Looks like you opened this link inside another app. Open it in Chrome, Safari, or via "Open in browser".',
     unsupported: 'This browser cannot do calls',
     unsupportedHint: 'Open the link in a recent Chrome, Safari or Firefox over HTTPS.',
   },
@@ -585,6 +594,62 @@ export const en: Dictionary = {
     }),
     serverToggle: 'Guest links for calls',
     serverToggleHint: 'People in a call will be able to invite someone without an account. Every guest has to be let in.',
+  },
+
+  mobile: {
+    tabBar: 'Sections',
+    tabServers: 'Servers',
+    tabFriends: 'Friends',
+    tabProfile: 'Profile',
+    search: 'Search',
+    sheetHandle: 'Drag down to close',
+    addFriend: 'Add friend',
+    addServer: 'Add server',
+    createServerAction: 'Create server',
+    findServerAction: 'Find a server or enter a code',
+    privateServer: 'Private server',
+    serverActions: 'Server actions',
+    channelActions: 'Channel actions',
+    membersCount: plural({
+      one: '{{count}} member',
+      other: '{{count}} members',
+    }),
+    voiceLine: '{{names}} in voice',
+    voiceMore: '{{names}} +{{count}}',
+    activityAttachment: 'Attachment',
+    activitySticker: 'Sticker',
+    activityCall: 'Call',
+    activityPreview: '{{author}}: {{text}}',
+    unreadCount: 'Unread: {{count}}',
+    hasUnread: 'Unread messages',
+    inviteFriends: 'Invite friends',
+    channelsEmpty: 'This server has no channels yet',
+    noServersBody: 'Create a server or enter an invite code.',
+    msgActions: 'Message actions',
+    // Mobile call overflow sheet and its volume sub-sheet (VYC-95 stage 4, T6).
+    callActions: 'Call actions',
+    // The call panel's chat button (Minor M3, task-final-fix-report.md) — it
+    // opens chat, not the call screen itself, distinct from callActions/call.showCall.
+    callOpenChat: 'Open chat',
+    callVolumeAction: 'Participant volume',
+    callVolumeEmpty: 'No one else is in the call',
+    // Exit-fullscreen button on the mobile call focus view — no «(Esc)» as in
+    // call.exitFullscreen: a phone has no keyboard.
+    callExitFullscreen: 'Exit fullscreen',
+    msgQuote: 'Quote',
+    msgCopy: 'Copy text',
+    msgRetry: 'Retry sending',
+    msgDiscard: 'Discard',
+    composerAttach: 'Attach',
+    attachMedia: 'Photos and videos',
+    attachFile: 'File',
+    attachEmoji: 'Emoji',
+    chatSubtitleCall: '{{server}} · in call: {{count}}',
+    channelInfo: 'Channel info',
+    infoCall: 'Call',
+    infoSearch: 'Search',
+    manageChannel: 'Manage channel',
+    channelSection: 'Channel',
   },
 
   errors: {

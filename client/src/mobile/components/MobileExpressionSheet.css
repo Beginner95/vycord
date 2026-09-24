@@ -1,0 +1,42 @@
+/* Тело пикера в шторке. Внутренние классы ExpressionPicker.css (`.expression-
+   picker-tabs`, `-body`, `-anchors`, сетки) не привязаны к `.expression-picker`,
+   поэтому потомкам достаточно того, что даёт корень поповера: flex-колонка с
+   фиксированной высотой и `min-height: 0`, чтобы `.expression-picker-body`
+   (flex: 1; overflow-y: auto) скроллился внутри, а не растягивал шторку. */
+.expression-sheet-body {
+  display: flex;
+  flex-direction: column;
+  height: min(60dvh, 420px);
+  min-height: 0;
+  overflow: hidden;
+}
+
+.expression-sheet-body .expression-picker-tab {
+  min-height: 44px;
+  font-size: 15px;
+}
+
+/* Плитки эмодзи в 8 колонок при ~360px — ≈ 40px; ячейки якорей и стикеров
+   доводим до порога касания 44. */
+.expression-sheet-body .expression-emoji-grid {
+  grid-template-columns: repeat(auto-fill, minmax(44px, 1fr));
+}
+
+.expression-sheet-body .expression-emoji-cell {
+  min-height: 44px;
+  font-size: 24px;
+}
+
+.expression-sheet-body .expression-picker-anchor {
+  width: 44px;
+  height: 44px;
+}
+
+.expression-sheet-body .expression-sticker-grid {
+  grid-template-columns: repeat(auto-fill, minmax(88px, 1fr));
+}
+
+.expression-sheet-body .expression-sticker-cell {
+  min-width: 44px;
+  min-height: 44px;
+}

@@ -1,0 +1,11 @@
+.guest-participants-screen {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.guest-participants-screen-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}

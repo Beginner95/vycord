@@ -1,0 +1,129 @@
+/* VYC-95 §3.5. Оболочка рендерится только при (width < 900px) — JS-развилка
+   AppPage; поэтому здесь нет @media. */
+.mobile-shell {
+  display: flex;
+  flex-direction: column;
+  width: 100vw;
+  height: calc(100dvh - var(--keyboard-inset, 0px));
+  overflow: hidden;
+  background: var(--canvas);
+
+  /* Верхний инсет принадлежит оболочке, не отдельным экранам: если бы каждая
+     шапка (ScreenHeader и легаси-панели этапа 1) добавляла его в padding
+     сама, при box-sizing: border-box (base.css) отступ съедал бы их
+     min-height и на устройстве с вырезом шапка схлопывалась бы. */
+  padding-top: env(safe-area-inset-top);
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
+}
+
+.mobile-stage {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  touch-action: pan-y;
+}
+
+.mobile-screen {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--canvas);
+}
+
+.mobile-screen.is-top {
+  animation: mobile-screen-in 0.22s var(--ease-out);
+}
+
+.mobile-screen.is-under {
+  visibility: hidden;
+}
+
+/* Под пальцем предыдущий экран должен быть виден. */
+.mobile-stage:has(.mobile-screen.is-top[style]) .mobile-screen.is-under {
+  visibility: visible;
+}
+
+/* Панель, ещё не переписанная под мобилу: корень ChatArea (всё ещё панель) —
+   десктопный компонент с фиксированными ширинами колонок. На экране стека он
+   занимает всё. (0,2,0) — выигрываем у их (0,1,0) базы
+   специфичностью, а не порядком файлов. */
+.mobile-screen > .chat-area {
+  flex: 1;
+  width: 100%;
+  min-width: 0;
+  max-width: none;
+  min-height: 0;
+}
+
+/* Кнопки шапки чата, чья база — display: none: вызов и список участников.
+   Оболочка владеет навигацией — оболочка их и включает, на всей ширине < 900. */
+.mobile-shell .chat-call-btn,
+.mobile-shell .chat-members-btn {
+  display: flex;
+}
+
+.mobile-screen-loading {
+  flex: 1;
+  background: var(--canvas);
+}
+
+.mobile-call-dock {
+  flex-shrink: 0;
+  margin: 0 12px 8px;
+  border-radius: var(--radius-card);
+  overflow: hidden;
+  box-shadow: var(--shadow-card);
+}
+
+/* Пустые состояния экранов списков (спека §5.2, §5.3). */
+.mobile-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 48px 24px;
+  text-align: center;
+}
+
+.mobile-empty-title {
+  margin: 0;
+  color: var(--ink);
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.mobile-empty-body {
+  margin: 0;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.mobile-empty-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+  max-width: 320px;
+  margin-top: 8px;
+}
+
+@keyframes mobile-screen-in {
+  from {
+    transform: translateX(24%);
+    opacity: 0.6;
+  }
+
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mobile-screen.is-top {
+    animation: fade-in 0.18s var(--ease-out);
+  }
+}

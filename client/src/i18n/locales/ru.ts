@@ -73,7 +73,6 @@ export const ru = {
     cancel: 'Отмена',
     deleteTitle: 'Удалить сообщение?',
     deleteBody: 'Сообщение будет удалено навсегда. Это действие нельзя отменить.',
-    back: 'Назад',
     welcomeTitle: 'Добро пожаловать в Vy Cord!',
     welcomeSubtitle: 'Выберите канал, чтобы начать общение',
     searchMessages: 'Поиск сообщений',
@@ -180,6 +179,12 @@ export const ru = {
     // читался бы как «Громкость 70 %», а не как название регулятора.
     participantVolume: 'Громкость участника',
 
+    // Мобильная «⋯»-шторка звонка (VYC-95 этап 4, T6): заголовок подшторки
+    // качества связи и подпись устройства вывода по умолчанию для кнопки
+    // циклического переключателя (D7).
+    qualityDetails: 'Качество связи',
+    speakerDefault: 'Динамик по умолчанию',
+
     // Модалка выбора источника экрана
     selectScreen: 'Выберите экран для демонстрации',
     entireScreen: 'Весь экран',
@@ -199,6 +204,9 @@ export const ru = {
     // Заголовок и баннеры
     live: 'В ЭФИРЕ',
     groupCallTitle: 'Групповой звонок',
+    // Мобильная сцена звонка (MobileCallScreen, §6.2): кнопка «свернуть» в
+    // шапке экрана.
+    collapseCall: 'Свернуть звонок',
     resizeSplit: 'Изменить высоту звонка',
     showCall: 'Звонок',
     isSharingScreen: '{{name}} показывает экран',
@@ -564,6 +572,7 @@ export const ru = {
     linkMissingHint: 'Попросите новую ссылку у того, кто вас пригласил.',
     mediaDenied: 'Нет доступа к камере или микрофону.',
     mediaDeniedHint: 'Разрешите доступ в настройках браузера — или войдите без них.',
+    inAppBrowserHint: 'Похоже, вы открыли ссылку внутри другого приложения. Откройте её в Chrome, Safari или через «Открыть в браузере».',
     unsupported: 'Браузер не поддерживает звонки',
     unsupportedHint: 'Откройте ссылку в свежем Chrome, Safari или Firefox по HTTPS.',
   },
@@ -604,6 +613,66 @@ export const ru = {
     }),
     serverToggle: 'Гостевые ссылки в звонки',
     serverToggleHint: 'Участники звонков смогут приглашать людей без аккаунта. Каждого гостя нужно впустить.',
+  },
+
+  mobile: {
+    tabBar: 'Разделы',
+    tabServers: 'Серверы',
+    tabFriends: 'Друзья',
+    tabProfile: 'Профиль',
+    search: 'Поиск',
+    sheetHandle: 'Потяните вниз, чтобы закрыть',
+    addFriend: 'Добавить в друзья',
+    addServer: 'Добавить сервер',
+    createServerAction: 'Создать сервер',
+    findServerAction: 'Найти сервер или ввести код',
+    privateServer: 'Приватный сервер',
+    serverActions: 'Действия сервера',
+    channelActions: 'Действия канала',
+    membersCount: plural({
+      one: '{{count}} участник',
+      few: '{{count}} участника',
+      many: '{{count}} участников',
+      other: '{{count}} участника',
+    }),
+    voiceLine: '{{names}} в голосе',
+    voiceMore: '{{names}} +{{count}}',
+    activityAttachment: 'Вложение',
+    activitySticker: 'Стикер',
+    activityCall: 'Звонок',
+    activityPreview: '{{author}}: {{text}}',
+    unreadCount: 'Непрочитанных: {{count}}',
+    hasUnread: 'Есть непрочитанные',
+    inviteFriends: 'Пригласить друзей',
+    channelsEmpty: 'В этом сервере пока нет каналов',
+    noServersBody: 'Создайте сервер или введите код приглашения.',
+    msgActions: 'Действия с сообщением',
+    // «⋯»-шторка мобильной сцены звонка и её подшторка громкости (VYC-95
+    // этап 4, T6).
+    callActions: 'Действия звонка',
+    // Кнопка чата на панели звонка (Minor M3, task-final-fix-report.md) — она
+    // открывает чат, а не сам звонок, отдельная от callActions/call.showCall.
+    callOpenChat: 'Открыть чат',
+    callVolumeAction: 'Громкость участников',
+    callVolumeEmpty: 'В звонке больше никого нет',
+    // Кнопка выхода из полноэкранного режима на главном видео фокус-вида
+    // мобильной сцены звонка — без «(Esc)» из call.exitFullscreen: на телефоне
+    // клавиатуры нет.
+    callExitFullscreen: 'Выйти из полноэкранного режима',
+    msgQuote: 'Цитировать',
+    msgCopy: 'Копировать текст',
+    msgRetry: 'Повторить отправку',
+    msgDiscard: 'Отменить отправку',
+    composerAttach: 'Прикрепить',
+    attachMedia: 'Фото и видео',
+    attachFile: 'Файл',
+    attachEmoji: 'Эмодзи',
+    chatSubtitleCall: '{{server}} · в звонке: {{count}}',
+    channelInfo: 'О канале',
+    infoCall: 'Звонок',
+    infoSearch: 'Поиск',
+    manageChannel: 'Управление каналом',
+    channelSection: 'Канал',
   },
 
   errors: {

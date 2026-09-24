@@ -1,5 +1,5 @@
 /* ── Call stage — board 1e (base) / 2e (speaking). Root class .call-stage is
-   the cross-file contract with AppPage.css's split/fullscreen/mobile rules —
+   the cross-file contract with AppPage.css's split/fullscreen rules —
    kept by decision 2 of the M3 plan. Everything else is stage-*. ── */
 .call-stage {
   flex: 0 0 auto;
@@ -19,26 +19,6 @@
   padding: 0 16px;
   flex-shrink: 0;
   border-bottom: 1px solid var(--stage-line);
-}
-
-/* flex-shrink is load-bearing, not tidying: this is a flex item in .stage-topbar
-   and 40px is only its flex BASIS. Measured on the phone widths it exists for —
-   29.2px at 420px wide, 18px at 360px — i.e. the decision-22 touch floor this
-   button's whole mobile rule exists to guarantee was being shrunk away. The
-   title beside it already carries min-width: 0, so it absorbs the deficit. */
-.stage-back-btn {
-  display: none;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  width: 40px;
-  height: 40px;
-  padding: 0;
-  border: none;
-  border-radius: var(--radius-row);
-  background: var(--stage-chip);
-  color: var(--stage-ink);
-  cursor: pointer;
 }
 
 .stage-live-pill {
@@ -94,15 +74,13 @@
   white-space: nowrap;
 }
 
-/* flex-shrink mirrors .stage-back-btn, but honestly it is insurance here, not a
-   live fix — measured, not assumed. The back button is a direct .stage-topbar
-   item and really did shrink (29.2px at 420px, 18px at 360px). This one sits
-   inside .stage-topbar-right, whose own min-width: auto floor already protects
-   it: with the mobile panel on «call» the rendered box is 40×40 at 300/360/420/
-   768px with flex-shrink 0 AND with 1, even with .stage-title squeezed to 0px by
-   a 60-character channel name. The declaration makes the decision-22 40px floor
-   a property of the button rather than an accident of its wrapper's min-content
-   width — nothing in today's layout exercises it. */
+/* flex-shrink: 0 is insurance here, not a live fix — measured, not assumed.
+   This button sits inside .stage-topbar-right, whose own min-width: auto floor
+   already protects it: the rendered box keeps its size with flex-shrink 0 AND
+   with 1, even with .stage-title squeezed to 0px by a 60-character channel
+   name. The declaration makes the width a property of the button rather than an
+   accident of its wrapper's min-content width — nothing in today's layout
+   exercises it. */
 .stage-fullscreen-btn {
   display: flex;
   align-items: center;
@@ -117,16 +95,6 @@
   color: var(--stage-ink);
   cursor: pointer;
   transition: background var(--transition);
-}
-
-/* Mobile ≥40px floor (decision 22) — kept next to the base rule it overrides.
-   Position relative to the :hover rule is cosmetic; see the note above the
-   tile-chip media block. */
-@media (width <= 768px) {
-  .stage-fullscreen-btn {
-    width: 40px;
-    height: 40px;
-  }
 }
 
 .stage-fullscreen-btn:hover {
@@ -363,8 +331,8 @@
    element from hit-testing, so elementFromPoint at the badge's left edge returned
    .stage-volume-btn even at rest, and .stage-tile:hover reveals the chip on exactly
    the tile a user hovers to reach the focus button. 40px = the chip's 8px inset +
-   its 28px + a 4px gap; the ≤768px block below widens the lane to match the 40px
-   touch-floor chip. */
+   its 28px + a 4px gap; the «width < 900px» block below widens the lane to
+   match the 40px touch-floor chip. */
 .stage-share-badge {
   position: absolute;
   top: 10px;
@@ -418,7 +386,7 @@
    :hover rule and a rule inside @media are never compared. (It does fire for a
    plain `.x:hover` → `.x` pair — verified — so the rule itself is live here.)
    The declarations do not overlap either, so the order is style, not cascade. */
-@media (width <= 768px) {
+@media (width < 900px) {
   .stage-focus-btn,
   .stage-volume-btn {
     width: 40px;
@@ -645,14 +613,6 @@
   transition: background var(--transition), color var(--transition);
 }
 
-/* Mobile ≥40px floor (decision 22) — before the :hover rule. */
-@media (width <= 768px) {
-  .stage-share-banner-dismiss {
-    width: 40px;
-    height: 40px;
-  }
-}
-
 .stage-share-banner-dismiss:hover {
   background: var(--stage-chip);
   color: var(--stage-ink);
@@ -782,20 +742,6 @@
   filter: brightness(1.08);
 }
 
-/* ── Mobile: back button appears; grid single-column ≤640 ── */
-@media (width <= 768px) {
-  .stage-back-btn {
-    display: flex;
-  }
-}
-
-@media (width <= 640px) {
-  .stage-grid,
-  .stage-grid.is-many {
-    grid-template-columns: 1fr;
-  }
-}
-
 /* ── Call body / video-area wrappers. Purely structural: neither paints a
    background, the .call-stage root paints --stage for both. ── */
 .call-body {
@@ -896,26 +842,6 @@
   z-index: 10;
 }
 
-/* Touch visibility (decision 22) — kept next to the base rule it overrides and
-   before the :hover rule, the same placement the .stage-fullscreen-btn, tile-chip
-   and .stage-share-banner-dismiss blocks above use. A coarse pointer never produces
-   the :hover below, so without this both «Вернуться к сетке» and the focus
-   fullscreen button are invisible on touch: measured at 390×844, computed opacity 0
-   on .stage-focus-controls with both buttons already at opacity 1 themselves.
-   The opacity override belongs on this element because this is the element that
-   carries opacity; the 40px floor belongs on the button and is set below.
-   Re-verified for THIS block rather than assumed from the ones above: a copy of
-   this file with both new blocks moved after their :hover rules lints to the same
-   0 problems, while a positive control (the same override written WITHOUT the
-   @media wrapper, after .stage-focus-ctrl-btn:hover) does fire
-   no-descending-specificity. So the ordering here is grouping, not a lint
-   requirement — the rule buckets by at-rule context. */
-@media (width <= 768px) {
-  .stage-focus-controls {
-    opacity: 1;
-  }
-}
-
 .stage-focus-main:hover .stage-focus-controls,
 .stage-focus-main:fullscreen:hover .stage-focus-controls {
   opacity: 1;
@@ -934,17 +860,6 @@
   color: var(--stage-ink);
   cursor: pointer;
   transition: background var(--transition);
-}
-
-/* Mobile ≥40px floor (decision 22) — before the :hover rule, and it MUST come
-   after the 36px base rule above: at equal specificity (0,1,0) the later rule wins,
-   so folding this into the opacity block higher up would lose to that 36px.
-   Measured pre-fix at 390×844: both buttons 36×36. */
-@media (width <= 768px) {
-  .stage-focus-ctrl-btn {
-    width: 40px;
-    height: 40px;
-  }
 }
 
 .stage-focus-ctrl-btn:hover {

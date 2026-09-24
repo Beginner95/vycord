@@ -5,6 +5,7 @@ import { resolveUploadUrl } from '@/services/api';
 import { downloadUrl } from '@/utils/attachmentUrl';
 import { ChevronLeft, ChevronRight, Download, X } from 'lucide-react';
 import { useModalFocus } from '@/hooks/useModalFocus';
+import { useLightboxSwipe } from '@/mobile/gestures/useLightboxSwipe';
 import { useT } from '@/i18n';
 import { VideoPlayer } from './VideoPlayer';
 import './MediaLightbox.css';
@@ -58,6 +59,14 @@ export function MediaLightbox({ attachments, index, onIndexChange, onClose }: Me
   // more: useModalFocus owns it. Keeping both would call onClose twice.
   useModalFocus(!!current, ref, onClose);
 
+  // Мобильные жесты: влево/вправо листают, вниз закрывает. Мышь хук игнорирует,
+  // в покое style не выдаёт — десктопный DOM прежний.
+  const swipe = useLightboxSwipe({
+    onPrev: () => { if (index > 0) onIndexChange(index - 1); },
+    onNext: () => { if (index < attachments.length - 1) onIndexChange(index + 1); },
+    onClose,
+  });
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'ArrowRight' && index < attachments.length - 1) onIndexChange(index + 1);
@@ -72,7 +81,7 @@ export function MediaLightbox({ attachments, index, onIndexChange, onClose }: Me
   // Портал в body: иначе overflow и z-index ленты обрежут фуллскрин.
   return createPortal(
     <div ref={ref} className="modal-overlay lightbox-root" role="dialog" aria-modal="true" onClick={onClose}>
-      <div className="lightbox-content" onClick={(e) => e.stopPropagation()}>
+      <div className="lightbox-content" onClick={(e) => e.stopPropagation()} {...swipe.handlers} style={swipe.style}>
         {current.kind === 'video' ? (
           // В фуллскрине всегда оригинал: миниатюра нужна только ленте.
           <VideoPlayer src={resolveUploadUrl(current.url) ?? ''} autoPlay lightbox />

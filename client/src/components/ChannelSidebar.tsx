@@ -1,5 +1,5 @@
 import { useState, useMemo, useRef, type MouseEvent } from 'react';
-import { ChevronDown, ChevronLeft, Hash, Plus, Mic, MicOff, Volume2, Headphones, Pencil, Trash2 } from 'lucide-react';
+import { ChevronDown, Hash, Plus, Mic, MicOff, Volume2, Headphones, Pencil, Trash2 } from 'lucide-react';
 import type { Server, Channel, User, MemberWithUser } from '@/types';
 import { ConfirmModal } from '@/components/ConfirmModal';
 import { Avatar } from '@/components/Avatar';
@@ -21,7 +21,6 @@ interface ChannelSidebarProps {
   onSelectChannel: (channel: Channel) => void;
   onJoinVoice: (channel: Channel) => void;
   user: User | null;
-  onMobileBack?: () => void;
   voiceParticipants?: Map<string, string[]>;
   members: MemberWithUser[];
   onChannelDeleted: (channelId: string) => void;
@@ -36,7 +35,6 @@ export function ChannelSidebar({
   onSelectChannel,
   onJoinVoice,
   user,
-  onMobileBack,
   voiceParticipants,
   members,
   onChannelDeleted,
@@ -122,11 +120,6 @@ export function ChannelSidebar({
     return (
       <nav className="channel-sidebar">
         <div className="channel-header">
-          {onMobileBack && (
-            <button className="mobile-back-btn" onClick={onMobileBack} aria-label={t('common.back')}>
-              <ChevronLeft size={18} strokeWidth={1.8} />
-            </button>
-          )}
           <h2>{t('server.home')}</h2>
         </div>
         <div className="no-server-message">
@@ -139,11 +132,6 @@ export function ChannelSidebar({
   return (
     <nav className="channel-sidebar">
       <div className="channel-header">
-        {onMobileBack && (
-          <button className="mobile-back-btn" onClick={onMobileBack} aria-label={t('common.back')}>
-            <ChevronLeft size={18} strokeWidth={1.8} />
-          </button>
-        )}
         <h2>{server.name}</h2>
         {hasServerMenu && (
           <button

@@ -328,6 +328,34 @@
   }
 }
 
+/* Строка с long-press (мобильная оболочка, спека §5.4): панель действий на таче
+   заменена шторкой. «Отменить» неотправленного — в шторке, «повторить» — inline-кнопка
+   `.msg-delivery.is-failed`. */
+@media (hover: none) {
+  .msg-row.is-pressable .msg-actions {
+    display: none;
+  }
+}
+
+/* Строка с long-press: системное меню/выделение слова конфликтует с жестом
+   (спека §4.4). Копирование — пунктом «Копировать текст» шторки. */
+.msg-row.is-pressable {
+  -webkit-touch-callout: none;
+  user-select: none;
+}
+
+/* Мобильный редактор: явные кнопки под полем, тач-цели 44. */
+.msg-edit-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  margin-top: 8px;
+}
+
+.msg-edit-actions .btn {
+  min-height: 44px;
+}
+
 .msg-row:hover .msg-actions,
 .msg-row:focus-within .msg-actions {
   opacity: 1;
@@ -436,7 +464,7 @@
 }
 
 /* ═══ Mobile (board 1f) ═══ */
-@media (width <= 768px) {
+@media (width < 900px) {
   .msg-row {
     grid-template-columns: 36px 1fr;
     gap: 0 10px;
@@ -454,6 +482,19 @@
     width: 32px;
     height: 32px;
     border-radius: 11px;
+  }
+
+  /* 16px: меньше — iOS зумит страницу при фокусе поля. */
+  .msg-edit-input {
+    font-size: 16px;
+  }
+
+  /* FormattingToolbar internal to the inline editor doesn't match
+     `.composer-root .fmt-btn` (Composer.css), so it stays at the base 28×28
+     (FormattingToolbar.css) without this. */
+  .msg-edit .fmt-btn {
+    width: 44px;
+    height: 44px;
   }
 }
 

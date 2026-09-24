@@ -63,7 +63,7 @@
 /* Touch has no hover, so the only route to download/expand would never appear.
    Kept at the same 0-class-deep specificity as the base rule and placed before
    the reveal rules below, so specificity stays ascending through the file. */
-@media (width <= 768px) {
+@media (width < 900px) {
   .attachment-download,
   .attachment-expand {
     opacity: 1;
@@ -73,6 +73,26 @@
   .message-attachments.attachment-count-3,
   .message-attachments.attachment-count-4 {
     grid-template-columns: 1fr;
+  }
+
+  /* Audio's the only .is-wide consumer (MessageAttachments.tsx:91-99); the
+     image/video overlay stays absolute on every width. Audio has its own
+     trailing duration (.audio-time) that the absolute download button would
+     otherwise sit on top of — but only below 900px, where there's no hover to
+     keep the button hidden until needed (the opacity:1 rule above already
+     forces it permanently visible here). At >= 900px the base
+     `.attachment-download` rule (position: absolute; opacity: 0, revealed on
+     hover/focus-within) is untouched for audio too, matching image/video. */
+  .attachment-cell.is-wide {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .attachment-cell.is-wide .attachment-download {
+    position: static;
+    flex: none;
+    opacity: 1;
   }
 }
 

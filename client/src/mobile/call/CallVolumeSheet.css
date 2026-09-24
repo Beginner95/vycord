@@ -1,0 +1,37 @@
+.call-volume-sheet-body {
+  display: flex;
+  flex-direction: column;
+}
+
+.call-volume-sheet-empty {
+  margin: 0;
+  padding: 16px 0;
+  font-size: 13.5px;
+  color: var(--muted);
+  text-align: center;
+}
+
+.call-volume-sheet-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 0;
+  border-top: 1px solid var(--panel-line);
+}
+
+.call-volume-sheet-row:first-child {
+  border-top: none;
+}
+
+.call-volume-sheet-name {
+  flex: 1;
+  overflow: hidden;
+  font-size: 14px;
+  color: var(--ink);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.call-volume-sheet-row input {
+  width: 130px;
+}

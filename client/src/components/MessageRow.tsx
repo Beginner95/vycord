@@ -11,6 +11,7 @@ import { tokenizeMentions, toDisplayMentions, toWireMentions, LEGACY_ROLE_KEYS }
 import { parseInline, blockify, normalizeLinkHref, type MdInlineNode } from '@/utils/markdown';
 import { resolveUploadUrl } from '@/services/api';
 import { useT, useDateFormat, type TFunc } from '@/i18n';
+import { useLongPress } from '@/mobile/gestures/useLongPress';
 import type { ChatMessage } from '@/stores/messageStore';
 import type { MemberWithUser } from '@/types';
 import './MessageRow.css';
@@ -135,6 +136,13 @@ interface MessageRowProps {
    * него нет таких эндпоинтов). Цитата остаётся.
    */
   canModify?: boolean;
+  /** long-press на корне строки (мобильная шторка действий); мышь игнорируется. */
+  onLongPress?: () => void;
+  /** явные «Отмена / Сохранить» в редакторе, без отмены по blur — на тач-клавиатуре
+   *  нет Escape, а blur съедает тап по кнопке. */
+  editActions?: boolean;
+  /** См. Composer.enterSends — тот же смысл, для инлайн-редактора. */
+  enterSends?: boolean;
 }
 
 export function MessageRow(props: MessageRowProps) {
@@ -142,6 +150,8 @@ export function MessageRow(props: MessageRowProps) {
   const canModify = isOwn && props.canModify !== false;
   const t = useT();
   const { formatTime } = useDateFormat();
+  const longPress = useLongPress(() => props.onLongPress?.());
+  const pressable = !!props.onLongPress && !isEditing;
   const isEdited = msg.updated_at !== msg.created_at;
   const time = formatTime(new Date(msg.created_at));
 
@@ -153,10 +163,11 @@ export function MessageRow(props: MessageRowProps) {
     highlighted ? 'is-highlight' : '',
     msg.deliveryState === 'sending' ? 'is-sending' : '',
     msg.deliveryState === 'failed' ? 'is-failed' : '',
+    pressable ? 'is-pressable' : '',
   ].filter(Boolean).join(' ');
 
   return (
-    <div data-message-id={msg.id} className={rowClass}>
+    <div data-message-id={msg.id} className={rowClass} {...(pressable ? longPress : undefined)}>
       <div className="msg-gutter">
         {isContinuation
           ? <span className="msg-gutter-time">{time}</span>
@@ -255,7 +266,8 @@ interface MessageEditorProps extends MessageRowProps {
  * "start edit" and thrown away on save/cancel — no per-message edit state
  * has to live in ChatArea any more.
  */
-function MessageEditor({ initial, members, canMentionEveryone, onCancelEdit, onSaveEdit }: MessageEditorProps) {
+function MessageEditor({ initial, members, canMentionEveryone, editActions, enterSends = true, onCancelEdit, onSaveEdit }: MessageEditorProps) {
+  const t = useT();
   const [value, setValue] = useState(() => toDisplayMentions(initial, members));
   const [linkOpen, setLinkOpen] = useState(false);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -273,7 +285,7 @@ function MessageEditor({ initial, members, canMentionEveryone, onCancelEdit, onS
 
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     if (mention.handleKeyDown(e)) return;
-    if (e.key === 'Enter' && !e.shiftKey) {
+    if (enterSends && e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       void onSaveEdit(toWireMentions(value, members).trim());
     } else if (e.key === 'Escape') {
@@ -293,7 +305,7 @@ function MessageEditor({ initial, members, canMentionEveryone, onCancelEdit, onS
         // Clicking inside the link dialog blurs the textarea before its click
         // handler runs — cancelling the edit would eat the very action the
         // user asked for, so blur only cancels with no dialog open.
-        onBlur={() => { if (!linkOpen) onCancelEdit(); }}
+        onBlur={() => { if (!linkOpen && !editActions) onCancelEdit(); }}
         maxLength={2000}
         rows={1}
         autoFocus
@@ -304,6 +316,12 @@ function MessageEditor({ initial, members, canMentionEveryone, onCancelEdit, onS
         onNumbered={() => applyLineToggle(target, toggleNumbered)}
         onLink={() => setLinkOpen(true)}
       />
+      {editActions && (
+        <div className="msg-edit-actions">
+          <button type="button" className="btn btn-secondary" onClick={onCancelEdit}>{t('common.cancel')}</button>
+          <button type="button" className="btn btn-primary" onClick={() => void onSaveEdit(toWireMentions(value, members).trim())}>{t('common.save')}</button>
+        </div>
+      )}
       <MentionDropdown mention={mention} />
       <LinkDialog
         open={linkOpen}

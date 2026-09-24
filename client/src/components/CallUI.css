@@ -334,3 +334,62 @@
 .p2p-leave-btn:hover {
   filter: brightness(1.08);
 }
+
+/* ── Mobile (< 900px) — spec §6.4. MobileShell renders no TitleBar (unlike
+   DesktopShell), so the base .p2p-overlay's `inset: 40px 0 0` — which
+   reserves that bar's height — is dead space here; both call states go
+   edge-to-edge and take the top/bottom insets from safe-area instead.
+   .p2p-local/.p2p-timer/.p2p-plate anchor to .p2p-videos, a normal-flow flex
+   child of .p2p-overlay — the padding below alone clears the notch/home-
+   indicator for them, no override needed. .p2p-controls does NOT: it is
+   itself absolutely positioned directly against .p2p-overlay, and per
+   CSS2.1 §10.6.4 an abs-positioned box with both `top`/`bottom` set (which
+   `inset: 0` gives the overlay) solves `height: auto` by pinning to the
+   containing block's PADDING-box edges — .p2p-overlay's own padding-bottom
+   shrinks its content box, it does not move that padding-box edge, so
+   .p2p-controls's `bottom` offset needs its own safe-area term below (a
+   bottom bump, not padding — padding would grow the bar's own box instead
+   of moving it). .p2p-videos/.p2p-remote already carry position: relative
+   and width/height: 100% in the base rules above — not redeclared here. ── */
+@media (width < 900px) {
+  .p2p-overlay.is-incoming,
+  .p2p-overlay.is-active {
+    inset: 0;
+    padding-top: env(safe-area-inset-top);
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+
+  .p2p-accept-btn,
+  .p2p-reject-btn {
+    width: 64px;
+    height: 64px;
+  }
+
+  /* Base is `bottom: 28px` — bumped by the safe-area term directly (not via
+     padding, and not via the overlay's own padding-bottom: see file-header
+     comment above for why the latter doesn't reach this element). */
+  .p2p-controls {
+    bottom: calc(28px + env(safe-area-inset-bottom));
+  }
+
+  /* PiP — fixed corner, no drag (p2p has exactly one local tile, no angle to
+     choose). 96×128, the classic call-screen self-view size. z-index: 2 is
+     load-bearing: at the 56px control-button height below, the PiP's bottom
+     edge and the control bar's top edge overlap by design (~20px) once the
+     bar's own safe-area-shifted position is accounted for, and .p2p-controls
+     carries z-index: 1 — without this the bar would paint over the PiP. */
+  .p2p-local {
+    right: 12px;
+    bottom: 100px;
+    width: 96px;
+    height: 128px;
+    z-index: 2;
+  }
+
+  /* 56px — matches .mcs-panel-btn (MobileCallScreen.css) for the same touch
+     target across group and p2p calls. */
+  .p2p-ctl-btn {
+    width: 56px;
+    height: 56px;
+  }
+}

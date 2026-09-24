@@ -1,0 +1,56 @@
+/* VYC-95 §5.9 + решение D3 плана этапа 2. Тело списка ссылок общее с
+   десктопной модалкой (ManageInvitesBody), её стили лежат в
+   ManageInvitesModal.css и от предка не зависят; здесь — карточка «Пригласить
+   друзей» и мобильные поправки под .form-screen-body. */
+.invite-friends-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 16px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-card);
+  background: var(--canvas-2);
+}
+
+.invite-friends-title {
+  color: var(--ink);
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.invite-friends-sub {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.invite-friends-card .btn {
+  min-height: 44px;
+  margin-top: 4px;
+}
+
+/* Вложенный скролл списка (max-height) снят: прокручивается всё тело экрана. */
+.form-screen-body .invites-list {
+  max-height: none;
+  overflow-y: visible;
+}
+
+/* Зона нажатия иконок копирования/отзыва не меньше 44×44 (десктопные 30×30
+   у .panel-icon-btn не меняются — правило только под телом экрана). */
+.form-screen-body .invites-actions .panel-icon-btn {
+  width: 44px;
+  height: 44px;
+  min-width: 44px;
+}
+
+.form-screen-body .invites-actions {
+  gap: 8px;
+}
+
+/* Список — последний блок перед панелью действий: отступ, чтобы последняя
+   строка не прилипала к ней. */
+.form-screen-body .invites-list,
+.form-screen-body .invites-empty {
+  margin-bottom: 16px;
+}

@@ -1,0 +1,60 @@
+/* Мобильная замена CallDock.css (VYC-95 T7) — только мобильная оболочка,
+   поэтому здесь нет @media. Отступ root-варианта в потоке `.mobile-shell`
+   держит `.mobile-call-dock` (MobileShell.css) — здесь не дублируется. */
+.call-pill {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px;
+  border-radius: var(--radius-card);
+  border: 1px solid var(--panel-line);
+  background: var(--panel-footer);
+}
+
+.call-pill.is-stacked {
+  position: fixed;
+  left: 12px;
+  right: 12px;
+  top: calc(env(safe-area-inset-top) + 56px + 8px);
+  box-shadow: var(--shadow-card);
+}
+
+.call-pill-target {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+}
+
+.call-pill-status {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--online-text);
+}
+
+.call-pill-channel {
+  max-width: 100%;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.call-pill-server {
+  font-weight: 500;
+  color: var(--muted-2);
+}
+
+.call-pill-actions {
+  display: flex;
+  gap: 6px;
+}

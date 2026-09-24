@@ -2,21 +2,21 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Hash, Moon, Plus, Search, Settings as SettingsIcon, Sun, Volume2 } from 'lucide-react';
 import type { ReactNode } from 'react';
-import type { Channel, MessageSearchResponse } from '@/types';
+import type { Channel } from '@/types';
 import { useT, useDateFormat } from '@/i18n';
 import { useServerStore } from '@/stores/serverStore';
 import { usePaletteStore } from '@/stores/paletteStore';
 import { useCallStore } from '@/stores/callStore';
 import { useThemeStore } from '@/stores/themeStore';
 import { focusInitialIn, useModalFocus } from '@/hooks/useModalFocus';
+import { usePaletteSearch } from '@/hooks/usePaletteSearch';
 import { can, PERMISSIONS } from '@/utils/permissions';
-import { apiService, apiErrorText } from '@/services/api';
 import { Avatar } from '@/components/Avatar';
 import { snippetAround, splitMatches } from '@/utils/searchSnippet';
 import {
   buildPalette, moveSelection, selectedIndexOf, shouldShowEmptyState,
-  PALETTE_MAX_QUERY, PALETTE_DEBOUNCE_MS, PALETTE_MIN_QUERY, CAP_MESSAGES,
-  type PaletteActionDef, type PaletteRow, type PaletteMessage,
+  PALETTE_MAX_QUERY,
+  type PaletteActionDef, type PaletteRow,
 } from '@/utils/paletteFilter';
 import './CommandPalette.css';
 
@@ -101,38 +101,9 @@ export function CommandPalette({
   const theme = useThemeStore((s) => s.theme);
   const setTheme = useThemeStore((s) => s.setTheme);
 
-  const [messages, setMessages] = useState<PaletteMessage[]>([]);
-  const [messagesTotal, setMessagesTotal] = useState(0);
-  const [messagesLoading, setMessagesLoading] = useState(false);
-  const [messagesError, setMessagesError] = useState<string | null>(null);
-
   const trimmed = query.trim();
-  useEffect(() => {
-    if (!isOpen || !currentChannel || trimmed.length < PALETTE_MIN_QUERY) {
-      setMessages([]); setMessagesTotal(0); setMessagesError(null); setMessagesLoading(false);
-      return;
-    }
-    setMessagesLoading(true);
-    let cancelled = false;
-    // 120ms — board 2c. Панель MessageSearch намеренно осталась на 300ms:
-    // она листает подтверждённый запрос, палитра показывает превью.
-    const timer = setTimeout(async () => {
-      try {
-        const data = (await apiService.searchMessages(
-          currentChannel.id, trimmed, CAP_MESSAGES, 0,
-        )) as MessageSearchResponse;
-        if (cancelled) return;
-        setMessages(data.results);
-        setMessagesTotal(data.total);
-        setMessagesError(null);
-      } catch (err) {
-        if (!cancelled) setMessagesError(apiErrorText(err, t));
-      } finally {
-        if (!cancelled) setMessagesLoading(false);
-      }
-    }, PALETTE_DEBOUNCE_MS);
-    return () => { cancelled = true; clearTimeout(timer); };
-  }, [isOpen, currentChannel, trimmed, t]);
+  const { messages, total: messagesTotal, loading: messagesLoading, error: messagesError } =
+    usePaletteSearch(isOpen, currentChannel, trimmed);
 
   // Иконки живут рядом с реестром: paletteFilter — чистый модуль и ничего не
   // знает про React (решение 12).

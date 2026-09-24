@@ -1,0 +1,78 @@
+/* VYC-95 §5.8. Экран рендерится только мобильной оболочкой — медиазапросов нет. */
+.profile-screen {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--canvas);
+}
+
+.profile-screen-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+.profile-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 24px 16px 20px;
+  text-align: center;
+}
+
+.profile-card-avatar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 72px;
+  height: 72px;
+  border-radius: var(--radius-pill);
+  font-size: 26px;
+  font-weight: 700;
+  object-fit: cover;
+}
+
+.profile-card-name {
+  margin-top: 8px;
+  color: var(--ink);
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.profile-card-email {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.profile-card-status {
+  margin-top: 4px;
+  color: var(--muted-2);
+  font-size: 12.5px;
+}
+
+.profile-list {
+  margin-top: 8px;
+  border-top: 1px solid var(--line);
+}
+
+.profile-list-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: var(--radius-row);
+  background: var(--canvas-2);
+  color: var(--muted);
+}
+
+.profile-logout-btn {
+  display: block;
+  min-height: 44px;
+  width: calc(100% - 32px);
+  margin: 20px 16px 24px;
+}

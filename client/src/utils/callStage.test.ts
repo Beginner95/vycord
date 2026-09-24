@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { formatCallDuration, stageGridClass, SPEAKING_THRESHOLD } from './callStage';
+import { formatCallDuration, stageGridClass, SPEAKING_THRESHOLD, mobileGridLayout } from './callStage';
 
 describe('formatCallDuration', () => {
   it('zero → 00:00', () => expect(formatCallDuration(0)).toBe('00:00'));
@@ -19,4 +19,31 @@ describe('stageGridClass (board 1e: 1 col ≤1, 2 cols ≤4, 3 beyond)', () => {
   });
   it('5+ → three columns', () => expect(stageGridClass(5)).toBe('is-many'));
   it('threshold is the existing 0.05', () => expect(SPEAKING_THRESHOLD).toBe(0.05));
+});
+
+describe('mobileGridLayout', () => {
+  it('1 участник — весь экран, без прокрутки', () => {
+    expect(mobileGridLayout(1, 'portrait')).toEqual({ columns: 1, scroll: false });
+  });
+  it('2 участника, портрет — одна колонка (вертикально)', () => {
+    expect(mobileGridLayout(2, 'portrait')).toEqual({ columns: 1, scroll: false });
+  });
+  it('2 участника, пейзаж — две колонки (горизонтально)', () => {
+    expect(mobileGridLayout(2, 'landscape')).toEqual({ columns: 2, scroll: false });
+  });
+  it('3 участника — 2×2, без прокрутки', () => {
+    expect(mobileGridLayout(3, 'portrait')).toEqual({ columns: 2, scroll: false });
+  });
+  it('4 участника — 2×2, без прокрутки', () => {
+    expect(mobileGridLayout(4, 'portrait')).toEqual({ columns: 2, scroll: false });
+  });
+  it('5 участников — 2 колонки, с прокруткой', () => {
+    expect(mobileGridLayout(5, 'portrait')).toEqual({ columns: 2, scroll: true });
+  });
+  it('12 участников, пейзаж — тоже 2 колонки, прокрутка', () => {
+    expect(mobileGridLayout(12, 'landscape')).toEqual({ columns: 2, scroll: true });
+  });
+  it('0 участников — как 1 (не бывает в звонке без себя, защитный случай)', () => {
+    expect(mobileGridLayout(0, 'portrait')).toEqual({ columns: 1, scroll: false });
+  });
 });

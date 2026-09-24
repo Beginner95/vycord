@@ -271,9 +271,36 @@
 }
 
 /* Мобильный: панель на всю ширину */
-@media (width <= 768px) {
+@media (width < 900px) {
   .message-search {
     width: 100%;
     border-left: none;
+  }
+
+  /* 16px — иначе iOS увеличивает страницу при фокусе; 44px — минимальная цель нажатия. */
+  .input.message-search-field {
+    padding-right: 44px;
+    font-size: 16px;
+  }
+
+  .message-search-close,
+  .message-search-clear {
+    width: 44px;
+    height: 44px;
+  }
+
+  .message-search-clear {
+    top: 50%;
+    right: 0;
+    justify-content: center;
+    transform: translateY(-50%);
+  }
+
+  .message-search-close {
+    justify-content: center;
+  }
+
+  .message-search-result {
+    min-height: 64px;
   }
 }

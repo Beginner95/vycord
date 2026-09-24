@@ -1,0 +1,131 @@
+/* VYC-95 §5.7. Экран рендерится только мобильной оболочкой — медиазапросов нет. */
+.friends-screen {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--canvas);
+}
+
+.friends-segments {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+  padding: 4px 16px 12px;
+  overflow-x: auto;
+}
+
+.friends-segment {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  height: 36px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: var(--canvas-2);
+  color: var(--muted);
+  font: inherit;
+  font-size: 13.5px;
+  font-weight: 600;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.friends-segment.is-active {
+  background: var(--accent-soft);
+  color: var(--accent-text);
+}
+
+.friends-segment-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: var(--radius-pill);
+  background: var(--chip-bg);
+  color: var(--muted-2);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.friends-segment.is-active .friends-segment-count {
+  background: var(--canvas);
+  color: var(--accent-text);
+}
+
+.friends-screen-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+.friends-screen-empty {
+  margin: 0;
+  padding: 24px 16px;
+  color: var(--muted-2);
+  font-size: 13px;
+  text-align: center;
+}
+
+.friends-screen-section {
+  margin: 0;
+  padding: 16px 16px 4px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.friends-screen-avatar {
+  width: 48px;
+  height: 48px;
+  border-radius: var(--radius-pill);
+  object-fit: cover;
+}
+
+/* Строка заявки (§5.7): инлайн-кнопки, поэтому не MobileListRow (тот всегда
+   <button>, вложенные кнопки в нём невозможны намеренно — MobileListRow.tsx). */
+.friends-pending-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 64px;
+  padding: 8px 16px;
+}
+
+.friends-pending-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ink);
+  font-size: 16px;
+  font-weight: 600;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.friends-pending-actions {
+  display: flex;
+  flex-shrink: 0;
+  gap: 8px;
+}
+
+.friends-pending-btn {
+  height: 44px;
+  padding: 0 16px;
+  font-size: 13px;
+}
+
+.sheet-body .add-friend-form .input {
+  font-size: 16px;
+}
+
+.sheet-body .add-friend-form .btn {
+  min-height: 44px;
+}

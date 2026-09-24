@@ -199,18 +199,3 @@
 .add-friend-msg.is-error {
   color: var(--danger-text);
 }
-
-@media (width <= 768px) {
-  .friends-panel-tabs {
-    padding: 16px 16px 0;
-    gap: 14px;
-  }
-
-  .friends-panel-body {
-    padding: 14px 16px 20px;
-  }
-
-  .friend-row {
-    padding: 10px 12px;
-  }
-}

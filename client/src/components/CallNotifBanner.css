@@ -46,6 +46,23 @@
   flex-shrink: 0;
 }
 
+/* ── Mobile (< 900px) — spec §6.4: top banner with safe-area. The base rule
+   is right-anchored only (`top: 16px; right: 16px;`, no `left`, no
+   `transform` — there is nothing transform-based to switch away from here).
+   Spans left-to-right instead of hugging the corner, mirroring the
+   left: 12px; right: 12px; top: calc(env(...) + Npx) idiom
+   CallPill.css:.call-pill.is-stacked already uses for the same "floating
+   banner near the top, mobile width" shape; `max-width: 340px` above still
+   caps it. `width` is left alone — the base never sets it (default `auto`),
+   so there is nothing to redeclare. */
+@media (width < 900px) {
+  .call-notif-banner {
+    top: calc(12px + env(safe-area-inset-top));
+    left: 12px;
+    right: 12px;
+  }
+}
+
 @keyframes call-notif-slide-in {
   from {
     opacity: 0;

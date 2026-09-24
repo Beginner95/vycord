@@ -18,3 +18,18 @@ export function stageGridClass(total: number): '' | 'is-solo' | 'is-many' {
 
 /** The existing speaking threshold (was inline `level > 0.05` in CallStage/CallUI). */
 export const SPEAKING_THRESHOLD = 0.05;
+
+export interface MobileGridLayout {
+  columns: number;
+  scroll: boolean;
+}
+
+/** Board §6.2: 1 → весь экран; 2 → вертикально (портрет) / горизонтально
+ *  (пейзаж); 3–4 → 2×2; ≥5 → 2 колонки с прокруткой. */
+export function mobileGridLayout(count: number, orientation: 'portrait' | 'landscape'): MobileGridLayout {
+  const n = Math.max(1, count);
+  if (n <= 1) return { columns: 1, scroll: false };
+  if (n === 2) return { columns: orientation === 'landscape' ? 2 : 1, scroll: false };
+  if (n <= 4) return { columns: 2, scroll: false };
+  return { columns: 2, scroll: true };
+}

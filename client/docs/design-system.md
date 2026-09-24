@@ -83,8 +83,10 @@ Zero raw colour values exist outside `tokens.css`. A tint derived from a token
 is fine: `color-mix(in srgb, var(--accent-500) 35%, transparent)`. The
 permanent non-CSS exemptions: `utils/avatarColor.ts` (the 8-colour avatar
 palette), canvas `fillStyle`/`strokeStyle` in `AvatarCropModal.tsx`, the
-`#FFFFFF` fallback in `Avatar.tsx`, and the inline-SVG `data:` URI checkmark in
-`primitives.css` (no custom property can reach any of them).
+`#FFFFFF` fallback in `Avatar.tsx`, the inline-SVG `data:` URI checkmark in
+`primitives.css` (no custom property can reach any of them), `public/manifest.webmanifest` and
+`<meta name="theme-color">` in `index.html` + `THEME_COLOR` in `stores/themeStore.ts`
+(values of `--canvas` in both themes — manifest and meta-tag do not read CSS).
 
 ### Custom properties crossing the JS/CSS boundary
 
@@ -92,11 +94,11 @@ Stylelint's `csstools/value-no-unknown-custom-properties` knows only
 `tokens.css` and `base.css`, so:
 
 - **JS-injected properties** (`--speak-level`, `--slider-fill`,
-  `--meter-level`, `--call-stage-height`, `--avatar-color`) are invisible to
+  `--meter-level`, `--call-stage-height`, `--avatar-color`, `--keyboard-inset`) are invisible to
   it — a `var()` reading one **must carry a fallback**. Regenerate the current
   injection sites with:
   ```bash
-  cd client && grep -rn -- "--speak-level\|--slider-fill\|--meter-level\|--call-stage-height\|--avatar-color" src --include='*.tsx'
+  cd client && grep -rn -- "--speak-level\|--slider-fill\|--meter-level\|--call-stage-height\|--avatar-color\|--keyboard-inset" src --include='*.tsx'
   ```
 - **Everywhere else, do not add a `var(--x, fallback)` you were not explicitly
   told to add.** A gratuitous fallback silently exempts that site from the

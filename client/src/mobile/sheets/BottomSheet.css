@@ -1,0 +1,121 @@
+/* Спека §4.1. Scrim — примитив `.modal-overlay` (primitives.css): фон, blur,
+   z-index и fade-in оттуда. Здесь только отличия sheet'а, на (0,2,0), чтобы
+   не зависеть от порядка подключения файлов. */
+.modal-overlay.sheet-overlay {
+  align-items: flex-end;
+}
+
+/* `.sheet` — структурный хук (тесты и DOM-контракт), без своих правил здесь:
+   selector-class-pattern запрещает голые однословные классы. Вся стилизация —
+   на `.sheet-panel`, который DOM несёт вторым классом рядом с `.sheet`. */
+.sheet-panel {
+  width: min(100%, 560px);
+  max-height: 90dvh;
+  display: flex;
+  flex-direction: column;
+  background: var(--panel);
+  border-radius: var(--radius-modal) var(--radius-modal) 0 0;
+  box-shadow: var(--shadow-modal);
+  padding-bottom: env(safe-area-inset-bottom);
+  animation: sheet-slide-up 0.22s var(--ease-out);
+  transition: transform var(--transition) var(--ease-out);
+  touch-action: pan-y;
+}
+
+.sheet-panel.is-dragging {
+  transition: none;
+}
+
+.sheet-grip {
+  display: flex;
+  justify-content: center;
+  padding: 8px 0 4px;
+  touch-action: none;
+  cursor: grab;
+}
+
+.sheet-grip-bar {
+  width: 36px;
+  height: 4px;
+  border-radius: var(--radius-pill);
+  background: var(--line-strong);
+}
+
+.sheet-title {
+  padding: 4px 20px 8px;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.sheet-body {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 0 8px 8px;
+}
+
+@keyframes sheet-slide-up {
+  from { transform: translateY(100%); }
+  to { transform: translateY(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sheet-panel {
+    animation: fade-in 0.18s var(--ease-out);
+  }
+}
+
+.action-sheet-group + .action-sheet-group {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+}
+
+.action-sheet-item {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  min-height: 52px;
+  padding: 8px 12px;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-row);
+  color: var(--ink);
+  font-size: 16px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.action-sheet-item:disabled {
+  color: var(--muted-2);
+  cursor: default;
+}
+
+.action-sheet-item:active:not(:disabled) {
+  background: var(--canvas-2);
+}
+
+.action-sheet-item.is-danger {
+  color: var(--danger-text);
+}
+
+.action-sheet-icon {
+  display: flex;
+  color: var(--muted);
+}
+
+.action-sheet-item.is-danger .action-sheet-icon {
+  color: var(--danger-text);
+}
+
+.action-sheet-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.action-sheet-reason {
+  font-size: 13px;
+  color: var(--muted-2);
+}

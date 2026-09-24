@@ -110,7 +110,7 @@
    it as an empty extra column when a server is selected (wasted width) or
    reverting HomeView's full-width layout (M6-adjacent decision, out of
    scope here). A floating card sidesteps both without touching the
-   .app-layout / mobile-panel band system at all. */
+   .app-layout band system at all. */
 .app-account-dock {
   position: fixed;
 
@@ -149,127 +149,24 @@
 }
 
 /* Desktop-only: collapse the left sidebar block. Scoped to min-width so the
-   fixed 'hidden' attribute never competes with the mobile panel rules.
-   M6 T7: this pair moved 769/768 → 900/899 (decision 5). The 17 component
-   blocks that also sit at the old 768/769 boundary (CallStage.css ×6,
-   ChannelSidebar.css, ChatArea.css, Composer.css, MediaLightbox.css,
-   MessageAttachments.css, MessageRow.css, MessageSearch.css, ServerList.css,
-   UserList.css, VideoPlayer.css, VoiceBanner.css) deliberately stayed at 768 —
-   moving all 19 would be an unrequested behaviour change on lint-clean blocks
-   the previous milestone just certified, some with no smoke fixture to catch
-   a regression. Only this shell pair moves. */
+   'hidden' attribute never applies below the mobile boundary, where the mobile
+   shell (src/mobile/) owns navigation. */
 @media (width >= 900px) {
   .app-layout[data-left-sidebar="hidden"] .server-list { display: none; }
   .app-layout[data-left-sidebar="hidden"] .channel-sidebar { display: none; }
 }
 
-/* ── Mobile ──
-   M6 T7: boundary moved 768 → 900 (decision 5); the 17 component blocks at
-   the old 768/769 boundary deliberately did not move — see the comment on
-   the block above. This widens the single-panel mobile model to cover
-   769–899px, a range where those 17 component blocks still render their
-   desktop styling. That is decision 5's DISCLOSED, ACCEPTED cost — "the shell
-   is mobile but components are desktop" — and M6 does not fix it; task 8
-   reconciles the NAVIGATION there (see the affordance block below), not the
-   styling.
-
-   M6 T8: the condition is `width < 900px`, not T7's `width <= 899px`. The
-   layout viewport is FRACTIONAL — page zoom and a fractional DPR both produce
-   non-integer widths — so `<= 899px` and the band's `900px <=` below did not
-   partition it: at 899.5px NEITHER matched and the app rendered all four
-   columns with no shell model at all. `< 900px` is exactly complementary to
-   `900px <= width` at every real number. The boundary is still 900; only the
-   comparison changed. Verified at 899, 899.5 and 900. */
-@media (width < 900px) {
-  .app-page .title-bar {
-    display: none;
-  }
-
-  .app-layout .server-list,
-  .app-layout .channel-sidebar,
-  .app-layout .channel-body,
-  .app-layout .user-list,
-  .app-layout .home-view {
-    display: none;
-    width: 100vw;
-    min-width: 100vw;
-    max-width: 100vw;
-  }
-
-  .app-layout[data-mobile-panel="servers"] .server-list { display: flex; }
-  .app-layout[data-mobile-panel="channels"] .channel-sidebar { display: flex; }
-
-  /* На мобильном сплита нет: сцена звонка и чат — две отдельные панели,
-     переключаемые через data-mobile-panel, но обе живут внутри одного
-     .channel-body (десктопный сплит-контейнер), поэтому его самого нужно
-     показывать в обоих режимах — конкретную панель внутри выбирают правила
-     ниже. */
-  .app-layout[data-mobile-panel="chat"] .channel-body,
-  .app-layout[data-mobile-panel="call"] .channel-body {
-    display: flex;
-  }
-
-  /* final-review fix I1: .home-view раньше не участвовало в этой модели
-     вообще и оставалось видимым независимо от data-mobile-panel — тупик,
-     из которого некуда вернуться. handleSelectHome в AppPage.tsx выставляет
-     панель "chat" (тот же слот, что и обычный чат — currentServer===null
-     ровно тогда, когда рендерится HomeView, так что они никогда не
-     конкурируют за этот слот одновременно). */
-  .app-layout[data-mobile-panel="chat"] .home-view {
-    display: flex;
-  }
-
-  .app-layout[data-mobile-panel="call"] .channel-body .call-stage {
-    height: 100%;
-    flex: 1 1 auto;
-  }
-
-  .app-layout[data-mobile-panel="call"] .channel-body .chat-area,
-  .app-layout[data-mobile-panel="call"] .channel-body .call-split-handle,
-  .app-layout[data-mobile-panel="chat"] .channel-body .call-stage,
-  .app-layout[data-mobile-panel="chat"] .channel-body .call-split-handle {
-    display: none;
-  }
-
-  .app-layout[data-mobile-panel="members"] .user-list { display: flex; }
-
-  .sidebar-gutter {
-    display: none;
-  }
-
-  /* ── M6 T8: the panel model's navigation affordances, restored for 769–899 ──
-
-     T7 widened the single-panel model to the 900px boundary, but every affordance
-     it depends on is still gated at `width <= 768px` inside its own component
-     file, and those 17 component blocks deliberately did not move. Measured on
-     the pre-task tree at 850×900, all four of these read `display: none` with a
-     0×0 rect while their click handlers still fired: the band booted into the
-     servers panel and servers → chat → members was a ONE-WAY TRIP. The shell
-     owns the panel model, so the shell turns its own affordances on.
-
-     Specificity, not source order (ruling C): `.app-layout X` is (0,2,0) and
-     beats each component's unscoped (0,1,0) `display: none` base rule outright.
-     Nothing here ties, so import order is irrelevant. The visual halves of
-     `.mobile-back-btn` and `.user-list-mobile-header` were hoisted to their
-     components' base rules so this stays a pure `display` flip.
-
-     `.chat-call-btn` is conditionally rendered (only while a call is live in
-     the open channel); when absent this simply matches nothing. */
-  .app-layout .mobile-back-btn,
-  .app-layout .chat-back-btn,
-  .app-layout .chat-call-btn,
-  .app-layout .stage-back-btn,
-  .app-layout .user-list-mobile-header,
-  .app-layout .home-view-mobile-header {
-    display: flex;
-  }
-}
+/* The mobile boundary is `width < 900px` (MOBILE_MQ, src/mobile/breakpoint.ts),
+   not `width <= 899px`. The layout viewport is FRACTIONAL — page zoom and a
+   fractional DPR both produce non-integer widths — so `<= 899px` and a
+   `900px <=` counterpart do not partition it: at 899.5px NEITHER matches.
+   `< 900px` is exactly complementary to `900px <= width` at every real number.
+   Verified at 899, 899.5 and 900. */
 
 /* ═══ M6 T8 — the responsive band system (spec §5) ═══
 
    Four bands, three boundaries, expressed in range syntax. No fifth boundary is
-   introduced: `<= 640px` already belongs to CommandPalette.css and
-   CallStage.css and M2's layout below 640 ships as-is.
+   introduced.
 
    ≥ 1200px — all four columns (rail 76 / sidebar 252 / chat flex / members
    236). This is the BASE layout and needs no media query; every band below is
@@ -290,7 +187,7 @@
    count to be monotonic across 1280/1100/950/850/600.
 
    "No gap" is a claim about REAL widths, not integers, and it is only true
-   because the block above says `width < 900px`. Paired with `900px <= width`
+   because the mobile boundary is `width < 900px`. Paired with `900px <= width`
    here, the two partition the fractional layout viewport exactly; `<= 899px`
    would have left 899 < w < 900 matching neither. run-bands.mjs samples 899.5
    for precisely that reason. */
@@ -304,8 +201,8 @@
 }
 
 /* The members toggle is dead chrome at >= 1200px (the list is already in flow)
-   and is the only route to the list below it, so one rule covers both the
-   900–1199 band and the mobile model. (0,2,0) over ChatArea.css's (0,1,0)
+   and is the only route to the list below it, so one rule covers the whole
+   900–1199 band. (0,2,0) over ChatArea.css's (0,1,0)
    `display: none` base. */
 @media (width < 1200px) {
   .app-layout .chat-members-btn { display: flex; }

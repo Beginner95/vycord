@@ -180,13 +180,3 @@
 .guest-roster-mic.is-muted {
   color: var(--danger-text);
 }
-
-/* На узком экране панель ложится поверх сцены (внутри .guest-call, не
-   fixed — это не модальный слой и хоткеи не блокирует). */
-@media (width <= 720px) {
-  .guest-side {
-    position: absolute;
-    inset: 0;
-    border-left: none;
-  }
-}

@@ -11,7 +11,7 @@
   flex-shrink: 0;
 }
 
-@media (width <= 768px) {
+@media (width < 900px) {
   .voice-banner {
     display: flex;
   }

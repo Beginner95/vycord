@@ -1,9 +1,9 @@
 import { X } from 'lucide-react';
-import { SCREEN_QUALITY_PRESETS } from '@/services/groupCall';
-import type { ScreenQuality, ScreenQualityPreset } from '@/services/groupCall';
+import type { ScreenQuality } from '@/services/groupCall';
 import type { DesktopCapturerSource } from '@/types/electron';
 import { useT } from '@/i18n';
 import { useEscapeDismiss } from '@/hooks/useModalFocus';
+import { ScreenQualityBody } from './ScreenQualityBody';
 import './ScreenSharePicker.css';
 
 // ─── Screen Source Picker Modal ──────────────────────────────────────────────
@@ -79,7 +79,6 @@ interface ScreenQualityPickerProps {
 
 export function ScreenQualityPicker({ onSelect, onCancel }: ScreenQualityPickerProps) {
   const t = useT();
-  const entries = Object.entries(SCREEN_QUALITY_PRESETS) as [ScreenQuality, ScreenQualityPreset][];
 
   // Escape — через стек поверхностей (M6 T11, шаг 4). `blocking: true`, потому
   // что `.screen-picker-backdrop` — настоящая блокирующая поверхность и уже
@@ -96,16 +95,7 @@ export function ScreenQualityPicker({ onSelect, onCancel }: ScreenQualityPickerP
             <X size={16} strokeWidth={1.8} />
           </button>
         </div>
-        <div className="screen-quality-list">
-          {entries.map(([key, preset]) => (
-            <button key={key} className="screen-quality-item" onClick={() => onSelect(key)}>
-              <span className="screen-quality-label">{preset.label}</span>
-              <span className="screen-quality-desc">
-                {preset.width} × {preset.height} · {preset.frameRate} fps
-              </span>
-            </button>
-          ))}
-        </div>
+        <ScreenQualityBody onSelect={onSelect} />
       </div>
     </div>
   );

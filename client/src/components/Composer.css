@@ -29,7 +29,7 @@
   color: var(--ink);
   background: transparent;
   border: none;
-  outline: none;
+  outline: none !important;
   resize: none;
 }
 
@@ -118,23 +118,34 @@
 }
 
 /* ═══ Mobile (board 1f) — safe-area inset + 16px field (iOS zooms below 16px) ═══ */
-@media (width <= 768px) {
+@media (width < 900px) {
   .composer-root {
     padding: 8px 10px calc(10px + env(safe-area-inset-bottom, 0px));
   }
 
+  /* 4 кнопки по 44 = 176px: на 390px gap 10 оставил бы полю ~132px, при 2 — ~164. */
   .composer-field {
+    gap: 2px;
+    padding-block: 6px;
     border-radius: 13px;
   }
 
+  /* Одна строка стоит по центру 44px-кнопок: min-height = высота кнопки, а
+     вертикальный padding добивает строку (line-height 1.55) до центра — поле
+     прижато вниз (align-items: flex-end), и без этого текст оказывался ниже
+     иконок. Автогроу до 6 строк (спека §5.4). */
   .composer-input {
+    box-sizing: border-box;
+    min-height: 44px;
+    max-height: calc(6 * 1.55em + 2 * (44px - 1.55em) / 2);
+    padding: calc((44px - 1.55em) / 2) 0;
     font-size: 16px;
   }
 
   .composer-aa,
   .composer-icon-btn {
-    width: 40px;
-    height: 40px;
+    width: 44px;
+    height: 44px;
   }
 
   .composer-send {
@@ -145,5 +156,26 @@
 
   .composer-hint {
     display: none;
+  }
+
+  /* Подсказка упоминаний — во всю ширину поля (специфичность (0,2,0) выигрывает
+     у `.mention-dropdown` из MentionDropdown.css независимо от порядка файлов). */
+  .composer-field .mention-dropdown {
+    right: 0;
+    left: 0;
+    min-width: 0;
+    max-height: 40dvh;
+  }
+
+  /* Полоса форматирования: один ряд с горизонтальным скроллом, кнопки ≥ 44. */
+  .composer-root .fmt-toolbar {
+    overflow-x: auto;
+    flex-wrap: nowrap;
+  }
+
+  .composer-root .fmt-btn {
+    flex-shrink: 0;
+    width: 44px;
+    height: 44px;
   }
 }

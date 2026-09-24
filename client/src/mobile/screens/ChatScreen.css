@@ -1,0 +1,5 @@
+/* Кнопка звонка подсвечена, пока пользователь в звонке этого канала. */
+.screen-header-btn.is-in-call {
+  color: var(--accent-text);
+  background: var(--accent-soft);
+}

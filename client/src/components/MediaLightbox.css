@@ -113,9 +113,36 @@
   background: var(--media-chrome-hover);
 }
 
-@media (width <= 768px) {
+/* Мобильная модель (VYC-95): касание, а не курсор. Органы управления — 44px,
+   жесты листания забирает .lightbox-content (touch-action: none, иначе браузер
+   сам начнёт скроллить/зумить), панель и кнопка закрытия — под вырезы экрана. */
+@media (width < 900px) {
   .lightbox-nav {
-    width: 34px;
-    height: 52px;
+    width: 44px;
+    height: 64px;
+  }
+
+  .lightbox-close {
+    top: calc(12px + env(safe-area-inset-top));
+    right: 12px;
+    width: 44px;
+    height: 44px;
+  }
+
+  .lightbox-content {
+    touch-action: none;
+  }
+
+  .lightbox-bar {
+    padding-bottom: calc(8px + env(safe-area-inset-bottom));
+  }
+
+  /* Альбомная ориентация (844x390): картинка не вылезает за экран. */
+  .lightbox-media {
+    max-height: 100dvh;
+  }
+
+  .lightbox-download {
+    min-height: 44px;
   }
 }
