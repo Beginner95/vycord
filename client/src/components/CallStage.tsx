@@ -41,6 +41,11 @@ export function CallStage({ onLeave, extraControls }: CallStageProps) {
   const focusedName = m.focusedUserId
     ? m.nameFor(m.focusedUserId)
     : '';
+  // VYC-96: the focused participant announced camera_off. A share wins — the
+  // focused surface then shows the screen.
+  const focusedCameraOff = m.focusedUserId !== null
+    && (m.remoteCameraOff.get(m.focusedUserId) ?? false)
+    && !m.screenSharers.has(m.focusedUserId);
   // First screen sharer ID for the banner
   const firstSharer = m.screenSharers.size > 0 ? [...m.screenSharers][0] : null;
 
@@ -140,6 +145,11 @@ export function CallStage({ onLeave, extraControls }: CallStageProps) {
                   playsInline
                   className="stage-focus-video"
                 />
+                {/* VYC-96: сфокусированный участник выключил камеру — аватар
+                    поверх чёрного кадра. Демонстрация имеет приоритет. */}
+                {focusedCameraOff && (
+                  <Avatar username={focusedName} className="stage-focus-avatar" />
+                )}
                 <div className="stage-focus-label">
                   {/* M6 T12: the name is a .stage-name span for the same reason
                       the two plates and two thumb labels are — text-overflow has
@@ -229,6 +239,7 @@ export function CallStage({ onLeave, extraControls }: CallStageProps) {
                     onCloseVolumePopover={m.closeVolumePopover}
                     onVolumeChange={(value) => m.onVolumeChange(p.userId, value)}
                     quality={m.qualityByUser[p.userId]}
+                    cameraOff={m.remoteCameraOff.get(p.userId) ?? false}
                   />
                 ))}
               </div>
@@ -289,6 +300,7 @@ export function CallStage({ onLeave, extraControls }: CallStageProps) {
                   onCloseVolumePopover={m.closeVolumePopover}
                   onVolumeChange={(value) => m.onVolumeChange(p.userId, value)}
                   quality={m.qualityByUser[p.userId]}
+                  cameraOff={m.remoteCameraOff.get(p.userId) ?? false}
                 />
               ))}
             </div>

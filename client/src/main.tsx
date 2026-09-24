@@ -14,6 +14,11 @@ import './stores/themeStore';
 import './stores/localeStore';
 import { initErrorReporting } from './services/errorReporting';
 import { apiService } from './services/api';
+import { forceMobileViewport } from './mobile/forceMobileViewport';
+
+// Телефон в режиме «Версия для ПК» получает десктопный viewport (~980px) —
+// чиним до монтирования React, чтобы граница `width < 900px` сработала.
+forceMobileViewport();
 
 initErrorReporting();
 // На странице гостя аккаунта нет: обновлять токены и ходить в /auth/me незачем,

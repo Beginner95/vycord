@@ -8,6 +8,9 @@ import type { CallOverflowSub } from '@/mobile/call/useCallOverflowItems';
 import { useMobileNav, type MobileNav } from '@/mobile/nav/useMobileNav';
 import { stripSheets } from '@/mobile/nav/navReducer';
 import { useVisualViewportInset } from '@/mobile/keyboard';
+import { useBackgroundCamera } from '@/mobile/call/useBackgroundCamera';
+import { useBackgroundAudioDiagnostics } from '@/mobile/call/backgroundAudioDiagnostics';
+import { useBackgroundNcBypass } from '@/mobile/call/useBackgroundNcBypass';
 import { GuestChatScreen } from '@/mobile/screens/GuestChatScreen';
 import { GuestParticipantsScreen } from '@/mobile/screens/GuestParticipantsScreen';
 import { useT } from '@/i18n';
@@ -79,6 +82,10 @@ function GuestInCallStage({ nav }: { nav: MobileNav }) {
   const leave = useGuestCallStore((s) => s.leave);
   const chatUnread = useGuestCallStore((s) => s.chatUnread);
   const model = useCallStageModel({ onLeave: () => void leave() });
+  // Как в MobileShell: при сворачивании камера выключается, на возврате — включается (VYC-96).
+  useBackgroundCamera(true);
+  useBackgroundAudioDiagnostics(true);
+  useBackgroundNcBypass(true);
   const [overflowOpen, setOverflowOpen] = useState(false);
   const [overflowInitialSub, setOverflowInitialSub] = useState<CallOverflowSub>(null);
 

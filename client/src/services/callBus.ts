@@ -18,6 +18,8 @@ export type CallTransport = 'account' | 'guest';
 const GUEST_OUTBOUND = new Set([
   'mic_muted',
   'mic_unmuted',
+  'camera_off',
+  'camera_on',
   'screen_share_started',
   'screen_share_stopped',
   'connection_quality',

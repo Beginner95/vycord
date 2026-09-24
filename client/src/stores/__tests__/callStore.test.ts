@@ -7,6 +7,7 @@ vi.mock('@/services/groupCall', () => ({
     isMicrophoneAvailable: true,
     isScreenSharing: false,
     lastMediaWarningState: null as string | null,
+    localStreamState: null as unknown,
     init: vi.fn(),
     joinGroupCall: vi.fn(),
     leaveGroupCall: vi.fn(),
@@ -22,7 +23,7 @@ vi.mock('@/services/audio', () => ({
 }));
 vi.mock('@/utils/logger', () => ({ logger: { error: vi.fn(), warn: vi.fn(), info: vi.fn() } }));
 
-import { useCallStore, initCallBridge } from '@/stores/callStore';
+import { useCallStore, initCallBridge, CAMERA_REANNOUNCE_DEBOUNCE_MS } from '@/stores/callStore';
 import { groupCallService } from '@/services/groupCall';
 import type { GroupCallCallbacks } from '@/services/groupCall';
 import { wsService } from '@/services/websocket';
@@ -34,6 +35,7 @@ const gc = groupCallService as unknown as {
   isMicrophoneAvailable: boolean;
   isScreenSharing: boolean;
   lastMediaWarningState: string | null;
+  localStreamState: unknown;
   init: ReturnType<typeof vi.fn>;
   joinGroupCall: ReturnType<typeof vi.fn>;
   leaveGroupCall: ReturnType<typeof vi.fn>;
@@ -58,6 +60,7 @@ describe('callStore', () => {
     gc.isMicrophoneAvailable = true;
     gc.isScreenSharing = false;
     gc.lastMediaWarningState = null;
+    gc.localStreamState = null;
     // joinGroupCall выставляет комнату так же, как настоящий сервис
     gc.joinGroupCall.mockImplementation(async (roomId: string) => {
       gc.currentRoomIdState = roomId;
@@ -250,6 +253,8 @@ describe('callStore', () => {
 
     it('подписан на входящие WS-события звонка', () => {
       expect([...wsHandlers.keys()].sort()).toEqual([
+        'camera_off',
+        'camera_on',
         'connection_quality',
         // Гости звонка доходят до участников только этими событиями: в хабе
         // гостя нет (2026-09-17-guest-call-link-design.md).
@@ -275,6 +280,155 @@ describe('callStore', () => {
       expect(useCallStore.getState().remoteMicMuted.get('u-2')).toBe(false);
 
       useCallStore.getState().reset();
+    });
+
+    // ── VYC-96: камера собеседника ──
+    it('camera_off/camera_on обновляют remoteCameraOff участника звонка', async () => {
+      await useCallStore.getState().join(opts);
+      callbacks.onPeerJoined('u-2', 'live');
+
+      wsHandlers.get('camera_off')!({ user_id: 'u-2' });
+      expect(useCallStore.getState().remoteCameraOff.get('u-2')).toBe(true);
+
+      wsHandlers.get('camera_on')!({ user_id: 'u-2' });
+      expect(useCallStore.getState().remoteCameraOff.get('u-2') ?? false).toBe(false);
+
+      useCallStore.getState().reset();
+    });
+
+    it('camera_off от себя, от не-участника и вне звонка игнорируется', async () => {
+      wsHandlers.get('camera_off')!({ user_id: 'u-2' });
+      expect(useCallStore.getState().remoteCameraOff.size).toBe(0);
+
+      await useCallStore.getState().join(opts);
+      useCallStore.setState({ guestSelf: { id: 'me', username: 'я' } });
+      wsHandlers.get('camera_off')!({ user_id: 'me' });
+      wsHandlers.get('camera_off')!({ user_id: 'stranger' });
+      expect(useCallStore.getState().remoteCameraOff.size).toBe(0);
+
+      useCallStore.getState().reset();
+    });
+
+    it('уход участника чистит remoteCameraOff, реконнект сохраняет, snapshot отсеивает ушедших', async () => {
+      await useCallStore.getState().join(opts);
+      callbacks.onPeerJoined('u-2', 'live');
+      callbacks.onPeerJoined('u-3', 'live');
+      wsHandlers.get('camera_off')!({ user_id: 'u-2' });
+      wsHandlers.get('camera_off')!({ user_id: 'u-3' });
+
+      callbacks.onPeerLeft('u-2');
+      expect(useCallStore.getState().remoteCameraOff.has('u-2')).toBe(false);
+      expect(useCallStore.getState().remoteCameraOff.get('u-3')).toBe(true);
+
+      // Resume: остальные нас не теряли и свою камеру заново не объявят.
+      callbacks.onReconnecting?.();
+      expect(useCallStore.getState().remoteCameraOff.get('u-3')).toBe(true);
+
+      wsHandlers.get('camera_off')!({ user_id: 'u-3' }); // (участников пока нет — игнор)
+      callbacks.onPeerSnapshot?.(['u-4']); // u-3 ушёл, пока мы были в grace
+      expect(useCallStore.getState().remoteCameraOff.has('u-3')).toBe(false);
+
+      useCallStore.getState().reset();
+      expect(useCallStore.getState().remoteCameraOff.size).toBe(0);
+    });
+
+    it('после реконнекта (resume) своё состояние мика и камеры объявляется заново, одним разом', async () => {
+      vi.useFakeTimers();
+      try {
+        await useCallStore.getState().join(opts);
+        callbacks.onPeerJoined('u-2', 'live');
+        vi.advanceTimersByTime(CAMERA_REANNOUNCE_DEBOUNCE_MS);
+        vi.clearAllMocks();
+
+        callbacks.onReconnecting?.();
+        callbacks.onPeerSnapshot?.(['u-2']);
+        callbacks.onReconnected?.();
+        expect(sent().some(([type]) => type === 'camera_off')).toBe(false);
+
+        vi.advanceTimersByTime(CAMERA_REANNOUNCE_DEBOUNCE_MS);
+        const types = sent().map(([type]) => type).filter((t) => /^(mic|camera)_/.test(t as string));
+        expect(types).toEqual(['mic_unmuted', 'camera_off']);
+      } finally {
+        useCallStore.getState().reset();
+        vi.useRealTimers();
+      }
+    });
+
+    it('leave и reset отменяют отложенное объявление камеры', async () => {
+      vi.useFakeTimers();
+      try {
+        await useCallStore.getState().join(opts);
+        callbacks.onPeerJoined('u-2', 'live');
+        expect(vi.getTimerCount()).toBe(1);
+        useCallStore.getState().leave();
+        expect(vi.getTimerCount()).toBe(0);
+
+        gc.isInGroupCallState = false; // сервис после leaveGroupCall
+        gc.currentRoomIdState = '';
+        await useCallStore.getState().join(opts);
+        callbacks.onReconnected?.();
+        expect(vi.getTimerCount()).toBe(1);
+        useCallStore.getState().reset();
+        expect(vi.getTimerCount()).toBe(0);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('вход объявляет camera_off, смена isVideoOff — camera_on/camera_off', async () => {
+      gc.localStreamState = { getVideoTracks: () => [{ enabled: true }] };
+      await useCallStore.getState().join(opts);
+      const camera = () => sent().filter(([type]) => type === 'camera_off' || type === 'camera_on').map(([type]) => type);
+      expect(camera()).toEqual(['camera_off']);
+
+      // Кнопка сцены / useBackgroundCamera / гость — все пишут isVideoOff в стор.
+      useCallStore.setState({ isVideoOff: false });
+      expect(camera()).toEqual(['camera_off', 'camera_on']);
+
+      useCallStore.setState({ isVideoOff: true });
+      expect(camera()).toEqual(['camera_off', 'camera_on', 'camera_off']);
+
+      // Выход сбрасывает стор (isVideoOff → true) — объявлять уже некому.
+      useCallStore.setState({ isVideoOff: false });
+      vi.clearAllMocks();
+      useCallStore.getState().reset();
+      expect(camera()).toEqual([]);
+    });
+
+    it('без видеотрека камера объявляется выключенной, даже если isVideoOff=false', async () => {
+      gc.localStreamState = { getVideoTracks: () => [] };
+      await useCallStore.getState().join(opts);
+      vi.clearAllMocks();
+
+      useCallStore.setState({ isVideoOff: false });
+      expect(sent().filter(([type]) => type === 'camera_on')).toHaveLength(0);
+      expect(sent().filter(([type]) => type === 'camera_off')).toHaveLength(1);
+
+      useCallStore.getState().reset();
+    });
+
+    it('появление участников переобъявляет камеру одним событием после дебаунса', async () => {
+      vi.useFakeTimers();
+      try {
+        await useCallStore.getState().join(opts);
+        vi.clearAllMocks();
+
+        callbacks.onPeerJoined('u-2', 'snapshot');
+        callbacks.onPeerJoined('u-3', 'snapshot');
+        expect(sent().some(([type]) => type === 'camera_off')).toBe(false);
+
+        vi.advanceTimersByTime(CAMERA_REANNOUNCE_DEBOUNCE_MS);
+        expect(sent().filter(([type]) => type === 'camera_off')).toHaveLength(1);
+
+        // Звонок закончился до срабатывания таймера — ничего не шлём.
+        callbacks.onPeerJoined('u-4', 'live');
+        useCallStore.getState().reset();
+        vi.clearAllMocks();
+        vi.advanceTimersByTime(CAMERA_REANNOUNCE_DEBOUNCE_MS);
+        expect(sent().some(([type]) => type === 'camera_off' || type === 'camera_on')).toBe(false);
+      } finally {
+        vi.useRealTimers();
+      }
     });
 
     it('screen_share_stopped чистит шарера и отписывается от демонстрации', async () => {

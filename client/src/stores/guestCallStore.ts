@@ -10,7 +10,7 @@ import {
 import { groupCallService } from '@/services/groupCall';
 import { accountCallCredentials, setCallCredentials } from '@/services/callCredentials';
 import { callBus, setCallTransport } from '@/services/callBus';
-import { initCallBridge, useCallStore, type CallDirectoryEntry } from '@/stores/callStore';
+import { announceLocalCallState, initCallBridge, useCallStore, type CallDirectoryEntry } from '@/stores/callStore';
 import { logger } from '@/utils/logger';
 
 /**
@@ -325,6 +325,13 @@ function handleEvent(event: GuestGatewayEvent, set: Setter, get: Getter): void {
       return;
 
     case 'admitted':
+      // Шлюз присылает admitted на каждое подключение. Уже в звонке — значит,
+      // шлюз переподключился: кадры mic/camera, отправленные в закрытый сокет,
+      // потеряны, объявляем текущее состояние заново (один раз на подключение).
+      if (get().phase === 'in_call') {
+        announceLocalCallState();
+        return;
+      }
       void enterCall(event.room_id, set, get);
       return;
 

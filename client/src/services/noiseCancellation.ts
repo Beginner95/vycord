@@ -49,6 +49,28 @@ interface NoiseCancellationState {
 
 type StateListener = (state: NoiseCancellationState) => void;
 
+interface TrackDiagnostics {
+  readyState: MediaStreamTrackState;
+  muted: boolean;
+  enabled: boolean;
+}
+
+/** VYC-96: снимок цепочки для фоновой диагностики (только чтение). */
+interface ChainDiagnostics {
+  contextState: string;
+  /** Не растёт между снимками — рендер контекста стоит. */
+  contextTime: number;
+  sampleRate: number;
+  baseLatency: number | null;
+  /** 0 — пользователь замьючен (setMicMuted). */
+  micGain: number;
+  ncActive: boolean;
+  /** Фоновый bypass (VYC-96) включён. */
+  ncBypassed: boolean;
+  rawTrack: TrackDiagnostics | null;
+  destTrack: TrackDiagnostics | null;
+}
+
 interface WorkletStage {
   node: AudioWorkletNode;
   worker: Worker;
@@ -68,11 +90,17 @@ interface AudioChain {
    *  иначе микрофон остаётся захваченным после звонка. */
   rawStream: MediaStream;
   keepAlive: ReturnType<typeof setInterval>;
+  /** Снимает слушатели «оживления» контекста (statechange/visibility/pageshow/
+   *  focus/pointerdown) и таймер ретрая — см. attachContextLifecycle. */
+  detachLifecycle: () => void;
   /** addModule уже выполнен для этого AudioContext. */
   workletLoaded: boolean;
   stage: WorkletStage | null;
   /** true: source → worklet → micGain → destination; false: source → micGain → destination (bypass). */
   active: boolean;
+  /** VYC-96: worklet временно выведен из цепочки фоновым bypass'ом и вернётся
+   *  на возврате в приложение (stage при этом живой). Для UI считается active. */
+  backgroundBypassed: boolean;
 }
 
 function loadSettings(): NcSettings {
@@ -92,11 +120,117 @@ function loadSettings(): NcSettings {
   return { enabled: true, modelId: DEFAULT_NC_MODEL };
 }
 
+const RESUME_RETRY_MIN_MS = 250;
+const RESUME_RETRY_MAX_MS = 30_000;
+/** Больше стольких немедленных resume по statechange за окно — дальше только
+ *  ретрай с бэкоффом: браузер, который тут же снова suspend-ит контекст, не
+ *  должен получить тугой цикл statechange → resume → statechange. */
+const RESUME_BURST_LIMIT = 3;
+const RESUME_BURST_WINDOW_MS = 5000;
+
+/**
+ * Держит AudioContext звонка в `running` событийно (VYC-96). Мобильные
+ * браузеры при сворачивании переводят контекст в `suspended` (Android Chrome)
+ * или `interrupted` (iOS Safari) — тогда destination-трек шлёт нулевые фреймы
+ * и собеседники перестают слышать. keepAlive-поллинг в фоне троттлится, поэтому:
+ *  - statechange → немедленный resume (с защитой от тугого цикла);
+ *  - resume отклонён / контекст не ожил → ретрай с экспоненциальным бэкоффом;
+ *  - visibilitychange (hidden и visible), pageshow, focus, pointerdown — сброс
+ *    бэкоффа и немедленная попытка (жест пользователя снимает autoplay-запрет).
+ * Пока контекст `running`, все обработчики — no-op. Возвращает detach.
+ */
+function attachContextLifecycle(context: AudioContext): () => void {
+  let detached = false;
+  let retryTimer: ReturnType<typeof setTimeout> | null = null;
+  let retryDelay = RESUME_RETRY_MIN_MS;
+  let burst: number[] = [];
+
+  const alive = (): boolean => !detached && context.state !== 'closed';
+  const needsResume = (): boolean => alive() && context.state !== 'running';
+
+  const scheduleRetry = (): void => {
+    if (retryTimer !== null || !needsResume()) return;
+    const delay = retryDelay;
+    retryDelay = Math.min(retryDelay * 2, RESUME_RETRY_MAX_MS);
+    retryTimer = setTimeout(() => {
+      retryTimer = null;
+      tryResume();
+    }, delay);
+  };
+
+  const tryResume = (): void => {
+    if (!needsResume()) return;
+    let pending: Promise<void>;
+    try {
+      pending = context.resume();
+    } catch {
+      scheduleRetry();
+      return;
+    }
+    Promise.resolve(pending).then(
+      () => {
+        if (context.state === 'running') retryDelay = RESUME_RETRY_MIN_MS;
+        else scheduleRetry();
+      },
+      () => scheduleRetry(),
+    );
+  };
+
+  const onStateChange = (): void => {
+    if (!alive()) return;
+    if (context.state === 'running') {
+      retryDelay = RESUME_RETRY_MIN_MS;
+      return;
+    }
+    const now = Date.now();
+    burst = burst.filter((t) => now - t < RESUME_BURST_WINDOW_MS);
+    if (burst.length >= RESUME_BURST_LIMIT) {
+      scheduleRetry();
+      return;
+    }
+    burst.push(now);
+    tryResume();
+  };
+
+  const onWake = (): void => {
+    if (!needsResume()) return;
+    if (retryTimer !== null) {
+      clearTimeout(retryTimer);
+      retryTimer = null;
+    }
+    retryDelay = RESUME_RETRY_MIN_MS;
+    tryResume();
+  };
+
+  const pointerOpts: AddEventListenerOptions = { capture: true, passive: true };
+  context.addEventListener('statechange', onStateChange);
+  document.addEventListener('visibilitychange', onWake);
+  window.addEventListener('pageshow', onWake);
+  window.addEventListener('focus', onWake);
+  window.addEventListener('pointerdown', onWake, pointerOpts);
+
+  return () => {
+    if (detached) return;
+    detached = true;
+    if (retryTimer !== null) {
+      clearTimeout(retryTimer);
+      retryTimer = null;
+    }
+    context.removeEventListener('statechange', onStateChange);
+    document.removeEventListener('visibilitychange', onWake);
+    window.removeEventListener('pageshow', onWake);
+    window.removeEventListener('focus', onWake);
+    window.removeEventListener('pointerdown', onWake, pointerOpts);
+  };
+}
+
 class NoiseCancellationService {
   private state: NoiseCancellationState;
   /** Персистируемое намерение. Отличается от state.isEnabled только после
    *  runtime-ошибки (ошибка ≠ ручное выключение). */
   private intendedEnabled: boolean;
+  /** VYC-96: мобильное приложение свёрнуто — worklet выведен из цепочек. */
+  private backgroundBypass = false;
   private listeners = new Set<StateListener>();
   /** key — id стрима, который вернул createChain. */
   private chains = new Map<string, AudioChain>();
@@ -141,6 +275,36 @@ class NoiseCancellationService {
   /** Диагностика для логов звонков. */
   getChainContextState(streamId: string): string {
     return this.chains.get(streamId)?.context.state ?? 'no-ctx';
+  }
+
+  /** VYC-96, только чтение: состояние цепочки для фоновой диагностики звука. */
+  getChainDiagnostics(streamId: string): ChainDiagnostics | null {
+    const chain = this.chains.get(streamId);
+    if (!chain) return null;
+    const raw = chain.rawStream.getAudioTracks()[0] ?? null;
+    const dest = chain.destination.stream.getAudioTracks()[0] ?? null;
+    return {
+      contextState: chain.context.state,
+      contextTime: chain.context.currentTime,
+      sampleRate: chain.context.sampleRate,
+      baseLatency: chain.context.baseLatency ?? null,
+      micGain: chain.micGain.gain.value,
+      ncActive: chain.active,
+      ncBypassed: this.backgroundBypass,
+      rawTrack: raw ? { readyState: raw.readyState, muted: raw.muted, enabled: raw.enabled } : null,
+      destTrack: dest ? { readyState: dest.readyState, muted: dest.muted, enabled: dest.enabled } : null,
+    };
+  }
+
+  /** VYC-96, только чтение: подписка на statechange AudioContext цепочки
+   *  (для диагностики). Нет цепочки — no-op; возвращает отписку. */
+  onChainContextStateChange(streamId: string, listener: (state: string) => void): () => void {
+    const chain = this.chains.get(streamId);
+    if (!chain) return () => {};
+    const ctx = chain.context;
+    const handler = () => listener(ctx.state);
+    ctx.addEventListener('statechange', handler);
+    return () => ctx.removeEventListener('statechange', handler);
   }
 
   /** Сырой getUserMedia-аудиотрек цепочки — для наблюдения за миграцией
@@ -203,6 +367,10 @@ class NoiseCancellationService {
         context.resume().catch(() => {});
       }
     }, 2000);
+    // Поллинг выше в фоновой вкладке троттлится (до раза в минуту), а мобильные
+    // браузеры suspend-ят/interrupt-ят контекст именно при сворачивании —
+    // поэтому ещё и событийный resume (VYC-96).
+    const detachLifecycle = attachContextLifecycle(context);
 
     const chain: AudioChain = {
       context,
@@ -211,9 +379,11 @@ class NoiseCancellationService {
       micGain,
       rawStream,
       keepAlive,
+      detachLifecycle,
       workletLoaded: false,
       stage: null,
       active: false,
+      backgroundBypassed: false,
     };
 
     const outputStream = new MediaStream();
@@ -221,10 +391,12 @@ class NoiseCancellationService {
     rawStream.getVideoTracks().forEach((t) => outputStream.addTrack(t));
     this.chains.set(outputStream.id, chain);
 
-    if (this.state.isEnabled) {
+    if (this.state.isEnabled && !this.backgroundBypass) {
       await this.activateChain(chain); // при ошибке сам уходит в bypass
     } else {
+      // Фоновый bypass (VYC-96): worklet подключится на возврате в приложение.
       this.wireBypass(chain);
+      chain.backgroundBypassed = this.backgroundBypass && this.state.isEnabled;
     }
     this.refreshActive();
     this.notify();
@@ -246,12 +418,51 @@ class NoiseCancellationService {
     this.persist();
     this.notify();
     for (const chain of this.chains.values()) {
-      if (enabled) {
+      if (enabled && this.backgroundBypass) {
+        // Тоггл нажат, пока приложение свёрнуто: worklet подключится на
+        // возврате (setBackgroundBypass(false) применит актуальное намерение).
+        chain.backgroundBypassed = true;
+      } else if (enabled) {
         await this.activateChain(chain);
       } else {
         this.wireBypass(chain);
+        chain.backgroundBypassed = false;
       }
     }
+    this.refreshActive();
+    this.notify();
+  }
+
+  /**
+   * VYC-96, только мобильная оболочка: пока приложение свёрнуто, микрофон идёт
+   * мимо worklet'а (source → micGain → destination). Гипотеза: в фоне worker
+   * DeepFilterNet (WASM) голодает по CPU, и worklet выдаёт нули. stage/worker
+   * НЕ уничтожаются — на возврате только перекоммутация. Пользовательское
+   * намерение (isEnabled/persist) не трогается; на возврате применяется
+   * актуальное. Сериализуется через opQueue с createChain/setEnabled.
+   */
+  setBackgroundBypass(bypass: boolean): Promise<void> {
+    return this.enqueue(() => this.doSetBackgroundBypass(bypass));
+  }
+
+  isBackgroundBypass(): boolean {
+    return this.backgroundBypass;
+  }
+
+  private async doSetBackgroundBypass(bypass: boolean): Promise<void> {
+    if (this.backgroundBypass === bypass) return;
+    this.backgroundBypass = bypass;
+    for (const chain of this.chains.values()) {
+      if (bypass) {
+        const wasActive = chain.active;
+        this.wireBypass(chain);
+        chain.backgroundBypassed = wasActive;
+      } else {
+        chain.backgroundBypassed = false;
+        if (this.state.isEnabled) await this.activateChain(chain);
+      }
+    }
+    // isActive в UI не мигает: backgroundBypassed-цепочки считаются активными.
     this.refreshActive();
     this.notify();
   }
@@ -289,6 +500,7 @@ class NoiseCancellationService {
     this.destroyStage(chain);
     chain.source.disconnect();
     clearInterval(chain.keepAlive);
+    chain.detachLifecycle();
     chain.context.close().catch(() => {});
     chain.rawStream.getAudioTracks().forEach((t) => t.stop());
     this.chains.delete(streamId);
@@ -389,7 +601,7 @@ class NoiseCancellationService {
   private refreshActive(): void {
     let active = false;
     for (const chain of this.chains.values()) {
-      if (chain.active) {
+      if (chain.active || chain.backgroundBypassed) {
         active = true;
         break;
       }
@@ -481,4 +693,4 @@ class NoiseCancellationService {
 
 export const noiseCancellationService = new NoiseCancellationService();
 export { NoiseCancellationService };
-export type { NoiseCancellationState };
+export type { NoiseCancellationState, ChainDiagnostics };
