@@ -126,14 +126,19 @@
   /* 4 кнопки по 44 = 176px: на 390px gap 10 оставил бы полю ~132px, при 2 — ~164. */
   .composer-field {
     gap: 2px;
-    padding-block: 7px;
+    padding-block: 6px;
     border-radius: 13px;
   }
 
-  /* Автогроу до 6 строк (спека §5.4): line-height 1.55 + вертикальный padding 4+4. */
+  /* Одна строка стоит по центру 44px-кнопок: min-height = высота кнопки, а
+     вертикальный padding добивает строку (line-height 1.55) до центра — поле
+     прижато вниз (align-items: flex-end), и без этого текст оказывался ниже
+     иконок. Автогроу до 6 строк (спека §5.4). */
   .composer-input {
-    max-height: calc(6 * 1.55em + 8px);
-    padding: 4px 0;
+    box-sizing: border-box;
+    min-height: 44px;
+    max-height: calc(6 * 1.55em + 2 * (44px - 1.55em) / 2);
+    padding: calc((44px - 1.55em) / 2) 0;
     font-size: 16px;
   }
 
