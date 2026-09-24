@@ -1,3 +1,4 @@
+import { isMobileViewport } from '@/mobile/breakpoint';
 import { noiseCancellationService } from './noiseCancellation';
 import { echoCancellationService } from './echoCancellation';
 import { STUN_SERVERS } from './iceConfig';
@@ -71,6 +72,16 @@ function sigDigest(sig: string): string {
 // defaultMicSignature values that are states, not device identities — never a
 // rebuild baseline or trigger; a later tick with a real device recovers.
 const MIC_SIG_SENTINELS = new Set(['', 'unknown', 'none', 'no-default-entry']);
+
+// VYC-96: mobile-shell check for the foreground mic recovery; matchMedia may be
+// missing (tests, exotic webviews) — then it's "not mobile".
+function mobileViewport(): boolean {
+  try {
+    return typeof window !== 'undefined' && typeof window.matchMedia === 'function' && isMobileViewport();
+  } catch {
+    return false;
+  }
+}
 
 // Parses SDP and extracts per-m-section info: direction, SSRCs, msid, mid.
 function parseSdpSections(sdp: string): Array<Record<string, unknown>> {
@@ -318,6 +329,22 @@ class GroupCallService {
   // clear a lock the successor call now holds.
   private micRebuildToken = 0;
   // Field arrow, not a method: add/removeEventListener need a stable reference.
+  // VYC-96: a backgrounded mobile browser can end or mute the raw mic capture;
+  // on return to the foreground, rebuild it the same way a device migration
+  // does. Grace delay: iOS unmutes an interrupted track shortly after resume.
+  private micForegroundTimerId: ReturnType<typeof setTimeout> | null = null;
+  private readonly onAppForeground = (): void => {
+    if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+    if (this.micForegroundTimerId !== null) clearTimeout(this.micForegroundTimerId);
+    this.micForegroundTimerId = setTimeout(() => {
+      this.micForegroundTimerId = null;
+      void this.checkMicAfterForeground();
+    }, 1500);
+  };
+  // VYC-96: black placeholder on the camera sender while the mobile app is in
+  // the background (the real camera track is stopped) — see
+  // releaseCameraForBackground / reacquireCameraAfterBackground.
+  private cameraPlaceholder: MediaStreamTrack | null = null;
   private readonly onDeviceChange = (): void => {
     // Bluetooth profile flips fire devicechange in bursts; let the dust settle.
     if (this.micWatchDebounceId !== null) clearTimeout(this.micWatchDebounceId);
@@ -1161,6 +1188,127 @@ class GroupCallService {
     return !t.enabled; // true = video off
   }
 
+  // ── Mobile background camera (VYC-96) ─────────────────────────────────────
+  // Used ONLY by the mobile shell's useBackgroundCamera: mobile browsers stop
+  // camera capture in the background, which freezes our last frame for the
+  // others. The caller first turns the camera off the usual way
+  // (toggleMuteVideo); this then frees the camera and puts a black placeholder
+  // frame on the camera sender instead of the frozen one.
+  async releaseCameraForBackground(): Promise<void> {
+    const stream = this.localStream;
+    const cam = stream?.getVideoTracks()[0];
+    if (!stream || !cam || this._isScreenSharing || cam.enabled) return;
+    const epoch = this.sessionEpoch;
+    // Still ours to release? The app may have come back (reacquire + toggle
+    // turned the camera on) while we awaited replaceTrack.
+    const stillOff = (): boolean =>
+      epoch === this.sessionEpoch &&
+      !this._isScreenSharing &&
+      (this.localStream?.getVideoTracks().includes(cam) ?? false) &&
+      !cam.enabled;
+    const sender = this.pc?.getSenders().find((s) => s.track === cam) ?? null;
+    if (sender && !this.cameraPlaceholder) {
+      let placeholder: MediaStreamTrack | null = null;
+      try {
+        placeholder = this.createDummyVideoTrack();
+        placeholder.enabled = true;
+        await sender.replaceTrack(placeholder);
+        if (!stillOff()) {
+          // Resumed meanwhile: put the live camera back, drop the placeholder,
+          // keep the camera running.
+          const current = this.localStream?.getVideoTracks()[0] ?? null;
+          if (epoch === this.sessionEpoch && sender.track === placeholder && current) {
+            await sender.replaceTrack(current).catch((err: unknown) => {
+              gcLog(this.currentUserId, 'camera restore after raced release failed', { error: String(err) });
+            });
+          }
+          placeholder.stop();
+          gcLog(this.currentUserId, 'camera release aborted — camera resumed meanwhile');
+          return;
+        }
+        this.cameraPlaceholder = placeholder;
+        // captureStream(0) emits only on request: one black frame replaces the
+        // last camera frame at the receivers; repeats cover encoder warm-up.
+        const frameTrack = placeholder as CanvasCaptureMediaStreamTrack;
+        const request = () => {
+          if (frameTrack.readyState !== 'live') return;
+          try { frameTrack.requestFrame?.(); } catch { /* best effort */ }
+        };
+        request();
+        setTimeout(request, 250);
+        setTimeout(request, 1000);
+      } catch (err) {
+        placeholder?.stop();
+        gcLog(this.currentUserId, 'camera placeholder swap failed', { error: String(err) });
+      }
+    }
+    if (!stillOff()) return;
+    // Frees the device (camera indicator off); the track object stays in
+    // localStream so a reconnect meanwhile still fills the camera slot.
+    cam.stop();
+    gcLog(this.currentUserId, 'camera released for background', { placeholder: this.cameraPlaceholder !== null });
+  }
+
+  // Counterpart of releaseCameraForBackground: re-captures the camera if its
+  // track ended and puts it back on the camera sender. The track is left
+  // DISABLED — the caller turns it on the usual way (toggleMuteVideo). Returns
+  // false when the call changed meanwhile; throws if getUserMedia fails (the
+  // camera then stays off and the placeholder stays on the sender).
+  async reacquireCameraAfterBackground(): Promise<boolean> {
+    const old = this.localStream?.getVideoTracks()[0];
+    if (!old) return false;
+    const epoch = this.sessionEpoch;
+    const owns = (): MediaStream | null => {
+      const cur = this.localStream;
+      return epoch === this.sessionEpoch && cur && cur.getVideoTracks().includes(old) ? cur : null;
+    };
+
+    let track = old;
+    if (old.readyState === 'ended') {
+      const fresh = await navigator.mediaDevices.getUserMedia({ video: true });
+      const next = fresh.getVideoTracks()[0];
+      fresh.getAudioTracks().forEach((t) => t.stop());
+      if (!next) throw new Error('camera stream has no video track');
+      if (!owns()) {
+        next.stop();
+        return false;
+      }
+      next.enabled = false;
+      track = next;
+    }
+
+    const placeholder = this.cameraPlaceholder;
+    const sender = this.pc?.getSenders().find(
+      (s) => s.track === old || (placeholder !== null && s.track === placeholder),
+    );
+    try {
+      if (sender && sender.track !== track) await sender.replaceTrack(track);
+    } catch (err) {
+      if (track !== old) track.stop();
+      throw err;
+    }
+    // A mic rebuild may have moved the video tracks into a new localStream
+    // during the awaits — re-resolve the owner instead of bailing out.
+    const cur = owns();
+    if (!cur) {
+      if (track !== old) track.stop();
+      return false;
+    }
+    if (track !== old) {
+      cur.removeTrack(old);
+      cur.addTrack(track);
+    }
+    if (this.cameraPlaceholder === placeholder) {
+      placeholder?.stop();
+      this.cameraPlaceholder = null;
+    }
+    gcLog(this.currentUserId, 'camera reacquired after background', {
+      recaptured: track !== old,
+      senderSwapped: sender != null,
+    });
+    return true;
+  }
+
   // Subscribes to targetUserId's screen-share video/audio, if they're
   // currently sharing. No-op if the SFU connection isn't open (e.g. mid-reconnect —
   // the reconnect path resubscribes on its own, see reconnect()).
@@ -1575,6 +1723,10 @@ class GroupCallService {
     // devicechange doesn't fire when the default moves between already-present
     // devices — the poll covers that, plus a dead raw track.
     this.micWatchIntervalId = setInterval(() => void this.checkMicMigration('poll'), 5000);
+    if (typeof document !== 'undefined') {
+      document.addEventListener('visibilitychange', this.onAppForeground);
+      window.addEventListener('pageshow', this.onAppForeground);
+    }
   }
 
   private stopMicWatch(): void {
@@ -1587,7 +1739,43 @@ class GroupCallService {
       this.micWatchDebounceId = null;
     }
     navigator.mediaDevices?.removeEventListener('devicechange', this.onDeviceChange);
+    if (this.micForegroundTimerId !== null) {
+      clearTimeout(this.micForegroundTimerId);
+      this.micForegroundTimerId = null;
+    }
+    if (typeof document !== 'undefined') {
+      document.removeEventListener('visibilitychange', this.onAppForeground);
+      window.removeEventListener('pageshow', this.onAppForeground);
+    }
     this.micDeviceSignature = '';
+  }
+
+  // VYC-96: after the app returns to the foreground, a raw mic track that the
+  // browser ended (or still keeps muted past the grace delay) is rebuilt via
+  // the same path as a device migration. A live, unmuted track — the normal
+  // desktop case — is a no-op.
+  private async checkMicAfterForeground(): Promise<void> {
+    if (this.micRebuildInFlight || !this.localStream) return;
+    const stream = this.localStream;
+    const raw = noiseCancellationService.getRawAudioTrack(stream.id);
+    if (!raw) return;
+    const dead = raw.readyState !== 'live';
+    // The muted branch is mobile-only (the background-interruption case); on
+    // desktop only a dead track is rebuilt here, as the poll already did.
+    if (!dead && (!raw.muted || !mobileViewport())) return;
+    // A merely muted track respects the success/failure damping (a device the
+    // OS keeps muted must not trigger a rebuild on every foreground); a dead
+    // one is rebuilt regardless — it can't recover by itself.
+    if (!dead && Date.now() < this.micRebuildBlockedUntil) return;
+    const epoch = this.sessionEpoch;
+    const sig = await this.defaultMicSignature();
+    if (epoch !== this.sessionEpoch || this.localStream !== stream) return;
+    gcLog(this.currentUserId, 'mic capture dead/muted after foreground — rebuilding', {
+      rawReadyState: raw.readyState,
+      rawMuted: raw.muted,
+      chainCtxState: noiseCancellationService.getChainContextState(stream.id),
+    });
+    await this.rebuildMicPipeline('foreground', MIC_SIG_SENTINELS.has(sig) ? this.micDeviceSignature : sig);
   }
 
   private async checkMicMigration(trigger: string): Promise<void> {
@@ -2710,6 +2898,8 @@ class GroupCallService {
 
     this.dummyVideoTrack?.stop();
     this.dummyVideoTrack = null;
+    this.cameraPlaceholder?.stop();
+    this.cameraPlaceholder = null;
 
     this.remoteStreams.clear();
     this.remoteScreenStreams.clear();

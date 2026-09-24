@@ -420,6 +420,38 @@ func TestConnectionQualityBroadcast(t *testing.T) {
 	assert.Contains(t, string(msg), "poor")
 }
 
+func TestCameraStateBroadcast(t *testing.T) {
+	userA := uuid.New()
+	userB := uuid.New()
+
+	h, _ := newMultiUserTestHandler(t, map[string]*domain.User{
+		"token-a": {ID: userA, Username: "alice", Email: "a@e.st", Status: domain.StatusOffline},
+		"token-b": {ID: userB, Username: "bob", Email: "b@e.st", Status: domain.StatusOffline},
+	})
+
+	srv := httptest.NewServer(http.HandlerFunc(h.HandleWebSocket))
+	defer srv.Close()
+
+	connA := dialWSWithToken(t, srv, "token-a")
+	defer connA.Close()
+	connB := dialWSWithToken(t, srv, "token-b")
+	defer connB.Close()
+
+	// An unknown type is logged and dropped, never closes the socket: this is
+	// what an old server does with camera_off from a new client.
+	sendJSON(t, connA, "some_future_event", nil)
+
+	// The sender's claimed user_id is ignored: identity comes from the socket.
+	sendJSON(t, connA, "camera_off", map[string]string{"user_id": userB.String()})
+	msg := readUntilType(t, connB, "camera_off", 2*time.Second)
+	assert.Contains(t, string(msg), userA.String())
+	assert.NotContains(t, string(msg), userB.String())
+
+	sendJSON(t, connA, "camera_on", nil)
+	msg = readUntilType(t, connB, "camera_on", 2*time.Second)
+	assert.Contains(t, string(msg), userA.String())
+}
+
 func TestHandleJoinChannel_DeniedAccess_DoesNotSetCurrentChannel(t *testing.T) {
 	userID := uuid.New()
 	channelID := uuid.New()

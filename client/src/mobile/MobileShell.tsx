@@ -4,6 +4,8 @@ import { useServerStore } from '@/stores/serverStore';
 import { usePaletteStore } from '@/stores/paletteStore';
 import { CallUI } from '@/components/CallUI';
 import { CallPill } from './components/CallPill';
+import { CallAudioHost, CallAudioHostContext } from './call/CallAudioHost';
+import { useBackgroundCamera } from './call/useBackgroundCamera';
 import type { Channel } from '@/types';
 import type { AppController } from '@/pages/app/useAppController';
 import { AppOverlays } from '@/pages/app/AppOverlays';
@@ -27,6 +29,9 @@ export function MobileShell({ c }: { c: AppController }) {
   const stageRef = useRef<HTMLDivElement>(null);
   const [swipeDx, setSwipeDx] = useState<number | null>(null);
   useVisualViewportInset(shellRef);
+  // Свёрнутое приложение: камера выключается и освобождается (браузер всё
+  // равно останавливает захват), на возврате — включается снова (VYC-96).
+  useBackgroundCamera(callStatus !== 'idle');
 
   // Нормализация записи: нет стека → корень; sheet'ы после reload не живы.
   useEffect(() => {
@@ -109,6 +114,7 @@ export function MobileShell({ c }: { c: AppController }) {
   const visible = nav.stack.map((s, i) => ({ s, i })).slice(-2).filter(({ s }) => s.kind !== 'sheet');
 
   return (
+    <CallAudioHostContext.Provider value={true}>
     <div className="mobile-shell" ref={shellRef}>
       <div className="mobile-stage" ref={stageRef}>
         {visible.map(({ s, i }, idx) => {
@@ -144,6 +150,9 @@ export function MobileShell({ c }: { c: AppController }) {
         showPalette={false}
       />
       <CallUI />
+      {/* Звук звонка не зависит от стека: экран звонка может быть размонтирован. */}
+      {callStatus !== 'idle' && <CallAudioHost />}
     </div>
+    </CallAudioHostContext.Provider>
   );
 }

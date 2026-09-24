@@ -68,6 +68,12 @@ interface CallState {
   /** Set of remote user IDs currently sharing their screen */
   screenSharers: Set<string>;
   remoteMicMuted: Map<string, boolean>;
+  /**
+   * userId -> true, пока участник объявил camera_off (VYC-96). Нет записи —
+   * камера считается включённой: старые клиенты событий не шлют, и их плитки
+   * ведут себя как раньше.
+   */
+  remoteCameraOff: Map<string, boolean>;
   /** userId -> latest connection-quality metrics received via WS broadcasts. */
   qualityByUser: Record<string, ConnectionQualityMetrics>;
   /** Local outbound (uplink) quality, sampled by groupCallService and reported via onLocalQuality. */
@@ -121,6 +127,7 @@ const idle = () => ({
   remoteScreenStreams: new Map<string, MediaStream>(),
   screenSharers: new Set<string>(),
   remoteMicMuted: new Map<string, boolean>(),
+  remoteCameraOff: new Map<string, boolean>(),
   qualityByUser: {} as Record<string, ConnectionQualityMetrics>,
   localQuality: undefined as ConnectionQualityMetrics | undefined,
   focusedUserId: null,
@@ -176,6 +183,9 @@ export const useCallStore = create<CallState>((set, get) => ({
       mediaWarning,
     });
     callBus.send(micAvailable ? 'mic_unmuted' : 'mic_muted', {});
+    // Вход с погашенной камерой (или без неё) — тоже состояние, которое
+    // остальным нужно знать сразу, а не после первого нажатия кнопки.
+    announceCameraState();
 
     if (isFirst) {
       callBus.send('voice_call_ring', {
@@ -205,11 +215,13 @@ export const useCallStore = create<CallState>((set, get) => ({
     }
     groupCallService.leaveGroupCall();
     useGuestManagementStore.getState().reset();
+    cancelCameraReannounce();
     set(idle());
   },
 
   reset: () => {
     useGuestManagementStore.getState().reset();
+    cancelCameraReannounce();
     set(idle());
   },
 
@@ -221,6 +233,67 @@ export const useCallStore = create<CallState>((set, get) => ({
 
   clearMediaWarning: () => set({ mediaWarning: null }),
 }));
+
+// ─── Состояние своей камеры для собеседников (VYC-96) ─────────────────────────
+
+/**
+ * Камера для собеседников «выключена», если так говорит стор или видеотрека
+ * нет вовсе (кнопка без камеры переворачивает isVideoOff в false, хотя
+ * показывать нечего).
+ */
+function localCameraOff(): boolean {
+  if (useCallStore.getState().isVideoOff) return true;
+  const tracks = groupCallService.localStreamState?.getVideoTracks() ?? [];
+  return tracks.length === 0;
+}
+
+/** Объявляет текущее состояние своей камеры участникам звонка. */
+export function announceCameraState(): void {
+  if (useCallStore.getState().callChannelId === null) return;
+  callBus.send(localCameraOff() ? 'camera_off' : 'camera_on', {});
+}
+
+/**
+ * Пачка participant_joined (снапшот комнаты при входе/реконнекте) объявляет
+ * камеру одним событием, а не по одному на каждого участника. Задержка также
+ * даёт новому участнику время узнать о нас из SFU: событие о человеке, которого
+ * он ещё не видит в звонке, он выбросит.
+ */
+export const CAMERA_REANNOUNCE_DEBOUNCE_MS = 300;
+let cameraReannounceTimer: ReturnType<typeof setTimeout> | null = null;
+/** Отложенное объявление должно заодно повторить и микрофон (после реконнекта). */
+let reannounceMicToo = false;
+
+function scheduleCameraReannounce(withMic = false): void {
+  if (cameraReannounceTimer !== null) clearTimeout(cameraReannounceTimer);
+  reannounceMicToo = reannounceMicToo || withMic;
+  cameraReannounceTimer = setTimeout(() => {
+    cameraReannounceTimer = null;
+    const mic = reannounceMicToo;
+    reannounceMicToo = false;
+    if (mic) announceLocalCallState();
+    else announceCameraState();
+  }, CAMERA_REANNOUNCE_DEBOUNCE_MS);
+}
+
+/** Выход/сброс звонка: отложенное объявление больше не нужно. */
+function cancelCameraReannounce(): void {
+  if (cameraReannounceTimer !== null) clearTimeout(cameraReannounceTimer);
+  cameraReannounceTimer = null;
+  reannounceMicToo = false;
+}
+
+/**
+ * Объявляет и микрофон, и камеру — когда собеседники могли пропустить наши
+ * события: после реконнекта SFU-сессии (resume не шлёт им participant_joined)
+ * и после переподключения шлюза гостя (кадры, отправленные в закрытый сокет,
+ * потеряны).
+ */
+export function announceLocalCallState(): void {
+  if (useCallStore.getState().callChannelId === null) return;
+  callBus.send(useCallStore.getState().isMuted ? 'mic_muted' : 'mic_unmuted', {});
+  announceCameraState();
+}
 
 // ─── Мост к groupCallService ─────────────────────────────────────────────────
 
@@ -313,6 +386,9 @@ export function initCallBridge(): void {
       // joins after me — re-announcing my mic state either way is harmless
       // and closes the window where a newly-joined peer doesn't know it yet.
       callBus.send(useCallStore.getState().isMuted ? 'mic_muted' : 'mic_unmuted', {});
+      // То же для камеры: иначе поздно вошедший видит чёрный кадр вместо
+      // аватарки у тех, чья камера выключена.
+      scheduleCameraReannounce();
     },
     onPeerSnapshot: (userIds) => {
       // Fired once, right after a successful resume (VYC-78 step 3): while
@@ -329,7 +405,10 @@ export function initCallBridge(): void {
         const added = userIds
           .filter((uid) => !keptIds.has(uid))
           .map((uid) => ({ userId: uid, stream: null }));
-        return { participants: [...kept, ...added] };
+        // remoteCameraOff переживает реконнект (см. onReconnecting) — здесь
+        // отбрасываем тех, кто ушёл, пока мы были в grace.
+        const cameraOff = new Map([...s.remoteCameraOff].filter(([uid]) => idSet.has(uid)));
+        return { participants: [...kept, ...added], remoteCameraOff: cameraOff };
       });
     },
     onPeerLeft: (userId) => {
@@ -344,12 +423,15 @@ export function initCallBridge(): void {
         nextScreens.delete(userId);
         const nextMuted = new Map(s.remoteMicMuted);
         nextMuted.delete(userId);
+        const nextCameraOff = new Map(s.remoteCameraOff);
+        nextCameraOff.delete(userId);
         const nextQuality = { ...s.qualityByUser };
         delete nextQuality[userId];
         return {
           participants: s.participants.filter((p) => p.userId !== userId),
           remoteScreenStreams: nextScreens,
           remoteMicMuted: nextMuted,
+          remoteCameraOff: nextCameraOff,
           qualityByUser: nextQuality,
         };
       });
@@ -378,6 +460,11 @@ export function initCallBridge(): void {
         screenSharers: new Set(),
         bannerDismissed: false,
         remoteMicMuted: new Map(),
+        // remoteCameraOff НЕ чистим: после resume SFU-сессии остальные нас не
+        // теряли и заново свою камеру не объявят — очистка вернула бы чёрный
+        // кадр у всех, кто выключил камеру. Ушедших за время обрыва отсеивают
+        // onPeerSnapshot (resume) и onPeerLeft; при полном переподключении
+        // остальные видят наш participant_joined и переобъявляют состояние.
         participantVolumes: {},
         volumePopoverUserId: null,
         focusedUserId: null,
@@ -388,6 +475,10 @@ export function initCallBridge(): void {
     onReconnected: () => {
       if (!inCall()) return;
       useCallStore.setState({ status: 'connected' });
+      // Resume не шлёт остальным participant_joined — наше состояние, изменённое
+      // во время обрыва, они иначе не узнают. Для полного переподключения это
+      // дублирует onPeerJoined и сливается с ним дебаунсом.
+      scheduleCameraReannounce(true);
       // Restore real focus/watch state (rather than calling watchShare directly
       // and tracking it in a second ref) so the sync effect in the call scene —
       // the single place that sends watch_share/unwatch_share — naturally
@@ -516,6 +607,39 @@ export function initCallBridge(): void {
     if (p.user_id === selfId()) return;
     if (!isCallParticipant(p.user_id)) return;
     useCallStore.setState((s) => ({ remoteMicMuted: new Map(s.remoteMicMuted).set(p.user_id, false) }));
+  });
+
+  callBus.on('camera_off', (payload) => {
+    const p = payload as { user_id: string };
+    if (!inCall()) return;
+    if (p.user_id === selfId()) return;
+    if (!isCallParticipant(p.user_id)) return;
+    useCallStore.setState((s) => ({ remoteCameraOff: new Map(s.remoteCameraOff).set(p.user_id, true) }));
+  });
+
+  callBus.on('camera_on', (payload) => {
+    const p = payload as { user_id: string };
+    if (!inCall()) return;
+    if (p.user_id === selfId()) return;
+    if (!isCallParticipant(p.user_id)) return;
+    useCallStore.setState((s) => {
+      if (!s.remoteCameraOff.has(p.user_id)) return s;
+      const next = new Map(s.remoteCameraOff);
+      next.delete(p.user_id);
+      return { remoteCameraOff: next };
+    });
+  });
+
+  // ── Своя камера → собеседникам (VYC-96) ──
+  // Единственная точка отправки: isVideoOff меняют кнопка сцены
+  // (useCallStageModel), CallDock/CallPill (toggleVideo), useBackgroundCamera
+  // при сворачивании мобильного приложения и вход гостя (guestCallStore) —
+  // все через стор. Сброс стора при выходе (callChannelId → null) сюда не
+  // попадает: объявлять больше некому.
+  useCallStore.subscribe((s, prev) => {
+    if (s.isVideoOff === prev.isVideoOff) return;
+    if (s.callChannelId === null || prev.callChannelId === null) return;
+    announceCameraState();
   });
 
   // ── Гости звонка (2026-09-17-guest-call-link-design.md) ──────────────────

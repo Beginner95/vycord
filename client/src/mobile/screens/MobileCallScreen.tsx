@@ -171,6 +171,9 @@ export function MobileCallScreen({ model: m, onBack, onOpenChat, onOpenOverflow,
   const focusedName = selfFocused ? selfName : m.focusedUserId ? m.nameFor(m.focusedUserId) : '';
   const localVideoClass = m.isScreenSharing ? 'is-screen' : 'is-mirrored';
   const localCameraOff = m.isVideoOff && !m.isScreenSharing;
+  const remoteFocusedCameraOff = m.focusedUserId !== null
+    && (m.remoteCameraOff.get(m.focusedUserId) ?? false)
+    && !m.screenSharers.has(m.focusedUserId);
 
   const focusSelf = () => {
     setLocalFocused(true);
@@ -232,6 +235,7 @@ export function MobileCallScreen({ model: m, onBack, onOpenChat, onOpenOverflow,
       onCloseVolumePopover={() => {}}
       onVolumeChange={(v) => m.onVolumeChange(p.userId, v)}
       quality={m.qualityByUser[p.userId]}
+      cameraOff={m.remoteCameraOff.get(p.userId) ?? false}
     />
   );
 
@@ -336,6 +340,11 @@ export function MobileCallScreen({ model: m, onBack, onOpenChat, onOpenOverflow,
               )}
               {view === 'focus-self' && localCameraOff && (
                 <Avatar username={m.user?.username ?? '?'} url={m.user?.avatar_url ?? undefined} className="mcs-focus-avatar" />
+              )}
+              {/* VYC-96: то же для собеседника, объявившего camera_off
+                  (в т.ч. свернувшего мобильное приложение). */}
+              {view === 'focus-remote' && remoteFocusedCameraOff && (
+                <Avatar username={focusedName} className="mcs-focus-avatar" />
               )}
               <div className="mcs-focus-label">
                 <span className="mcs-focus-name">{focusedName}</span>

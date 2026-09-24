@@ -68,6 +68,9 @@ interface AudioChain {
    *  иначе микрофон остаётся захваченным после звонка. */
   rawStream: MediaStream;
   keepAlive: ReturnType<typeof setInterval>;
+  /** Снимает слушатели «оживления» контекста (statechange/visibility/pageshow/
+   *  focus/pointerdown) и таймер ретрая — см. attachContextLifecycle. */
+  detachLifecycle: () => void;
   /** addModule уже выполнен для этого AudioContext. */
   workletLoaded: boolean;
   stage: WorkletStage | null;
@@ -90,6 +93,110 @@ function loadSettings(): NcSettings {
     /* битый storage — дефолты */
   }
   return { enabled: true, modelId: DEFAULT_NC_MODEL };
+}
+
+const RESUME_RETRY_MIN_MS = 250;
+const RESUME_RETRY_MAX_MS = 30_000;
+/** Больше стольких немедленных resume по statechange за окно — дальше только
+ *  ретрай с бэкоффом: браузер, который тут же снова suspend-ит контекст, не
+ *  должен получить тугой цикл statechange → resume → statechange. */
+const RESUME_BURST_LIMIT = 3;
+const RESUME_BURST_WINDOW_MS = 5000;
+
+/**
+ * Держит AudioContext звонка в `running` событийно (VYC-96). Мобильные
+ * браузеры при сворачивании переводят контекст в `suspended` (Android Chrome)
+ * или `interrupted` (iOS Safari) — тогда destination-трек шлёт нулевые фреймы
+ * и собеседники перестают слышать. keepAlive-поллинг в фоне троттлится, поэтому:
+ *  - statechange → немедленный resume (с защитой от тугого цикла);
+ *  - resume отклонён / контекст не ожил → ретрай с экспоненциальным бэкоффом;
+ *  - visibilitychange (hidden и visible), pageshow, focus, pointerdown — сброс
+ *    бэкоффа и немедленная попытка (жест пользователя снимает autoplay-запрет).
+ * Пока контекст `running`, все обработчики — no-op. Возвращает detach.
+ */
+function attachContextLifecycle(context: AudioContext): () => void {
+  let detached = false;
+  let retryTimer: ReturnType<typeof setTimeout> | null = null;
+  let retryDelay = RESUME_RETRY_MIN_MS;
+  let burst: number[] = [];
+
+  const alive = (): boolean => !detached && context.state !== 'closed';
+  const needsResume = (): boolean => alive() && context.state !== 'running';
+
+  const scheduleRetry = (): void => {
+    if (retryTimer !== null || !needsResume()) return;
+    const delay = retryDelay;
+    retryDelay = Math.min(retryDelay * 2, RESUME_RETRY_MAX_MS);
+    retryTimer = setTimeout(() => {
+      retryTimer = null;
+      tryResume();
+    }, delay);
+  };
+
+  const tryResume = (): void => {
+    if (!needsResume()) return;
+    let pending: Promise<void>;
+    try {
+      pending = context.resume();
+    } catch {
+      scheduleRetry();
+      return;
+    }
+    Promise.resolve(pending).then(
+      () => {
+        if (context.state === 'running') retryDelay = RESUME_RETRY_MIN_MS;
+        else scheduleRetry();
+      },
+      () => scheduleRetry(),
+    );
+  };
+
+  const onStateChange = (): void => {
+    if (!alive()) return;
+    if (context.state === 'running') {
+      retryDelay = RESUME_RETRY_MIN_MS;
+      return;
+    }
+    const now = Date.now();
+    burst = burst.filter((t) => now - t < RESUME_BURST_WINDOW_MS);
+    if (burst.length >= RESUME_BURST_LIMIT) {
+      scheduleRetry();
+      return;
+    }
+    burst.push(now);
+    tryResume();
+  };
+
+  const onWake = (): void => {
+    if (!needsResume()) return;
+    if (retryTimer !== null) {
+      clearTimeout(retryTimer);
+      retryTimer = null;
+    }
+    retryDelay = RESUME_RETRY_MIN_MS;
+    tryResume();
+  };
+
+  const pointerOpts: AddEventListenerOptions = { capture: true, passive: true };
+  context.addEventListener('statechange', onStateChange);
+  document.addEventListener('visibilitychange', onWake);
+  window.addEventListener('pageshow', onWake);
+  window.addEventListener('focus', onWake);
+  window.addEventListener('pointerdown', onWake, pointerOpts);
+
+  return () => {
+    if (detached) return;
+    detached = true;
+    if (retryTimer !== null) {
+      clearTimeout(retryTimer);
+      retryTimer = null;
+    }
+    context.removeEventListener('statechange', onStateChange);
+    document.removeEventListener('visibilitychange', onWake);
+    window.removeEventListener('pageshow', onWake);
+    window.removeEventListener('focus', onWake);
+    window.removeEventListener('pointerdown', onWake, pointerOpts);
+  };
 }
 
 class NoiseCancellationService {
@@ -203,6 +310,10 @@ class NoiseCancellationService {
         context.resume().catch(() => {});
       }
     }, 2000);
+    // Поллинг выше в фоновой вкладке троттлится (до раза в минуту), а мобильные
+    // браузеры suspend-ят/interrupt-ят контекст именно при сворачивании —
+    // поэтому ещё и событийный resume (VYC-96).
+    const detachLifecycle = attachContextLifecycle(context);
 
     const chain: AudioChain = {
       context,
@@ -211,6 +322,7 @@ class NoiseCancellationService {
       micGain,
       rawStream,
       keepAlive,
+      detachLifecycle,
       workletLoaded: false,
       stage: null,
       active: false,
@@ -289,6 +401,7 @@ class NoiseCancellationService {
     this.destroyStage(chain);
     chain.source.disconnect();
     clearInterval(chain.keepAlive);
+    chain.detachLifecycle();
     chain.context.close().catch(() => {});
     chain.rawStream.getAudioTracks().forEach((t) => t.stop());
     this.chains.delete(streamId);

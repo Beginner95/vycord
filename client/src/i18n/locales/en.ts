@@ -174,6 +174,13 @@ export const en: Dictionary = {
     qualityDetails: 'Connection quality',
     speakerDefault: 'Default speaker',
 
+    // MediaSession card during a call (VYC-96): title when the channel name
+    // is unknown, and the 'artist' line.
+    mediaSessionTitle: 'Call',
+    mediaSessionArtist: 'VYCORD',
+    // Camera failed to turn back on after returning to the app (VYC-96).
+    cameraResumeFailed: "Couldn't turn the camera back on. Turn it on manually.",
+
     // Screen source picker modal
     selectScreen: 'Select a screen to share',
     entireScreen: 'Entire Screen',

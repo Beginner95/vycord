@@ -253,6 +253,23 @@ describe('guestCallStore', () => {
       expect(callBus.send).toHaveBeenCalledWith('mic_muted');
     });
 
+    // VYC-96: кадры, отправленные в закрытый сокет шлюза, потеряны — после
+    // переподключения (сервер снова шлёт admitted) гость объявляет мик и камеру.
+    it('re-announces mic and camera after the gateway reconnects mid-call', async () => {
+      vi.mocked(guestApi.join).mockResolvedValue({ guest_id: 'g1', session_token: 'tok', display_name: 'Вася' });
+      await useGuestCallStore.getState().join('secret', 'Вася', { muted: false, videoOff: true });
+      emit({ type: 'admitted', room_id: 'room-1' });
+      await vi.waitFor(() => expect(useGuestCallStore.getState().phase).toBe('in_call'));
+      vi.mocked(callBus.send).mockClear();
+
+      emit({ type: 'closed' });
+      emit({ type: 'admitted', room_id: 'room-1' });
+
+      const types = vi.mocked(callBus.send).mock.calls.map(([type]) => type);
+      expect(types).toEqual(['mic_unmuted', 'camera_off']);
+      expect(groupCallService.joinGroupCall).toHaveBeenCalledTimes(1);
+    });
+
     it('treats a call dropped under it as a lost connection', async () => {
       vi.mocked(guestApi.join).mockResolvedValue({ guest_id: 'g1', session_token: 'tok', display_name: 'Вася' });
       await useGuestCallStore.getState().join('secret', 'Вася', { muted: false, videoOff: true });

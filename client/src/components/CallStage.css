@@ -785,6 +785,24 @@
   display: block;
 }
 
+/* VYC-96: the focused participant's camera is off — avatar over the black
+   frame, centred like the grid tile's. pointer-events: none keeps the video
+   underneath the click target it always was. */
+.call-stage .stage-focus-avatar {
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 96px;
+  height: 96px;
+  border-radius: var(--radius-bar);
+  font-size: 40px;
+  object-fit: cover;
+  pointer-events: none;
+}
+
 /* max-width + overflow are M6 T12: the label had neither, so a long focused
    name grew the box past .stage-focus-main and was hard-clipped by that
    element's overflow: hidden — no ellipsis, no indication text was missing.
@@ -976,6 +994,12 @@
 
 .stage-thumb video.is-mirrored {
   transform: scaleX(-1);
+}
+
+/* VYC-96: a remote peer announced camera_off — hide the black/frozen frame
+   (visibility keeps the element playing: the thumb still carries audio). */
+.stage-thumb.is-camera-off video {
+  visibility: hidden;
 }
 
 /* A shared screen must never be mirrored, even in the local thumb. */

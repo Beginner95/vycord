@@ -52,6 +52,7 @@ function baseModel(over: Partial<CallStageModel> = {}): CallStageModel {
     screenSharers: new Set(),
     remoteScreenStreams: new Map(),
     remoteMicMuted: new Map(),
+    remoteCameraOff: new Map(),
     qualityByUser: {},
     localQuality: undefined,
     focusedUserId: null,
@@ -158,6 +159,54 @@ describe('MobileCallScreen', () => {
     });
     render(<MobileCallScreen model={model} onBack={vi.fn()} onOpenChat={vi.fn()} onOpenOverflow={vi.fn()} onOpenQuality={vi.fn()} />);
     expect(document.querySelector('.mcs-focus-name')?.textContent).toBe('Boris');
+  });
+
+  // Поток без аудио: useMicLevel плитки тогда ничего не поднимает.
+  const videoOnlyStream = () =>
+    ({ getAudioTracks: () => [], getVideoTracks: () => [], getTracks: () => [] }) as unknown as MediaStream;
+
+  // VYC-96: собеседник объявил camera_off (например, свернул приложение).
+  it('focus-remote: shows the avatar over the video when the focused peer turned the camera off', () => {
+    const model = baseModel({
+      participants: remoteParticipants(2),
+      totalParticipants: 3,
+      focusedUserId: 'u2',
+      remoteCameraOff: new Map([['u2', true]]),
+    });
+    render(<MobileCallScreen model={model} onBack={vi.fn()} onOpenChat={vi.fn()} onOpenOverflow={vi.fn()} onOpenQuality={vi.fn()} />);
+    expect(document.querySelector('.mcs-focus-main .mcs-focus-avatar')).toBeTruthy();
+    expect(document.querySelector('.mcs-focus-video')).toBeTruthy();
+  });
+
+  it('focus-remote: no avatar by default, nor while the camera-off peer is sharing', () => {
+    const sharing = baseModel({
+      participants: remoteParticipants(1),
+      totalParticipants: 2,
+      focusedUserId: 'u2',
+      screenSharers: new Set(['u2']),
+      remoteCameraOff: new Map([['u2', true]]),
+    });
+    render(<MobileCallScreen model={sharing} onBack={vi.fn()} onOpenChat={vi.fn()} onOpenOverflow={vi.fn()} onOpenQuality={vi.fn()} />);
+    expect(document.querySelector('.mcs-focus-avatar')).toBeNull();
+    cleanup();
+
+    const plain = baseModel({ participants: remoteParticipants(1), totalParticipants: 2, focusedUserId: 'u2' });
+    render(<MobileCallScreen model={plain} onBack={vi.fn()} onOpenChat={vi.fn()} onOpenOverflow={vi.fn()} onOpenQuality={vi.fn()} />);
+    expect(document.querySelector('.mcs-focus-avatar')).toBeNull();
+  });
+
+  it('grid: a camera-off peer gets the avatar tile, the others keep their video', () => {
+    const model = baseModel({
+      participants: [participant('u2', { stream: videoOnlyStream() }), participant('u3', { stream: videoOnlyStream() })],
+      totalParticipants: 3,
+      remoteCameraOff: new Map([['u3', true]]),
+    });
+    render(<MobileCallScreen model={model} onBack={vi.fn()} onOpenChat={vi.fn()} onOpenOverflow={vi.fn()} onOpenQuality={vi.fn()} />);
+    const remote = [...document.querySelectorAll('.mcs-grid-cell:not(.is-self) .stage-tile')];
+    expect(remote.length).toBe(2);
+    expect(remote[0].classList.contains('is-camera-off')).toBe(false);
+    expect(remote[1].classList.contains('is-camera-off')).toBe(true);
+    expect(remote[1].querySelector('.stage-tile-avatar')).toBeTruthy();
   });
 
   it('renders a thumbnail strip with everyone still visible in the focused view (C1: audio plays from the thumbnail element)', () => {

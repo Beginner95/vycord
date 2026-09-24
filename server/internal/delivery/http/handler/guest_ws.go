@@ -20,6 +20,8 @@ import (
 var guestRelayableTypes = map[string]struct{}{
 	"mic_muted":            {},
 	"mic_unmuted":          {},
+	"camera_off":           {},
+	"camera_on":            {},
 	"screen_share_started": {},
 	"screen_share_stopped": {},
 	"connection_quality":   {},

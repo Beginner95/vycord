@@ -38,6 +38,8 @@ export type GuestGatewayEvent =
 const PEER_SIGNALS = new Set([
   'mic_muted',
   'mic_unmuted',
+  'camera_off',
+  'camera_on',
   'screen_share_started',
   'screen_share_stopped',
   'connection_quality',

@@ -28,6 +28,12 @@ interface RemoteParticipantTileProps {
   onCloseVolumePopover: () => void;
   onVolumeChange: (value: number) => void;
   quality?: ConnectionQualityMetrics;
+  /**
+   * VYC-96: участник объявил camera_off — вместо чёрного кадра показываем
+   * аватар. По умолчанию false: DOM плитки прежний. Демонстрация экрана
+   * (isSharing) имеет приоритет — при ней плитка ведёт себя как раньше.
+   */
+  cameraOff?: boolean;
 }
 
 export function RemoteParticipantTile({
@@ -45,6 +51,7 @@ export function RemoteParticipantTile({
   onCloseVolumePopover,
   onVolumeChange,
   quality,
+  cameraOff = false,
 }: RemoteParticipantTileProps) {
   const t = useT();
   const level = useMicLevel(participant.stream, muted);
@@ -61,18 +68,22 @@ export function RemoteParticipantTile({
   };
 
   const showWatchOverlay = isSharing && !isFocused;
+  // Нет потока вовсе (как раньше) или камера объявлена выключенной — но не во
+  // время демонстрации.
+  const announcedCameraOff = cameraOff && !isSharing;
+  const cameraOffView = !participant.stream || announcedCameraOff;
 
   if (layout === 'thumbnail') {
     return (
       <div
-        className={`stage-thumb${isFocused ? ' is-focused' : ''}${speaking ? ' is-speaking' : ''}`}
+        className={`stage-thumb${isFocused ? ' is-focused' : ''}${announcedCameraOff ? ' is-camera-off' : ''}${speaking ? ' is-speaking' : ''}`}
         style={{ '--speak-level': Math.min(1, level) } as React.CSSProperties}
         onClick={onFocus}
         title={displayName}
       >
         {/* Remote thumb video is never mirrored — only the local preview is. */}
         <video ref={videoRefSetter} autoPlay playsInline style={showWatchOverlay ? { display: 'none' } : undefined} />
-        {!participant.stream && !showWatchOverlay && (
+        {cameraOffView && !showWatchOverlay && (
           <Avatar username={displayName} className="stage-thumb-avatar" />
         )}
         {showWatchOverlay && (
@@ -120,7 +131,7 @@ export function RemoteParticipantTile({
 
   return (
     <div
-      className={`stage-tile${!participant.stream ? ' is-camera-off' : ''}${speaking ? ' is-speaking' : ''}`}
+      className={`stage-tile${cameraOffView ? ' is-camera-off' : ''}${speaking ? ' is-speaking' : ''}`}
       style={{ '--speak-level': Math.min(1, level) } as React.CSSProperties}
     >
       {/* Remote video is never mirrored — only the local preview carries is-mirrored. */}
@@ -131,7 +142,7 @@ export function RemoteParticipantTile({
         className="stage-tile-video"
         style={showWatchOverlay ? { display: 'none' } : undefined}
       />
-      {!participant.stream && !showWatchOverlay && (
+      {cameraOffView && !showWatchOverlay && (
         <Avatar username={displayName} className="stage-tile-avatar" />
       )}
       {showWatchOverlay && (
@@ -178,7 +189,7 @@ export function RemoteParticipantTile({
               : <span className="stage-plate-mic"><Mic size={12} strokeWidth={1.8} /></span>}
           <span className="stage-name">{displayName}</span>
         </div>
-        {!participant.stream && !showWatchOverlay && (
+        {cameraOffView && !showWatchOverlay && (
           <div className="stage-state-chip">{t('call.cameraOffChip')}</div>
         )}
       </div>

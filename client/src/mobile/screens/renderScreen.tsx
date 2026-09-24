@@ -1,7 +1,8 @@
-import { useState, type ReactNode } from 'react';
+import { useContext, useState, type ReactNode } from 'react';
 import type { Screen } from '@/mobile/nav/types';
 import { MobileCallScreen } from '@/mobile/screens/MobileCallScreen';
 import { CallOverflowSheets } from '@/mobile/call/CallOverflowSheets';
+import { CallAudioHostContext } from '@/mobile/call/CallAudioHost';
 import type { CallOverflowSub } from '@/mobile/call/useCallOverflowItems';
 import { useCallStageModel } from '@/components/useCallStageModel';
 import { useGuestManagementStore } from '@/stores/guestManagementStore';
@@ -35,7 +36,8 @@ function CallScreen({ ctx }: { ctx: ScreenCtx }) {
   // (живые метрики CallQualitySheet и список/слайдеры CallVolumeSheet
   // застывали). Теперь модель — одна ссылка, общая для `MobileCallScreen` и
   // `CallOverflowSheets`.
-  const model = useCallStageModel();
+  // Звук участников играет CallAudioHost оболочки — плитки остаются немыми.
+  const model = useCallStageModel({ externalAudio: useContext(CallAudioHostContext) });
   const [overflowOpen, setOverflowOpen] = useState(false);
   // D6: the header quality-indicator (onOpenQuality) jumps straight into
   // CallQualitySheet; the «⋯» panel button (onOpenOverflow) opens the

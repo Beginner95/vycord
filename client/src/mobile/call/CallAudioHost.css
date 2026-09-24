@@ -1,0 +1,20 @@
+/* Хост звука звонка: элементы <audio> должны играть, но не быть видны и не
+   занимать место. Визуальное скрытие вместо display: none — мобильные браузеры
+   вправе приостанавливать медиа в невидимом (display: none) поддереве. */
+.call-audio-host {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  pointer-events: none;
+}
+
+/* UA-стиль прячет <audio> без controls через display: none — переопределяем. */
+.call-audio-host audio {
+  display: block;
+  width: 1px;
+  height: 1px;
+}

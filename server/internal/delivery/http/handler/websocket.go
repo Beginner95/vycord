@@ -215,6 +215,10 @@ func (h *WebSocketHandler) handleMessage(client *ws.Client, msg *ws.Message) {
 		h.handleMicMuted(client)
 	case "mic_unmuted":
 		h.handleMicUnmuted(client)
+	case "camera_off":
+		h.handleCameraState(client, "camera_off")
+	case "camera_on":
+		h.handleCameraState(client, "camera_on")
 	case "connection_quality":
 		h.handleConnectionQuality(client, msg)
 	case "voice_joined":
@@ -669,6 +673,17 @@ func (h *WebSocketHandler) handleMicUnmuted(client *ws.Client) {
 		Payload: mustMarshal(map[string]interface{}{"user_id": client.UserID.String()}),
 	})
 	h.mirrorToGuests(client.UserID, "mic_unmuted", mustMarshal(map[string]interface{}{"user_id": client.UserID.String()}))
+}
+
+// handleCameraState relays camera_off / camera_on exactly like mic_muted:
+// peers render the avatar instead of a black frame while the camera is off.
+// No state is kept on the server — late joiners learn it from the peers'
+// re-announcement on participant_joined (client side).
+func (h *WebSocketHandler) handleCameraState(client *ws.Client, msgType string) {
+	h.log.Info("camera state", "type", msgType, "user_id", client.UserID)
+	payload := mustMarshal(map[string]interface{}{"user_id": client.UserID.String()})
+	h.hub.BroadcastMessage(&ws.Message{Type: msgType, Payload: payload})
+	h.mirrorToGuests(client.UserID, msgType, payload)
 }
 
 func (h *WebSocketHandler) handleConnectionQuality(client *ws.Client, msg *ws.Message) {

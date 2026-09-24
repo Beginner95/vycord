@@ -164,11 +164,13 @@ func TestGuestWS_RelaysOnlyAllowedTypes(t *testing.T) {
 	readFrame(t, conn) // participants
 
 	sendFrame(t, conn, "mic_muted", nil)
+	sendFrame(t, conn, "camera_off", nil)
+	sendFrame(t, conn, "camera_on", nil)
 	sendFrame(t, conn, "connection_quality", map[string]string{"level": "good"})
 	sendFrame(t, conn, "join_channel", map[string]string{"channel_id": uuid.NewString()})
 	sendFrame(t, conn, "ping", nil)
 
 	assert.Equal(t, "pong", readFrame(t, conn).Type)
-	assert.Equal(t, []string{"mic_muted", "connection_quality"}, rt.types(),
+	assert.Equal(t, []string{"mic_muted", "camera_off", "camera_on", "connection_quality"}, rt.types(),
 		"only the guest's own media signals are relayed; hub message types are ignored")
 }

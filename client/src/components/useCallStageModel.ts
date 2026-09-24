@@ -15,6 +15,7 @@ import type { ConnectionQualityMetrics } from '@/utils/callQuality';
 import { useGuestManagementStore } from '@/stores/guestManagementStore';
 import { useMicLevel } from '@/hooks/useMicLevel';
 import { useT } from '@/i18n';
+import { applySinkToCallAudio } from '@/components/call/callAudioSinks';
 
 // Attaches a remote MediaStream to a video element and starts playback.
 //
@@ -26,7 +27,11 @@ import { useT } from '@/i18n';
 // Fix: play muted first (always allowed), then immediately unmute. Chrome cannot
 // block unmuting a playing element — audio starts as soon as muted becomes false.
 // This is the standard cross-browser workaround used by WebRTC apps.
-function attachStreamToElement(el: HTMLVideoElement, stream: MediaStream, userId: string, volume: number): void {
+//
+// `keepMuted` (опционально, по умолчанию false — поведение десктопа прежнее):
+// звук участника играет внешний хост (мобильный CallAudioHost), а плитка
+// показывает только видео — снятие mute дало бы двойной звук.
+function attachStreamToElement(el: HTMLVideoElement, stream: MediaStream, userId: string, volume: number, keepMuted = false): void {
   el.srcObject = stream;
   el.volume = volume;
   const audioTracks = stream.getAudioTracks();
@@ -42,6 +47,10 @@ function attachStreamToElement(el: HTMLVideoElement, stream: MediaStream, userId
 
   // Mute temporarily so play() is guaranteed to succeed regardless of autoplay policy.
   el.muted = true;
+  if (keepMuted) {
+    el.play().catch((err) => console.warn(`[GC] el.play() failed uid=${userId.slice(0, 8)}:`, err));
+    return;
+  }
   el.play()
     .then(() => {
       // Unmute immediately — browser cannot block this once the element is playing.
@@ -91,6 +100,8 @@ export interface CallStageModel {
   screenSharers: Set<string>;
   remoteScreenStreams: Map<string, MediaStream>;
   remoteMicMuted: Map<string, boolean>;
+  /** VYC-96: участники, объявившие camera_off (пусто — у всех камера «вкл»). */
+  remoteCameraOff: Map<string, boolean>;
   qualityByUser: Record<string, ConnectionQualityMetrics>;
   localQuality: ConnectionQualityMetrics | undefined;
   focusedUserId: string | null;
@@ -152,8 +163,18 @@ export interface CallStageModel {
   applySinkId: (deviceId: string) => void;
 }
 
-export function useCallStageModel({ onLeave }: { onLeave?: () => void } = {}): CallStageModel {
+export interface CallStageModelOptions {
+  onLeave?: () => void;
+  /** Звук удалённых участников играет внешний хост (мобильный CallAudioHost,
+   *  смонтированный на уровне MobileShell): <video> плиток остаются muted.
+   *  По умолчанию false — десктоп и гостевая оболочка звучат через плитки. */
+  externalAudio?: boolean;
+}
+
+export function useCallStageModel({ onLeave, externalAudio = false }: CallStageModelOptions = {}): CallStageModel {
   const t = useT();
+  const externalAudioRef = useRef(externalAudio);
+  externalAudioRef.current = externalAudio;
   const authUser = useAuthStore((s) => s.user);
   // У гостя нет аккаунта: он сам и имена участников приходят через callStore.
   const guestSelf = useCallStore((s) => s.guestSelf);
@@ -270,6 +291,7 @@ export function useCallStageModel({ onLeave }: { onLeave?: () => void } = {}): C
   const stageRef = useRef<HTMLDivElement>(null);
 
   const remoteMicMuted = useCallStore((s) => s.remoteMicMuted);
+  const remoteCameraOff = useCallStore((s) => s.remoteCameraOff);
   const participantVolumes = useCallStore((s) => s.participantVolumes);
   const volumePopoverUserId = useCallStore((s) => s.volumePopoverUserId);
   const qualityByUser = useCallStore((s) => s.qualityByUser);
@@ -300,7 +322,7 @@ export function useCallStageModel({ onLeave }: { onLeave?: () => void } = {}): C
       });
       if (p.stream) {
         if (videoEl && videoEl.srcObject !== p.stream) {
-          attachStreamToElement(videoEl, p.stream, p.userId, (participantVolumes[p.userId] ?? 100) / 100);
+          attachStreamToElement(videoEl, p.stream, p.userId, (participantVolumes[p.userId] ?? 100) / 100, externalAudioRef.current);
         }
       }
     });
@@ -636,8 +658,12 @@ export function useCallStageModel({ onLeave }: { onLeave?: () => void } = {}): C
 
   const remoteVideoRefsMap = remoteVideoRefs; // уже существует как useRef<Map<...>>
   const setRemoteVideoRef = useCallback((userId: string, el: HTMLVideoElement | null) => {
-    if (el) remoteVideoRefsMap.current.set(userId, el);
-    else remoteVideoRefsMap.current.delete(userId);
+    if (el) {
+      // С внешним хостом звука плитка немая с момента монтирования — до
+      // приаттачивания потока, чтобы autoPlay не успел зазвучать.
+      if (externalAudioRef.current) el.muted = true;
+      remoteVideoRefsMap.current.set(userId, el);
+    } else remoteVideoRefsMap.current.delete(userId);
   }, []);
   const applySinkId = useCallback((deviceId: string) => {
     const els = [focusedVideoRef.current, ...remoteVideoRefsMap.current.values()].filter(
@@ -647,6 +673,9 @@ export function useCallStageModel({ onLeave }: { onLeave?: () => void } = {}): C
       const withSink = el as HTMLVideoElement & { setSinkId?: (id: string) => Promise<void> };
       withSink.setSinkId?.(deviceId).catch(() => {});
     }
+    // Элементы внешнего хоста звука (мобильный CallAudioHost); на десктопе
+    // реестр пуст.
+    applySinkToCallAudio(deviceId);
   }, []);
 
   return {
@@ -669,6 +698,7 @@ export function useCallStageModel({ onLeave }: { onLeave?: () => void } = {}): C
     screenSharers,
     remoteScreenStreams,
     remoteMicMuted,
+    remoteCameraOff,
     qualityByUser,
     localQuality,
     focusedUserId,
