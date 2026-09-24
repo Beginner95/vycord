@@ -56,37 +56,6 @@
   margin-left: auto;
 }
 
-/* Mobile-only header affordances: on desktop the channel list is always on
-   screen and the sidebar CallDock covers "show call", so both would be dead
-   chrome.
-
-   Turned back on in TWO places, and the second one is the governing rule over
-   most of the range — do not delete either without reading the other:
-     · the `width < 900px` block at the bottom of this section, and
-     · the shell, `AppPage.css`'s `width < 900px` block, at (0,2,0).
-   Since VYC-95 both blocks share one breakpoint (`< 900px`); before that this
-   file's block stopped at 768 and the shell alone covered 769–899 (M6 T8).
-   Both set `display: flex`, so they never conflict. */
-.chat-back-btn {
-  display: none;
-  align-items: center;
-  justify-content: center;
-  width: 34px;
-  height: 34px;
-  padding: 0;
-  color: var(--muted);
-  background: transparent;
-  border: none;
-  border-radius: 9px;
-  cursor: pointer;
-  transition: background var(--transition), color var(--transition);
-}
-
-.chat-back-btn:hover {
-  color: var(--ink);
-  background: var(--canvas-2);
-}
-
 .chat-voice-btn {
   display: inline-flex;
   gap: 6px;
@@ -135,12 +104,13 @@
   transition: background var(--transition), color var(--transition);
 }
 
-/* Both are turned back on by the shell (AppPage.css), each in the range it
-   belongs to: `.chat-call-btn` inside the `<= 899px` panel model, and
-   `.chat-members-btn` below 1200px — spec §5 gives the member list its own
-   header toggle only once the list leaves the flow, and at >= 1200px the list
-   is always on screen, which left this button a visible, permanently dead
-   control at the default desktop width. */
+/* Both are turned back on by the shell, each in the range it belongs to:
+   `.chat-call-btn` and `.chat-members-btn` on the whole mobile shell
+   (`.mobile-shell`, MobileShell.css, below 900px), and `.chat-members-btn`
+   additionally below 1200px on desktop (AppPage.css) — spec §5 gives the member
+   list its own header toggle only once the list leaves the flow, and at
+   >= 1200px the list is always on screen, which left this button a visible,
+   permanently dead control at the default desktop width. */
 .chat-members-btn,
 .chat-call-btn {
   display: none;
@@ -375,7 +345,6 @@
 
 /* ═══ Mobile (board 1f) ═══ */
 @media (width < 900px) {
-  .chat-back-btn,
   .chat-call-btn {
     display: flex;
   }
@@ -385,19 +354,6 @@
     min-height: 56px;
     gap: 8px;
     padding: 0 10px;
-  }
-
-  /* flex-shrink: 0 on every fixed-size header control — without it the row's
-     only other shrinkable item (.chat-header-title, min-width: 0 for its own
-     ellipsis) doesn't absorb 100% of an overflow; the flexbox algorithm was
-     observed stealing ~2px off .chat-back-btn instead, dropping it under the
-     40px hit-target floor. Title/subtitle text is what should truncate here,
-     never the tap targets. */
-  .chat-back-btn {
-    flex-shrink: 0;
-    width: 40px;
-    height: 40px;
-    border-radius: 11px;
   }
 
   /* The desktop one-line name hides; the two-line title+subtitle wrapper

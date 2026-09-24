@@ -1,5 +1,5 @@
 import { Fragment, useState, useEffect, useRef, useCallback, type DragEvent, type ReactNode } from 'react';
-import { ArrowDown, ChevronLeft, Hash, Headphones, Mic, Plus, Search, Users } from 'lucide-react';
+import { ArrowDown, Hash, Headphones, Mic, Plus, Search, Users } from 'lucide-react';
 import { useMessageStore, type ChatMessage } from '@/stores/messageStore';
 import { useUnreadStore, firstUnreadId } from '@/stores/unreadStore';
 import { StickerManager } from '@/components/StickerManager';
@@ -57,7 +57,6 @@ export interface ChatHeaderApi { openSearch(): void }
 interface ChatAreaProps {
   channel: Channel | null;
   user: User | null;
-  onMobileBack?: () => void;
   onShowMembers?: () => void;
   onJoinVoice?: (channel: Channel) => void;
   onShowCall?: () => void;
@@ -80,7 +79,7 @@ interface ChatAreaProps {
 }
 
 export function ChatArea({
-  channel, user, onMobileBack, onShowMembers, onJoinVoice, onShowCall, onCreateServer, onFindServer, voiceParticipants,
+  channel, user, onShowMembers, onJoinVoice, onShowCall, onCreateServer, onFindServer, voiceParticipants,
   header, searchMode = 'inline', messageActions = 'hover', composerVariant = 'desktop', enterSends = true,
   historyOverlays = false, active = true,
 }: ChatAreaProps) {
@@ -618,13 +617,7 @@ logger.error('Failed to jump to message:', err, { module: 'chat' });
   if (!channel) {
     return (
       <main className="chat-area">
-        <div className="chat-header">
-          {onMobileBack && (
-            <button type="button" className="chat-back-btn" onClick={onMobileBack} aria-label={t('chat.back')}>
-              <ChevronLeft size={18} strokeWidth={1.8} />
-            </button>
-          )}
-        </div>
+        <div className="chat-header" />
         {!serversLoaded ? null : servers.length === 0 ? (
           <ChatEmptyCard
             tile={
@@ -678,11 +671,6 @@ logger.error('Failed to jump to message:', err, { module: 'chat' });
       )}
       {header === undefined && (
         <div className="chat-header">
-          {onMobileBack && (
-            <button type="button" className="chat-back-btn" onClick={onMobileBack} aria-label={t('chat.back')}>
-              <ChevronLeft size={18} strokeWidth={1.8} />
-            </button>
-          )}
           <Hash size={17} strokeWidth={1.8} className="chat-header-hash" />
           {/* The document's h1 (M6 T5). The open channel is what the page is
               about, so the persistent header carries the level — NOT

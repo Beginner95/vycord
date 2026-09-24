@@ -353,48 +353,6 @@
   box-shadow: none;
 }
 
-/* ── Mobile Back Button (hidden on desktop) ──
-   M6 T8: the VISUAL half is hoisted here out of the `width <= 768px` block
-   below, which now owns nothing for this button. The single-panel model runs
-   to 899px since T7, so the shell (AppPage.css) turns the button on for that
-   whole range with one `display` flip; duplicating these ten declarations
-   there instead would be the worse trade. Nothing paints at >= 900px — the
-   rule still resolves to `display: none` — so this is a no-op on desktop. */
-.mobile-back-btn {
-  display: none;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  padding: 6px;
-  color: var(--muted);
-  background: none;
-  border: none;
-  border-radius: var(--radius-chip);
-  cursor: pointer;
-  transition: all var(--transition);
-}
-
-.mobile-back-btn:hover {
-  color: var(--ink);
-  background: var(--canvas-2);
-}
-
-@media (width <= 768px) {
-  .channel-sidebar {
-    width: 100vw;
-    min-width: 100vw;
-  }
-
-  .channel-header {
-    gap: 10px;
-  }
-
-  .channel-row {
-    padding: 12px 14px;
-    font-size: 15px;
-  }
-}
-
 /* ── Voice card (channel with an active voice session) ── */
 .voice-card {
   margin: 2px 0;

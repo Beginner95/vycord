@@ -1,6 +1,6 @@
 import { createPortal } from 'react-dom';
 import {
-  ArrowLeft, Maximize2, Minimize2, Mic, MicOff, Video, VideoOff,
+  Maximize2, Minimize2, Mic, MicOff, Video, VideoOff,
   MonitorUp, PhoneOff, X, LayoutGrid, UserPlus,
 } from 'lucide-react';
 import { useCallStageModel } from './useCallStageModel';
@@ -16,10 +16,6 @@ import { stageGridClass, SPEAKING_THRESHOLD } from '@/utils/callStage';
 import './CallStage.css';
 
 interface CallStageProps {
-  // На мобильном сцена и чат — раздельные панели (см. AppPage), а не
-  // сплит одной колонки — колбэк переключает мобильную панель обратно на
-  // чат. На десктопе не передаётся: там обе панели видны одновременно.
-  onMobileBackToChat?: () => void;
   /**
    * Гостевой режим (страница /guest): вместо выхода через callStore.leave
    * зовётся этот колбэк — гостю нужно ещё сказать серверу «ушёл» и показать
@@ -34,7 +30,7 @@ interface CallStageProps {
 // Сцена звонка. Рендерится только когда открытый канал совпадает с каналом
 // звонка (см. AppPage), поэтому монтируется и размонтируется вместе с
 // переключением каналов — всё состояние звонка живёт в сторе, а не здесь.
-export function CallStage({ onMobileBackToChat, onLeave, extraControls }: CallStageProps) {
+export function CallStage({ onLeave, extraControls }: CallStageProps) {
   const t = useT();
   const tp = useTp();
   const m = useCallStageModel({ onLeave });
@@ -86,11 +82,6 @@ export function CallStage({ onMobileBackToChat, onLeave, extraControls }: CallSt
         />
       )}
       <div className="stage-topbar">
-        {onMobileBackToChat && (
-          <button className="stage-back-btn" onClick={onMobileBackToChat} aria-label={t('common.back')}>
-            <ArrowLeft size={18} strokeWidth={1.8} />
-          </button>
-        )}
         <div className="stage-live-pill">
           <span className="stage-live-dot" />
           {t('call.live')} <StageTimer />

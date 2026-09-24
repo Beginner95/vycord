@@ -11,7 +11,11 @@ import { fileURLToPath } from 'node:url';
  * 769–899 раскладка была мобильной, а компоненты — десктопными. Тест
  * фиксирует допустимый набор условий по ширине. Наследие перечислено
  * ТОЧНО (файл → условие → число вхождений): и новый нарушитель, и
- * исправленный блок требуют правки этого списка. Этап 7 опустошает его.
+ * исправленный блок требуют правки этого списка. Этап 7 опустошил его:
+ * наследия больше нет, `LEGACY` пуст. Константа оставлена как дом для
+ * будущего ОБОСНОВАННОГО исключения — добавляйте запись «файл → условие →
+ * число вхождений» только вместе с комментарием, почему блок не может
+ * жить на `ALLOWED`-условиях.
  */
 
 const ALLOWED = new Set([
@@ -21,13 +25,7 @@ const ALLOWED = new Set([
   'width < 1200px',           // десктопный бенд AppPage (M6 T8)
 ]);
 
-const LEGACY: Record<string, Record<string, number>> = {
-  'components/CallStage.css': { 'width <= 768px': 6, 'width <= 640px': 1 },
-  'components/ChannelSidebar.css': { 'width <= 768px': 1 },
-  'components/CommandPalette.css': { 'width <= 640px': 1 },
-  'components/FriendsPanel.css': { 'width <= 768px': 1 },
-  'components/ServerList.css': { 'width <= 768px': 1 },
-};
+const LEGACY: Record<string, Record<string, number>> = {};
 
 const SRC = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 
@@ -59,10 +57,18 @@ describe('breakpoint contract (VYC-95 §2)', () => {
     }
   }
 
-  it('the scanner sees the known mobile queries (non-vacuous)', () => {
+  it('the scanner reports width conditions from CSS text (non-vacuous)', () => {
+    const css = `
+      /* @media (width <= 100px) { } — комментарий не считается */
+      @media (width <= 768px) { .x { color: red } }
+      @media (width < 900px) { .y { color: blue } }
+    `;
+    expect(widthConditions(css)).toEqual(['width <= 768px', 'width < 900px']);
+  });
+
+  it('the scanner sees the real mobile query in the tree', () => {
     const all = cssFiles(SRC).flatMap((f) => widthConditions(readFileSync(f, 'utf8')));
     expect(all).toContain('width < 900px');
-    expect(all).toContain('width <= 768px');
   });
 
   it('every width condition is allowed or is exactly-listed legacy', () => {

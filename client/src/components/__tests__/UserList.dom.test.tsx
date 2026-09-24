@@ -47,7 +47,7 @@ const seed = (bits: bigint) => useServerStore.setState({
 
 const snap = (name: string) => expect(normalizeHtml(document.body.innerHTML)).toMatchFileSnapshot(`./__snapshots__/UserList.${name}.html`);
 const mount = async () => {
-  const utils = render(<UserList onMobileBack={vi.fn()} voiceParticipants={new Map([['c1', ['u2']]])} />);
+  const utils = render(<UserList voiceParticipants={new Map([['c1', ['u2']]])} />);
   await act(async () => {});
   return utils;
 };

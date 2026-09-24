@@ -470,7 +470,7 @@
    `.stage-thumbs` ancestor class, which this strip deliberately doesn't
    reuse (own class, own file — never leaks a rule onto the desktop scene).
    Without an equivalent here, `.stage-volume-btn` falls back to
-   CallStage.css's real `@media (width <= 768px)` 40×40 touch-floor rule (a
+   CallStage.css's real `@media (width < 900px)` 40×40 touch-floor rule (a
    genuine device-width query, so it fires on an actual phone regardless of
    ancestor), and `.stage-conn` falls back to its 28px-tall default — both
    sized for a full `.stage-tile`, not a ~76px-tall strip thumbnail, and

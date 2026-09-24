@@ -1,5 +1,6 @@
 /* Height is fixed at 40px — UpdateBanner.css positions itself at top: 40px
-   against this, and AppPage.css hides .title-bar on mobile. Keep in sync. */
+   against this. TitleBar is rendered only by DesktopShell (MobileShell never
+   mounts it). Keep in sync. */
 .title-bar {
   height: 40px;
   background: var(--canvas);

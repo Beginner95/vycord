@@ -157,10 +157,10 @@ try {
     // regardless of --window-size, and requestFullscreen() sizes the viewport to
     // the SCREEN, not the window. Measured: --size 1440x900 gave a 1440x757
     // viewport that became 800x544 the moment .call-stage went fullscreen —
-    // under the 900px responsive band, where AppPage.css sets
-    // `[data-mobile-panel="chat"] .call-stage { display: none }`. Any probe that
-    // enters fullscreen and then measures layout is measuring the mobile band
-    // unless it sets this. Opt-in, so no existing probe's behaviour changes.
+    // under the 900px mobile boundary, where MobileShell is mounted instead of
+    // DesktopShell. Any probe that enters fullscreen and then measures layout is
+    // measuring the mobile shell unless it sets this. Opt-in, so no existing
+    // probe's behaviour changes.
     ...(arg('screen') ? [`--screen-info={${arg('screen')}}`] : []),
     '--no-first-run',
     '--no-default-browser-check',

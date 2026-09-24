@@ -70,21 +70,19 @@
    `.server-icon.server-icon-home` / `-add` / `-search` repeat the block class
    deliberately. Collapsing each to a bare `.server-icon-home` reads like a
    cleanup and is a BEHAVIOUR CHANGE: it drops the rule from (0,2,0) to (0,1,0)
-   and loses two ties this file depends on. Both were measured (M6 T10,
+   and loses a tie this file depends on. It was measured (M6 T10,
    protocol-level :hover on scratch tiles — tools/probe-t10-cascade.js):
 
-   1. `.server-icon.server-icon-add:hover` below declares only `background` and
-      `filter`, NO `color`. The hovered "+" gets its colour from
-      `.server-icon.server-icon-add` (0,2,0), which currently outranks
-      `.server-icon:hover` (0,2,0, earlier in the file) by source order. At
-      (0,1,0) `.server-icon:hover` wins on specificity instead and the glyph
-      flips --rail-create-ink -> --rail-ink.
-   2. At <=768px, `.server-icon.is-active .server-icon-symbol` and
-      `.server-icon.server-icon-home .server-icon-symbol` are BOTH (0,3,0) and
-      home wins only because it comes later. The home tile does carry
-      `is-active` whenever no server is selected (ServerList.tsx:45), which is
-      the mobile boot state, so at (0,2,0) the home tile's symbol inverts into
-      the generic active-server tile.
+   `.server-icon.server-icon-add:hover` below declares only `background` and
+   `filter`, NO `color`. The hovered "+" gets its colour from
+   `.server-icon.server-icon-add` (0,2,0), which currently outranks
+   `.server-icon:hover` (0,2,0, earlier in the file) by source order. At
+   (0,1,0) `.server-icon:hover` wins on specificity instead and the glyph
+   flips --rail-create-ink -> --rail-ink.
+
+   (A second tie, between `.server-icon.is-active .server-icon-symbol` and
+   `.server-icon.server-icon-home .server-icon-symbol`, went away with the
+   `<=768px` rules that declared it; this file has no such symbol rules now.)
 
    Collapsing also ADDS three `no-descending-specificity` errors (8 -> 11).
    The single-segment `.home` / `.add` / `.search` names are gone, which is what
@@ -177,195 +175,4 @@
 
 .server-list-mobile-header {
   display: none;
-}
-
-/* ── Mobile Server List ──
-   `background` and `color` are overridden here ON PURPOSE, and the omission was
-   a real defect found in manual QA at M6 T15.
-
-   At desktop this is a 76px RAIL: `--rail` is a near-black in BOTH themes
-   (#171B29 light, #0A0C12 dark) and `--rail-muted`/`--rail-ink` are the pale
-   inks that go on it. Under decision 23 the same element becomes a FULL-SCREEN
-   LIST — and it kept the rail's dark fill while the rows it now contains switched
-   to page inks: `.server-list-mobile-header` paints `--ink` on its own `--canvas`,
-   and `.server-icon-name` below paints `--ink` with no background of its own. In
-   the light theme that is #1x-dark text on a #171B29 fill — the server names were
-   unreadable. Dark theme looked correct only because `--rail` and `--canvas` are
-   both near-black there, which is exactly why a dark-only check would have passed
-   it.
-
-   `color` moves with the background for the same reason: `.server-icon-symbol`
-   declares a `--panel` fill but no ink, so the initials inherited `--rail-muted`
-   (#C9CFDE) — pale grey on a pale panel. The is-active / home / add / search
-   symbol rules below all set their own colour and are unaffected. */
-@media (width <= 768px) {
-  .server-list {
-    width: 100vw;
-    min-width: 100vw;
-    flex-direction: column;
-    align-items: stretch;
-    padding: 0;
-    gap: 0;
-    overflow-y: auto;
-    background: var(--canvas);
-  }
-
-  .server-list-mobile-header {
-    display: flex;
-    align-items: center;
-    padding: 20px 20px 12px;
-    font-size: 18px;
-    font-weight: 700;
-    color: var(--ink);
-    border-bottom: 1px solid var(--line);
-    background: var(--canvas);
-    position: sticky;
-    top: 0;
-    z-index: 10;
-  }
-
-  .rail-bottom {
-    margin-top: 0;
-    width: 100%;
-    padding-top: 0;
-    border-top: 0;
-    gap: 0;
-    align-items: stretch;
-  }
-
-  /* `--rail-line` is white-at-14%, built to sit on the dark rail; on the light
-     `--canvas` fill above it is invisible. `--line` is the page hairline. */
-  .server-divider {
-    width: 100%;
-    height: 1px;
-    border-radius: 0;
-    margin: 4px 0;
-    background: var(--line);
-  }
-
-  .server-icon {
-    width: 100%;
-    height: 60px;
-    border-radius: 0;
-    justify-content: flex-start;
-    padding: 0 20px;
-    gap: 14px;
-    box-shadow: none;
-    border-bottom: 1px solid var(--line);
-    color: var(--ink);
-  }
-
-  .server-icon::before {
-    display: none;
-  }
-
-  .server-icon:hover {
-    border-radius: 0;
-    transform: none;
-    box-shadow: none;
-    background: var(--canvas-2);
-    color: var(--ink);
-  }
-
-  .server-icon.is-active {
-    border-radius: 0;
-    box-shadow: none;
-    border-left: 3px solid var(--accent);
-  }
-
-  /* `border-radius` is +1px, DISCLOSED (M6 T13, decision 13). It was
-     var(--radius-lg) = 12px, a legacy alias; the canonical scale is
-     6/9/10/11/13/14/16/18/999 and has no 12px step, so both square-tile
-     surfaces in this media block take --radius-tile = 13px. MEASURED at the
-     element at 760px wide, where this block applies: 12px -> 13px, both themes.
-     (At >= 769px neither rule matches — the desktop reads are 0px for the
-     symbol and 14px for the img, inherited from `.server-icon`.) The other site
-     is `.server-icon img` at the foot of this block; the third is
-     `.auth-card::before`. */
-  .server-icon-symbol {
-    width: 40px;
-    height: 40px;
-    min-width: 40px;
-    border-radius: var(--radius-tile);
-    background: var(--panel);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 17px;
-    font-weight: 700;
-  }
-
-  .server-icon.is-active .server-icon-symbol {
-    background: var(--accent);
-    color: var(--white);
-  }
-
-  .server-icon-name {
-    display: block;
-    font-size: 15px;
-    font-weight: 500;
-    color: var(--ink);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-
-  /* The ACTIVE row still takes `background: var(--accent)` from the base
-     `.server-icon.is-active` rule — the mobile override above resets only
-     radius, shadow and border-left — so the row's own `color` is `--white`.
-     But `.server-icon-name` declares `--ink` on itself, which beats an
-     inherited value at any specificity, leaving dark ink on an indigo fill.
-     MEASURED at the rendered element, 760px: light **2.93:1**, dark
-     **3.61:1**, against AA's 4.5:1.
-
-     Found by the M6 final review AFTER manual QA fixed the surrounding rows —
-     same defect species as that fix (a `--rail`-era assumption meeting page
-     ink), one row over, and pre-existing rather than introduced by it.
-     (0,3,0), placed after the (0,1,0) rule it corrects. */
-  .server-icon.is-active .server-icon-name {
-    color: var(--white);
-  }
-
-  /* Compound on purpose — tie (2) at the top of this file. This rule and
-     `.server-icon.is-active .server-icon-symbol` above are both (0,3,0) and
-     this one wins only by coming later; the home tile carries `is-active`
-     whenever no server is selected. Dropping the block class here inverts the
-     home tile's symbol in this band. */
-  .server-icon.server-icon-home .server-icon-symbol {
-    background: var(--canvas);
-    color: var(--accent);
-  }
-
-  .server-icon.server-icon-add .server-icon-symbol {
-    background: var(--online-soft);
-    color: var(--online);
-    font-size: 22px;
-  }
-
-  .server-icon.server-icon-search .server-icon-symbol {
-    background: var(--accent-soft);
-    color: var(--accent);
-    font-size: 16px;
-  }
-
-  /* Second of decision 13's three +1px sites — see `.server-icon-symbol` above.
-     It must keep matching that rule's radius: the two paint the same 40px tile,
-     one for the initials fallback and one for an uploaded icon. */
-  .server-icon img {
-    width: 40px;
-    height: 40px;
-    min-width: 40px;
-    border-radius: var(--radius-tile);
-  }
-
-  /* Desktop pins the badge to the square tile's corner (`.server-icon-badge`
-     above). The mobile row has no corner to pin to — the tile is full-width
-     with the symbol and name laid out left to right — so the badge drops out
-     of that absolute position and takes its place as a normal flex child,
-     pushed to the row's trailing edge instead. */
-  .server-icon-badge {
-    position: static;
-    margin-left: auto;
-    box-shadow: none;
-  }
 }

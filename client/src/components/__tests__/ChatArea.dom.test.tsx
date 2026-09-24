@@ -34,7 +34,7 @@ beforeEach(() => {
 });
 afterEach(() => { cleanup(); vi.useRealTimers(); });
 
-const props = () => ({ channel, user: me, voiceParticipants: new Map([['c1', ['u2']]]), onJoinVoice: vi.fn(), onShowCall: vi.fn(), onShowMembers: vi.fn(), onMobileBack: vi.fn() });
+const props = () => ({ channel, user: me, voiceParticipants: new Map([['c1', ['u2']]]), onJoinVoice: vi.fn(), onShowCall: vi.fn(), onShowMembers: vi.fn() });
 const snap = (name: string) => expect(normalizeHtml(document.body.innerHTML)).toMatchFileSnapshot(`./__snapshots__/ChatArea.${name}.html`);
 const mount = (p: ReturnType<typeof props> = props()) => render(<MemoryRouter><ChatArea {...p} /></MemoryRouter>);
 

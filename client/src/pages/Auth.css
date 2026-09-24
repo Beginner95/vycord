@@ -205,8 +205,9 @@
      has no 12px step, so this square-tile surface takes --radius-tile = 13px.
      Adding a 12px token instead would have preserved a legacy value inside the
      design system in the milestone whose purpose is removing legacy values.
-     Two more sites moved the same way: ServerList.css's `.server-icon-symbol`
-     and `.server-icon img`, both inside @media (width <= 768px). */
+     Two ServerList.css sites (`.server-icon-symbol` and `.server-icon img`)
+     moved the same way at the time; those `<= 768px` blocks have since been
+     removed. */
   border-radius: var(--radius-tile);
 
   /* Was a raw `rgb(99 102 241 / 30%)`; same reasoning as .auth-btn:hover above

@@ -100,7 +100,8 @@ AppPage.tsx           ← развилка: useIsMobile() ? <MobileShell/> : <De
   во всех `src/**/*.css` ∈ { `width < 900px`, `width >= 900px`,
   `900px <= width < 1200px`, `width < 1200px` } (последние две — десктопные
   бенды AppPage, не мобильные). Временный allowlist старых `<= 768px` /
-  `<= 640px` / `<= 720px` блоков с указанием файла; на этапе 7 он пустеет.
+  `<= 640px` / `<= 720px` блоков с указанием файла; в этапе 7 он опустел
+  (`LEGACY = {}`, см. строку 96 §10).
   Комбинации с `(hover: none)` и т.п. допустимы.
 
 ## 3. Навигация
@@ -469,7 +470,7 @@ safe-area, основная кнопка у низа, клавиатура не 
   бейдж непрочитанного на «Чат»; «вы видите сообщения с момента входа».
 - `ended` (left / kicked / revoked / guestsDisabled / rejected / timeout /
   disconnected / sessionExpired): полноэкранная карточка + CTA регистрации.
-- `GuestCallView.css` `(width <= 720px)` → `(width < 900px)`.
+- `GuestCallView.css` `(width <= 720px)` → `(width < 900px)` (сделано этапом 6 — правило удалено, а не мигрировано; см. «Этап 6 — отложено»).
 
 ## 8. PWA
 
@@ -492,6 +493,8 @@ safe-area, основная кнопка у низа, клавиатура не 
   проверить, что `npm run build` проходит.
 - `public/favicon.svg` — дефолтный логотип Vite, не используется
   `index.html` → удалить в этапе 7 (или follow-up, если где-то используется).
+  **Сделано в этапе 7:** ссылок на файл нигде не было (приложение использует
+  `favicon.png`) — `client/public/favicon.svg` удалён.
 
 ## 9. Этапы (каждый — предлагаемый коммит)
 
@@ -509,18 +512,43 @@ safe-area, основная кнопка у низа, клавиатура не 
 6. **Гость**: §7.
 7. **Зачистка**: удаление `data-mobile-panel`-модели и `onMobileBack*`,
    все компонентные брейкпоинты → `< 900px`, пустой allowlist, сверка §10.
+   **Сделано (этап 7)**: удалён мёртвый блок `@media (width < 900px)` в
+   `AppPage.css` (модель `data-mobile-panel` + «navigation affordances»;
+   `DesktopShell` ниже 900px не монтируется); из `HomeView`, `ChatArea`,
+   `UserList`, `ChannelSidebar` убраны никогда не передававшийся проп
+   `onMobileBack`, кнопки «назад» и скрытые обёртки `.home-view-mobile-header` /
+   `.user-list-mobile-header` вместе с CSS; из `CallStage` — `onMobileBackToChat`
+   и `.stage-back-btn`; удалены легаси-блоки `<= 768px` / `<= 640px` в
+   `CallStage.css` (6 блоков, относившихся только к `CallStage`),
+   `ChannelSidebar.css`, `CommandPalette.css`, `FriendsPanel.css`,
+   `ServerList.css`; общий блок `.stage-focus-btn` / `.stage-volume-btn` /
+   `.stage-share-badge` (им пользуется и `MobileCallScreen` через
+   `RemoteParticipantTile`) перенесён на `@media (width < 900px)`;
+   `LEGACY = {}` в `breakpoint-contract.test.ts`; новый охранный тест
+   `legacy-mobile-model.test.ts`; сверка §10 — ниже; хвосты — «Этап 7 —
+   отложено и найдено по пути» и «Итоговые follow-ups» в §13.
 
 ## 10. Таблица покрытия
 
-Колонка «Проверка» заполняется при приёмке: «✅ + скриншот/шаг». Сейчас —
-«план».
+Колонка «Проверка» заполнялась при приёмке каждого этапа: «✅ + скриншот/шаг».
+**Итог этапа 7:** ни одна строка не осталась «план»/⏳. Значения: «✅» —
+подтверждено указанным доказательством; «принято (этап 7)» — осознанное
+закрытие без полной проверки, причина и оставшийся пробел указаны в самой строке
+(не подтверждение). Оговорка о доказательствах: `.superpowers/` в git-игнорe, и
+часть материалов старых этапов на диске не сохранилась — снимки этапа 6
+(`.superpowers/sdd/2026-09-23-mobile-stage6-guest/shots/*`, строки 65–69) и
+`BASE_TREE`/`snap.sh` этапа 5 (строка 97) на момент сверки отсутствуют; эти
+ссылки — историческая запись того, что проверялось, а не воспроизводимое
+доказательство. Остальные пути `.superpowers/vyc95/s1…s5` сверены по файловой системе — на месте
+(в строке 42 шаблон `info-{390x844,info-scroll}-*` содержал опечатку; реальный
+файл — `info-scroll-390x844-{light,dark}.png`, строка исправлена).
 
 | # | Функция (промт §3) | Десктоп | Мобайл: где живёт | Этап | Проверка |
 |---|---|---|---|---|---|
 | **Auth** |
 | 1 | Вход по email-коду (OTP, повтор с таймером, смена email) | `AuthPage`, `OtpCodeInput` | `AuthPage` (CSS-полировка), OTP `one-time-code` + `numeric` | 5 | ✅ этап 5 — `.superpowers/vyc95/s5/auth-code-{light,dark}.png` (шаг `code`, таймер «Отправить повторно через 60 с», «Изменить email»), мок `POST /auth/otp/request` |
 | 2 | Вход по паролю | `AuthPage` | `AuthPage` | 5 | ✅ этап 5 — `.superpowers/vyc95/s5/auth-password-{light,dark}.png` |
-| 3 | Подтверждение неподтверждённого email | `AuthPage` | `AuthPage` | 5 | ✅ этап 5 (частично) — тот же шаг `code`/тот же JSX-блок `AuthPage.tsx`, что и п.1 (различается только текст `codeSent ? … : t('auth.emailNotVerifiedTitle')`, разметка идентична); скриншот снят для варианта `codeSent=true` (п.1), ветка `email_not_verified` (из `handlePasswordSubmit`) отдельно не переснята — общий CSS-полиш (T6) применяется к обеим веткам одинаково, т.к. в файле нет шаг-специфичных стилей |
+| 3 | Подтверждение неподтверждённого email | `AuthPage` | `AuthPage` | 5 | принято (этап 7): ✅ этап 5 для общего шага, ветка `email_not_verified` без отдельного снимка — тот же шаг `code`/тот же JSX-блок `AuthPage.tsx`, что и п.1 (различается только текст `codeSent ? … : t('auth.emailNotVerifiedTitle')`, разметка идентична); скриншот снят для варианта `codeSent=true` (п.1), ветка `email_not_verified` (из `handlePasswordSubmit`) отдельно не переснята — общий CSS-полиш (T6) применяется к обеим веткам одинаково, т.к. в файле нет шаг-специфичных стилей. Итог этапа 7: принято без пересъёмки — она потребовала бы мока `POST /auth/login` с ответом `email_not_verified`, а разметка/CSS ветки идентичны уже снятой. Пробел (только отдельный снимок этой ветки) не блокирует |
 | 4 | Выбор username при регистрации | `AuthPage` | `AuthPage` | 5 | ✅ этап 5 — `.superpowers/vyc95/s5/auth-username-{light,dark}.png`, мок `POST /auth/otp/verify` → `username_required` |
 | **Серверы** |
 | 5 | Список серверов | `ServerList` | вкладка «Серверы», `MobileListRow` | 2 | ✅ этап 2 — `.superpowers/vyc95/s2/mobile/servers-390x844-{light,dark}.png`, `ServersScreen.test.tsx` |
@@ -532,14 +560,14 @@ safe-area, основная кнопка у низа, клавиатура не 
 | 11 | Инвайт-ссылки: создать / копировать / отозвать, счётчик | `ManageInvitesModal` | экран `invites` | 2 | ✅ этап 2 — `.superpowers/vyc95/s2/mobile/invites-390x844-*.png`, `InvitesScreen.test.tsx` |
 | 12 | Карточка «Пригласить друзей» | `ManageInvitesModal` / меню | экран `invites` + пункт меню сервера | 2 | ✅ этап 2 — карточка на `.superpowers/vyc95/s2/mobile/invites-390x844-*.png`; создание при первом копировании — `InvitesScreen.test.tsx` |
 | 13 | Удалить сервер (подтверждение) | `ServerMenu` → `ConfirmModal` | меню сервера → `ConfirmModal` (sheet-стиль) | 2 | ✅ этап 2 — `.superpowers/vyc95/s2/mobile/delete-confirm-390x844-*.png` (ConfirmModal шторкой), `serverMenu.test.tsx` (поток, ошибка, двойной тап) |
-| 14 | Стикеры сервера: загрузка, имя, удаление | `StickerManager` | экран `stickers` | 2 | ✅ этап 2 — `.superpowers/vyc95/s2/mobile/stickers-390x844-*.png`, `StickerManagerBody.test.tsx`; ⏳ подсказка дропзоны «Перетащите…» — десктопная строка, мобильная формулировка позже |
+| 14 | Стикеры сервера: загрузка, имя, удаление | `StickerManager` | экран `stickers` | 2 | ✅ этап 2 — `.superpowers/vyc95/s2/mobile/stickers-390x844-*.png`, `StickerManagerBody.test.tsx`; подсказка дропзоны — `stickerDropHint` = «Перетащите файл сюда или нажмите, чтобы выбрать»: тач-путь («нажмите, чтобы выбрать») в строке уже есть — принято (этап 7), отдельной мобильной формулировки не будет |
 | **Каналы** |
 | 15 | Список каналов | `ChannelSidebar` | экран `channels` | 2 | ✅ этап 2 — `.superpowers/vyc95/s2/mobile/channels-{375x812,390x844}-*.png`, `ChannelsScreen.test.tsx` |
-| 16 | Создать канал | `CreateChannelModal` | меню сервера → модалка sheet-стиля | 2 | ⏳ этап 2: пункт «Создать канал» в меню сервера есть (тест); модалка открывается прежней `CreateChannelModal` в sheet-стиле этапа 1 — снимок этапа 7 |
+| 16 | Создать канал | `CreateChannelModal` | меню сервера → модалка sheet-стиля | 2 | ✅ этап 2 (пункт меню) + принято (этап 7) для самой модалки — пункт «Создать канал» есть в `useServerMenuItems.tsx` → `ServerMenuSheet` (i18n `channel.createChannelMenu`); то же действие из палитры открывает ту же модалку — `SearchScreen.test.tsx` (`setCreateChannelOpen(true)`). `CreateChannelModal` — потребитель примитива `.modal` (`modal-overlay`/`modal`), который ниже 900px становится шторкой (`primitives.css`, `@media (width < 900px)`, общий вид — `.superpowers/vyc95/s1/confirm-390-{light,dark}.png`). Отдельный снимок самой модалки не делается: собственной мобильной вёрстки у неё нет, полноэкранная форма отклонена (см. «Этап 2 — отложено»). Не проверено в браузере: именно эта модалка; отдельного теста пункта меню в `serverMenu.test.tsx` нет (по grep) — доказательство пункта — код и палитровый тест |
 | 17 | Переименовать канал | `EditChannelModal` | long-press канала / `channelInfo` → модалка | 2 | ✅ этап 2 — пункт на `.superpowers/vyc95/s2/mobile/channel-menu-390x844-*.png`, `channelMenu.test.tsx` (в т.ч. гонка сохранения); снимка самой модалки нет |
 | 18 | Удалить канал (последний нельзя) | `ChannelSidebar` меню | long-press / `channelInfo`, `disabledReason` | 2 | ✅ этап 2 — пункты на `.superpowers/vyc95/s2/mobile/channel-menu-390x844-*.png`; `disabledReason` у последнего канала и повторная проверка при удалении — `channelMenu.test.tsx` |
-| 19 | Индикатор голоса в канале и кто в нём | `ChannelSidebar`, `VoiceBanner` | вторая строка канала; `VoiceBanner` в чате | 2–3 | ✅ этап 2 (вторая строка) + этап 3 (`VoiceBanner` в `ChatArea.seams.test.tsx`, `.superpowers/vyc95/s3/mobile/frames/voice-390x844-*.png`) |
-| 20 | У канала и чат, и звонок | `ChatArea` + `CallStage` | `chat` + кнопка звонка → `call` | 3–4 | ⏳ частично: `chat` — этап 3 (кнопка звонка в шапке открывает `VoiceBanner`/подключение, `ChatArea.seams.test.tsx`); экран `call` сам — этап 4 |
+| 19 | Индикатор голоса в канале и кто в нём | `ChannelSidebar`, `VoiceBanner` | вторая строка канала; `VoiceBanner` в чате | 2–3 | ✅ этап 2 (вторая строка) + этап 3 (`VoiceBanner` — только снимок `.superpowers/vyc95/s3/mobile/frames/voice-390x844-*.png`; теста, рендерящего `VoiceBanner`, нет) |
+| 20 | У канала и чат, и звонок | `ChatArea` + `CallStage` | `chat` + кнопка звонка → `call` | 3–4 | ✅ этап 3 + этап 4 — `chat`: кнопка звонка в шапке (`ChatScreen.tsx`) входит в звонок, если вы не в нём, и открывает экран `call`, если уже в нём — `client/src/mobile/screens/__tests__/ChatScreen.test.tsx` («the call button joins when not in the call and opens the call screen when in it»); экран `call` — этап 4, не этап 3 (строки 45–61 выше: `MobileCallScreen.test.tsx`, `.superpowers/vyc95/s4/mobile/`, `mobile-refix/`); переход `chat` → `call` и обратно (`CallPill`) — строки 58–59 |
 | **Чат** |
 | 21 | Лента, разделители дней, «Новые сообщения», «к последним», подгрузка истории | `ChatArea` | `chat` (та же `ChatArea`) | 3 | ✅ этап 3 — `ChatArea.dom.test.tsx`, `ChatScreen.test.tsx`, `.superpowers/vyc95/s3/mobile/frames/chat-{top,mid}-390x844-*.png` |
 | 22 | Правка («изменено») | `MessageRow` hover | long-press → «Изменить» | 3 | ✅ этап 3 — `MessageRow.mobile.test.tsx`, `.superpowers/vyc95/s3/mobile/frames/edit-390x844-*.png` |
@@ -563,18 +591,18 @@ safe-area, основная кнопка у низа, клавиатура не 
 | 40 | Бейдж гостя в сообщениях | `MessageRow` | как есть | 3 | ✅ этап 3 — desktop-компонент без seam'ов (CSS уже мобильный из этапа 1), поведение унаследовано |
 | 41 | Баннер «N гостей видят сообщения» | `ChatArea` | под шапкой `chat` | 3 | ✅ этап 3 — desktop-компонент без seam'ов, поведение унаследовано |
 | **Участники** |
-| 42 | Онлайн / офлайн, last seen (приватность) | `UserList` | `channelInfo` → «Участники» | 3 | ✅ этап 3 — `useMemberList.test.tsx`, `ChannelInfoScreen.test.tsx`, `.superpowers/vyc95/s3/mobile/frames/info-{390x844,info-scroll}-*.png` |
+| 42 | Онлайн / офлайн, last seen (приватность) | `UserList` | `channelInfo` → «Участники» | 3 | ✅ этап 3 — `useMemberList.test.tsx`, `ChannelInfoScreen.test.tsx`, `.superpowers/vyc95/s3/mobile/frames/info-390x844-*.png`, `info-scroll-390x844-*.png` |
 | 43 | «В голосе · канал» | `UserList` | `channelInfo` | 3 | ✅ этап 3 — `useMemberList.test.tsx` (`voiceNameFor`) |
 | 44 | Позвонить пользователю | `UserList` | тап по участнику → `ActionSheet` «Позвонить» | 3 | ✅ этап 3 — `ChannelInfoScreen.test.tsx`, `.superpowers/vyc95/s3/mobile/frames/info-call-390x844-*.png` |
 | **Звонки** |
-| 45 | Войти / выйти в групповой звонок | `ChatArea`, `CallStage` | кнопка в шапке `chat`, `VoiceBanner`, `channelInfo`; «Выйти» на панели | 4 | ✅ этап 4 — вход этапа 3 (`ChatArea.seams.test.tsx`), «Выйти» — `MobileCallScreen.test.tsx` (`m.handleLeaveGroupCall`) |
+| 45 | Войти / выйти в групповой звонок | `ChatArea`, `CallStage` | кнопка в шапке `chat`, `VoiceBanner`, `channelInfo`; «Выйти» на панели | 4 | ✅ этап 4 — вход этапа 3 (кнопка в шапке `chat` — `ChatScreen.test.tsx`; `VoiceBanner`/`channelInfo` тестами не покрыты), «Выйти» — `MobileCallScreen.test.tsx` (`m.handleLeaveGroupCall`) |
 | 46 | Сетка плиток | `CallStage` | `mobileGridLayout` | 4 | ✅ этап 4 — `callStage.test.ts` (8 кейсов, портрет/пейзаж/1–5+), визуально `.superpowers/vyc95/s4/mobile{,-refix}/`; раскладка изначально не заполняла экран для 1–4 участников (блокер приёмки T9) — исправлено (см. «отложено» и ledger), пересъёмка подтвердила |
 | 47 | Фокус на участнике | `CallStage` | тап по плитке | 4 | ✅ этап 4 — `MobileCallScreen.test.tsx`; именная подпись добавлена приёмочным фиксом (изначально отсутствовала) |
 | 48 | Fullscreen | `CallStage` | экран уже полный; fullscreen — для демонстрации | 4 | ✅ этап 4 — экран сам полноэкранный; `requestFullscreen`+`screen.orientation.lock('landscape')` на фокусе демонстрации (`MobileCallScreen.tsx`, в `try`) — не проверено на реальном устройстве |
 | 49 | Микрофон / камера | `CallStage` | нижняя панель | 4 | ✅ этап 4 — `MobileCallScreen.test.tsx`, 56×56 подтверждено пробой `elementFromPoint` |
 | 50 | Демонстрация экрана (источник, качество) | `ScreenSharePicker` | «⋯» → только при `getDisplayMedia`; пикер — sheet | 4 | ✅ этап 4 — `useCallOverflowItems.test.ts` (гейт по `getDisplayMedia`, живой браузерный пробой оба направления), `MobileScreenQualitySheet`/`ScreenQualityBody`; источник (Electron-пикер) на мобиле недостижим по определению (§0) — только браузерный путь |
 | 51 | Просмотр чужой демонстрации («Смотреть») + баннер «X показывает экран» | `CallStage` | фокус → fullscreen, landscape, pinch-zoom | 4 | ✅ этап 4 — баннер `MobileCallScreen.test.tsx`, `usePinchZoom`/`pinchZoom.test.ts` (6 кейсов), fullscreen+landscape-lock — см. строку 48 |
-| 52 | Громкость участника | `VolumeControlPopover` | long-press плитки / «⋯» → «Громкость участников» | 4 | ⏳ частично: «⋯» → `CallVolumeSheet` (все участники сразу, слайдеры) реализовано и покрыто тестом; long-press/тап по самой плитке — кнопка громкости на `RemoteParticipantTile` смонтирована, но не подключена (заглушка `isVolumePopoverOpen:false`, см. «отложено») |
+| 52 | Громкость участника | `VolumeControlPopover` | long-press плитки / «⋯» → «Громкость участников» | 4 | принято (этап 7) — частично: «⋯» → `CallVolumeSheet` (`client/src/mobile/call/CallVolumeSheet.tsx`, слайдеры всех участников) реализовано; тестом покрыт только пункт меню «Громкость участников» (`client/src/mobile/call/useCallOverflowItems.test.ts`), сама шторка со слайдерами тестом НЕ покрыта (`CallVolumeSheet` не встречается ни в одном тесте; `MobileCallScreen.test.tsx` лишь подставляет громкостные пропы); кнопка громкости на самой плитке `RemoteParticipantTile` смонтирована, но не подключена (`isVolumePopoverOpen={false}`, `onToggleVolumePopover={() => {}}` в `MobileCallScreen.tsx`) — видимая, но ничего не делающая кнопка. Функция «громкость участника» на мобиле достижима, поэтому строка принята; сама кнопка на плитке — реальный дефект, вынесен в «Итоговые follow-ups» (подключить к `CallVolumeSheet` или скрыть) |
 | 53 | Индикатор качества с деталями | `ConnectionIndicator` | верх экрана → sheet | 4 | ✅ этап 4 — `CallQualitySheet`, оба входа (тап по индикатору в шапке и «⋯» → «Качество связи») ведут в один и тот же sheet напрямую (D6); изначально тап по шапке открывал общее меню «⋯» вместо прямого перехода — блокер приёмки T9, исправлено, подтверждено живым кликом |
 | 54 | «Переподключение…» | `CallStage` | плашка под верхом | 4 | ✅ этап 4 — `MobileCallScreen.test.tsx` |
 | 55 | Предупреждения о разрешениях медиа, «вошли без камеры/мика» | `CallStage` | баннеры в мобильной раскладке | 4 | ✅ этап 4 — `m.stageError`/`mediaWarning` из общего хука, тост переиспользует `.error-toast` |
@@ -590,9 +618,9 @@ safe-area, основная кнопка у низа, клавиатура не 
 | 64 | Список гостей: удалить / удалить и заблокировать | `GuestInvitePopover` | «⋯» → «Гости в звонке»; `channelInfo` | 4 | ✅ этап 4 — решение D5: пункты «Пригласить гостя» (62) и «Гости в звонке» (64) — один и тот же `MobileGuestSheet` (десктопный поповер тоже не разделяет эти функции); `channelInfo` не получил интеграцию гостей на этом этапе (см. D7 этапа 3 — за пределами этапа 3, этап 4 её тоже не добавляет, только «⋯» звонка) |
 | 65 | `/guest`: имя, превью камеры/мика, «попросить войти» | `GuestPage` | §7 `entry` | 6 | ✅ этап 6 — живой `smoke.mjs` (`--anon --touch --size 390x844`, store-фикстура через `useGuestCallStore.setState`), обе темы: `.superpowers/sdd/2026-09-23-mobile-stage6-guest/shots/guest-entry-390-fixed.png` (light), `guest-entry-dark.png`; `getComputedStyle` пробой подтверждено `font-size: 16px` на имени (без iOS-зума) и `min-height: 44px` на тумблерах/сабмите; найден-и-исправлен дефект — `.guest-preview` имел `aspect-ratio: 16/9` без мобильного override (спека требует 4:3) — добавлен `@media (width < 900px) { .guest-preview { aspect-ratio: 4/3 } }` в `GuestPage.css`, подтверждено пробой (`width/height` = 1.333 на мобиле, 1.778 на десктопе — не тронут) |
 | 66 | `/guest`: ожидание | `GuestPage` | §7 `lobby` | 6 | ✅ этап 6 — `smoke.mjs` со `phase: 'lobby'` через `useGuestCallStore.setState`, 390×844: `.superpowers/sdd/2026-09-23-mobile-stage6-guest/shots/guest-lobby-light.png` — карточка читаема, «Отменить» подпадает под `.guest-card .btn { min-height: 44px }` |
-| 67 | `/guest`: звонок с «Чат / Участники» | `GuestCallView` | `MobileCallScreen` + экраны поверх | 6 | ✅ этап 6 (частично, см. «Этап 6 — отложено») — `smoke.mjs` со `useCallStore`/`useGuestCallStore.setState` (поля — как в `GuestMobileCallShell.test.tsx`), 390×844: `MobileCallScreen` рендерится вместо десктопной `GuestCallView` (`.superpowers/sdd/2026-09-23-mobile-stage6-guest/shots/guest-incall-v2-mobile.png`, бейдж непрочитанного «2» на кнопке чата виден); клик по кнопке чата открывает `GuestChatScreen` на весь экран с обеими репликами и «вы видите сообщения с момента входа» (`guest-chat-open.png`), «Назад» подтверждён программно (`hasBackBtn`/пропадание текста «Чат»). Найден-и-исправлен дефект — у экрана «Участники» не было НИ ОДНОГО UI-триггера (`nav.push({kind:'guestParticipants'})` нигде не вызывался): добавлен опциональный проп `onOpenParticipants` в `MobileCallScreen` (тот же приём, что уже задействован для `chatUnreadCount` — аутентифицированный `CallScreen` проп не передаёт, поведение не меняется) + кнопка в шапке, подключена в `GuestMobileCallShell`; подтверждено кликом через харнесс — открывается ростер с обеими строками (`guest-participants-open.png`). Найден-НЕ-исправлен дефект — см. «Этап 6 — отложено» (бейдж «вы» в ростере) |
-| 68 | `/guest`: экраны завершения (8 причин) + CTA регистрации | `GuestPage` | §7 `ended` | 6 | ✅ этап 6 (частично) — компонент-снимок сделан для одной причины (`kicked`): `.superpowers/sdd/2026-09-23-mobile-stage6-guest/shots/guest-ended-dark.png` (карточка + CTA «Создать аккаунт»/«Закрыть»); остальные 7 причин рендерятся тем же `GuestNotice`/`GuestEnded` с другим текстом из `END_REASON_KEYS` — не переснимались по отдельности (честно не расследовано дальше в рамках этой приёмки) |
-| 69 | `/guest`: неподдерживаемый браузер, нет доступа к медиа, битая ссылка | `GuestPage`, `guestErrors` | полноэкранные состояния | 6 | ✅ этап 6 (частично) — «битая ссылка» подтверждена живым прогоном `--anon --path /guest` без секрета: `.superpowers/sdd/2026-09-23-mobile-stage6-guest/shots/guest-missing-link.png`; «неподдерживаемый браузер» и «нет доступа к медиа» не переснимались в этой приёмке (честный пробел, не расследовано дальше) |
+| 67 | `/guest`: звонок с «Чат / Участники» | `GuestCallView` | `MobileCallScreen` + экраны поверх | 6 | принято (этап 7): этап 6, частично (см. «Этап 6 — отложено»; файлы снимков на диске не сохранились, см. оговорку в начале §10) — `smoke.mjs` со `useCallStore`/`useGuestCallStore.setState` (поля — как в `GuestMobileCallShell.test.tsx`), 390×844: `MobileCallScreen` рендерится вместо десктопной `GuestCallView` (`.superpowers/sdd/2026-09-23-mobile-stage6-guest/shots/guest-incall-v2-mobile.png`, бейдж непрочитанного «2» на кнопке чата виден); клик по кнопке чата открывает `GuestChatScreen` на весь экран с обеими репликами и «вы видите сообщения с момента входа» (`guest-chat-open.png`), «Назад» подтверждён программно (`hasBackBtn`/пропадание текста «Чат»). Найден-и-исправлен дефект — у экрана «Участники» не было НИ ОДНОГО UI-триггера (`nav.push({kind:'guestParticipants'})` нигде не вызывался): добавлен опциональный проп `onOpenParticipants` в `MobileCallScreen` (тот же приём, что уже задействован для `chatUnreadCount` — аутентифицированный `CallScreen` проп не передаёт, поведение не меняется) + кнопка в шапке, подключена в `GuestMobileCallShell`; подтверждено кликом через харнесс — открывается ростер с обеими строками (`guest-participants-open.png`). Найден-НЕ-исправлен дефект — см. «Этап 6 — отложено» (бейдж «вы» в ростере). Итог этапа 7: принято; бейдж «вы» — в «Итоговые follow-ups»; живой бэкенд для гостевого звонка при сверке не использовался (тесты: `GuestMobileCallShell.test.tsx`, `GuestChatScreen.test.tsx`, `GuestParticipantsScreen.test.tsx`, `MobileCallScreen.test.tsx`). Этап 7 починил в этой области тест `GuestCallView.dom.test.tsx` (зависел от реальных часов — разделитель «Сегодня»/«Вчера»; теперь `Date` зафиксирован на 2026-09-23T12:00Z) |
+| 68 | `/guest`: экраны завершения (8 причин) + CTA регистрации | `GuestPage` | §7 `ended` | 6 | принято (этап 7): этап 6, частично — компонент-снимок сделан для одной причины (`kicked`): `.superpowers/sdd/2026-09-23-mobile-stage6-guest/shots/guest-ended-dark.png` (файлов на диске больше нет — см. оговорку в начале §10) (карточка + CTA «Создать аккаунт»/«Закрыть»); остальные 7 причин рендерятся тем же `GuestNotice`/`GuestEnded` с другим текстом из `END_REASON_KEYS` — не переснимались по отдельности (честно не расследовано дальше в рамках этой приёмки). Итог этапа 7: принято без пересъёмки остальных 7 причин — один компонент, отличается только текст; риск низкий, не подтверждено снимками |
+| 69 | `/guest`: неподдерживаемый браузер, нет доступа к медиа, битая ссылка | `GuestPage`, `guestErrors` | полноэкранные состояния | 6 | принято (этап 7): этап 6, частично — «битая ссылка» подтверждена живым прогоном `--anon --path /guest` без секрета: `.superpowers/sdd/2026-09-23-mobile-stage6-guest/shots/guest-missing-link.png` (файла на диске больше нет — см. оговорку в начале §10); «неподдерживаемый браузер» и «нет доступа к медиа» не переснимались в этой приёмке (честный пробел, не расследовано дальше). Итог этапа 7: принято — оба состояния отрисовываются тем же `GuestNotice`, что уже подтверждён на «битой ссылке» и `ended`; «нет доступа к медиа» и «неподдерживаемый браузер» в браузере не смотрели (для них нужен реальный отказ `getUserMedia`/старый UA), отдельных тестов на `guestErrors` нет. Не подтверждено |
 | **Друзья** |
 | 70 | Вкладки Онлайн / Все / Ожидают / Заблокированные | `FriendsPanel` | вкладка «Друзья», сегмент-контрол | 5 | ✅ этап 5 — `.superpowers/vyc95/s5/friends-{online,all,pending,blocked}-{light,dark}.png`, `FriendsScreen.test.tsx` |
 | 71 | Входящие / исходящие: принять / отклонить / отменить | `FriendsPanel` | inline-кнопки в «Ожидают» | 5 | ✅ этап 5 — кнопки на скриншоте `.superpowers/vyc95/s5/friends-pending-{light,dark}.png`; вызов `apiService.acceptFriendRequest`/`deleteFriendRequest` — `FriendsScreen.test.tsx` («инлайн «Принять» зовёт apiService.acceptFriendRequest»), клик «Принять/Отклонить/Отменить» через фикстуру не воспроизводился (нужен мок POST) |
@@ -601,7 +629,7 @@ safe-area, основная кнопка у низа, клавиатура не 
 | 74 | Бейдж входящих заявок | `ServerList` «Дом» | иконка вкладки «Друзья» | 5 | ✅ этап 5 — бейдж «1» виден на всех скриншотах `.superpowers/vyc95/s5/friends-*.png` (таб-бар, иконка «Друзья») |
 | 75 | Позвонить другу | `FriendRow` | `ActionSheet` «Позвонить» | 5 | ✅ этап 5 — пункт «Позвонить Полина» на `.superpowers/vyc95/s5/friends-actionsheet-online-{light,dark}.png`, `FriendsScreen.test.tsx` («Позвонить» зовёт callService) |
 | **Профиль и настройки** |
-| 76 | Профиль: аватар с кропом, удаление, username, email | `ProfileSettings` | «Профиль» → `settings{profile}` | 5 | ✅ этап 5 (частично) — `.superpowers/vyc95/s5/settings-1-{light,dark}.png` (username/email, кнопки «Изменить аватар»/«Удалить аватар»); сам кроп-поповер (выбор файла) не открывается в headless-фикстуре — тот же пробел, что этап 2 отметил для десктопной версии того же `AvatarCropModal` |
+| 76 | Профиль: аватар с кропом, удаление, username, email | `ProfileSettings` | «Профиль» → `settings{profile}` | 5 | принято (этап 7): этап 5, частично — `.superpowers/vyc95/s5/settings-1-{light,dark}.png` (username/email, кнопки «Изменить аватар»/«Удалить аватар»); сам кроп-поповер (выбор файла) не открывается в headless-фикстуре — тот же пробел, что этап 2 отметил для десктопной версии того же `AvatarCropModal`. Итог этапа 7: принято — выбор файла (`<input type=file>`) в headless недоступен; кроп-модалка — тот же компонент, что на строке 10, покрыт только тестами; проверка на устройстве — в «Итоговые follow-ups» |
 | 77 | Приватность: last seen, кто добавляет в друзья, кто пишет | `Settings` | `settings{privacy}` | 5 | ✅ этап 5 — `.superpowers/vyc95/s5/settings-2-{light,dark}.png` |
 | 78 | Звуки: сообщения, звонки, вход/выход, громкость, тест | `AudioSettings` | `settings{audio}` | 5 | ✅ этап 5 — найден и исправлен в приёмке T7: строка «Проверка звуков» наезжала на собственный текст на мобильной ширине, исправлено `@media (width < 900px)`-переопределением в `Settings.css` (`.setting-row-actions{flex-basis:100%}`), десктоп не тронут (`compare`/pixel-diff AE=0). До/после: `.superpowers/vyc95/s5/settings-3-{light,dark}.png` (было) vs `settings-3-{light,dark}-after-fix.png` (стало) — см. «Этап 5 — отложено» ниже |
 | 79 | Шумодав DeepFilterNet3 с загрузкой модели | `AudioSettings` | `settings{audio}` | 5 | ✅ этап 5 — тумблер и подпись «Шумоподавление (DeepFilterNet3)» на `.superpowers/vyc95/s5/settings-3-{light,dark}.png`; фактическая загрузка модели (сетевой воркер) не воспроизводилась |
@@ -614,18 +642,18 @@ safe-area, основная кнопка у низа, клавиатура не 
 | 86 | Статус микрофона и шумодава | `UserPanel` | карточка «Профиль»; мик — `CallPill` / панель звонка | 5 | ✅ этап 5 — карточка профиля переключает «В сети» / «В сети · NC вкл.» в зависимости от `noiseCancellationService` — `.superpowers/vyc95/s5/profile-root-ncon-{light,dark}.png` vs `profile-root-ncoff-{light,dark}.png`; статус микрофона показывается вне карточки (`CallPill`/панель звонка) — вне периметра этого пункта на этой карточке |
 | **Прочее** |
 | 87 | Командная палитра: поиск каналов и сообщений, быстрые действия | `CommandPalette` (⌘K) | экран `search` (иконка на «Серверах») | 3 | ✅ этап 3 — `usePaletteSearch.test.tsx`, `SearchScreen.test.tsx`, `.superpowers/vyc95/s3/mobile/frames/search-screen-*.png`, `verify-c-report.md` пробы 4–5 (цепочка навигации, ⌘K идемпотентен) |
-| 88 | `UpdateBanner` (только Electron) | `UpdateBanner` | не показывается на вебе; проверка, что не ломает раскладку | 7 | план |
-| 89 | `ErrorBoundary` с отправкой фидбэка | `ErrorBoundary` | та же страница, мобильная вёрстка | 7 | план |
+| 88 | `UpdateBanner` (только Electron) | `UpdateBanner` | не показывается на вебе; проверка, что не ломает раскладку | 7 | ✅ этап 7 (с оговоркой) — `UpdateBanner.tsx` рендерится только при `window.electronAPI?.update`, а Electron-окно не бывает уже 900px (`electron/main.ts`: `minWidth: 900`; мобильная оболочка — `< 900px`), поэтому в реальном продукте на мобильной раскладке баннер недостижим. Проверено в живом браузере (харнесс, `--touch --size 390x844`): баннер смонтирован во временном модуле с подставным `window.electronAPI.update` (состояние `available`, версия 9.9.9) — `scrollWidth` = `innerWidth` = 390 (горизонтального переполнения нет), баннер 390×55 при `top: 40px`, текст «Доступна версия 9.9.9» и кнопки «Установить» (104×34) / «Позже» (73×34) читаемы и умещаются в одну строку: `.superpowers/vyc95/s7/updatebanner-390-light.png` (пробa — `ub-eval.js` там же). Оговорки: рендер синтетический (вне `MobileShell`, светлая тема, без заголовочной панели); кнопки 34px < 44px (тач-цель) — принято, так как на мобиле баннер недостижим; `top: 40px` рассчитан на `TitleBar`, которого `MobileShell` не монтирует, и не учитывает safe-area — то же основание |
+| 89 | `ErrorBoundary` с отправкой фидбэка | `ErrorBoundary` | та же страница, мобильная вёрстка | 7 | принято (этап 7): ✅ только «нет горизонтального переполнения на 390px», известные дефекты открыты (⚠ ниже) — проверено в живом браузере (харнесс `--touch --size 390x844`; `CrashFallback` смонтирован во временном модуле внутри `ErrorBoundary` с бросающим потомком, `Sentry.ErrorBoundary` показал реальный fallback): `scrollWidth` = `innerWidth` = 390, карточка 342px (`left` 24 / `right` 366, отступ 24px), заголовок, текст, «Перезагрузить» (276×34), «Скопировать», раскрываемая форма отзыва (textarea 276×64) читаемы: `.superpowers/vyc95/s7/errorboundary-390-light.png` (проба — `eb-eval.js` там же). Только светлая тема. ⚠ Известные дефекты, НЕ исправлены (вынесены в «Итоговые follow-ups»; п.2–3 нарушают ограничения проекта на мобильную эргономику — не косметика): (1) строка `Event ID` (`.error-boundary-event-row`) шире контентной области карточки — `kbd` перенесён на две строки посреди идентификатора («ID:» / хэш), кнопка «Скопировать» выходит за внутренний отступ 32px (правый край 359 при внутренней границе 334) — но остаётся внутри карточки и экрана; (2) `textarea` отзыва — `font-size: 13px` (< 16px → iOS Safari приблизит страницу при фокусе); (3) тач-цели «Скопировать» 26px, остальные 34px (< 44px). Раскладку они не ломают, но п.2–3 — реальные мобильные дефекты. |
 | 90 | `ConfirmModal` | модалка | sheet-стиль (CSS) | 1 | ✅ этап 1 — `.superpowers/vyc95/s1/confirm-390-{light,dark}.png` |
 | 91 | Контекстные меню → touch-альтернатива везде | `ContextMenu` ×3 | `ActionSheet` (сервер, канал, друг) | 2, 5 | ✅ этап 2+5 — сервер и канал: этап 2 (`ActionSheet`, снимки выше); меню друга: `.superpowers/vyc95/s5/friends-actionsheet-{online,blocked}-{light,dark}.png`, `FriendsScreen.test.tsx` |
-| 92 | Hover-зависимые элементы → touch-эквивалент | разное | long-press / видимые кнопки (`(hover: none)`) | 3–4 | ✅ этап 3+4 — этап 4 аудит `CallStage.css`/`CallUI.css`/`VolumeControlPopover.css`/`ScreenSharePicker.css`/`GuestInvitePopover.css` (приёмка T9, шаг 5): все hover-only места либо уже накрыты унаследованным `@media (width <= 768px)`-фоллбеком (`RemoteParticipantTile` — тот же компонент на десктопе и мобиле), либо принадлежат десктопной `.stage-focus-main`-разметке, которую `MobileCallScreen` не монтирует вовсе |
+| 92 | Hover-зависимые элементы → touch-эквивалент | разное | long-press / видимые кнопки (`(hover: none)`) | 3–4 | ✅ этап 3+4 — этап 4 аудит `CallStage.css`/`CallUI.css`/`VolumeControlPopover.css`/`ScreenSharePicker.css`/`GuestInvitePopover.css` (приёмка T9, шаг 5): все hover-only места либо накрыты правилом `@media (width < 900px)` в `CallStage.css` (`.stage-focus-btn` / `.stage-volume-btn` / `.stage-share-badge`; `RemoteParticipantTile` — тот же компонент на десктопе и мобиле; в этапе 7 это правило перенесено с унаследованного `<= 768px` на `< 900px`, так что полоса 769–899px больше не выпадает — обоснование по чтению CSS, в реальном браузере на 850px не проверено), либо принадлежат десктопной `.stage-focus-main`-разметке, которую `MobileCallScreen` не монтирует вовсе |
 | **Архитектурные требования** |
 | 93 | Вкладка «Чаты» (VYC-91) добавляется без переделки | — | `TabId` + корень + `Screen` | 1 | ✅ этап 1 — `src/mobile/nav/types.ts`, `navReducer.test.ts` |
 | 94 | Превью / счётчики непрочитанного — точка расширения | — | `activity.ts`, оба состояния | 2 | ✅ этап 2 — оба состояния: с override (длинный текст, время, «99+», обе темы) `.superpowers/vyc95/s2/mobile/servers-activity-390x844-*.png`, `channels-activity-390x844-*.png`; без override — `servers-390x844-*.png`; `activity.test.tsx` |
 | 95 | PWA: манифест, иконки, theme-color достижимы | — | §8 | 1 | ✅ этап 1 — проба `probe-pwa.js` на `/app`, `/guest` и на `dist/` |
-| 95a | PWA: раскладка в standalone под вырезом и домашней полоской | — | §8 | 1 → проверка на устройстве | ⏳ верхний инсет отдан `.mobile-shell`; в эмуляции `env()` = 0, поэтому подтверждается только на реальном устройстве |
-| 96 | Один брейкпоинт | 3 значения | контрактный тест, пустой allowlist | 1, 7 | ⏳ этап 1 — `breakpoint-contract.test.ts` зелёный, allowlist наследия пока не пуст (этап 7) |
-| 97 | Десктоп не изменился | — | 1280×800 до/после, `compare -metric AE` = 0 | 1–7 | ✅ этап 1 — 14 состояний, ≤ 2px (шум 2px); ✅ этап 3 — 42 состояния (`desktop-identity.md`), 40×AE=0 + 2×AA-дрожание на контекстных меню (не регрессия, переснято 4×), плюс отдельная находка/фикс: правка D2 (аудио-вложение) изначально протекла на десктоп (AE=9810 на состоянии с аудио, вне исходных 42 состояний) — переведена внутрь `@media (width < 900px)`, повторный замер AE=2; ✅ этап 4 — 7 новых звонковых состояний × 2 темы (сетка/фокус/демонстрация/поповер приглашения гостя/пикер качества демонстрации/p2p входящий/p2p активный), все AE=0 кроме p2p-входящего/светлая = AE 15 из ~1 024 000px (0.0015%) — объяснено фазой CSS-анимации пульсации иконки (`p2p-pulse`, не менялась этим этапом), не регрессия. Файловые снимки `CallStage.dom.test.tsx`/`CallUI.dom.test.tsx` (T1) оставались зелёными на каждой из 9 задач этапа, включая приёмочный фикс-раунд, подтверждая, что вынос `useCallStageModel`/`src/components/call/*` и правка `GuestInvitePopover.tsx`/`ScreenSharePicker.tsx` не тронули десктопный DOM; ✅ этап 5 — байтовая идентичность вместо AE-сравнения ДО фикс-раунда 1: `git diff` между деревом ДО задачи 1 (`abedee2d…`) и текущим рабочим деревом на момент первого прохода приёмки (`058f12a…`, см. `.superpowers/sdd/2026-09-22-mobile-stage5-friends-profile/{BASE_TREE,snap.sh}`) для `client/src/components/Settings.tsx`, `Settings.css`, `pages/app/DesktopShell.tsx` — пусто (файлы не менялись вообще, только новые mobile-файлы добавлены и `ProfileSettings.tsx` расщеплён на переиспользуемые тела в задаче 2); живой скриншот `Settings.tsx` 1280×800, 4 вкладки × 2 темы — `.superpowers/vyc95/s5/desktop-settings-{1,2,3,4}-{light,dark}.png`, визуальных отличий от эталона нет. Фикс-раунд 1 (п.78, «Проверка звуков») добавил в `Settings.css` РОВНО ОДИН новый блок `@media (width < 900px) { .setting-row-actions {…} }`, не трогающий ни одно безусловное/десктопное правило — байтовая идентичность для этого файла после фикс-раунда 1 закономерно уже не нулевая (диф есть), поэтому идентичность для конкретно этой правки доказана иначе: попарный pixel-diff `desktop-settings-2-{light,dark}.png` (до фикса) против `desktop-settings-2-{light,dark}-after-fix.png` (после) — `PIL.ImageChops.difference` даёт `bbox=None`/`extrema=((0,0),(0,0),(0,0))` на обе темы, т.е. AE=0 буквально на состоянии, где правка теоретически могла что-то задеть (подробности — «Этап 5 — отложено», запись про п.78); ✅ этап 6 — CSS-правки этапа мобиле-гейченые (`@media (width < 900px)` или файлы, монтируемые только JS-развилкой `useIsMobile`); TSX-правки задачи 3 в `GuestPage.tsx` безусловные, но на десктопе пиксельно-нейтральны: класс `guest-card-entry` (своих правил вне мобильного `@media` нет), атрибуты `autoComplete="nickname"`/`enterKeyHint="go"` у поля имени (не влияют на отрисовку) и JSX подсказки про in-app браузер (рендерится только при `denied` + in-app UA, т.е. на десктопе практически никогда); вынос `GuestChatBody`/`GuestParticipantsBody` (задача 2) закреплён замороженным DOM-снимком задачи 1. Сверх этого: `.guest-preview { aspect-ratio: 4/3 }` (п.65) живёт внутри уже существующего `@media (width < 900px)` в `GuestPage.css`, не трогая безусловное `aspect-ratio: 16/9`; подтверждено пробой на 1440×900 — `previewRatio` = 1.778 (не изменился), живой скриншот `.superpowers/sdd/2026-09-23-mobile-stage6-guest/shots/guest-entry-desktop.png`, `guest-incall-desktop-full.png` (полный `CallStage` на десктопной ширине рендерится как раньше); `onOpenParticipants` в `MobileCallScreen.tsx`/`.css` (п.67) — опциональный проп по прецеденту `chatUnreadCount`, аутентифицированный `CallScreen`/`renderScreen.tsx` его не передаёт → кнопка не рендерится, `MobileCallScreen.test.tsx` (18 тестов, авторизованный флоу) остался зелёным без изменений (финальный фикс-раунд сделал `onBack` опциональным и добавил тесты гостевых пропов — авторизованные 18 тестов не менялись); правка `breakpoint-contract.test.ts` — тестовый файл, не влияет на приложение |
+| 95a | PWA: раскладка в standalone под вырезом и домашней полоской | — | §8 | 1 → проверка на устройстве | принято (этап 7) — только на устройстве: верхний инсет отдан `.mobile-shell`; в эмуляции `env()` = 0, поэтому подтвердить можно лишь на реальном устройстве (в «Итоговые follow-ups»). Найдено этапом 7 по чтению CSS: экран звонка аутентифицированного пользователя, вероятно, применяет верхний инсет дважды (`.mobile-shell` + `.mcs-topbar`) — тоже требует проверки на устройстве |
+| 96 | Один брейкпоинт | 3 значения | контрактный тест, пустой allowlist | 1, 7 | ✅ этап 7 — `LEGACY = {}` в `breakpoint-contract.test.ts` (каждый `@media` по ширине во всех `src/**/*.css` ∈ 4 разрешённых условий, allowlist наследия пуст); новый охранный тест `client/src/styles/__tests__/legacy-mobile-model.test.ts` не даёт вернуться `data-mobile-panel`, `onMobileBack`, `mobile-back-btn`, `chat-back-btn`, `stage-back-btn`, `user-list-mobile-header`, `home-view-mobile-header`; оба теста зелёные в полном прогоне `npm test -- --run` |
+| 97 | Десктоп не изменился | — | 1280×800 до/после, `compare -metric AE` = 0 | 1–7 | ✅ этап 1 — 14 состояний, ≤ 2px (шум 2px); ✅ этап 3 — 42 состояния (`desktop-identity.md`), 40×AE=0 + 2×AA-дрожание на контекстных меню (не регрессия, переснято 4×), плюс отдельная находка/фикс: правка D2 (аудио-вложение) изначально протекла на десктоп (AE=9810 на состоянии с аудио, вне исходных 42 состояний) — переведена внутрь `@media (width < 900px)`, повторный замер AE=2; ✅ этап 4 — 7 новых звонковых состояний × 2 темы (сетка/фокус/демонстрация/поповер приглашения гостя/пикер качества демонстрации/p2p входящий/p2p активный), все AE=0 кроме p2p-входящего/светлая = AE 15 из ~1 024 000px (0.0015%) — объяснено фазой CSS-анимации пульсации иконки (`p2p-pulse`, не менялась этим этапом), не регрессия. Файловые снимки `CallStage.dom.test.tsx`/`CallUI.dom.test.tsx` (T1) оставались зелёными на каждой из 9 задач этапа, включая приёмочный фикс-раунд, подтверждая, что вынос `useCallStageModel`/`src/components/call/*` и правка `GuestInvitePopover.tsx`/`ScreenSharePicker.tsx` не тронули десктопный DOM; ✅ этап 5 — байтовая идентичность вместо AE-сравнения ДО фикс-раунда 1: `git diff` между деревом ДО задачи 1 (`abedee2d…`) и текущим рабочим деревом на момент первого прохода приёмки (`058f12a…`, см. `.superpowers/sdd/2026-09-22-mobile-stage5-friends-profile/{BASE_TREE,snap.sh}`) для `client/src/components/Settings.tsx`, `Settings.css`, `pages/app/DesktopShell.tsx` — пусто (файлы не менялись вообще, только новые mobile-файлы добавлены и `ProfileSettings.tsx` расщеплён на переиспользуемые тела в задаче 2); живой скриншот `Settings.tsx` 1280×800, 4 вкладки × 2 темы — `.superpowers/vyc95/s5/desktop-settings-{1,2,3,4}-{light,dark}.png`, визуальных отличий от эталона нет. Фикс-раунд 1 (п.78, «Проверка звуков») добавил в `Settings.css` РОВНО ОДИН новый блок `@media (width < 900px) { .setting-row-actions {…} }`, не трогающий ни одно безусловное/десктопное правило — байтовая идентичность для этого файла после фикс-раунда 1 закономерно уже не нулевая (диф есть), поэтому идентичность для конкретно этой правки доказана иначе: попарный pixel-diff `desktop-settings-2-{light,dark}.png` (до фикса) против `desktop-settings-2-{light,dark}-after-fix.png` (после) — `PIL.ImageChops.difference` даёт `bbox=None`/`extrema=((0,0),(0,0),(0,0))` на обе темы, т.е. AE=0 буквально на состоянии, где правка теоретически могла что-то задеть (подробности — «Этап 5 — отложено», запись про п.78); ✅ этап 6 — CSS-правки этапа мобиле-гейченые (`@media (width < 900px)` или файлы, монтируемые только JS-развилкой `useIsMobile`); TSX-правки задачи 3 в `GuestPage.tsx` безусловные, но на десктопе пиксельно-нейтральны: класс `guest-card-entry` (своих правил вне мобильного `@media` нет), атрибуты `autoComplete="nickname"`/`enterKeyHint="go"` у поля имени (не влияют на отрисовку) и JSX подсказки про in-app браузер (рендерится только при `denied` + in-app UA, т.е. на десктопе практически никогда); вынос `GuestChatBody`/`GuestParticipantsBody` (задача 2) закреплён замороженным DOM-снимком задачи 1. Сверх этого: `.guest-preview { aspect-ratio: 4/3 }` (п.65) живёт внутри уже существующего `@media (width < 900px)` в `GuestPage.css`, не трогая безусловное `aspect-ratio: 16/9`; подтверждено пробой на 1440×900 — `previewRatio` = 1.778 (не изменился), живой скриншот `.superpowers/sdd/2026-09-23-mobile-stage6-guest/shots/guest-entry-desktop.png`, `guest-incall-desktop-full.png` (полный `CallStage` на десктопной ширине рендерится как раньше); `onOpenParticipants` в `MobileCallScreen.tsx`/`.css` (п.67) — опциональный проп по прецеденту `chatUnreadCount`, аутентифицированный `CallScreen`/`renderScreen.tsx` его не передаёт → кнопка не рендерится, `MobileCallScreen.test.tsx` (18 тестов, авторизованный флоу) остался зелёным без изменений (финальный фикс-раунд сделал `onBack` опциональным и добавил тесты гостевых пропов — авторизованные 18 тестов не менялись); правка `breakpoint-contract.test.ts` — тестовый файл, не влияет на приложение; принято (этап 7) (без пиксельного сравнения в браузере — доказательство по снимкам DOM и `git diff`, не по AE): `git diff HEAD --stat` для `client/src/pages/app/DesktopShell.tsx` и `client/src/pages/AppPage.tsx` — пусто (файлы не менялись; `AppPage.css` менялся — удалён только мёртвый блок `@media (width < 900px)`, ниже 900px `DesktopShell` не монтируется). Изменены (`Auth.css` и `MobileCallScreen.css` — только комментарии): `CallStage.tsx/.css`, `ChannelSidebar.tsx/.css`, `ChatArea.tsx/.css`, `HomeView.tsx/.css`, `UserList.tsx/.css`, `CommandPalette.css`, `FriendsPanel.css`, `ServerList.css`, `AppPage.css`, `MobileShell.css`, i18n (`ru.ts`/`en.ts`, ключ `chat.back` удалён), тесты. Замороженные DOM-снимки: на этапе 7 (задача 1) `ChatArea.*`/`UserList.*` пересняты без мок-кнопки «назад» от `onMobileBack` (реальный продакшен-DOM; этой кнопки в продакшене никогда не было) и добавлены `ChannelSidebar.*`/`HomeView.*`; после задач 3–5 `ChatArea.*`, `ChannelSidebar.*`, `CallStage.*` и остальные снимки побайтово равны этой базе, изменились только `UserList.*` и `HomeView.home` — ровно на поддерево скрытой обёртки `.user-list-mobile-header` / `.home-view-mobile-header` (`display: none`, пикселей не даёт). Все снимки проходят без `-u` в полном прогоне. Легаси-блоки `<= 768px`/`<= 640px` в удалённых CSS относились только к ширинам < 900px, где десктопные компоненты не монтируются (кроме общего блока тайлов звонка — он мигрирован на `< 900px`, эффект в 769–899px: чипы плитки 28→40px, opacity 1, `left` бейджа 40→52px; ≤ 768px без изменений). Не проверено: харнесс-скриншоты 1280×800 до/после для этапа 7 не снимались (нужен бэкенд/фикстуры). Прочие снимки этапов 1–6 не пересматривались |
 
 ## 11. Проверка
 
@@ -666,7 +694,7 @@ safe-area, основная кнопка у низа, клавиатура не 
 
 ## 12a. Известная деградация полосы 769–899px (этап 1)
 
-Оболочка мобильная уже с 899px, а 17 компонентных блоков включают мобильную
+*(Описание на момент этапа 1; актуальное состояние — в абзаце «Что закрыл этап 7» ниже.)* Оболочка мобильная уже с 899px, а 17 компонентных блоков включают мобильную
 вёрстку только на `<= 768px` (наследие M6 decision 5). В полосе 769–899
 экраны стека показывают десктопные панели: список серверов остаётся узким
 тёмным rail'ом, его мобильная шапка `.server-list-mobile-header` скрыта.
@@ -674,7 +702,134 @@ safe-area, основная кнопка у низа, клавиатура не 
 выравнивается на этапе 7 вместе с остальными брейкпоинтами; до тех пор это
 **известная и принятая** деградация, а не регрессия.
 
-## 13. Follow-ups (известные на старте)
+**Что закрыл этап 7 (и что нет).** Закрыто: все легаси-блоки `<= 768px` /
+`<= 640px` удалены (`LEGACY = {}`, `breakpoint-contract.test.ts` требует, чтобы
+любая `@media` по ширине была одной из четырёх разрешённых) — те компоненты, что
+монтируются только в `DesktopShell` (`ChannelSidebar`, `CommandPalette`,
+`FriendsPanel`, `ServerList`, `CallStage`-специфичные блоки), ниже 900px не
+рендерятся вовсе, так что их блоки были недостижимы; единственный общий блок
+(кнопки и бейдж плитки звонка: `.stage-focus-btn` / `.stage-volume-btn` /
+`.stage-share-badge`, которыми через `RemoteParticipantTile` пользуется и
+`MobileCallScreen`) перенесён на `@media (width < 900px)`. Это снимает
+записанную этапом 4 деградацию тач-управления плиткой в полосе 769–899px
+(эффект на 769–899px: чипы плитки 28→40px, `opacity: 1`, `left` бейджа
+40→52px; на ≤ 768px без изменений). Это обоснование по чтению CSS: проверка
+в браузере на ~850px не выполнялась (харнесс нужен бэкенд/фикстуры). Остаётся:
+скрытая легаси-разметка в `ServerList.tsx` (`.server-list-mobile-header`,
+`.server-icon-name`, базовый CSS `display: none`) не удалена (нет замороженного
+снимка, визуального эффекта нет) — «Этап 7 — отложено и найдено по пути». Прочих
+остатков «узкого rail'а серверов» в этой полосе спека этапа 1 не описывает, и
+на этапе 7 отдельно они не пересматривались.
+
+## 13. Follow-ups
+
+### Итоговые follow-ups (сверка этапа 7)
+
+Единый список того, что реально осталось. Разделы «Этап 1…6 — отложено» ниже —
+**исторические** («закрыто этапом 7 / перенесено в итоговый список»): пункты
+оттуда либо закрыты, либо продублированы здесь; новый список — только этот.
+
+**Дефекты и доработки**
+
+- Бейдж «вы» в ростере гостя никогда не показывается: `isSelf = row.id ===
+  selfIdentity` сравнивает id с префиксом `guest:` и без (`GuestParticipantsBody.tsx`;
+  дефект унаследован от `GuestCallView`) → Этап 6.
+- Кнопка громкости на плитке мобильного звонка видна, но ничего не делает
+  (`isVolumePopoverOpen={false}` в `MobileCallScreen.tsx`) — подключить к
+  `CallVolumeSheet` или скрыть → Этап 4, строка 52.
+- Экран звонка: тост ошибки без safe-area и не попадает в fullscreen-элемент;
+  fullscreen фокуса демонстрации не закрывается, когда шаринг остановлен;
+  `usePinchZoom` — ветка `pan` недостижима → Этап 4.
+- `useAudioOutput`: `mounted`-реф ломается при двойном вызове эффектов React 19
+  StrictMode в dev (кнопка «Динамик» ненадёжна под `npm run dev:vite`) → Этап 4.
+- `ErrorBoundary` на мобиле: строка Event ID шире контентной области карточки и
+  переносится посреди идентификатора; `textarea` отзыва — 13px (< 16px, iOS-зум);
+  тач-цели 26–34px → Этап 7, строка 89.
+- Тач-цели < 44px: `.video-seek` / `.audio-seek`, `.attachment-download` /
+  `.attachment-expand` (28×28), `fmt-btn` вне композера — общее решение (`::after`) → Этап 3.
+- Мелочи `useLongPress` (таймер не отменяется, если `pressable` стал `false`;
+  `fired` сбрасывается только на touch-`pointerdown`) и лайтбокса (мультитач
+  перезаписывает `start`, `pointerup` без проверки `pointerId`, нет
+  `lostpointercapture`) → Этап 3.
+- Неудачный `joinServer` глотается — на экране «Найти сервер» нет обратной
+  связи; карточка «Пригласить друзей» и список инвайтов держат независимые копии
+  состояния → Этап 2.
+- `MobileGuestSheet`: список гостей (кик/бан) не подтверждён с живым бэкендом →
+  Этап 4.
+- Унификация `use*MenuItems` с десктопными `ServerMenu` / `ChannelSidebar`
+  (D1 плана этапа 2) → Этап 2.
+- `ServerList.tsx` всё ещё рендерит скрытую легаси-разметку
+  (`.server-list-mobile-header`, `.server-icon-name`; базовый CSS `display: none`) —
+  не удалена: нет снимка, эффекта нет → Этап 7.
+- `CallStage.css` держит правила чипов плитки, от которых зависит мобильный экран
+  звонка; в мобильный бандл они попадают только через статические импорты
+  `DesktopShell` / `GuestCallView` — хрупко при ленивой загрузке; перенести рядом с
+  `RemoteParticipantTile` → Этап 7.
+- Недостижимые блоки `< 900px` в десктопных файлах (компоненты монтируются только
+  в `DesktopShell`, ниже 900px его нет): `ChannelSidebar.css` ~289 (`@media
+  (hover: none) and (width < 900px) .channel-join-voice`; `ChannelSidebar` —
+  только десктоп); `UserList.css` ~198 (`.user-list` / `.user-item` /
+  `.call-user-btn` под `(width < 900px)`; `UserList` монтируется только в
+  `DesktopShell.tsx:191`, мобильные экраны этих классов не используют);
+  `AppPage.css` ~142 (`.app-account-dock` — рендерится только
+  `DesktopShell.tsx:209`). Убрать вместе со скрытой легаси-разметкой `ServerList`
+  (пункт выше) после заморозки DOM-снимка `ServerList` → Этап 7.
+- В `MobileCallScreen.css` нет переопределения `left` для `.stage-share-badge`,
+  поэтому действует перенесённое `left: 52px` из `CallStage.css` — проверить, что
+  это желаемо → Этап 7.
+
+**Продукт / инфраструктура (известны со старта)**
+
+- Исходник иконки ≥ 512 → настоящие PWA-иконки (и `public/icon.ico` для
+  electron-builder).
+- Свайп сообщения → цитата.
+- Реальные превью / счётчики непрочитанного (сервер + `activity.ts`).
+- `CLAUDE.md`: раздел про `redesign` / `develop` устарел.
+- Focus-ring `.composer-field` из `origin/develop` (6 строк) — при следующем
+  выравнивании веток.
+
+**Только на устройстве (эмуляция не заменяет)**
+
+- Верхний инсет / вырез / домашняя полоска в standalone (строка 95a); вероятное
+  двойное применение верхнего инсета на экране звонка (`.mobile-shell` +
+  `.mcs-topbar`) → Этап 7.
+- Многоустройственное переключение `setSinkId`; `screen.orientation.lock`;
+  fullscreen+landscape демонстрации → Этап 4.
+- Вставка эмодзи из шторки может поднять экранную клавиатуру поверх `BottomSheet`
+  (Android); поведение `--keyboard-inset` в формах на iOS → Этапы 2–3.
+- Аватар-кроп (выбор файла) и остальные 7 причин завершения гостя, «нет доступа
+  к медиа» / «неподдерживаемый браузер» — не подтверждены снимками → строки 68, 69, 76.
+
+**Тесты и мелкий долг (не влияют на поведение)**
+
+- Снимок `ChatArea.welcome.html` содержит vite-путь ассета; фикстура
+  `m1 '<@u1>'` — не валидный uuid → Этап 3.
+- Не закреплено тестами: идемпотентность хоста `MessageActionsSheet`; `accept` /
+  `change→addFiles` file-picker'а; Enter-приоритет mention-дропдауна при
+  `enterSends`; 6 UA-маркеров `inAppBrowser` (проверены 2) → Этапы 3, 6.
+- `design-system.md:101`: grep для JS-инжектируемых свойств — `--include='*.tsx'`,
+  расширить на `*.ts` → Этап 3.
+- Харнесс: `smoke.mjs` без `--touch` не выставляет буквальный `--size`; прямой
+  `import()` стора в `--eval-file` может попасть в другой инстанс модуля (пустой
+  `#root` без ошибок) — вписать в `client/tools/verify/README.md` → Этапы 5, 6.
+- Не сделано на этапе 7: проверка в браузере кнопок плитки мобильного звонка
+  (`.stage-focus-btn` / `.stage-volume-btn` / `.stage-share-badge`) на ~850px —
+  доказано только чтением CSS (§12a; нужен бэкенд/фикстуры для харнесса) → Этап 7.
+- Не сделано на этапе 7: пиксельное сравнение десктопа 1280×800 до/после (строка
+  97) — вместо него DOM-снимки и `git diff` → Этап 7.
+- Косметика `GuestMobileCallShell` / `GuestChatBody` (комментарии), структурное
+  правило ширины `.guest-card .btn`, `voiceNameFor` вызывается дважды,
+  `.mobile-row.is-offline` живёт в `ChannelInfoScreen.css` → Этапы 3, 6.
+
+**Закрыто этапом 7 (было в списках ниже):** мёртвые ветки `onMobileBack` в
+`ChannelSidebar` и остальных; дохлое правило `.mobile-shell
+.user-list-mobile-header`; легаси-блоки `CallStage.css` (с миграцией общего блока
+на `< 900px`); `public/favicon.svg`; полоса смешения `/guest` 721–899px
+(закрыта на этапе 6 развилкой `GuestPage` → `GuestMobileCallShell`);
+`--keyboard-inset` для форм (шелл сжимается на `--keyboard-inset` с этапа 3 —
+остаётся только проверка на устройстве).
+
+### Изначальный список (на старте; сохранён для истории)
 
 - Исходник иконки ≥ 512 → настоящие PWA-иконки (и `public/icon.ico` для
   electron-builder, которого нет в репо).
@@ -685,6 +840,8 @@ safe-area, основная кнопка у низа, клавиатура не 
   выравнивании веток.
 
 ### Этап 2 — отложено и найдено по пути
+
+> Исторический раздел: закрыто этапом 7 / перенесено в «Итоговые follow-ups».
 
 - Мобильная формулировка подсказки дропзоны стикеров (сейчас «Перетащите файл…» —
   десктопная строка); тот же вопрос для других строк, перенесённых с десктопа.
@@ -702,6 +859,8 @@ safe-area, основная кнопка у низа, клавиатура не 
 - Голос в строках списков проверен только unit-тестами (в фикстурах нет голоса).
 
 ### Этап 3 — отложено и найдено по пути
+
+> Исторический раздел: закрыто этапом 7 / перенесено в «Итоговые follow-ups».
 
 - `ChatArea.welcome.html` (снимок Task 1) содержит vite-путь ассета — плохо
   переживёт смену сборки; фикстура `m1 '<@u1>'` не валидный uuid-упоминание,
@@ -772,6 +931,8 @@ safe-area, основная кнопка у низа, клавиатура не 
 
 ### Этап 4 — отложено и найдено по пути
 
+> Исторический раздел: закрыто этапом 7 / перенесено в «Итоговые follow-ups».
+
 - Легаси-блоки `CallStage.css` (`<= 768px` × 6, `<= 640px` × 1, allowlist
   `breakpoint-contract.test.ts`) стали мёртвым кодом: экран `call` больше не
   монтирует десктопный `CallStage` на мобиле (`MobileCallScreen` заменяет его
@@ -782,7 +943,7 @@ safe-area, основная кнопка у низа, клавиатура не 
   визуальный no-op: `isVolumePopoverOpen`/её обработчики захардкожены в
   `MobileCallScreen`, реальная регулировка громкости участника живёт только в
   `CallVolumeSheet` («⋯» → «Громкость участников», слайдеры на всех сразу).
-  Строка покрытия 52 — ⏳ частично по этой причине.
+  Строка покрытия 52 — «частично» по этой причине (итог — «принято», этап 7).
 - Найдено в приёмке (re-review приёмочного фикс-раунда, не подтверждена
   повторным дедлайном): `useAudioOutput.ts`'s `mounted`-реф не восстанавливается
   после двойного вызова эффектов React 19 StrictMode в dev-режиме
@@ -869,6 +1030,8 @@ safe-area, основная кнопка у низа, клавиатура не 
 
 ### Этап 5 — отложено и найдено по пути
 
+> Исторический раздел: закрыто этапом 7 / перенесено в «Итоговые follow-ups».
+
 - **Найдено и исправлено в приёмке (Task 7):** строка «Проверка звуков» в
   `AudioSettings` (`settings{audio}`, п.78) на мобильной ширине (~390–500px)
   визуально наезжала текстом заголовка/описания на 4 тестовые кнопки
@@ -923,6 +1086,8 @@ safe-area, основная кнопка у низа, клавиатура не 
   для десктопного `AvatarCropModal`, не новый для этого этапа.
 
 ### Этап 6 — отложено и найдено по пути
+
+> Исторический раздел: закрыто этапом 7 / перенесено в «Итоговые follow-ups».
 
 - **Найдено и исправлено в приёмке:** гейт `npm test -- --run` изначально
   давал 4 упавших теста вместо ожидаемых 3 (сверх `api.network-retry.test.ts`)
@@ -1060,3 +1225,44 @@ safe-area, основная кнопка у низа, клавиатура не 
   - Задача 4: проверка тайминга `connecting`/`resuming` в
     `useCallStageModel` не до конца покрыла случай `callChannelId === null`
     — низкий риск по прямому осмотру хука, доработка не оправдана.
+
+### Этап 7 — отложено и найдено по пути
+
+> Подробная запись находок этапа 7. **Источник истины для открытых пунктов —
+> «Итоговые follow-ups» выше**; все открытые пункты этого раздела продублированы там
+> (кроме процессуальной заметки об устаревших ссылках на `.superpowers/` — последний
+> пункт раздела).
+
+- `ServerList.tsx` всё ещё рендерит скрытую легаси-разметку
+  (`.server-list-mobile-header`, `.server-icon-name`; базовый CSS
+  `display: none`) — не удалена: нет замороженного снимка `ServerList` /
+  `DesktopShell`, визуального эффекта нет. Охранный тест
+  `legacy-mobile-model.test.ts` этот токен намеренно не запрещает.
+- `CallStage.css` содержит правила, от которых зависит мобильный экран звонка
+  (классы чипов плитки), и в мобильный бандл они попадают только через
+  статические импорты `DesktopShell` / `GuestCallView` — хрупко, если те
+  станут ленивыми; перенести рядом с `RemoteParticipantTile`.
+- `ChannelSidebar.css` ~289: `@media (hover: none) and (width < 900px)
+  .channel-join-voice` недостижим (`ChannelSidebar` — только десктоп).
+- Экран звонка аутентифицированного пользователя, вероятно, применяет верхний
+  инсет дважды (`.mobile-shell` padding-top + `.mcs-topbar`) — нужна проверка на
+  устройстве (в эмуляции `env()` = 0).
+- Бейдж «вы» в ростере гостя (`GuestParticipantsBody.tsx`, префикс `guest:`) —
+  уже описан в «Этап 6 — отложено».
+- В `MobileCallScreen.css` нет переопределения `left` для `.stage-share-badge`,
+  поэтому действует перенесённое `left: 52px` из `CallStage.css`.
+- Не сделано: проверка в браузере кнопок плитки звонка на ~850px (харнесс
+  требует бэкенд/фикстуры) — рассуждение по чтению CSS; и пиксельное сравнение
+  десктопа 1280×800 для этапа 7 (см. строку 97).
+- Строки 88/89: `ErrorBoundary` и `UpdateBanner` проверены в браузере на 390px
+  синтетически (временный модуль, харнесс; темп-файл удалён); найденные мелочи
+  `ErrorBoundary` — в «Итоговые follow-ups». `UpdateBanner` на мобиле
+  недостижим (`minWidth: 900` у окна Electron).
+- Найдено и исправлено по пути: тест `GuestCallView.dom.test.tsx` (этап 6)
+  зависел от реальных часов («Сегодня» / «Вчера») — теперь `Date` зафиксирован
+  на 2026-09-23T12:00Z. Удалён неиспользуемый i18n-ключ `chat.back`. Комментарий
+  в `ChatArea.css` про то, кто включает `.chat-call-btn`, приведён в
+  соответствие (теперь — `.mobile-shell`).
+- Устаревшие ссылки на материалы этапов 5–6 в `.superpowers/` (см. оговорку в
+  начале §10) — при следующей приёмке класть доказательства в
+  отслеживаемое место или ссылаться только на существующие файлы.

@@ -38,6 +38,11 @@ const messages = [
 ];
 
 beforeEach(() => {
+  // Разделитель дня («Сегодня»/«Вчера») считается от реальных часов — без
+  // пина снапшоты протухают каждые сутки. Фейкаем только Date, чтобы RTL и
+  // async-рендер работали как обычно.
+  vi.useFakeTimers({ toFake: ['Date'] });
+  vi.setSystemTime(new Date('2026-09-23T12:00:00Z'));
   useCallStore.setState({
     callChannelId: 'c1', callChannelName: 'general', callServerId: 's1', status: 'connected',
     startedAt: Date.now(), isMuted: false, isVideoOff: true, isMicAvailable: true,
@@ -56,6 +61,7 @@ beforeEach(() => {
 });
 afterEach(() => {
   cleanup();
+  vi.useRealTimers();
   useCallStore.getState().reset();
   useGuestCallStore.getState().reset();
 });

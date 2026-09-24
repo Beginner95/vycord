@@ -74,7 +74,6 @@ export const en: Dictionary = {
     cancel: 'Cancel',
     deleteTitle: 'Delete message?',
     deleteBody: 'The message will be deleted forever. This cannot be undone.',
-    back: 'Back',
     welcomeTitle: 'Welcome to Vy Cord!',
     welcomeSubtitle: 'Select a channel to start chatting',
     searchMessages: 'Search messages',

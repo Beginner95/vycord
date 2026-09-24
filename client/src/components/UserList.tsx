@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { ChevronLeft, Phone } from 'lucide-react';
+import { Phone } from 'lucide-react';
 import { useAuthStore } from '@/stores/authStore';
 import { useServerStore } from '@/stores/serverStore';
 import { apiService, apiErrorText } from '@/services/api';
@@ -13,13 +13,12 @@ import { useT } from '@/i18n';
 import './UserList.css';
 
 interface UserListProps {
-  onMobileBack?: () => void;
   voiceParticipants?: Map<string, string[]>;
 }
 
 export { chunkUserIds, lastSeenLabel } from './useMemberList';
 
-export function UserList({ onMobileBack, voiceParticipants }: UserListProps) {
+export function UserList({ voiceParticipants }: UserListProps) {
   const t = useT();
   const { user: currentUser } = useAuthStore();
   const { onlineMembers, offlineMembers, voiceNameFor, lastSeenFor } = useMemberList(voiceParticipants);
@@ -105,14 +104,6 @@ export function UserList({ onMobileBack, voiceParticipants }: UserListProps) {
 
   return (
     <aside className="user-list">
-      <div className="user-list-mobile-header">
-        {onMobileBack && (
-          <button className="mobile-back-btn" onClick={onMobileBack} aria-label={t('common.back')}>
-            <ChevronLeft size={18} strokeWidth={1.8} />
-          </button>
-        )}
-        <span>{t('chat.members')}</span>
-      </div>
       <div className="user-list-scroll">
         <div className="user-category online-label">
           {t('server.online')} — {onlineMembers.length}

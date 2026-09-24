@@ -1,15 +1,6 @@
-import { ChevronLeft } from 'lucide-react';
 import { useOnlineIds } from '@/hooks/useOnlineIds';
 import { FriendsPanel } from '@/components/FriendsPanel';
-import { useT } from '@/i18n';
 import './HomeView.css';
-
-interface HomeViewProps {
-  /** Мобильный "назад" к списку серверов — тот же контракт, что у
-   *  ChannelSidebar/UserList (final-review fix I1): без него "Дом" был
-   *  мобильным тупиком, из которого некуда вернуться. */
-  onMobileBack?: () => void;
-}
 
 /**
  * HomeView — главная («Дом»). Владеет панелью главной сама, чтобы AppPage не
@@ -24,8 +15,7 @@ interface HomeViewProps {
  *
  * Список личек (DMSidebar) приходит в фазе 2 (VYC-91), тоже сюда.
  */
-export function HomeView({ onMobileBack }: HomeViewProps) {
-  const t = useT();
+export function HomeView() {
   // Тот же хук, что у UserList.tsx: HTTP-снимок + подписка на четыре
   // WS-события живут в одном месте (useOnlineIds), а не в двух разошедшихся
   // копиях. Общее СОСТОЯНИЕ им не нужно — UserList и HomeView никогда не
@@ -36,14 +26,6 @@ export function HomeView({ onMobileBack }: HomeViewProps) {
 
   return (
     <div className="home-view">
-      <div className="home-view-mobile-header">
-        {onMobileBack && (
-          <button className="mobile-back-btn" onClick={onMobileBack} aria-label={t('common.back')}>
-            <ChevronLeft size={18} strokeWidth={1.8} />
-          </button>
-        )}
-        <span>{t('server.home')}</span>
-      </div>
       <FriendsPanel onlineIds={onlineIds} />
     </div>
   );
