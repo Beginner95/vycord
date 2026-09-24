@@ -655,15 +655,18 @@ export const ru = {
     callOpenChat: 'Открыть чат',
     callVolumeAction: 'Громкость участников',
     callVolumeEmpty: 'В звонке больше никого нет',
+    // Кнопка выхода из полноэкранного режима на главном видео фокус-вида
+    // мобильной сцены звонка — без «(Esc)» из call.exitFullscreen: на телефоне
+    // клавиатуры нет.
+    callExitFullscreen: 'Выйти из полноэкранного режима',
     msgQuote: 'Цитировать',
     msgCopy: 'Копировать текст',
     msgRetry: 'Повторить отправку',
     msgDiscard: 'Отменить отправку',
-    composerPlus: 'Добавить',
+    composerAttach: 'Прикрепить',
     attachMedia: 'Фото и видео',
     attachFile: 'Файл',
     attachEmoji: 'Эмодзи',
-    attachStickers: 'Стикеры',
     chatSubtitleCall: '{{server}} · в звонке: {{count}}',
     channelInfo: 'О канале',
     infoCall: 'Звонок',

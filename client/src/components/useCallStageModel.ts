@@ -108,6 +108,8 @@ export interface CallStageModel {
   localVideoRef: React.RefObject<HTMLVideoElement | null>;
   focusedVideoRef: React.RefObject<HTMLVideoElement | null>;
   setRemoteVideoRef: (userId: string, el: HTMLVideoElement | null) => void;
+  /** Перепривязать потоки к <video> удалённых плиток — для мобильной сцены: при смене раскладки, не меняющей focusedUserId (фокус на себе), плитки пересоздаются, а эффект выше не сработает. */
+  reattachRemoteStreams: () => void;
   stageRef: React.RefObject<HTMLDivElement | null>;
   screenShareMainRef: React.RefObject<HTMLDivElement | null>;
 
@@ -285,7 +287,7 @@ export function useCallStageModel({ onLeave }: { onLeave?: () => void } = {}): C
   // This is the primary attachment path — by the time this effect runs,
   // ref callbacks have already fired so remoteVideoRefs is populated.
   // Also depends on focusedUserId so streams re-attach after view switches (grid ↔ focused).
-  useEffect(() => {
+  const reattachRemoteStreams = useCallback(() => {
     participants.forEach((p) => {
       const videoEl = remoteVideoRefs.current.get(p.userId);
       console.log(`[GC] participants effect uid=${p.userId.slice(0, 8)}`, {
@@ -302,6 +304,9 @@ export function useCallStageModel({ onLeave }: { onLeave?: () => void } = {}): C
         }
       }
     });
+  }, [participants, participantVolumes]);
+  useEffect(() => {
+    reattachRemoteStreams();
   }, [participants, focusedUserId]);
 
   // Track fullscreen state changes (ESC key or programmatic exit). The browser
@@ -679,6 +684,7 @@ export function useCallStageModel({ onLeave }: { onLeave?: () => void } = {}): C
     localVideoRef,
     focusedVideoRef,
     setRemoteVideoRef,
+    reattachRemoteStreams,
     stageRef,
     screenShareMainRef,
 

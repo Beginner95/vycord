@@ -123,17 +123,20 @@
     padding: 8px 10px calc(10px + env(safe-area-inset-bottom, 0px));
   }
 
+  /* 4 кнопки по 44 = 176px: на 390px gap 10 оставил бы полю ~132px, при 2 — ~164. */
   .composer-field {
+    gap: 2px;
+    padding-block: 7px;
     border-radius: 13px;
   }
 
-  /* Автогроу до 6 строк (спека §5.4): line-height 1.55 + вертикальный padding 5+5. */
+  /* Автогроу до 6 строк (спека §5.4): line-height 1.55 + вертикальный padding 4+4. */
   .composer-input {
-    max-height: calc(6 * 1.55em + 10px);
+    max-height: calc(6 * 1.55em + 8px);
+    padding: 4px 0;
     font-size: 16px;
   }
 
-  .composer-plus-btn,
   .composer-aa,
   .composer-icon-btn {
     width: 44px;

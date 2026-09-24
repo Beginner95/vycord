@@ -96,7 +96,7 @@ describe('MobileShell stage 3 (real chat screens)', () => {
     mount(); await flush();
     // Под чатом смонтированы и нижние экраны стека — смотрим верхний.
     expect(top().querySelector('.screen-header-name')?.textContent).toBe('#общий');
-    expect(document.querySelector('.composer-plus-btn')).not.toBeNull();
+    expect(document.querySelector('.composer-clip-btn')).not.toBeNull();
     expect(top().querySelector('.chat-header')).toBeNull();
   });
 
@@ -117,7 +117,7 @@ describe('MobileShell stage 3 (real chat screens)', () => {
     await waitFor(() => expect(document.querySelector('.channel-info')).not.toBeNull());
     fireEvent.click(byLabel(top(), BACK));
     await waitFor(() => expect(document.querySelector('.channel-info')).toBeNull());
-    expect(top().querySelector('.composer-plus-btn')).not.toBeNull();
+    expect(top().querySelector('.composer-clip-btn')).not.toBeNull();
   });
 
   it('channel info → Search returns to the chat and opens the search layer (D9)', async () => {
@@ -135,7 +135,7 @@ describe('MobileShell stage 3 (real chat screens)', () => {
     await waitFor(() => expect(document.querySelector('.chat-search-layer')).not.toBeNull());
     await goBack();
     await waitFor(() => expect(document.querySelector('.chat-search-layer')).toBeNull());
-    expect(top().querySelector('.composer-plus-btn')).not.toBeNull();
+    expect(top().querySelector('.composer-clip-btn')).not.toBeNull();
   });
 
   it('Servers → search → channel; back goes channels, then search', async () => {
@@ -144,12 +144,12 @@ describe('MobileShell stage 3 (real chat screens)', () => {
     await waitFor(() => expect(document.querySelector('.search-screen')).not.toBeNull());
     fireEvent.change(document.querySelector('.search-input')!, { target: { value: 'общ' } });
     fireEvent.click([...document.querySelectorAll('.mobile-row')].find((r) => r.textContent?.includes('общий'))!);
-    await waitFor(() => expect(top().querySelector('.composer-plus-btn')).not.toBeNull());
+    await waitFor(() => expect(top().querySelector('.composer-clip-btn')).not.toBeNull());
     await goBack();
     await waitFor(() => {
       // channels-screen смонтирован и как нижний экран — проверяем именно верх стека.
       expect(top().querySelector('.channels-screen')).not.toBeNull();
-      expect(top().querySelector('.composer-plus-btn')).toBeNull();
+      expect(top().querySelector('.composer-clip-btn')).toBeNull();
     });
     await goBack();
     await waitFor(() => {
@@ -183,6 +183,6 @@ describe('MobileShell stage 3 (real chat screens)', () => {
     await waitFor(() => expect(document.querySelector('.lightbox-root')).not.toBeNull());
     await goBack();
     await waitFor(() => expect(document.querySelector('.lightbox-root')).toBeNull());
-    expect(top().querySelector('.composer-plus-btn')).not.toBeNull();
+    expect(top().querySelector('.composer-clip-btn')).not.toBeNull();
   });
 });

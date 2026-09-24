@@ -30,6 +30,7 @@ import { ConfirmModal } from '@/components/ConfirmModal';
 import { VoiceBanner } from '@/components/VoiceBanner';
 import { MediaLightbox, pickLightboxMedia } from '@/components/MediaLightbox';
 import { useAttachmentUpload } from '@/hooks/useAttachmentUpload';
+import { useStickToBottom } from '@/hooks/useStickToBottom';
 import type { Attachment, Channel, User } from '@/types';
 import type { Sticker } from '@/types';
 import { useT, useTp, useDateFormat, isSameCalendarDay } from '@/i18n';
@@ -192,10 +193,23 @@ export function ChatArea({
   const canMentionEveryone = can(permissions, PERMISSIONS.MENTION_EVERYONE);
   const canManageStickers = can(permissions, PERMISSIONS.MANAGE_SERVER);
 
-  useEffect(() => {
-    if (historyMode) return; // в режиме просмотра истории не утаскиваем вниз
-    scrollToBottom();
-  }, [messages, historyMode]);
+  // Прокрутка к низу (см. useStickToBottom): при входе в канал — мгновенно и
+  // после отрисовки списка именно ЭТОГО канала (не скелетон и не хвост
+  // предыдущего), дальше низ держится, пока пользователь сам не ушёл вверх;
+  // новые сообщения приезжают плавно. В истории (jumpToMessage) и в скрытом
+  // под другим экраном чате вниз не утаскиваем.
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  };
+  const channelId = channel?.id;
+  const listReady = !loading && messages.length > 0 && messages[messages.length - 1].channel_id === channelId;
+  useStickToBottom(chatMessagesRef, {
+    resetKey: channelId,
+    ready: listReady,
+    disabled: historyMode || !active,
+    followKey: messages,
+    smoothToBottom: scrollToBottom,
+  });
 
   // Viewport mark-read: the persisted `lastRead` mark advances whenever the
   // bottom sentinel is visible, but (per the divider-pin behavior above) this
@@ -430,10 +444,6 @@ export function ChatArea({
       unsubDelete();
     };
   }, [updateMessage, removeMessage]);
-
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  };
 
   const jumpToMessage = async (messageId: string) => {
     if (!channel) return;

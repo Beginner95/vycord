@@ -186,23 +186,43 @@
 
 /* ── Сетка. columns приходит из mobileGridLayout как явный класс
    (mcs-grid-cols-1/-2), не custom property — проще для stylelint's
-   value-no-unknown-custom-properties. position: relative делает эту сетку
-   позиционирующим контекстом для плавающего PiP-превью ниже. */
+   value-no-unknown-custom-properties. Ячеек ровно m.totalParticipants —
+   своя плитка обычная ячейка (первой), не плавающий PiP. minmax(0, 1fr), а
+   не голый 1fr: 1fr = minmax(auto, 1fr), и min-content ячейки (<video> со
+   своим intrinsic-размером) мог бы раздуть одну строку/колонку за счёт
+   соседней — делим .mcs-body строго поровну. */
 .mcs-grid {
-  position: relative;
   height: 100%;
   display: grid;
-  grid-auto-rows: 1fr;
+  grid-auto-rows: minmax(0, 1fr);
   gap: 8px;
   padding: 8px;
 }
 
 .mcs-grid-cols-1 {
-  grid-template-columns: 1fr;
+  grid-template-columns: minmax(0, 1fr);
 }
 
 .mcs-grid-cols-2 {
-  grid-template-columns: repeat(2, 1fr);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+/* Ячейка сетки — обёртка над плиткой (своей или RemoteParticipantTile), тап
+   по ней открывает фокус-вид. min-* : 0 — та же защита от раздувания по
+   контенту, что и minmax(0, 1fr) выше. */
+.mcs-grid-cell {
+  min-width: 0;
+  min-height: 0;
+  cursor: pointer;
+}
+
+/* Нечётная последняя плитка в 2 колонках (3, 5, 7… участников) растягивается
+   на всю ширину: иначе в 2×2 при троих оставалась пустая дыра в четверть
+   экрана. Широкая плитка к тому же ближе к 16:9 камеры, чем узкая портретная
+   половинка, — меньше обрезки object-fit: cover. В ландшафте при двоих
+   колонок 2 и ячеек 2 — правило не срабатывает. */
+.mcs-grid-cols-2 > .mcs-grid-cell:last-child:nth-child(odd) {
+  grid-column: 1 / -1;
 }
 
 /* Blocker I3 (task-final-fix-report.md): grid-auto-rows: 1fr on the plain
@@ -250,83 +270,42 @@
   font-size: 0;
 }
 
-/* ── Локальное превью (PiP): базовый вид плитки — видео/аватар в скруглённой
-   рамке. .mcs-pip поверх этого добавляет плавающее позиционирование. ── */
-.mcs-tile {
+/* Аватар при выключенной камере в плитке сетки (своей и удалённых). Десктопный
+   размер (CallStage.css) заскоуплен под `.call-stage`, которой на мобиле нет, —
+   без этого правила аватар был бы голым div'ом по размеру буквы. position:
+   relative кладёт его поверх абсолютного (скрытого) <video> без z-index. */
+.mobile-call-screen .stage-tile-avatar {
   position: relative;
-  overflow: hidden;
-  border-radius: var(--radius-tile);
-  background: var(--stage-tile);
-}
-
-.mcs-tile video {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  display: block;
-}
-
-.mcs-tile video.is-mirrored {
-  transform: scaleX(-1);
-}
-
-.mcs-tile video.is-screen {
-  object-fit: contain;
-  transform: none;
-}
-
-.mcs-tile-avatar {
-  position: absolute;
-  inset: 0;
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 100%;
-  height: 100%;
-  font-size: 22px;
+  width: 64px;
+  height: 64px;
+  border-radius: var(--radius-bar);
+  font-size: 26px;
   object-fit: cover;
 }
 
-/* Плавает над сеткой в одном из четырёх углов — перетаскивается dragPip.
-   Ни одна другая плитка сетки не позиционирована абсолютно, поэтому порядок
-   DOM (PiP рендерится первым ребёнком .mcs-grid, но position: absolute всё
-   равно кладёт её поверх обычного потока) достаточен без числового z-index —
-   в этом файле нет других слоёв, конкурирующих за стек. */
-.mcs-pip {
-  position: absolute;
-  width: 96px;
-  height: 128px;
-  border: 2px solid var(--stage-line);
-  box-shadow: var(--shadow-card);
-  touch-action: none;
+/* В двухколоночной сетке (~180px плитка) чип «камера выкл.» делил футер с
+   плашкой имени и обрезал её до первой буквы — «B…» вместо «имя (вы)»
+   (замерено харнессом на 390×844, 3 участника). Камера-выкл. там и так видна
+   по аватару посреди плитки, а имя — единственная подпись, кто это, поэтому
+   в узких колонках чип уходит. В одной колонке (2 участника в портрете) места
+   хватает обоим — там чип остаётся. */
+.mcs-grid-cols-2 .stage-state-chip {
+  display: none;
 }
 
-.mcs-pip.is-tl {
-  top: 12px;
-  left: 12px;
+/* Своя демонстрация в плитке сетки — целиком, как раньше в PiP, а не
+   обрезанной cover'ом (узкая портретная ячейка режет широкий экран). */
+.mobile-call-screen .stage-tile-video.is-screen {
+  object-fit: contain;
 }
 
-.mcs-pip.is-tr {
-  top: 12px;
-  right: 12px;
-}
-
-.mcs-pip.is-bl {
-  bottom: 12px;
-  left: 12px;
-}
-
-.mcs-pip.is-br {
-  bottom: 12px;
-  right: 12px;
-}
-
-/* ── Соло: только себя, 0 удалённых участников — весь экран, не плавающий
-   96×128px PiP (спека §6.2: «1 → весь экран»; Blocker THIRD FINDING,
-   task-9-verify-report.md). Свой контейнер, а не .mcs-tile.mcs-pip —
-   position: absolute; inset: 0 заполняет .mcs-body (уже position: relative),
-   видео теми же правилами, что и .mcs-tile video, для визуальной
-   консистентности. */
+/* ── Соло: только себя, 0 удалённых участников — весь экран (спека §6.2:
+   «1 → весь экран»; Blocker THIRD FINDING, task-9-verify-report.md).
+   position: absolute; inset: 0 заполняет .mcs-body (уже position:
+   relative). */
 .mcs-solo {
   position: absolute;
   inset: 0;
@@ -389,6 +368,34 @@
   display: block;
 }
 
+/* Главное видео в fullscreen (кнопка .mcs-focus-fs): элемент — сам
+   .mcs-focus-main, чтобы кнопки и подпись остались внутри и видимы. Фон —
+   самый тёмный токен сцены (чистого чёрного токена нет), видео вписано
+   contain'ом выше — без обрезки демонстрации. */
+.mcs-focus-main:fullscreen {
+  width: 100vw;
+  height: 100vh;
+  background: var(--stage);
+}
+
+/* Аватар в фокусе на себе при выключенной камере — поверх пустого видео.
+   pointer-events: none — тап «сквозь» него попадает в <video> и возвращает в
+   сетку, как на включённой камере. */
+.mcs-focus-avatar {
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 96px;
+  height: 96px;
+  border-radius: var(--radius-bar);
+  font-size: 40px;
+  object-fit: cover;
+  pointer-events: none;
+}
+
 /* Имя фокусированного участника — оверлей внизу слева, в том же углу, что и
    десктопный `.stage-focus-label` (CallStage.css). Без него камера-выкл.
    фокус-вид был голым чёрным прямоугольником без единой подсказки, кого
@@ -417,21 +424,32 @@
   text-overflow: ellipsis;
 }
 
-.mcs-focus-back {
+.mcs-focus-back,
+.mcs-focus-fs {
   position: absolute;
   top: 12px;
-  left: 12px;
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 40px;
-  height: 40px;
+  width: 44px;
+  height: 44px;
   padding: 0;
   border: none;
   border-radius: var(--radius-row);
   background: var(--stage-plate);
   color: var(--stage-ink);
   cursor: pointer;
+}
+
+.mcs-focus-back {
+  left: 12px;
+}
+
+/* «На весь экран» — противоположный угол от «к сетке», подпись внизу слева:
+   ни с чем не пересекается. Позиционирована позже <video> в DOM — лежит
+   поверх него без z-index. */
+.mcs-focus-fs {
+  right: 12px;
 }
 
 /* ── Лента миниатюр под главным фокус-видео (Critical C1). Тот же shared

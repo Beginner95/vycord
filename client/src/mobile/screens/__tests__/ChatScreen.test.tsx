@@ -105,7 +105,7 @@ describe('ChatScreen', () => {
 
   it('uses the mobile composer', () => {
     mount();
-    expect(document.querySelector('.composer-plus-btn')).not.toBeNull();
+    expect(document.querySelector('.composer-clip-btn')).not.toBeNull();
     expect(document.querySelector('.composer-attach-btn')).toBeNull();
   });
 });

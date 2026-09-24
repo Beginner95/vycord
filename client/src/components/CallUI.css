@@ -373,8 +373,7 @@
   }
 
   /* PiP — fixed corner, no drag (p2p has exactly one local tile, no angle to
-     choose). Same 96×128 as .mcs-pip (MobileCallScreen.css) for visual
-     consistency between the group and p2p call surfaces. z-index: 2 is
+     choose). 96×128, the classic call-screen self-view size. z-index: 2 is
      load-bearing: at the 56px control-button height below, the PiP's bottom
      edge and the control bar's top edge overlap by design (~20px) once the
      bar's own safe-area-shifted position is accounted for, and .p2p-controls

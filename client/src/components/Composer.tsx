@@ -9,7 +9,7 @@ import {
   type FormEvent,
   type KeyboardEvent,
 } from 'react';
-import { Plus, SendHorizontal, Smile } from 'lucide-react';
+import { Paperclip, SendHorizontal, Smile } from 'lucide-react';
 import { FormattingToolbar } from '@/components/FormattingToolbar';
 import { FloatingQuoteButton } from '@/components/FloatingQuoteButton';
 import { MentionDropdown } from '@/components/MentionDropdown';
@@ -88,8 +88,9 @@ interface ComposerProps {
    */
   textOnly?: boolean;
   /**
-   * Мобильная раскладка кнопок: «＋» со шторкой вложений/эмодзи/стикеров,
-   * «Отправить» только при непустом черновике. Только раскладка — логика та же.
+   * Мобильная раскладка кнопок: [Aa] [эмодзи] [скрепка] [отправить]. Эмодзи —
+   * шторка с вкладками, скрепка — шторка «Фото и видео / Файл», «Отправить» только
+   * при непустом черновике. Только раскладка — логика та же.
    */
   variant?: 'desktop' | 'mobile';
   /**
@@ -132,8 +133,6 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
   // collapsed into the single `pickerOpen` in Task 5.
   const [attachOpen, setAttachOpen] = useState(false);
   const mobile = variant === 'mobile';
-  // Вкладка, на которой откроется мобильная шторка пикера (десктоп всегда 'emoji').
-  const [pickerTab, setPickerTab] = useState<'emoji' | 'stickers'>('emoji');
 
   /**
    * The two popover surfaces are MUTUALLY EXCLUSIVE: opening one closes the
@@ -351,16 +350,6 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
         <AttachmentTray drafts={uploads.drafts} onCancel={uploads.cancel} onRetry={uploads.retry} />
       )}
       <form className="composer-field" onSubmit={handleSubmit}>
-        {mobile && (
-          <button
-            type="button"
-            className="composer-icon-btn composer-plus-btn"
-            aria-label={t('mobile.composerPlus')}
-            onClick={() => setAttachOpen(true)}
-          >
-            <Plus size={22} strokeWidth={1.8} />
-          </button>
-        )}
         <textarea
           ref={inputRef}
           className="composer-input"
@@ -385,24 +374,23 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
         >
           Aa
         </button>
-        {!mobile && (
-          <button
-            type="button"
-            className={`composer-icon-btn${pickerOpen ? ' is-active' : ''}`}
-            aria-label={t('chat.emoji')}
-            title={t('chat.emoji')}
-            // useDismissOnOutside dismisses on BUBBLE-phase `mousedown`, so any
-            // button that opens a dismissible surface must stop propagation here
-            // or it closes-then-reopens: mousedown dismisses the picker, and the
-            // functional updater in onClick immediately turns it back on — the
-            // toggle can never close its own picker. Same opt-out as
-            // AttachmentButton's, which inherited it from develop.
-            onMouseDown={(e) => e.stopPropagation()}
-            onClick={() => togglePicker('picker')}
-          >
-            <Smile size={17} strokeWidth={1.8} />
-          </button>
-        )}
+        <button
+          type="button"
+          className={`composer-icon-btn${pickerOpen ? ' is-active' : ''}`}
+          aria-label={t('chat.emoji')}
+          title={t('chat.emoji')}
+          // useDismissOnOutside dismisses on BUBBLE-phase `mousedown`, so any
+          // button that opens a dismissible surface must stop propagation here
+          // or it closes-then-reopens: mousedown dismisses the picker, and the
+          // functional updater in onClick immediately turns it back on — the
+          // toggle can never close its own picker. Same opt-out as
+          // AttachmentButton's, which inherited it from develop. На мобиле
+          // пикер — шторка со своим скримом, dismiss-on-outside ей не нужен.
+          onMouseDown={mobile ? undefined : (e) => e.stopPropagation()}
+          onClick={() => togglePicker('picker')}
+        >
+          <Smile size={mobile ? 20 : 17} strokeWidth={1.8} />
+        </button>
         {!mobile && !textOnly && (
           <AttachmentButton
             open={attachOpen}
@@ -410,6 +398,16 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
             onClose={() => setAttachOpen(false)}
             onFiles={(files) => uploads.addFiles(files)}
           />
+        )}
+        {mobile && !textOnly && (
+          <button
+            type="button"
+            className="composer-icon-btn composer-clip-btn"
+            aria-label={t('mobile.composerAttach')}
+            onClick={() => togglePicker('attach')}
+          >
+            <Paperclip size={20} strokeWidth={1.8} />
+          </button>
         )}
         {(!mobile || canSend) && (
           <button
@@ -430,7 +428,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
         const tabs: ExpressionTab[] = noStickers ? ['emoji'] : ['emoji', 'stickers'];
         const shared = {
           tabs,
-          initialTab: mobile ? pickerTab : ('emoji' as const),
+          initialTab: 'emoji' as const,
           onClose: () => setPickerOpen(false),
           // Emoji leaves the picker open — inserting several in a row is the
           // common case (Telegram's behaviour). A sticker is a whole message,
@@ -451,15 +449,10 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
         };
         return mobile ? <MobileExpressionSheet {...shared} /> : <ExpressionPicker {...shared} />;
       })()}
-      {mobile && attachOpen && (
+      {mobile && !textOnly && attachOpen && (
         <MobileAttachSheet
-          textOnly={textOnly}
           onClose={() => setAttachOpen(false)}
           onPickFiles={(accept) => filePicker.open(accept)}
-          // ActionSheet зовёт onClose() ДО onClick: сначала гаснет attachOpen,
-          // затем поднимается pickerOpen — разные флаги, порядок безопасен.
-          onEmoji={() => { setPickerTab('emoji'); setPickerOpen(true); }}
-          onStickers={onSendSticker ? () => { setPickerTab('stickers'); setPickerOpen(true); } : undefined}
         />
       )}
       <LinkDialog

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { render, cleanup, fireEvent, screen } from '@testing-library/react';
+import { render, cleanup, fireEvent, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { Composer } from '@/components/Composer';
 
@@ -23,11 +23,23 @@ const send = (c: HTMLElement) => c.querySelector('.composer-send');
 const items = () => document.querySelectorAll('.sheet .action-sheet-item');
 
 describe('Composer mobile variant', () => {
-  it('has a plus button and none of the desktop emoji/attach buttons', () => {
-    const { container } = mount();
-    expect(container.querySelector('.composer-plus-btn')).not.toBeNull();
+  it('lays out Aa, emoji, paperclip, send in DOM order; no plus button', () => {
+    const { container, field } = mount();
+    fireEvent.change(field, { target: { value: 'hi' } });
+    const row = [...container.querySelectorAll('.composer-field > *')];
+    const idx = (el: Element | null) => row.indexOf(el as Element);
+    const aa = container.querySelector('.composer-aa');
+    const emoji = container.querySelector('.composer-icon-btn:not(.composer-clip-btn)');
+    const clip = container.querySelector('.composer-clip-btn');
+    const sendBtn = send(container);
+    expect(field.previousElementSibling).toBeNull(); // слева от поля ничего нет
+    expect(idx(field)).toBe(0);
+    expect(idx(aa)).toBe(1);
+    expect(idx(emoji)).toBe(2);
+    expect(idx(clip)).toBe(3);
+    expect(idx(sendBtn)).toBe(4);
     expect(container.querySelector('.composer-attach-btn')).toBeNull();
-    expect(container.querySelectorAll('.composer-icon-btn')).toHaveLength(1); // только «＋»
+    expect(container.querySelectorAll('.composer-icon-btn')).toHaveLength(2); // эмодзи + скрепка
   });
 
   it('shows Send only when there is something to send', () => {
@@ -51,32 +63,57 @@ describe('Composer mobile variant', () => {
     expect(b.onSend).not.toHaveBeenCalled();
   });
 
-  it('plus opens the sheet with four actions; Stickers opens the sheet on the stickers tab', async () => {
+  it('Smile opens the expression sheet on the emoji tab', async () => {
     const { container } = mount();
-    fireEvent.click(container.querySelector('.composer-plus-btn')!);
-    expect(items()).toHaveLength(4);
-    fireEvent.click(items()[3]);
+    fireEvent.click(container.querySelector('.composer-icon-btn:not(.composer-clip-btn)')!);
     const tabs = await screen.findAllByRole('tab');
     const active = tabs.filter((tab) => tab.getAttribute('aria-selected') === 'true');
     expect(active).toHaveLength(1);
-    expect(active[0].className).toContain('is-active');
-    expect(tabs.indexOf(active[0])).toBe(1); // вторая вкладка — «Стикеры»
+    expect(tabs.indexOf(active[0])).toBe(0);
+    expect(tabs).toHaveLength(2); // эмодзи + стикеры
     expect(document.querySelector('.expression-sheet-body')).not.toBeNull();
+    expect(document.querySelector('.sheet .action-sheet-item')).toBeNull();
+  });
+
+  it('paperclip opens the sheet with exactly two actions (media, file)', () => {
+    const { container } = mount();
+    fireEvent.click(container.querySelector('.composer-clip-btn')!);
+    expect(items()).toHaveLength(2);
+    expect(items()[0].textContent).toContain('Фото и видео');
+    expect(items()[1].textContent).toContain('Файл');
+    expect(document.querySelector('.expression-sheet-body')).toBeNull();
+  });
+
+  it('media action opens the picker for images/videos, file action for anything', () => {
+    const click = vi.spyOn(HTMLInputElement.prototype, 'click').mockImplementation(() => {});
+    const { container } = mount();
+    const input = () => container.querySelector('.composer-attach-input') as HTMLInputElement;
+    fireEvent.click(container.querySelector('.composer-clip-btn')!);
+    fireEvent.click(items()[0]);
+    expect(input().accept).toBe('image/*,video/*');
+    fireEvent.click(container.querySelector('.composer-clip-btn')!);
+    fireEvent.click(items()[1]);
+    expect(input().accept).toBe('');
+    expect(click).toHaveBeenCalledTimes(2);
+    click.mockRestore();
   });
 
   it('the file input lives in the composer and outlives the sheet', () => {
     const click = vi.spyOn(HTMLInputElement.prototype, 'click').mockImplementation(() => {});
     const { container } = mount();
-    fireEvent.click(container.querySelector('.composer-plus-btn')!);
+    fireEvent.click(container.querySelector('.composer-clip-btn')!);
     fireEvent.click(items()[1]); // «Файл»
     expect(click).toHaveBeenCalledOnce();
     expect(container.querySelector('.composer-attach-input')).not.toBeNull();
     click.mockRestore();
   });
 
-  it('textOnly (guest): the sheet offers only emoji', () => {
+  it('textOnly (guest): no paperclip, emoji stays and shows only the emoji tab', async () => {
     const { container } = mount({ textOnly: true });
-    fireEvent.click(container.querySelector('.composer-plus-btn')!);
-    expect(items()).toHaveLength(1);
+    expect(container.querySelector('.composer-clip-btn')).toBeNull();
+    expect(container.querySelectorAll('.composer-icon-btn')).toHaveLength(1);
+    fireEvent.click(container.querySelector('.composer-icon-btn:not(.composer-clip-btn)')!);
+    await waitFor(() => expect(document.querySelector('.expression-sheet-body')).not.toBeNull());
+    expect(screen.queryAllByRole('tab').length).toBeLessThanOrEqual(1); // вкладки стикеров нет
   });
 });

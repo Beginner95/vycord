@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeAll, beforeEach, afterEach } from 'vitest';
-import { render, cleanup, fireEvent } from '@testing-library/react';
+import { render, cleanup, fireEvent, act } from '@testing-library/react';
 import { MobileCallScreen } from '@/mobile/screens/MobileCallScreen';
 import type { CallStageModel } from '@/components/useCallStageModel';
 import type { RemoteParticipant } from '@/stores/callStore';
@@ -12,6 +12,16 @@ import { stubBrowser, participant } from '@/components/__tests__/callHarness';
 // проверяется только на то, что он корректно рендерит/вызывает то, что хук
 // возвращает.
 vi.mock('@/mobile/hooks/useAudioOutput', () => ({ useAudioOutput: vi.fn() }));
+
+// Экран сам перепривязывает srcObject своего локального <video> после смены
+// вида (сетка ↔ фокус на себе и т.д.) — читает поток прямо из
+// groupCallService, как и useCallStageModel. Реальный сервис здесь не нужен:
+// только два геттера потоков, подменяемые тестами ниже.
+const fakeService = vi.hoisted(() => ({
+  localStreamState: null as unknown,
+  screenStreamState: null as unknown,
+}));
+vi.mock('@/services/groupCall', () => ({ groupCallService: fakeService }));
 
 import { useAudioOutput } from '@/mobile/hooks/useAudioOutput';
 
@@ -57,6 +67,7 @@ function baseModel(over: Partial<CallStageModel> = {}): CallStageModel {
     localVideoRef: { current: null },
     focusedVideoRef: { current: null },
     setRemoteVideoRef: vi.fn(),
+    reattachRemoteStreams: vi.fn(),
     stageRef: { current: null },
     screenShareMainRef: { current: null },
 
@@ -122,12 +133,13 @@ describe('MobileCallScreen', () => {
     expect(container.innerHTML).toBe('');
   });
 
-  it('lays out the grid in two columns for 3 participants', () => {
+  it('lays out the grid in two columns for 3 participants, own tile included (no floating PiP)', () => {
     const model = baseModel({ participants: remoteParticipants(2), totalParticipants: 3 });
     render(<MobileCallScreen model={model} onBack={vi.fn()} onOpenChat={vi.fn()} onOpenOverflow={vi.fn()} onOpenQuality={vi.fn()} />);
     expect(document.querySelector('.mcs-grid-cols-2')).not.toBeNull();
-    // Локальный PiP + 2 удалённых участника
-    expect(document.querySelectorAll('.mcs-pip').length).toBe(1);
+    // Своя плитка + 2 удалённых — все обычные ячейки сетки.
+    expect(document.querySelectorAll('.mcs-grid > .mcs-grid-cell').length).toBe(3);
+    expect(document.querySelector('.mcs-pip')).toBeNull();
   });
 
   it('renders the focused-view video when a participant is focused', () => {
@@ -176,6 +188,249 @@ describe('MobileCallScreen', () => {
     expect(document.querySelector('.mcs-solo')).not.toBeNull();
     expect(document.querySelector('.mcs-pip')).toBeNull();
     expect(document.querySelector('.mcs-grid')).toBeNull();
+  });
+
+  describe('grid includes the local tile', () => {
+    const renderCount = (total: number) => {
+      const model = baseModel({ participants: remoteParticipants(total - 1), totalParticipants: total });
+      render(<MobileCallScreen model={model} onBack={vi.fn()} onOpenChat={vi.fn()} onOpenOverflow={vi.fn()} onOpenQuality={vi.fn()} />);
+      return model;
+    };
+
+    it('1 participant → solo self-view, exactly one local video', () => {
+      const model = renderCount(1);
+      expect(document.querySelector('.mcs-grid')).toBeNull();
+      expect(document.querySelectorAll('.mcs-body video').length).toBe(1);
+      expect(document.querySelector('.mcs-solo video')).toBe(model.localVideoRef.current);
+    });
+
+    it.each([
+      [2, 1, false],
+      [3, 2, false],
+      [5, 2, true],
+    ])('%i participants → that many grid cells, own tile first (%i columns, scroll=%s)', (total, cols, scroll) => {
+      const model = renderCount(total);
+      const grid = document.querySelector('.mcs-grid')!;
+      expect(grid.classList.contains(`mcs-grid-cols-${cols}`)).toBe(true);
+      expect(grid.classList.contains('is-scroll')).toBe(scroll);
+      const cells = grid.querySelectorAll(':scope > .mcs-grid-cell');
+      expect(cells.length).toBe(total);
+      expect(cells[0].classList.contains('is-self')).toBe(true);
+      expect(cells[0].querySelector('video')).toBe(model.localVideoRef.current);
+      expect(cells[0].querySelector('.stage-name')?.textContent).toBe('anna (вы)');
+    });
+
+    it('own tile shows the muted mic, the camera-off avatar and the mirrored class', () => {
+      const model = baseModel({ participants: remoteParticipants(1), totalParticipants: 2, isMuted: true, isVideoOff: true });
+      render(<MobileCallScreen model={model} onBack={vi.fn()} onOpenChat={vi.fn()} onOpenOverflow={vi.fn()} onOpenQuality={vi.fn()} />);
+      const self = document.querySelector('.mcs-grid-cell.is-self')!;
+      expect(self.querySelector('.stage-plate-mic.is-muted')).toBeTruthy();
+      expect(self.querySelector('.stage-tile-avatar')).toBeTruthy();
+      expect(self.querySelector('.stage-tile.is-camera-off')).toBeTruthy();
+      expect(self.querySelector('video')!.classList.contains('is-mirrored')).toBe(true);
+    });
+
+    it('tapping a remote grid cell focuses that participant', () => {
+      const setFocusedUserId = vi.fn();
+      const model = baseModel({ participants: remoteParticipants(2), totalParticipants: 3, setFocusedUserId });
+      render(<MobileCallScreen model={model} onBack={vi.fn()} onOpenChat={vi.fn()} onOpenOverflow={vi.fn()} onOpenQuality={vi.fn()} />);
+      fireEvent.click(document.querySelectorAll('.mcs-grid-cell')[2]);
+      expect(setFocusedUserId).toHaveBeenCalledWith('u3');
+    });
+  });
+
+  describe('focusing yourself', () => {
+    const props = { onBack: vi.fn(), onOpenChat: vi.fn(), onOpenOverflow: vi.fn(), onOpenQuality: vi.fn() };
+
+    it('tapping own tile opens the self focus view: local video main, every remote in the strip, no local thumb', () => {
+      const model = baseModel({ participants: remoteParticipants(3), totalParticipants: 4 });
+      render(<MobileCallScreen model={model} {...props} />);
+      fireEvent.click(document.querySelector('.mcs-grid-cell.is-self')!);
+      expect(document.querySelector('.mcs-grid')).toBeNull();
+      const main = document.querySelector('.mcs-focus-main video')!;
+      expect(main).toBe(model.localVideoRef.current);
+      expect(main.classList.contains('is-mirrored')).toBe(true);
+      expect(document.querySelector('.mcs-focus-name')?.textContent).toBe('anna (вы)');
+      const thumbs = document.querySelectorAll('.mcs-focus-thumbs .stage-thumb');
+      expect(thumbs.length).toBe(3);
+      expect([...thumbs].map((el) => el.getAttribute('title'))).toEqual(['u2', 'u3', 'u4']);
+      // Удалённые <video> остались смонтированы — их аудио продолжает играть.
+      expect(document.querySelectorAll('.mcs-focus-thumbs video').length).toBe(3);
+    });
+
+    it('re-binds remote streams on every layout change that recreates the tiles (audio comes from those <video>)', () => {
+      const model = baseModel({ participants: remoteParticipants(2), totalParticipants: 3 });
+      render(<MobileCallScreen model={model} {...props} />);
+      const reattach = model.reattachRemoteStreams as ReturnType<typeof vi.fn>;
+      reattach.mockClear();
+      fireEvent.click(document.querySelector('.mcs-grid-cell.is-self')!);
+      expect(reattach).toHaveBeenCalledTimes(1);
+      fireEvent.click(document.querySelector('.mcs-focus-back')!);
+      expect(reattach).toHaveBeenCalledTimes(2);
+    });
+
+    it('tapping the main video or the grid button returns to the grid', () => {
+      const model = baseModel({ participants: remoteParticipants(1), totalParticipants: 2 });
+      render(<MobileCallScreen model={model} {...props} />);
+      fireEvent.click(document.querySelector('.mcs-grid-cell.is-self')!);
+      fireEvent.click(document.querySelector('.mcs-focus-video')!);
+      expect(document.querySelector('.mcs-grid')).toBeTruthy();
+      fireEvent.click(document.querySelector('.mcs-grid-cell.is-self')!);
+      fireEvent.click(document.querySelector('.mcs-focus-back')!);
+      expect(document.querySelector('.mcs-grid')).toBeTruthy();
+      expect(model.setFocusedUserId).not.toHaveBeenCalled();
+    });
+
+    it('tapping a remote thumbnail from self focus switches to that participant', () => {
+      const setFocusedUserId = vi.fn();
+      const model = baseModel({ participants: remoteParticipants(2), totalParticipants: 3, setFocusedUserId });
+      const { rerender } = render(<MobileCallScreen model={model} {...props} />);
+      fireEvent.click(document.querySelector('.mcs-grid-cell.is-self')!);
+      fireEvent.click(document.querySelectorAll('.mcs-focus-thumbs .stage-thumb')[1]);
+      expect(setFocusedUserId).toHaveBeenCalledWith('u3');
+      // Модель отражает новый фокус — теперь главное видео чужое, а своя
+      // миниатюра вернулась в ленту первой.
+      rerender(<MobileCallScreen model={{ ...model, focusedUserId: 'u3' }} {...props} />);
+      expect(document.querySelector('.mcs-focus-main video')).not.toBe(model.localVideoRef.current);
+      expect(document.querySelector('.mcs-focus-name')?.textContent).toBe('u3');
+      expect(document.querySelectorAll('.mcs-focus-thumbs .stage-thumb').length).toBe(3);
+      // И после ухода с удалённого фокуса локальный фокус не «воскресает».
+      rerender(<MobileCallScreen model={{ ...model, focusedUserId: null }} {...props} />);
+      expect(document.querySelector('.mcs-grid')).toBeTruthy();
+    });
+
+    it('the local thumbnail in a remote focus view switches to self focus', () => {
+      const setFocusedUserId = vi.fn();
+      const model = baseModel({ participants: remoteParticipants(1), totalParticipants: 2, focusedUserId: 'u2', setFocusedUserId });
+      const { rerender } = render(<MobileCallScreen model={model} {...props} />);
+      fireEvent.click(document.querySelector('.mcs-focus-thumbs .stage-thumb')!);
+      expect(setFocusedUserId).toHaveBeenCalledWith(null);
+      rerender(<MobileCallScreen model={{ ...model, focusedUserId: null }} {...props} />);
+      expect(document.querySelector('.mcs-focus-main video')).toBe(model.localVideoRef.current);
+    });
+
+    it('self focus does not leak past the end of the call', () => {
+      const model = baseModel({ participants: remoteParticipants(1), totalParticipants: 2 });
+      const { rerender } = render(<MobileCallScreen model={model} {...props} />);
+      fireEvent.click(document.querySelector('.mcs-grid-cell.is-self')!);
+      rerender(<MobileCallScreen model={{ ...model, isInGroupCall: false }} {...props} />);
+      rerender(<MobileCallScreen model={model} {...props} />);
+      expect(document.querySelector('.mcs-grid')).toBeTruthy();
+      expect(document.querySelector('.mcs-focus')).toBeNull();
+    });
+  });
+
+  describe('local srcObject re-binding', () => {
+    const props = { onBack: vi.fn(), onOpenChat: vi.fn(), onOpenOverflow: vi.fn(), onOpenQuality: vi.fn() };
+    const camera = { id: 'camera' } as unknown as MediaStream;
+    const screenStream = { id: 'screen' } as unknown as MediaStream;
+    afterEach(() => {
+      fakeService.localStreamState = null;
+      fakeService.screenStreamState = null;
+    });
+
+    it('the recreated local <video> gets the stream back after grid ↔ focus transitions', () => {
+      fakeService.localStreamState = camera;
+      const model = baseModel({ participants: remoteParticipants(2), totalParticipants: 3 });
+      const { rerender } = render(<MobileCallScreen model={model} {...props} />);
+      const gridVideo = model.localVideoRef.current!;
+      expect(gridVideo.srcObject).toBe(camera);
+
+      fireEvent.click(document.querySelector('.mcs-grid-cell.is-self')!);
+      const focusVideo = model.localVideoRef.current!;
+      expect(focusVideo).not.toBe(gridVideo);
+      expect(focusVideo.srcObject).toBe(camera);
+
+      fireEvent.click(document.querySelector('.mcs-focus-back')!);
+      expect(model.localVideoRef.current).not.toBe(focusVideo);
+      expect(model.localVideoRef.current!.srcObject).toBe(camera);
+
+      // Удалённый фокус — локальная миниатюра в ленте, и обратно в сетку.
+      rerender(<MobileCallScreen model={{ ...model, focusedUserId: 'u2' }} {...props} />);
+      expect(model.localVideoRef.current!.closest('.mcs-focus-thumbs')).toBeTruthy();
+      expect(model.localVideoRef.current!.srcObject).toBe(camera);
+      rerender(<MobileCallScreen model={{ ...model, focusedUserId: null }} {...props} />);
+      expect(model.localVideoRef.current!.closest('.mcs-grid')).toBeTruthy();
+      expect(model.localVideoRef.current!.srcObject).toBe(camera);
+    });
+
+    it('uses the screen stream while sharing and does not reassign an equal srcObject', () => {
+      fakeService.localStreamState = camera;
+      fakeService.screenStreamState = screenStream;
+      const model = baseModel({ participants: remoteParticipants(1), totalParticipants: 2, isScreenSharing: true });
+      const { rerender } = render(<MobileCallScreen model={model} {...props} />);
+      const el = model.localVideoRef.current!;
+      expect(el.srcObject).toBe(screenStream);
+      expect(el.classList.contains('is-screen')).toBe(true);
+      let writes = 0;
+      const desc = { configurable: true, get: () => screenStream, set: () => { writes += 1; } };
+      Object.defineProperty(el, 'srcObject', desc);
+      rerender(<MobileCallScreen model={{ ...model, micLevel: 0.5 }} {...props} />);
+      expect(writes).toBe(0);
+    });
+  });
+
+  describe('fullscreen button on the focus view', () => {
+    const props = { onBack: vi.fn(), onOpenChat: vi.fn(), onOpenOverflow: vi.fn(), onOpenQuality: vi.fn() };
+    type WebkitVideo = HTMLVideoElement & { webkitEnterFullscreen?: () => void };
+
+    it('requests fullscreen on .mcs-focus-main (not the whole .mcs-focus), incl. while watching a share', () => {
+      const request = vi.mocked(Element.prototype.requestFullscreen);
+      const model = baseModel({
+        participants: remoteParticipants(1),
+        totalParticipants: 2,
+        focusedUserId: 'u2',
+        screenSharers: new Set(['u2']),
+      });
+      render(<MobileCallScreen model={model} {...props} />);
+      request.mockClear();
+      const btn = byLabel('На весь экран')!;
+      expect(btn.closest('.mcs-focus-main')).toBeTruthy();
+      fireEvent.click(btn);
+      expect(request).toHaveBeenCalledOnce();
+      expect(request.mock.contexts[0]).toBe(document.querySelector('.mcs-focus-main'));
+    });
+
+    it('is also available in self focus', () => {
+      const model = baseModel({ participants: remoteParticipants(1), totalParticipants: 2 });
+      render(<MobileCallScreen model={model} {...props} />);
+      fireEvent.click(document.querySelector('.mcs-grid-cell.is-self')!);
+      expect(byLabel('На весь экран')).toBeTruthy();
+    });
+
+    it('falls back to the video\'s webkitEnterFullscreen when requestFullscreen is missing (iPhone)', () => {
+      const original = Element.prototype.requestFullscreen;
+      // @ts-expect-error — эмулируем iPhone Safari без Fullscreen API у элементов
+      delete Element.prototype.requestFullscreen;
+      try {
+        const model = baseModel({ participants: remoteParticipants(1), totalParticipants: 2, focusedUserId: 'u2' });
+        render(<MobileCallScreen model={model} {...props} />);
+        const video = model.focusedVideoRef.current as WebkitVideo;
+        video.webkitEnterFullscreen = vi.fn();
+        fireEvent.click(byLabel('На весь экран')!);
+        expect(video.webkitEnterFullscreen).toHaveBeenCalledOnce();
+      } finally {
+        Element.prototype.requestFullscreen = original;
+      }
+    });
+
+    it('reflects fullscreenchange and exits on the next tap', () => {
+      const exit = vi.fn().mockResolvedValue(undefined);
+      document.exitFullscreen = exit;
+      const model = baseModel({ participants: remoteParticipants(1), totalParticipants: 2, focusedUserId: 'u2' });
+      render(<MobileCallScreen model={model} {...props} />);
+      const main = document.querySelector('.mcs-focus-main')!;
+      Object.defineProperty(document, 'fullscreenElement', { value: main, configurable: true, writable: true });
+      try {
+        act(() => { document.dispatchEvent(new Event('fullscreenchange')); });
+        const btn = byLabel('Выйти из полноэкранного режима')!;
+        expect(btn).toBeTruthy();
+        fireEvent.click(btn);
+        expect(exit).toHaveBeenCalledOnce();
+      } finally {
+        Object.defineProperty(document, 'fullscreenElement', { value: null, configurable: true, writable: true });
+      }
+    });
   });
 
   it('the collapse button calls onBack', () => {
