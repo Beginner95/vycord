@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useState } from 'react';
 import { useT } from '@/i18n';
+import { useMediaDeviceStore } from '@/stores/mediaDeviceStore';
 
 const SUPPORTED = typeof HTMLMediaElement !== 'undefined' && 'setSinkId' in HTMLMediaElement.prototype;
 
@@ -9,25 +10,18 @@ const SUPPORTED = typeof HTMLMediaElement !== 'undefined' && 'setSinkId' in HTML
  * кругу по доступным audiooutput-устройствам и применяет `setSinkId` через
  * переданный `applySinkId` (см. `CallStageModel.applySinkId`, T2).
  *
+ * Список устройств читается из mediaDeviceStore — тот же источник, что у
+ * настроек: псевдоустройства default/communications отфильтрованы, обновление
+ * по devicechange делает вотчер стора.
+ *
  * `supported` требует хотя бы двух устройств: с одним циклический
  * переключатель бессмыслен, кнопка скрывается так же, как при отсутствии
  * `setSinkId` в браузере.
  */
 export function useAudioOutput(applySinkId: (deviceId: string) => void) {
   const t = useT();
-  const [devices, setDevices] = useState<MediaDeviceInfo[]>([]);
+  const devices = useMediaDeviceStore((s) => s.devices.audiooutput);
   const [index, setIndex] = useState(0);
-  const mounted = useRef(true);
-  useEffect(() => () => { mounted.current = false; }, []);
-
-  const refresh = useCallback(async () => {
-    if (!SUPPORTED || !navigator.mediaDevices?.enumerateDevices) return;
-    const all = await navigator.mediaDevices.enumerateDevices().catch(() => []);
-    if (!mounted.current) return;
-    setDevices(all.filter((d) => d.kind === 'audiooutput'));
-  }, []);
-
-  useEffect(() => { void refresh(); }, [refresh]);
 
   const cycle = useCallback(() => {
     if (devices.length === 0) return;
