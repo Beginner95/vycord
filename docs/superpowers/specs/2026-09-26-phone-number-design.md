@@ -14,39 +14,68 @@
 SMS-верификация **не вводится** на этом этапе: SMS-провайдер не подключён.
 Принятый риск — кто угодно может первым занять чужой номер. Митигации:
 
-- номер уникален и существует только как ключ поиска — нигде в UI и API не
-  отображается (кроме маскированного вида в собственном профиле);
+- номер хранится зашифрованным и существует только как ключ поиска — нигде в
+  UI и API не отображается (кроме маскированного вида в собственном профиле);
 - колонка `phone_verified_at` (nullable) создаётся сразу — подключение
   SMS-верификации позже не потребует миграции и ломки API;
-- Rate limit на PUT phone (см. «Безопасность»).
+- rate limit на PUT phone (см. «Безопасность»).
 
 ## Хранилище
 
 Миграция `026_phone.up.sql`:
 
 ```sql
-ALTER TABLE users ADD COLUMN phone TEXT UNIQUE;
+ALTER TABLE users ADD COLUMN phone_index TEXT UNIQUE;
+ALTER TABLE users ADD COLUMN phone_cipher TEXT;
 ALTER TABLE users ADD COLUMN allow_search_by_phone BOOLEAN NOT NULL DEFAULT true;
 ALTER TABLE users ADD COLUMN phone_verified_at TIMESTAMPTZ;
-CREATE INDEX idx_users_phone ON users(phone);
 ```
 
-`026_phone.down.sql` — снять колонки и индекс.
+`026_phone.down.sql` — снять колонки.
 
 Дефолт `allow_search_by_phone = true` согласован с открытыми дефолтами
 существующих настроек (`allow_friend_requests = 'everyone'`, `show_last_seen = true`).
 
 `domain.User`:
-- `Phone *string` с `json:"-"` — не попадает ни в один публичный ответ;
+- `PhoneIndex *string` с `json:"-"` — детерминированный поисковый ключ;
+- `PhoneCipher *string` с `json:"-"` — зашифрованное значение;
 - `AllowSearchByPhone bool` с `json:"-"` — как остальные privacy-поля, наружу
   только через `meResponse`;
 - `PhoneVerifiedAt *time.Time` с `json:"-"` — не используется в этом этапе,
   задел под SMS.
 
+## Шифрование номера
+
+Открытым текстом номер в БД не хранится никогда. Схема «слепой индекс +
+AEAD»: детерминированный поиск (тот же номер → то же значение, иначе
+UNIQUE и поиск сломались бы) совмещён с настоящим шифрованием значения.
+Детерминированные шифры (ECB, фиксированный IV у GCM) отвергнуты — они
+светят паттерны; вместо этого:
+
+- **Ключ**: 32 байта (AES-256) из env `PHONE_ENC_KEY` (hex, 64 символа).
+  Один на все номера. **Обязателен** — fail-fast при старте, по образцу
+  `JWT_SECRET`/`OTP_SECRET` в `config.New()`. Новое поле
+  `config.Config.PhoneEncKey`. Ротация ключа — не в скоупе (смена ключа
+  потребовала бы перешифрования всех номеров).
+- **`phone_index`**: `hex(HMAC-SHA256(key, "phone:" + нормализованный_номер))`.
+  По нему — поиск и проверка уникальности. Детерминирован.
+- **`phone_cipher`**: `base64(nonce || ciphertext)` от AES-256-GCM. Nonce
+  случайный (12 байт, `crypto/rand`) на каждое шифрование — одинаковые
+  номера в БД неразличимы по паттерну.
+- **Зависимости**: только stdlib (`crypto/aes`, `crypto/cipher`,
+  `crypto/hmac`, `crypto/sha256`, `crypto/rand`) — ноль новых go-зависимостей.
+- **Расшифровка «при желании»**: зная `PHONE_ENC_KEY`, любой AES-256-GCM
+  инструмент расшифровывает любой `phone_cipher` (формат документирован
+  выше). Отдельная CLI-утилита в скоуп не входит.
+
+Функции (usecase или pkg `phonecrypto`):
+- `EncryptPhone(key, normalized) (index, cipher string, err error)`;
+- `DecryptPhone(key, cipher string) (normalized string, err error)`;
+- `MaskPhone(normalized string) string` — маска для показа.
+
 ## Нормализация номера
 
-Единственный источник истины — сервер. Одна функция в usecase
-`NormalizePhone(s string) (string, error)`:
+Единственный источник истины — сервер. `NormalizePhone(s string) (string, error)`:
 
 1. Убрать пробелы, тире, скобки.
 2. Ведущая `8` → `+7`.
@@ -56,26 +85,39 @@ CREATE INDEX idx_users_phone ON users(phone);
 Применяется и при установке номера, и при поиске в `SendRequest` — ввод
 `8 912 345-67-89` находит сохранённый `+79123456789`.
 
+## Маска для показа
+
+`MaskPhone(normalized)`: первые 6 символов (`+7` + 4 цифры) + `" ••• •• "` +
+последние 2 цифры. Пример: `+79123456789` → `+79123 ••• •• 89`.
+В `meResponse` возвращается готовая маска (`phone_masked`) — открытый номер
+сервер не покидает.
+
 ## Серверные эндпоинты
 
 ### Установка/удаление номера
 
 - `PUT /api/v1/users/me/phone`, body `{"phone": "..."}`:
   - нормализация; невалидный номер → 400 `phone_invalid`;
-  - номер занят другим пользователем → 409 `phone_taken`
+  - `phone_index` уже принадлежит другому пользователю → 409 `phone_taken`
     (константа в `httperr.go`, по аналогии с `email_taken`);
   - идемпотентность: повторный PUT тем же номером → 200;
   - `phone_verified_at` остаётся NULL (нет верификации);
-  - ответ — `meResponse`.
+  - ответ — `meResponse` c `phone_masked`.
 - `DELETE /api/v1/users/me/phone`:
-  - обнуляет номер (освобождает для других);
+  - обнуляет `phone_index` и `phone_cipher` (освобождает номер);
   - без номера → идемпотентный 200;
   - ответ — `meResponse`.
 - Rate limit: отдельный `ratelimit.Limiter` с ключом по user ID на PUT
   (для DELETE не нужен).
 
-Механику обновления: поле `phone` добавляется в `allowedUpdateColumns` в
-`repository/postgres/user.go`.
+Реализация обновления — через `Repository` с явными колонками
+(`phone_index`, `phone_cipher`) и методом поиска по индексу.
+
+### Отдача маски
+
+`meResponse` (handler/user.go) получает `phone_masked: string | null`:
+расшифровка `phone_cipher` → `MaskPhone` → включить в ответ. Открытый номер
+в ответах не появляется нигде.
 
 ### Запрос в друзья
 
@@ -86,7 +128,8 @@ CREATE INDEX idx_users_phone ON users(phone);
 
 - Handler определяет ключ по наличию поля (не по форме строки).
 - Usecase `SendRequest`:
-  - если `phone` — нормализация + `GetByPhone`, иначе `GetByUsername`;
+  - если `phone` — нормализация → `phone_index` → `GetByPhoneIndex`, иначе
+    `GetByUsername`;
   - общий путь дальше без изменений: `canInteract`, `GetByPair`/`Create`,
     WS-пуши `friend_request` / `friend_added`.
 - Поиск по номеру при выключенном `allow_search_by_phone` → 404
@@ -100,18 +143,22 @@ CREATE INDEX idx_users_phone ON users(phone);
 
 ## Безопасность
 
-- Номер не экспонируется: `json:"-"` в `domain.User`; нет в `UserBrief`,
-  `FriendProfile`, `SearchUsers`, списках друзей, `meResponse`.
-- Номер нигде не логируется.
+- Номер **в открытом виде**: не в БД (только index + cipher), не в ответах
+  (только `phone_masked` в `meResponse`), не в сети, не в JS-бundle, не в
+  логах. Покидает сервер в открытом виде только внутри процесса при его
+  установке (и в `phone_cipher`).
+- Утечка БД без `PHONE_ENC_KEY` → номера нечитаемы; одинаковые номера
+  неразличимы по шифротексту; уникальность и поиск не зависят от расшифровки.
 - Тумблер выключен → непрозрачный 404.
 - Смена номера освобождает старый сразу (без верификации иначе нельзя).
+- `PHONE_ENC_KEY` обязателен при старте (fail-fast), не логируется.
 
 ## Клиент
 
 ### Типы и API
 
-- `src/types/index.ts`: `User.allow_search_by_phone: boolean`.
-  Поле `phone` в тип не добавляется — значение номера клиенту не нужно.
+- `src/types/index.ts`: `User.allow_search_by_phone: boolean`,
+  `phone_masked?: string | null`. Открытый номер клиенту не приходит.
 - `src/services/api.ts`:
   - `updatePhone(phone)` → PUT `/users/me/phone`;
   - `deletePhone()` → DELETE `/users/me/phone`;
@@ -119,12 +166,13 @@ CREATE INDEX idx_users_phone ON users(phone);
 
 ### Настройки профиля (`ProfileAccountBody.tsx` + CSS)
 
-- Строка «Номер телефона» с показом в маскированном виде (`+7 912 ••• •• 89`).
+- Строка «Номер телефона» с показом `phone_masked` из профиля.
 - Кнопки «Добавить» / «Изменить» — inline-инпут, применение по Enter/кнопке.
 - Кнопка «Удалить» (без confirm).
 - Ошибки `phone_invalid` / `phone_taken` через `apiErrorText` → i18n
   `errors.phone_*`.
-- Без оптимистичного обновления (ждём ответа сервера).
+- Без оптимистичного обновления (ждём ответа сервера); после успешного
+  PUT/DELETE → `updateUser({ phone_masked })` в authStore.
 - Строка рендерится и в desktop, и в mobile — компонент общий
   (`SettingsScreen` монтирует тот же `ProfileAccountBody`).
 
@@ -156,6 +204,12 @@ CREATE INDEX idx_users_phone ON users(phone);
 
 ### Сервер (Go)
 
+- Крипта (pkg `phonecrypto` или usecase):
+  - round-trip: `EncryptPhone` → `DecryptPhone` = исходный номер;
+  - детерминизм: тот же номер → тот же `phone_index`;
+  - разные nonce: два шифрования одного номера → разные `phone_cipher`;
+  - неверный ключ → ошибка расшифровки;
+  - `MaskPhone`: `+79123456789` → `+79123 ••• •• 89`.
 - `NormalizePhone`: `8 912 345-67-89` → `+79123456789`; `+7 (912) 345-67-89`;
   инвалиды (буквы, <11 цифр, >15 цифр, пусто).
 - `usecase/user`: PUT — успех, занятый номер (`ErrPhoneTaken`),
@@ -164,7 +218,10 @@ CREATE INDEX idx_users_phone ON users(phone);
   сам себе → `ErrSelfFriendship`, нормализация при поиске.
 - `handler/friend`: body с `phone`; оба ключа → 400 `invalid_request_body`;
   невалидный номер → 400.
-- `handler/user`: PUT/DELETE phone — 200/409/400, авто-нормализация.
+- `handler/user`: PUT/DELETE phone — 200/409/400, авто-нормализация,
+  в `meResponse` появляется `phone_masked`, открытый номер никогда не
+  присутствует в JSON.
+- `config`: `PHONE_ENC_KEY` без значения → ошибка; hex 64 симв. → 32 байта.
 
 ### Клиент
 
@@ -180,3 +237,6 @@ CREATE INDEX idx_users_phone ON users(phone);
 - SMS/иная верификация номера (задел — `phone_verified_at`).
 - Поиск по номеру в других местах (например, общий поиск пользователей).
 - Отображение номера другим пользователям (никогда).
+- CLI-утилита расшифровки (формат документирован, расшифровать можно любым
+  AES-256-GCM инструментом при наличии `PHONE_ENC_KEY`).
+- Ротация/смена `PHONE_ENC_KEY` (требует перешифрования всех номеров).
