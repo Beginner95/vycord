@@ -1,10 +1,13 @@
 import { useState, useEffect, useRef } from 'react';
-import { ChevronDown, MessageSquare, Phone, LogIn, LogOut } from 'lucide-react';
+import { MessageSquare, Phone, LogIn, LogOut } from 'lucide-react';
 import { noiseCancellationService, NoiseCancellationService } from '@/services/noiseCancellation';
 import { audioService } from '@/services/audio';
 import { useMicLevel } from '@/hooks/useMicLevel';
 import { useT } from '@/i18n';
 import { logger } from '@/utils/logger';
+import { DeviceSelect } from '@/components/settings/DeviceSelect';
+import { useMediaDeviceStore } from '@/stores/mediaDeviceStore';
+import { buildMicConstraints } from '@/services/mediaDevices';
 
 export function AudioSettings() {
   const t = useT();
@@ -21,6 +24,14 @@ export function AudioSettings() {
   // до того как React успеет применить setState (см. toggleMicTest).
   const micTestPending = useRef(false);
   const level = useMicLevel(testStream, false);
+
+  const ensurePermission = useMediaDeviceStore((s) => s.ensurePermission);
+
+  // Метки устройств появляются у enumerateDevices только после выдачи
+  // разрешения — тихо запрашиваем микрофон при открытии раздела «Аудио».
+  useEffect(() => {
+    void ensurePermission('audioinput');
+  }, [ensurePermission]);
 
   useEffect(() => {
     setIsSupported(NoiseCancellationService.isSupported());
@@ -78,7 +89,12 @@ export function AudioSettings() {
       }
       setMicError(false);
       try {
-        setTestStream(await navigator.mediaDevices.getUserMedia({ audio: true }));
+        try {
+          setTestStream(await navigator.mediaDevices.getUserMedia({ audio: buildMicConstraints() }));
+        } catch {
+          // Выбранное устройство занято/выдрано — пробуем системный дефолт.
+          setTestStream(await navigator.mediaDevices.getUserMedia({ audio: true }));
+        }
       } catch (err) {
         logger.error('Mic test getUserMedia failed:', err, { module: 'settings' });
         setMicError(true);
@@ -273,14 +289,11 @@ export function AudioSettings() {
             <span className="setting-row-title">{t('settings.inputDevice')}</span>
             <p className="setting-row-desc">{t('settings.inputDeviceDescription')}</p>
           </div>
-          <span className="select-wrap">
-            <select className="select-control" aria-label={t('settings.inputDevice')}>
-              <option>{t('settings.defaultMicrophone')}</option>
-            </select>
-            <span className="select-chevron">
-              <ChevronDown size={14} strokeWidth={1.8} />
-            </span>
-          </span>
+          <DeviceSelect
+            kind="audioinput"
+            label={t('settings.inputDevice')}
+            defaultLabel={t('settings.defaultMicrophone')}
+          />
         </div>
 
         <div className="setting-row">
@@ -288,14 +301,11 @@ export function AudioSettings() {
             <span className="setting-row-title">{t('settings.outputDevice')}</span>
             <p className="setting-row-desc">{t('settings.outputDeviceDescription')}</p>
           </div>
-          <span className="select-wrap">
-            <select className="select-control" aria-label={t('settings.outputDevice')}>
-              <option>{t('settings.defaultSpeakers')}</option>
-            </select>
-            <span className="select-chevron">
-              <ChevronDown size={14} strokeWidth={1.8} />
-            </span>
-          </span>
+          <DeviceSelect
+            kind="audiooutput"
+            label={t('settings.outputDevice')}
+            defaultLabel={t('settings.defaultSpeakers')}
+          />
         </div>
       </div>
     </>
