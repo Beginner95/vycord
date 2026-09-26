@@ -54,3 +54,13 @@
   display: flex;
   gap: 10px;
 }
+
+.phone-actions {
+  display: flex;
+  gap: 10px;
+}
+
+.phone-edit-row {
+  display: flex;
+  gap: 8px;
+}

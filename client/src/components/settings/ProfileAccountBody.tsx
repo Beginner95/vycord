@@ -21,6 +21,46 @@ export function ProfileAccountBody() {
   const [removing, setRemoving] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  const [phoneInput, setPhoneInput] = useState('');
+  const [editingPhone, setEditingPhone] = useState(false);
+  const [phoneSaving, setPhoneSaving] = useState(false);
+  const [phoneError, setPhoneError] = useState<string | null>(null);
+
+  const closePhoneEditor = () => {
+    setEditingPhone(false);
+    setPhoneInput('');
+    setPhoneError(null);
+  };
+
+  const savePhone = async () => {
+    const value = phoneInput.trim();
+    if (!value) return;
+    setPhoneSaving(true);
+    setPhoneError(null);
+    try {
+      const updated = await apiService.updatePhone(value);
+      updateUser({ phone_masked: updated.phone_masked ?? null });
+      closePhoneEditor();
+    } catch (err) {
+      setPhoneError(apiErrorText(err, t));
+    } finally {
+      setPhoneSaving(false);
+    }
+  };
+
+  const removePhone = async () => {
+    setPhoneSaving(true);
+    setPhoneError(null);
+    try {
+      const updated = await apiService.deletePhone();
+      updateUser({ phone_masked: updated.phone_masked ?? null });
+    } catch (err) {
+      setPhoneError(apiErrorText(err, t));
+    } finally {
+      setPhoneSaving(false);
+    }
+  };
+
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     e.target.value = '';
@@ -104,6 +144,48 @@ export function ProfileAccountBody() {
             <p className="setting-row-desc">{user?.email}</p>
           </div>
         </div>
+        <div className="setting-row">
+          <div className="setting-row-info">
+            <span className="setting-row-title">{t('settings.phoneLabel')}</span>
+            <p className="setting-row-desc">
+              {user?.phone_masked ?? t('settings.phoneNotSet')}
+            </p>
+          </div>
+          {editingPhone ? (
+            <div className="phone-edit-row">
+              <input
+                className="input"
+                value={phoneInput}
+                onChange={(e) => { setPhoneInput(e.target.value); setPhoneError(null); }}
+                placeholder="+7 …"
+                autoFocus
+              />
+              <button
+                type="button"
+                className="btn btn-primary"
+                onClick={savePhone}
+                disabled={phoneSaving || !phoneInput.trim()}
+              >
+                {t('settings.phoneSave')}
+              </button>
+              <button type="button" className="btn btn-ghost" onClick={closePhoneEditor}>
+                {t('common.cancel')}
+              </button>
+            </div>
+          ) : (
+            <span className="phone-actions">
+              <button type="button" className="btn btn-secondary" onClick={() => setEditingPhone(true)}>
+                {user?.phone_masked ? t('settings.phoneEdit') : t('settings.phoneAdd')}
+              </button>
+              {user?.phone_masked && (
+                <button type="button" className="btn btn-ghost" onClick={removePhone} disabled={phoneSaving}>
+                  {t('settings.phoneRemove')}
+                </button>
+              )}
+            </span>
+          )}
+        </div>
+        {phoneError && <p className="setting-warning">{phoneError}</p>}
       </div>
 
       {cropFile && (
