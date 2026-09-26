@@ -5,6 +5,7 @@
   gap: 8px;
   padding: 4px 0 18px;
   text-align: center;
+  border-bottom: 1px solid var(--line);
 }
 
 .about-logo {

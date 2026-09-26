@@ -7,7 +7,9 @@ import { join, relative } from 'node:path';
 
 const SRC = new URL('../src', import.meta.url).pathname;
 
-// Файлы, где русский текст — это комментарии и отладочный вывод, а не интерфейс.
+// Файлы, где русский текст — это комментарии и отладочный вывод, а не интерфейс,
+// или где пропускаем намеренно: AboutBody.tsx содержит бренд «Vycord» вне i18n
+// (имя собственное, дизайн-система), который эвристика JSX-текста ловит ложно.
 const SKIP_FILES = [
   'components/settings/AboutBody.tsx',
   'services/noiseCancellation.ts',
