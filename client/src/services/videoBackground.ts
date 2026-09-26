@@ -179,9 +179,8 @@ export class VideoBackgroundEngine {
     video.srcObject = new MediaStream([camera]);
     this.inputVideo = video;
     await video.play().catch(() => {});
-    this.canvasSizeFromVideo();
-
     if (this.mode !== 'none') {
+      this.canvasSizeFromVideo();
       await this.loadModel();
       const bg = this.backgroundUrl;
       if (bg) void this.ensureBackground(bg);
@@ -196,6 +195,7 @@ export class VideoBackgroundEngine {
 
     if (mode === 'none' || !this.inputStream) {
       this.stopLoop();
+      this.teardownPipeline();
       return;
     }
     if (!this.segmenter) {
