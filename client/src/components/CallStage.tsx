@@ -1,17 +1,22 @@
 import { createPortal } from 'react-dom';
+import { useCallback, useRef, useState } from 'react';
 import {
-  Maximize2, Minimize2, Mic, MicOff, Video, VideoOff,
+  Layers, Maximize2, Minimize2, Mic, MicOff, Video, VideoOff,
   MonitorUp, PhoneOff, X, LayoutGrid, UserPlus,
 } from 'lucide-react';
 import { useCallStageModel } from './useCallStageModel';
 import { ConnectionIndicator } from './call/ConnectionIndicator';
 import { StageTimer } from './call/StageTimer';
 import { RemoteParticipantTile } from './call/RemoteParticipantTile';
+import { BackgroundPicker } from './call/BackgroundPicker';
 import { GuestInvitePopover } from './GuestInvitePopover';
 import { GuestLobbyToast } from './GuestLobbyToast';
 import { ScreenSourcePicker, ScreenQualityPicker } from './ScreenSharePicker';
 import { Avatar } from './Avatar';
 import { useT, useTp } from '@/i18n';
+import { useVideoEffects } from '@/hooks/useVideoEffects';
+import { groupCallService } from '@/services/groupCall';
+import { useBackgroundStore } from '@/stores/backgroundStore';
 import { stageGridClass, SPEAKING_THRESHOLD } from '@/utils/callStage';
 import './CallStage.css';
 
@@ -34,6 +39,20 @@ export function CallStage({ onLeave, extraControls }: CallStageProps) {
   const t = useT();
   const tp = useTp();
   const m = useCallStageModel({ onLeave });
+
+  const [bgPickerOpen, setBgPickerOpen] = useState(false);
+  const bgBtnRef = useRef<HTMLButtonElement>(null);
+  const bgMode = useBackgroundStore((s) => s.mode);
+  const bgId = useBackgroundStore((s) => s.backgroundId);
+
+  useVideoEffects(
+    m.isInGroupCall ? groupCallService.localStreamState : null,
+    bgMode,
+    bgId,
+    useCallback((track) => {
+      void groupCallService.setCameraOutput(track);
+    }, []),
+  );
 
   if (!m.isInGroupCall) return null;
 
@@ -335,6 +354,18 @@ export function CallStage({ onLeave, extraControls }: CallStageProps) {
         </div>
         <div className="stage-ctl">
           <button
+            ref={bgBtnRef}
+            className={`stage-ctl-btn${bgPickerOpen ? ' is-on' : ''}`}
+            onMouseDown={(e) => e.stopPropagation()}
+            onClick={() => setBgPickerOpen((o) => !o)}
+            title={t('call.bgMenu')}
+          >
+            <Layers size={16} strokeWidth={1.8} />
+          </button>
+          <span className="stage-ctl-label">{t('call.bgMenu')}</span>
+        </div>
+        <div className="stage-ctl">
+          <button
             className={`stage-ctl-btn${m.isScreenSharing ? ' is-on' : ''}`}
             onClick={() => { void m.handleToggleScreenShare(); }}
             title={m.isScreenSharing ? t('call.stopScreenShare') : t('call.shareScreen')}
@@ -380,6 +411,9 @@ export function CallStage({ onLeave, extraControls }: CallStageProps) {
           position={m.invitePosition}
           onClose={m.closeInvitePopover}
         />
+      )}
+      {bgPickerOpen && (
+        <BackgroundPicker anchorRef={bgBtnRef} onClose={() => setBgPickerOpen(false)} />
       )}
     </div>
   );

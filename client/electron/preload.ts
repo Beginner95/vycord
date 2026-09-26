@@ -3,6 +3,9 @@ import { contextBridge, ipcRenderer } from 'electron';
 // With sandbox:true, Node.js modules (path, fs) are unavailable in preload.
 // Main process computes the correct audio URL and returns it synchronously.
 const audioAssetsUrl: string = ipcRenderer.sendSync('get-audio-assets-url-sync');
+// Sync IPC: то же для wasm+модели MediaPipe (VYC-100), рендерер фетчит
+// файлы напрямую — как уже делает audioAssetsUrl (noiseCancellation.ts).
+const visionAssetsUrl: string = ipcRenderer.sendSync('get-vision-assets-url-sync');
 
 contextBridge.exposeInMainWorld('electronAPI', {
   minimizeWindow: () => ipcRenderer.invoke('window:minimize'),
@@ -15,6 +18,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getMediaAccessStatus: () => ipcRenderer.invoke('get-media-access-status'),
   requestMediaAccess: () => ipcRenderer.invoke('request-media-access'),
   audioAssetsUrl,
+  visionAssetsUrl,
   setLocale: (locale: string) => ipcRenderer.send('locale:changed', locale),
   setTheme: (theme: string) => ipcRenderer.send('theme:changed', theme),
   update: {

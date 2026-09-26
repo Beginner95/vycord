@@ -1,11 +1,14 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Mic, MicOff, Phone, PhoneOff, Video, VideoOff } from 'lucide-react';
+import { Layers, Mic, MicOff, Phone, PhoneOff, Video, VideoOff } from 'lucide-react';
+import { BackgroundPicker } from '@/components/call/BackgroundPicker';
 import { useAuthStore } from '@/stores/authStore';
 import { callService } from '@/services/call';
 import { audioService } from '@/services/audio';
 import { wsService } from '@/services/websocket';
 import { useT } from '@/i18n';
 import { useMicLevel } from '@/hooks/useMicLevel';
+import { useVideoEffects } from '@/hooks/useVideoEffects';
+import { useBackgroundStore } from '@/stores/backgroundStore';
 import { SPEAKING_THRESHOLD } from '@/utils/callStage';
 import './CallUI.css';
 
@@ -30,6 +33,10 @@ export function CallUI() {
   const [error, setError] = useState<string | null>(null);
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
   const localVideoRef = useRef<HTMLVideoElement>(null);
+  const [bgPickerOpen, setBgPickerOpen] = useState(false);
+  const bgBtnRef = useRef<HTMLButtonElement>(null);
+  const bgMode = useBackgroundStore((s) => s.mode);
+  const bgId = useBackgroundStore((s) => s.backgroundId);
 
   useEffect(() => {
     callService.init({
@@ -153,6 +160,15 @@ export function CallUI() {
     return () => { unsubMuted(); unsubUnmuted(); };
   }, [activeCall]);
 
+  useVideoEffects(
+    activeCall ? callService.localStreamState : null,
+    bgMode,
+    bgId,
+    useCallback((track) => {
+      void callService.setCameraOutput(track);
+    }, []),
+  );
+
   // If no active call or incoming call, don't render anything
   if (!activeCall && !incomingCall) {
     return null;
@@ -256,12 +272,27 @@ export function CallUI() {
               </button>
               <span className="p2p-ctl-label">{t('call.ctlCamera')}</span>
             </div>
+            <div className="p2p-ctl">
+              <button
+                ref={bgBtnRef}
+                className={`p2p-ctl-btn${bgPickerOpen ? ' is-on' : ''}`}
+                onMouseDown={(e) => e.stopPropagation()}
+                onClick={() => setBgPickerOpen((o) => !o)}
+                title={t('call.bgMenu')}
+              >
+                <Layers size={16} strokeWidth={1.8} />
+              </button>
+              <span className="p2p-ctl-label">{t('call.bgMenu')}</span>
+            </div>
             <div className="p2p-ctl-divider" />
             <button className="p2p-leave-btn" onClick={handleEndCall} title={t('call.endCall')}>
               <PhoneOff size={16} strokeWidth={1.8} />
               {t('call.leaveLabel')}
             </button>
           </div>
+          {bgPickerOpen && (
+            <BackgroundPicker anchorRef={bgBtnRef} onClose={() => setBgPickerOpen(false)} />
+          )}
         </div>
       )}
 

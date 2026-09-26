@@ -26,6 +26,10 @@ type Config struct {
 	TURNURLs               []string
 	TURNTTL                time.Duration
 	UploadDir              string
+	// BackgroundsDir — каталог картинок-фонов для видеозвонков (jpg/jpeg/png/webp).
+	// BackgroundsURLPrefix — префикс публичной раздачи файлов фонов.
+	BackgroundsDir       string
+	BackgroundsURLPrefix string
 	// SFUInternalURL/SFUInternalSecret configure the voice-presence
 	// reconciliation worker (VYC-78 step 4): base URL of the SFU's internal
 	// HTTP API and the shared secret /presence requires (see
@@ -121,6 +125,8 @@ func New() (*Config, error) {
 		TURNURLs:               splitList(getEnv("TURN_URLS", "")),
 		TURNTTL:                parseDuration(getEnv("TURN_CREDENTIAL_TTL", "12h")),
 		UploadDir:              getEnv("UPLOAD_DIR", "./uploads"),
+		BackgroundsDir:         getEnv("BACKGROUNDS_DIR", "./backgrounds"),
+		BackgroundsURLPrefix:   getEnv("BACKGROUNDS_URL_PREFIX", "/backgrounds"),
 		SFUInternalURL:         getEnv("SFU_INTERNAL_URL", ""),
 		SFUInternalSecret:      getEnv("SFU_INTERNAL_SECRET", ""),
 		AttachmentLinkTTL:      parseDuration(getEnv("ATTACHMENT_LINK_TTL", "168h")),

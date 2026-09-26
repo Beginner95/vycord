@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import { useT } from '@/i18n';
 import { DeviceSelect } from '@/components/settings/DeviceSelect';
 import { useMediaDeviceStore } from '@/stores/mediaDeviceStore';
+import { BackgroundSettings } from '@/components/settings/BackgroundSettings';
 
 export function VideoSettings() {
   const t = useT();
@@ -28,6 +29,8 @@ export function VideoSettings() {
           defaultLabel={t('settings.defaultCamera')}
         />
       </div>
+
+      <BackgroundSettings />
     </div>
   );
 }

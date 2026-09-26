@@ -18,6 +18,8 @@ interface WebRTCCallbacks {
 class CallService {
   private peerConnection: RTCPeerConnection | null = null;
   private localStream: MediaStream | null = null;
+  /** Исходный камерный трек — целевой для setCameraOutput(null). */
+  private cameraTrack: MediaStreamTrack | null = null;
   private remoteStream: MediaStream | null = null;
   private currentCallId: string | null = null;
   private remoteUserId: string | null = null;
@@ -59,6 +61,7 @@ class CallService {
         const rawStream = await acquireUserMedia();
         if (rawStream) {
           this.localStream = await noiseCancellationService.createChain(rawStream);
+          this.cameraTrack = this.localStream.getVideoTracks()[0] ?? null;
           this.localStream.getVideoTracks().forEach((t) => { t.enabled = false; });
           this._microphoneAvailable = this.localStream.getAudioTracks().length > 0;
         } else {
@@ -129,6 +132,7 @@ class CallService {
       if (rawStream) {
         try {
           this.localStream = await noiseCancellationService.createChain(rawStream);
+          this.cameraTrack = this.localStream.getVideoTracks()[0] ?? null;
           this.localStream.getVideoTracks().forEach((t) => { t.enabled = false; });
           this._microphoneAvailable = this.localStream.getAudioTracks().length > 0;
         } catch {
@@ -203,6 +207,29 @@ class CallService {
       return !videoTrack.enabled; // returns true if muted
     }
     return false;
+  }
+
+  /**
+   * Подменяет видео-трек, уходящий собеседнику (VYC-100): replaceTrack на
+   * видео-сендере + removeTrack/addTrack в localStream, чтобы превью и
+   * остальная логика (мьют, статистика) всегда видели актуальный трек.
+   * null — вернуть исходный камерный трек. Аудио не трогается никогда.
+   */
+  async setCameraOutput(track: MediaStreamTrack | null): Promise<void> {
+    const target = track ?? this.cameraTrack;
+    if (!this.localStream || !target) return;
+    const current = this.localStream.getVideoTracks()[0];
+    if (current === target) return;
+
+    const sender = this.peerConnection?.getSenders().find((s) => s.track?.kind === 'video') ?? null;
+    try {
+      if (sender) await sender.replaceTrack(target);
+    } catch {
+      return; // подмена не удалась — оставляем как было
+    }
+    if (current) this.localStream.removeTrack(current);
+    target.enabled = current ? current.enabled : true;
+    this.localStream.addTrack(target);
   }
 
   private async createPeerConnection(): Promise<void> {
@@ -308,8 +335,13 @@ class CallService {
       // цепочки (video-only fallback) releaseChain — no-op.
       noiseCancellationService.releaseChain(this.localStream.id);
       this.localStream.getTracks().forEach((track) => track.stop());
+      // Оригинальный камерный трек при активном эффекте уже не в localStream
+      // (подменён канвас-треком) — стопаем его отдельно, иначе камера
+      // продолжит светиться после завершения звонка. stop() идемпотентен.
+      this.cameraTrack?.stop();
       this.localStream = null;
     }
+    this.cameraTrack = null;
     if (this.peerConnection) {
       this.peerConnection.close();
       this.peerConnection = null;

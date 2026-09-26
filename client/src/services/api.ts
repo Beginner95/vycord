@@ -45,6 +45,13 @@ export type OtpVerifyResponse =
   | { access_token: string; refresh_token: string; user: User }
   | { status: 'username_required' };
 
+/** Элемент списка виртуальных фонов (VYC-100). url — относительный; абсолютный резолв делает стор. */
+export interface CallBackground {
+  id: string;
+  name: string;
+  url: string;
+}
+
 /**
  * Текст ошибки API для показа пользователю.
  *
@@ -810,6 +817,12 @@ class ApiService {
   /** Свежая подпись для вложения — им чинится протухшая ссылка на картинку. */
   async getAttachment(id: string) {
     return this.request<Attachment>(`/api/v1/attachments/${id}`);
+  }
+
+  // Backgrounds (VYC-100)
+  async fetchBackgrounds(): Promise<CallBackground[]> {
+    const data = await this.request<{ backgrounds: CallBackground[] }>('/api/v1/backgrounds');
+    return data.backgrounds ?? [];
   }
 }
 

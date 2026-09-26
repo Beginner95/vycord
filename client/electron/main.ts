@@ -181,6 +181,19 @@ ipcMain.on('get-audio-assets-url-sync', (event) => {
   event.returnValue = `file://${normalized}/`;
 });
 
+// Sync IPC: каталог wasm/модели MediaPipe Video Background (VYC-100).
+// В проде файлы лежат в app.asar.unpacked (asarUnpack), потому что
+// fetch(file://) из asar в вашей версии Chromium не работает. В dev —
+// это просто каталог public/, который раздаёт vite.
+ipcMain.on('get-vision-assets-url-sync', (event) => {
+  if (isDev) {
+    event.returnValue = '/vision/';
+    return;
+  }
+  const visionDir = path.join(process.resourcesPath, 'app.asar.unpacked', 'dist', 'vision');
+  event.returnValue = `file://${visionDir.replace(/\\/g, '/')}/`;
+});
+
 ipcMain.handle('window:minimize', () => {
   mainWindow?.minimize();
 });

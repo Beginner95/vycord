@@ -220,6 +220,8 @@ class GroupCallService {
   // Refreshed on every joinGroupCall; TURN entries carry ephemeral credentials.
   private iceServers: RTCIceServer[] = STUN_SERVERS;
   private localStream: MediaStream | null = null;
+  /** Исходный камерный трек — целевой для setCameraOutput(null). */
+  private cameraTrack: MediaStreamTrack | null = null;
 
   private screenStream: MediaStream | null = null;
   // Dedicated senders for the screen-share slots pre-provisioned in
@@ -1192,6 +1194,32 @@ class GroupCallService {
     return !t.enabled; // true = video off
   }
 
+  /**
+   * Подменяет камерный видео-трек на эффект-трек (VYC-100): replaceTrack на
+   * сендере камеры + removeTrack/addTrack в localStream — превью, мьют,
+   * placeholder и статистика видят актуальный трек. null — вернуть исходный
+   * камерный трек. Аудио не трогается никогда.
+   */
+  async setCameraOutput(track: MediaStreamTrack | null): Promise<void> {
+    const stream = this.localStream;
+    const current = stream?.getVideoTracks()[0] ?? null;
+    if (!stream || !current) return;
+    if (this.cameraTrack === null) this.cameraTrack = current;
+    const target = track ?? this.cameraTrack;
+    if (target === current) return;
+
+    const sender = this.pc?.getSenders().find((s) => s.track === current) ?? null;
+    try {
+      if (sender) await sender.replaceTrack(target);
+    } catch {
+      return;
+    }
+    stream.removeTrack(current);
+    target.enabled = current.enabled;
+    stream.addTrack(target);
+    gcLog(this.currentUserId, 'camera output swapped', { effect: track !== null });
+  }
+
   // ── Background audio diagnostics (VYC-96, read-only) ──────────────────────
   // Used only by the mobile shell's useBackgroundAudioDiagnostics.
 
@@ -1366,6 +1394,9 @@ class GroupCallService {
     if (track !== old) {
       cur.removeTrack(old);
       cur.addTrack(track);
+      // Свежий трек — новый «исходный» для setCameraOutput(null): старый
+      // уже остановлен, откат на него отдал бы чёрный кадр.
+      if (this.cameraTrack === old) this.cameraTrack = track;
     }
     if (this.cameraPlaceholder === placeholder) {
       placeholder?.stop();
@@ -2955,8 +2986,13 @@ class GroupCallService {
       // и снимает keepAlive-поллинг (всё это теперь живёт внутри сервиса).
       noiseCancellationService.releaseChain(this.localStream.id);
       this.localStream.getTracks().forEach((t) => t.stop());
+      // Оригинальный камерный трек при активном эффекте уже не в localStream
+      // (подменён канвас-треком) — стопаем его отдельно, иначе камера
+      // продолжит светиться после завершения звонка. stop() идемпотентен.
+      this.cameraTrack?.stop();
       this.localStream = null;
     }
+    this.cameraTrack = null;
 
     this.dummyVideoTrack?.stop();
     this.dummyVideoTrack = null;

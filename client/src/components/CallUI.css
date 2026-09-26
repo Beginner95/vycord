@@ -296,6 +296,11 @@
   color: var(--white);
 }
 
+.p2p-ctl-btn.is-on {
+  background: var(--stage-accent);
+  color: var(--white);
+}
+
 .p2p-ctl-btn:disabled {
   opacity: 0.4;
   cursor: not-allowed;

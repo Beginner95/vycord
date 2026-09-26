@@ -264,6 +264,13 @@ export const en: Dictionary = {
     voiceBanner: 'In voice "{{channel}}" — {{count}}',
     bannerJoin: 'Join',
     bannerGoToCall: 'To call',
+
+    // VYC-100
+    bgMenu: 'Call background',
+    bgModeNone: 'Original',
+    bgModeBlur: 'Blur',
+    bgModeImage: 'Image',
+    bgUnavailable: 'Background list unavailable',
   },
   settings: {
     language: 'Language',
@@ -363,6 +370,14 @@ export const en: Dictionary = {
 
     cropAvatarTitle: 'Crop avatar',
     cropZoom: 'Zoom',
+
+    backgroundTitle: 'Call background',
+    backgroundDescription: 'Blur or replace your background during calls',
+    bgModeNone: 'Original',
+    bgModeBlur: 'Blur',
+    bgModeImage: 'Image',
+    backgroundUnavailable: 'Background list unavailable',
+    backgroundEffectUnavailable: 'Background effect unavailable on this device',
   },
   server: {
     listTitle: 'Servers',

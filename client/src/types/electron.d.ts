@@ -34,6 +34,8 @@ export interface ElectronAPI {
   // и возвращает итоговые статусы. Опционально по той же причине.
   requestMediaAccess?: () => Promise<MediaAccessStatusResult>;
   audioAssetsUrl: string;
+  /** Базовый URL каталога wasm/модели MediaPipe Video Background (VYC-100). */
+  visionAssetsUrl: string;
   // Опционально: в веб-сборке electronAPI нет вовсе, а у клиентов,
   // собранных до появления локализации, нет этого метода.
   setLocale?: (locale: Locale) => void;

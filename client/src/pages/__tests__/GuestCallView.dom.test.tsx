@@ -12,6 +12,7 @@ vi.mock('@/services/groupCall', () => ({
     toggleMuteAudio: vi.fn(), toggleMuteVideo: vi.fn(),
     stopScreenShare: vi.fn(), startScreenShare: vi.fn(),
     watchShare: vi.fn(), unwatchShare: vi.fn(),
+    setCameraOutput: vi.fn(async () => {}),
   },
 }));
 vi.mock('@/services/callBus', () => ({
