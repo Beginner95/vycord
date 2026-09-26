@@ -73,8 +73,13 @@ func (h *UserHandler) GetMe(w http.ResponseWriter, r *http.Request) {
 	userID := r.Context().Value("user_id").(uuid.UUID)
 
 	user, err := h.userUseCase.GetMe(userID)
-	if err != nil {
+	if errors.Is(err, domain.ErrUserNotFound) {
 		h.sendError(w, http.StatusNotFound, httperr.CodeUserNotFound, "user not found")
+		return
+	}
+	if err != nil {
+		h.log.Error("failed to get me", "request_id", middleware.RequestIDFromContext(r.Context()), "error", err)
+		h.sendError(w, http.StatusInternalServerError, httperr.CodeInternalError, "internal error")
 		return
 	}
 
@@ -290,6 +295,7 @@ func (h *UserHandler) DeletePhone(w http.ResponseWriter, r *http.Request) {
 
 	h.sendJSON(w, http.StatusOK, h.me(user))
 }
+// UploadAvatar accepts a multipart/form-data request with a single "avatar"
 // field (PNG or JPEG, ≤2MB), stores it, updates the user's avatar_url, and
 // broadcasts the change to all connected clients over WebSocket.
 func (h *UserHandler) UploadAvatar(w http.ResponseWriter, r *http.Request) {

@@ -538,6 +538,32 @@ func TestUserHandler_GetMe_IncludesPrivacyAndPhoneMask(t *testing.T) {
 	}
 }
 
+// Ошибка расшифровки номера (например, смена/потеря PHONE_ENC_KEY) не
+// должна маскироваться под 404: это сбой сервера, а не отсутствие
+// пользователя — и он обязан попасть в лог.
+func TestUserHandler_GetMe_InternalError(t *testing.T) {
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	hub := ws.NewHub(log)
+	mockUC := new(mockUserUseCase)
+	h := NewUserHandler(mockUC, hub, log)
+
+	userID := uuid.New()
+	mockUC.On("GetMe", userID).Return(nil, errors.New("decrypt phone: boom"))
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/users/me", nil)
+	req = req.WithContext(context.WithValue(req.Context(), "user_id", userID))
+
+	rec := httptest.NewRecorder()
+	h.GetMe(rec, req)
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"code":"internal_error"`) {
+		t.Fatalf("expected internal_error, got: %s", rec.Body.String())
+	}
+}
+
 func TestUserHandler_UpdatePhone_Success(t *testing.T) {
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	hub := ws.NewHub(log)

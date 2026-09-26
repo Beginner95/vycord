@@ -174,7 +174,7 @@ export function ProfileAccountBody() {
             </div>
           ) : (
             <span className="phone-actions">
-              <button type="button" className="btn btn-secondary" onClick={() => setEditingPhone(true)}>
+              <button type="button" className="btn btn-secondary" onClick={() => setEditingPhone(true)} disabled={phoneSaving}>
                 {user?.phone_masked ? t('settings.phoneEdit') : t('settings.phoneAdd')}
               </button>
               {user?.phone_masked && (
