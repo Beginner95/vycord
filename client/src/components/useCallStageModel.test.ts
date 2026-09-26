@@ -21,6 +21,7 @@ vi.mock('@/services/api', async (orig) => {
 
 beforeAll(stubBrowser);
 beforeEach(() => {
+  localStorage.clear();
   useAuthStore.setState({ user: { id: 'u1', username: 'anna' } as never });
   useCallStore.setState({ callChannelId: null, participants: [], directory: {}, guestSelf: null });
 });
@@ -86,5 +87,23 @@ describe('useCallStageModel: derived booleans', () => {
     const { result } = renderHook(() => useCallStageModel());
     expect(result.current.isGuestMode).toBe(true);
     expect(result.current.user?.username).toBe('Guest');
+  });
+});
+
+describe('useCallStageModel: выбранный динамик из настроек', () => {
+  it('применяет выбранный deviceId к зарегистрированным звуковым элементам на монтировании', async () => {
+    const { useMediaDeviceStore } = await import('@/stores/mediaDeviceStore');
+    useMediaDeviceStore.getState().setSelected('audiooutput', 'sink-1');
+    const el = document.createElement('video') as HTMLVideoElement & {
+      setSinkId?: (id: string) => Promise<void>;
+    };
+    const setSinkId = vi.fn().mockResolvedValue(undefined);
+    el.setSinkId = setSinkId;
+    const { registerCallAudioElement } = await import('@/components/call/callAudioSinks');
+    const unregister = registerCallAudioElement(el);
+    const { result } = renderHook(() => useCallStageModel());
+    expect(setSinkId).toHaveBeenCalledWith('sink-1');
+    expect(() => result.current.applySinkId('device-1')).not.toThrow();
+    unregister();
   });
 });
