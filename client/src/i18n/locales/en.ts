@@ -277,6 +277,12 @@ export const en: Dictionary = {
     tabAudio: 'Audio',
     tabVideo: 'Video',
     tabAppearance: 'Appearance',
+    tabAbout: 'About',
+
+    aboutDescription: 'A messenger for voice and video calls, chats and your own servers — with AI noise cancellation',
+    aboutVersionLabel: 'Version',
+    aboutGithub: 'GitHub',
+    aboutReportIssue: 'Report an issue',
 
     privacy: 'Privacy',
     showLastSeen: 'Show Last Seen',

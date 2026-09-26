@@ -40,6 +40,7 @@ describe('SettingsScreen (VYC-95 этап 5)', () => {
     ['video', 'Видео', 'Камера'],
     ['appearance', 'Внешний вид', 'Тема'],
     ['language', 'Язык', 'Язык интерфейса'],
+    ['about', 'О приложении', 'Мессенджер для голосовых и видеозвонков'],
   ] as const)('section=%s — заголовок и тело', (section, title, bodyText) => {
     render(<SettingsScreen section={section} onBack={() => {}} />);
     expect(document.querySelector('.screen-header-name')?.textContent).toBe(title);

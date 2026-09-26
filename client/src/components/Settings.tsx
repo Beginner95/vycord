@@ -1,9 +1,10 @@
 import { useState, useRef } from 'react';
-import { X, User, Volume2, Video, Palette, LogOut, type LucideIcon } from 'lucide-react';
+import { X, User, Volume2, Video, Palette, LogOut, Info, type LucideIcon } from 'lucide-react';
 import { ProfileSettings } from '@/components/settings/ProfileSettings';
 import { AudioSettings } from '@/components/settings/AudioSettings';
 import { VideoSettings } from '@/components/settings/VideoSettings';
 import { AppearanceSettings } from '@/components/settings/AppearanceSettings';
+import { AboutBody } from '@/components/settings/AboutBody';
 import { ConfirmModal } from '@/components/ConfirmModal';
 import { useModalFocus } from '@/hooks/useModalFocus';
 import { useT, type TKey } from '@/i18n';
@@ -15,13 +16,14 @@ interface SettingsProps {
   onLogout?: () => void;
 }
 
-type SettingsTab = 'profile' | 'audio' | 'video' | 'appearance';
+type SettingsTab = 'profile' | 'audio' | 'video' | 'appearance' | 'about';
 
 const TABS: { id: SettingsTab; labelKey: TKey; icon: LucideIcon }[] = [
   { id: 'profile', labelKey: 'settings.tabProfile', icon: User },
   { id: 'audio', labelKey: 'settings.tabAudio', icon: Volume2 },
   { id: 'video', labelKey: 'settings.tabVideo', icon: Video },
   { id: 'appearance', labelKey: 'settings.tabAppearance', icon: Palette },
+  { id: 'about', labelKey: 'settings.tabAbout', icon: Info },
 ];
 
 export function Settings({ isOpen, onClose, onLogout }: SettingsProps) {
@@ -85,6 +87,7 @@ export function Settings({ isOpen, onClose, onLogout }: SettingsProps) {
             {activeTab === 'audio' && <AudioSettings />}
             {activeTab === 'video' && <VideoSettings />}
             {activeTab === 'appearance' && <AppearanceSettings />}
+            {activeTab === 'about' && <AboutBody />}
           </div>
         </div>
       </div>
