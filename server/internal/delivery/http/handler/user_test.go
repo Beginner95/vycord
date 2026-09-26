@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"mime/multipart"
@@ -561,6 +562,32 @@ func TestUserHandler_GetMe_InternalError(t *testing.T) {
 	}
 	if !strings.Contains(rec.Body.String(), `"code":"internal_error"`) {
 		t.Fatalf("expected internal_error, got: %s", rec.Body.String())
+	}
+}
+
+// У usecase.GetMe нет собственного «не найден» — сентинел приходит из
+// репозитория (sql.ErrNoRows → domain.ErrUserNotFound, GetByID). Этот путь
+// обязан оставаться 404, а не деградировать в 500.
+func TestUserHandler_GetMe_NotFound(t *testing.T) {
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	hub := ws.NewHub(log)
+	mockUC := new(mockUserUseCase)
+	h := NewUserHandler(mockUC, hub, log)
+
+	userID := uuid.New()
+	mockUC.On("GetMe", userID).Return(nil, fmt.Errorf("user not found: %w", domain.ErrUserNotFound))
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/users/me", nil)
+	req = req.WithContext(context.WithValue(req.Context(), "user_id", userID))
+
+	rec := httptest.NewRecorder()
+	h.GetMe(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"code":"user_not_found"`) {
+		t.Fatalf("expected user_not_found, got: %s", rec.Body.String())
 	}
 }
 
