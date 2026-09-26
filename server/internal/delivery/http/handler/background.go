@@ -96,13 +96,19 @@ func (h *BackgroundHandler) resolvePath(id string) (string, bool) {
 }
 
 // ServeFile отдаёт файл фона по id. Публичный маршрут: <img src> не умеет
-// слать Authorization (тот же резон, что у /uploads/).
+// слать Authorization (тот же резон, что у /uploads/). CORS-заголовки ставятся
+// на каждый ответ: движок фона грузит картинку в canvas через
+// <img crossorigin="anonymous">, и закешированная копия без ACAO (например,
+// от миниатюр галереи) блокировала бы canvas-загрузку. Файлы публичные,
+// без credentials — подходит "*".
 func (h *BackgroundHandler) ServeFile(w http.ResponseWriter, r *http.Request) {
 	path, ok := h.resolvePath(r.PathValue("id"))
 	if !ok {
 		http.NotFound(w, r)
 		return
 	}
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Vary", "Origin")
 	http.ServeFile(w, r, path)
 }
 

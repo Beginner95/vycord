@@ -100,6 +100,33 @@ func TestServeFile(t *testing.T) {
 	}
 }
 
+// VYC-100: файл фона рисуется в canvas движка через <img crossorigin> —
+// браузер требует CORS даже для публичного файла. ACAO: * на КАЖДОМ ответе
+// (не только на CORS-запросах), чтобы закешированная копия с маршрута —
+// например, от миниатюр галереи — не пережила перезапуск без заголовка и не
+// заблокировала canvas-загрузку («No 'Access-Control-Allow-Origin' header»).
+func TestServeFileSetsCorsHeaders(t *testing.T) {
+	h, dir := newTestBackgroundHandler(t)
+	writeBgFile(t, dir, "ocean.png", "png-bytes")
+
+	for _, origin := range []string{"", "http://localhost:3000", "https://front.vycord.webvaha.ru", "null"} {
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, "/backgrounds/ocean/file", nil)
+		req.SetPathValue("id", "ocean")
+		if origin != "" {
+			req.Header.Set("Origin", origin)
+		}
+		h.ServeFile(rec, req)
+
+		if got := rec.Header().Get("Access-Control-Allow-Origin"); got != "*" {
+			t.Fatalf("origin %q: Access-Control-Allow-Origin = %q, want *", origin, got)
+		}
+		if got := rec.Header().Get("Vary"); !strings.Contains(got, "Origin") {
+			t.Fatalf("origin %q: Vary = %q, want to contain Origin", origin, got)
+		}
+	}
+}
+
 func TestServeFileDottedId(t *testing.T) {
 	h, dir := newTestBackgroundHandler(t)
 	writeBgFile(t, dir, "city.night.png", "night-bytes")
