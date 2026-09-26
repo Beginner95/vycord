@@ -759,7 +759,7 @@ if (!files) throw new Error('vision_wasm_internal.js не скопировалс
 console.log('copy-mediapipe-assets: OK');
 ```
 
-- [ ] **Step 3: Скачать модель прямо сейчас (файл ляжет в git)**
+- [ ] **Step 3: Скачать модель прямо сейчас (файл ляжет в git)** — решение владельца плана: оставляем float32 (16.4 МБ), а не quantized (~1.3 МБ): гарантированный GPU-путь (WebGL delegate) и меньше нагрузки на CPU, хотя спека оценивала модель «~1 МБ».
 
 ```bash
 mkdir -p public/vision && cp node_modules/@mediapipe/tasks-vision/wasm/vision_wasm_internal.js node_modules/@mediapipe/tasks-vision/wasm/vision_wasm_internal.wasm public/vision/ && node scripts/copy-mediapipe-assets.mjs
