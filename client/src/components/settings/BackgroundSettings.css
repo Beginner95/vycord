@@ -1,0 +1,94 @@
+/* VYC-100: секция «Фон звонка» в настройках.
+   Токены: у дизайн-системы нет spacing-токенов и шага с именами sm/md/lg —
+   отступы это raw px (конвенция Settings.css), радиусы — фиксированная шкала
+   tokens.css. Соответствия брифа → канон:
+   --sp-* → px по соседним value (8/12/16),
+   --radius-lg (превью) → --radius-card — фрейм видеофайла (VideoPlayer.css),
+   --radius-md → --radius-btn 10px,
+   --radius-sm (внутренние кнопки) → --radius-chip 6px,
+   текст на заливке --accent → --white (карта токенов: ink на цветной заливке). */
+.background-preview {
+  margin-top: 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-card);
+  overflow: hidden;
+  background: var(--canvas-3);
+  aspect-ratio: 16 / 9;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.background-preview-video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.background-preview-empty {
+  color: var(--muted);
+  font-size: 13px;
+  padding: 16px;
+}
+
+.background-modes {
+  display: inline-flex;
+  gap: 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-btn);
+  padding: 2px;
+}
+
+.background-mode-btn {
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  padding: 8px 12px;
+  border-radius: var(--radius-chip);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.background-mode-btn:hover {
+  color: var(--ink);
+}
+
+.background-mode-btn.is-active {
+  background: var(--accent);
+  color: var(--white);
+}
+
+.background-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.background-cell {
+  position: relative;
+  border: 2px solid transparent;
+  border-radius: var(--radius-btn);
+  overflow: hidden;
+  padding: 0;
+  background: var(--canvas-3);
+  cursor: pointer;
+  aspect-ratio: 16 / 9;
+}
+
+.background-cell img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.background-cell.is-active {
+  border-color: var(--accent);
+}
+
+.background-unavailable {
+  color: var(--muted);
+  font-size: 13px;
+  margin-top: 12px;
+}

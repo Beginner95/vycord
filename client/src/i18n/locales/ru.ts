@@ -275,6 +275,13 @@ export const ru = {
     voiceBanner: 'В голосовом «{{channel}}» — {{count}}',
     bannerJoin: 'Войти',
     bannerGoToCall: 'К звонку',
+
+    // VYC-100: панель фона в звонке
+    bgMenu: 'Фон звонка',
+    bgModeNone: 'Оригинал',
+    bgModeBlur: 'Размытие',
+    bgModeImage: 'Картинка',
+    bgUnavailable: 'Список фонов недоступен',
   },
   settings: {
     language: 'Язык',
@@ -374,6 +381,15 @@ export const ru = {
 
     cropAvatarTitle: 'Обрезка аватара',
     cropZoom: 'Масштаб',
+
+    // VYC-100: фон звонка
+    backgroundTitle: 'Фон звонка',
+    backgroundDescription: 'Размытие или замена фона во время звонков',
+    bgModeNone: 'Оригинал',
+    bgModeBlur: 'Размытие',
+    bgModeImage: 'Картинка',
+    backgroundUnavailable: 'Список фонов недоступен',
+    backgroundEffectUnavailable: 'Эффект фона недоступен на этом устройстве',
   },
   server: {
     listTitle: 'Серверы',
