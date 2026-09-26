@@ -127,9 +127,11 @@ func (h *BackgroundHandler) ListBackgrounds(w http.ResponseWriter, r *http.Reque
 
 // resolvePath ищет в каталоге файл с именем "<id><допустимое расширение>".
 // Для картинки расширение извне неизвестно, поэтому перебираем каталог; это же
-// делает подмену невозможной: путь всегда строится из имени реального файла.
+// делает подмену невозможной: путь всегда строится из имени реального файла
+// (запрет точек снят по решению владельца плана — entry-derived путь
+// безопасен в принципе; остаются только разделители).
 func (h *BackgroundHandler) resolvePath(id string) (string, bool) {
-	if id == "" || strings.ContainsAny(id, `/\..`) {
+	if id == "" || strings.ContainsAny(id, `/\`) {
 		return "", false
 	}
 	entries, err := os.ReadDir(h.dir)
@@ -298,6 +300,25 @@ func TestServeFileTraversalRejected(t *testing.T) {
 		if rec.Code != http.StatusNotFound {
 			t.Fatalf("id %q: status = %d, want 404", id, rec.Code)
 		}
+	}
+}
+
+// Решение владельца плана: id с точками допустимы (путь строится только из
+// реальных записей каталога, подмена невозможна) — см. background.go resolvePath.
+func TestServeFileDottedId(t *testing.T) {
+	h, dir := newTestBackgroundHandler(t)
+	writeBgFile(t, dir, "city.night.png", "dotted-bytes")
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/backgrounds/city.night/file", nil)
+	req.SetPathValue("id", "city.night")
+	h.ServeFile(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	if rec.Body.String() != "dotted-bytes" {
+		t.Fatalf("body = %q, want dotted-bytes", rec.Body.String())
 	}
 }
 ```
