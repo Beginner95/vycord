@@ -312,6 +312,7 @@ export const ru = {
     phoneEdit: 'Изменить',
     phoneSave: 'Сохранить',
     phoneRemove: 'Удалить',
+    phonePlaceholder: '+7 …',
     changeAvatar: 'Изменить аватар',
     removeAvatar: 'Удалить аватар',
     removingAvatar: 'Удаление...',

@@ -301,6 +301,7 @@ export const en: Dictionary = {
     phoneEdit: 'Edit',
     phoneSave: 'Save',
     phoneRemove: 'Remove',
+    phonePlaceholder: '+7 …',
     changeAvatar: 'Change Avatar',
     removeAvatar: 'Remove Avatar',
     removingAvatar: 'Removing...',

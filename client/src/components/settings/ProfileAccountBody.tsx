@@ -157,7 +157,7 @@ export function ProfileAccountBody() {
                 className="input"
                 value={phoneInput}
                 onChange={(e) => { setPhoneInput(e.target.value); setPhoneError(null); }}
-                placeholder="+7 …"
+                placeholder={t('settings.phonePlaceholder')}
                 autoFocus
               />
               <button
