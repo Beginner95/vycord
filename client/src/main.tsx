@@ -12,6 +12,7 @@ import './styles/primitives.css';
 import App from './App';
 import './stores/themeStore';
 import './stores/localeStore';
+import { watchDeviceChange } from './stores/mediaDeviceStore';
 import { initErrorReporting } from './services/errorReporting';
 import { apiService } from './services/api';
 import { forceMobileViewport } from './mobile/forceMobileViewport';
@@ -21,6 +22,8 @@ import { forceMobileViewport } from './mobile/forceMobileViewport';
 forceMobileViewport();
 
 initErrorReporting();
+// Списки устройств ввода/вывода обновляются живьём (настройки, мобильная кнопка динамика).
+watchDeviceChange();
 // На странице гостя аккаунта нет: обновлять токены и ходить в /auth/me незачем,
 // а лишний 401 в консоли только путает.
 if (!window.location.pathname.startsWith('/guest')) {

@@ -365,6 +365,7 @@ export const ru = {
     outputDeviceDescription: 'Выберите динамики',
     defaultMicrophone: 'Микрофон по умолчанию',
     defaultSpeakers: 'Динамики по умолчанию',
+    unnamedDevice: 'Без названия',
 
     video: 'Видео',
     camera: 'Камера',

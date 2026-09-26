@@ -13,6 +13,7 @@ import type { User } from '@/types';
 import type { DesktopCapturerSource } from '@/types/electron';
 import type { ConnectionQualityMetrics } from '@/utils/callQuality';
 import { useGuestManagementStore } from '@/stores/guestManagementStore';
+import { useMediaDeviceStore } from '@/stores/mediaDeviceStore';
 import { useMicLevel } from '@/hooks/useMicLevel';
 import { useT } from '@/i18n';
 import { applySinkToCallAudio } from '@/components/call/callAudioSinks';
@@ -662,6 +663,11 @@ export function useCallStageModel({ onLeave, externalAudio = false }: CallStageM
       // С внешним хостом звука плитка немая с момента монтирования — до
       // приаттачивания потока, чтобы autoPlay не успел зазвучать.
       if (externalAudioRef.current) el.muted = true;
+      const sinkId = useMediaDeviceStore.getState().selected.audiooutput;
+      if (sinkId) {
+        const withSink = el as HTMLVideoElement & { setSinkId?: (id: string) => Promise<void> };
+        withSink.setSinkId?.(sinkId).catch(() => {});
+      }
       remoteVideoRefsMap.current.set(userId, el);
     } else remoteVideoRefsMap.current.delete(userId);
   }, []);
@@ -677,6 +683,14 @@ export function useCallStageModel({ onLeave, externalAudio = false }: CallStageM
     // реестр пуст.
     applySinkToCallAudio(deviceId);
   }, []);
+
+  const selectedOutputId = useMediaDeviceStore((s) => s.selected.audiooutput);
+  // Выбранный в настройках динамик применяется при монтировании экрана звонка
+  // и при смене выбора во время звонка; поздние плитки покрываются
+  // setRemoteVideoRef выше, а элементы внешнего хоста — реестром callAudioSinks.
+  useEffect(() => {
+    if (selectedOutputId) applySinkId(selectedOutputId);
+  }, [applySinkId, selectedOutputId]);
 
   return {
     user,
