@@ -72,6 +72,23 @@ interface VideoBackgroundEngineOptions {
  * заново, GPU не трогается. Владельцами input-треков движок никогда не
  * является: ни один входной трек не стопается.
  */
+/**
+ * Грузит фоновую картинку для композитного canvas. crossOrigin обязателен:
+ * фон лежит на api-домене (или file:// в Electron), и без CORS-режима канвас
+ * таится — captureStream() отдаёт чёрные кадры. onerror тоже резолвится:
+ * naturalWidth=0, движок откатится на резкий кадр.
+ */
+export function loadBackgroundImage(url: string): Promise<HTMLImageElement> {
+  const img = new Image();
+  img.crossOrigin = 'anonymous';
+  img.decoding = 'async';
+  return new Promise<HTMLImageElement>((resolve) => {
+    img.onload = () => resolve(img);
+    img.onerror = () => resolve(img);
+    img.src = url;
+  });
+}
+
 export class VideoBackgroundEngine {
   onStatusChange: ((status: VideoBackgroundStatus) => void) | null = null;
 
@@ -372,14 +389,8 @@ export class VideoBackgroundEngine {
 
   private async ensureBackground(url: string): Promise<void> {
     if (this.bgCache.has(url)) return;
-    const img = new Image();
-    img.decoding = 'async';
-    const loaded = await new Promise<HTMLImageElement>((resolve) => {
-      img.onload = () => resolve(img);
-      img.onerror = () => resolve(img); // naturalWidth=0 → фолбэк на резкий кадр
-      img.src = url;
-    });
-    if (!this.disposed) this.bgCache.set(url, loaded);
+    const img = await loadBackgroundImage(url);
+    if (!this.disposed) this.bgCache.set(url, img);
   }
 
   dispose(): void {

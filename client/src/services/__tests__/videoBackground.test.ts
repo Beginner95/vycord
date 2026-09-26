@@ -1,8 +1,9 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   backgroundLabelIndex,
   coverFit,
   fillPersonAlpha,
+  loadBackgroundImage,
 } from '@/services/videoBackground';
 
 describe('coverFit', () => {
@@ -47,5 +48,60 @@ describe('backgroundLabelIndex', () => {
     expect(backgroundLabelIndex(['hair', 'skin', 'clothes', 'background'])).toBe(3);
     expect(backgroundLabelIndex(['foo', 'bar'])).toBe(0); // fallback на 0
     expect(backgroundLabelIndex([])).toBe(0);
+  });
+});
+
+describe('loadBackgroundImage', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  /**
+   * VYC-100: фон грузится с api-домена в canvas-композит движка. Без
+   * crossOrigin='anonymous' браузер тянет картинку некорректно-кросс-доменно,
+   * канвас таится, и captureStream() отдаёт ЧЁРНЫЕ кадры вместо картинки.
+   */
+  it('грузит картинку в CORS-режиме (crossOrigin=anonymous)', async () => {
+    const created: Array<{ crossOrigin: string | null; src: string }> = [];
+    class FakeImage {
+      crossOrigin: string | null = null;
+      decoding = 'async';
+      complete = false;
+      naturalWidth = 1920;
+      onload: (() => void) | null = null;
+      onerror: (() => void) | null = null;
+      set src(value: string) {
+        this.complete = true;
+        created.push({ crossOrigin: this.crossOrigin, src: value });
+        setTimeout(() => this.onload?.(), 0);
+      }
+    }
+    vi.stubGlobal('Image', FakeImage);
+
+    const img = await loadBackgroundImage('https://cdn.example.com/bg.jpg');
+
+    expect(created).toHaveLength(1);
+    expect(created[0].crossOrigin).toBe('anonymous');
+    expect(created[0].src).toBe('https://cdn.example.com/bg.jpg');
+    expect(img.naturalWidth).toBe(1920);
+  });
+
+  it('резолвится и при ошибке загрузки — движок сам откатится на резкий кадр', async () => {
+    class FakeImage {
+      crossOrigin: string | null = null;
+      decoding = 'async';
+      complete = true;
+      naturalWidth = 0;
+      onload: (() => void) | null = null;
+      onerror: (() => void) | null = null;
+      set src(_value: string) {
+        setTimeout(() => this.onerror?.(), 0);
+      }
+    }
+    vi.stubGlobal('Image', FakeImage);
+
+    const img = await loadBackgroundImage('https://cdn.example.com/404.jpg');
+
+    expect(img.naturalWidth).toBe(0);
   });
 });
