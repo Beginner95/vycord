@@ -1552,6 +1552,8 @@ export function useVideoEffects(
   const [status, setStatus] = useState<VideoBackgroundStatus>('idle');
   const onTrackRef = useRef(onTrack);
   onTrackRef.current = onTrack;
+  /** Последний отправленный трек — onTrack зовём только при смене. */
+  const sentTrackRef = useRef<MediaStreamTrack | null | undefined>(undefined);
 
   const engineRef = useRef<VideoBackgroundEngine | null>(null);
   if (engineRef.current === null) {
@@ -1563,11 +1565,17 @@ export function useVideoEffects(
     ? urlById(backgroundImageId)
     : null;
 
+  const sendTrack = useCallback((track: MediaStreamTrack | null): void => {
+    if (sentTrackRef.current === track) return;
+    sentTrackRef.current = track;
+    onTrackRef.current(track);
+  }, []);
+
   const apply = useCallback(async (): Promise<void> => {
     const engine = engineRef.current!;
     if (mode === 'none' || !input) {
       engine.setMode('none', null).catch(() => {});
-      onTrackRef.current(null);
+      sendTrack(null);
       return;
     }
     try {
@@ -1575,15 +1583,27 @@ export function useVideoEffects(
       await engine.setMode(mode, backgroundUrl);
       // Модель могла не загрузиться (status 'error') — тогда трек не меняем:
       // в эфир уходит оригинальная камера.
-      const track = engine.outputTrack;
-      onTrackRef.current(track);
+      sendTrack(engine.outputTrack);
     } catch {
-      onTrackRef.current(null);
+      sendTrack(null);
     }
-  }, [input, mode, backgroundUrl]);
+  }, [input, mode, backgroundUrl, sendTrack]);
 
   useEffect(() => {
     void apply();
+  }, [apply]);
+
+  // Модель грузится асинхронно: как только движок готов — канал трека мог
+  // появиться после apply() (в ленивых конвейерах). Ре-применяем по 'ready'.
+  useEffect(() => {
+    const engine = engineRef.current!;
+    engine.onStatusChange = (s) => {
+      setStatus(s);
+      if (s === 'ready') void apply();
+    };
+    return () => {
+      engine.onStatusChange = null;
+    };
   }, [apply]);
 
   // Замена видео-трека внутри того же стрима (ре-аквайр VYC-96 и смена
@@ -1612,7 +1632,11 @@ export function useVideoEffects(
     };
   }, []);
 
-  const output = mode === 'none' || !input ? input : (engineRef.current!.outputTrack ? buildOutput(input, engineRef.current!.outputTrack) : input);
+  const output = useMemo(() => {
+    if (mode === 'none' || !input) return input;
+    const track = engineRef.current!.outputTrack;
+    return track ? buildOutput(input, track) : input;
+  }, [input, mode, backgroundUrl, status]);
 
   return { output, status: mode === 'none' ? 'idle' : status };
 }
