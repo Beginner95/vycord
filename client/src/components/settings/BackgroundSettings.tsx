@@ -37,7 +37,7 @@ function BackgroundPreview() {
     };
   }, []);
 
-  const { output } = useVideoEffects(camera, mode, backgroundId, () => {});
+  const { output, status } = useVideoEffects(camera, mode, backgroundId, () => {});
 
   useEffect(() => {
     if (videoRef.current && output) {
@@ -49,7 +49,12 @@ function BackgroundPreview() {
     <div className="background-preview">
       {cameraError && <div className="background-preview-empty">{t('settings.backgroundEffectUnavailable')}</div>}
       {!cameraError && (
-        <video ref={videoRef} autoPlay playsInline muted className="background-preview-video" />
+        <div className="background-preview-frame">
+          <video ref={videoRef} autoPlay playsInline muted className="background-preview-video" />
+          {status === 'error' && (
+            <div className="background-preview-notice">{t('settings.backgroundEffectUnavailable')}</div>
+          )}
+        </div>
       )}
     </div>
   );
