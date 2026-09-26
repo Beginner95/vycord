@@ -12,6 +12,18 @@ export function PrivacyBody() {
   const t = useT();
   const [privacyError, setPrivacyError] = useState<string | null>(null);
 
+  const handleAllowSearchByPhoneChange = async (checked: boolean) => {
+    const previous = user?.allow_search_by_phone ?? true;
+    updateUser({ allow_search_by_phone: checked });
+    setPrivacyError(null);
+    try {
+      await apiService.updatePrivacy({ allow_search_by_phone: checked });
+    } catch (err) {
+      updateUser({ allow_search_by_phone: previous });
+      setPrivacyError(apiErrorText(err, t));
+    }
+  };
+
   const handleShowLastSeenChange = async (checked: boolean) => {
     const previous = user?.show_last_seen ?? true;
     updateUser({ show_last_seen: checked });
@@ -51,6 +63,21 @@ export function PrivacyBody() {
   return (
     <div className="settings-section">
       <h3 className="settings-section-title">{t('settings.privacy')}</h3>
+      <div className="setting-row">
+        <div className="setting-row-info">
+          <span className="setting-row-title">{t('settings.allowSearchByPhone')}</span>
+          <p className="setting-row-desc">{t('settings.allowSearchByPhoneDescription')}</p>
+        </div>
+        <label className="toggle-switch">
+          <input
+            type="checkbox"
+            aria-label={t('settings.allowSearchByPhone')}
+            checked={user?.allow_search_by_phone ?? true}
+            onChange={(e) => { void handleAllowSearchByPhoneChange(e.target.checked); }}
+          />
+          <span className="toggle-track" />
+        </label>
+      </div>
       <div className="setting-row">
         <div className="setting-row-info">
           <span className="setting-row-title">{t('settings.showLastSeen')}</span>

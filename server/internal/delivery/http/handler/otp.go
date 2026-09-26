@@ -103,6 +103,7 @@ func (h *OTPHandler) Verify(w http.ResponseWriter, r *http.Request) {
 			User:                user,
 			AllowFriendRequests: user.AllowFriendRequests,
 			AllowDMFrom:         user.AllowDMFrom,
+			AllowSearchByPhone:  user.AllowSearchByPhone,
 		},
 	})
 }

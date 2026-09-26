@@ -7,6 +7,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"strings"
 
 	"github.com/google/uuid"
 	"github.com/vycord/server/internal/delivery/http/httperr"
@@ -43,33 +44,46 @@ func NewUserHandler(userUseCase domain.UserUseCase, hub *ws.Hub, log *slog.Logge
 	}
 }
 
-// meResponse re-exposes AllowFriendRequests/AllowDMFrom with real JSON tags.
-// domain.User tags these json:"-" (see its comment) so that GetUserByID and
-// SearchUsers, which serialize domain.User directly, never leak another
-// user's privacy settings. GetMe is the ONE legitimate place to show them —
-// you're looking at your own profile — so the outer struct's shallower,
-// explicitly-tagged fields win over the embedded *domain.User's json:"-"
-// fields of the same name.
+// meResponse re-exposes AllowFriendRequests/AllowDMFrom/AllowSearchByPhone
+// with real JSON tags. domain.User tags these json:"-" (see its comment) so
+// that GetUserByID and SearchUsers, which serialize domain.User directly,
+// never leak another user's privacy settings. GetMe is the ONE legitimate
+// place to show them — you're looking at your own profile — so the outer
+// struct's shallower, explicitly-tagged fields win over the embedded
+// *domain.User's json:"-" fields of the same name.
 type meResponse struct {
 	*domain.User
 	AllowFriendRequests domain.PrivacyMode `json:"allow_friend_requests"`
 	AllowDMFrom         domain.PrivacyMode `json:"allow_dm_from"`
+	AllowSearchByPhone  bool               `json:"allow_search_by_phone"`
+}
+
+// me собирает meResponse из доменного пользователя так, чтобы приватность
+// нигде не оставалась у молчащего значения (false для AllowSearchByPhone).
+func (h *UserHandler) me(u *domain.User) meResponse {
+	return meResponse{
+		User:                u,
+		AllowFriendRequests: u.AllowFriendRequests,
+		AllowDMFrom:         u.AllowDMFrom,
+		AllowSearchByPhone:  u.AllowSearchByPhone,
+	}
 }
 
 func (h *UserHandler) GetMe(w http.ResponseWriter, r *http.Request) {
 	userID := r.Context().Value("user_id").(uuid.UUID)
 
-	user, err := h.userUseCase.GetByID(userID)
-	if err != nil {
+	user, err := h.userUseCase.GetMe(userID)
+	if errors.Is(err, domain.ErrUserNotFound) {
 		h.sendError(w, http.StatusNotFound, httperr.CodeUserNotFound, "user not found")
 		return
 	}
+	if err != nil {
+		h.log.Error("failed to get me", "request_id", middleware.RequestIDFromContext(r.Context()), "error", err)
+		h.sendError(w, http.StatusInternalServerError, httperr.CodeInternalError, "internal error")
+		return
+	}
 
-	h.sendJSON(w, http.StatusOK, meResponse{
-		User:                user,
-		AllowFriendRequests: user.AllowFriendRequests,
-		AllowDMFrom:         user.AllowDMFrom,
-	})
+	h.sendJSON(w, http.StatusOK, h.me(user))
 }
 
 func (h *UserHandler) GetUserByID(w http.ResponseWriter, r *http.Request) {
@@ -202,13 +216,14 @@ func (h *UserHandler) UpdatePrivacy(w http.ResponseWriter, r *http.Request) {
 		ShowLastSeen        *bool               `json:"show_last_seen"`
 		AllowFriendRequests *domain.PrivacyMode `json:"allow_friend_requests"`
 		AllowDMFrom         *domain.PrivacyMode `json:"allow_dm_from"`
+		AllowSearchByPhone  *bool               `json:"allow_search_by_phone"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		h.sendError(w, http.StatusBadRequest, httperr.CodeInvalidBody, "invalid request body")
 		return
 	}
 	// Тело без единого поля — не «ничего не менять», а ошибка клиента.
-	if req.ShowLastSeen == nil && req.AllowFriendRequests == nil && req.AllowDMFrom == nil {
+	if req.ShowLastSeen == nil && req.AllowFriendRequests == nil && req.AllowDMFrom == nil && req.AllowSearchByPhone == nil {
 		h.sendError(w, http.StatusBadRequest, httperr.CodeInvalidBody, "no privacy fields provided")
 		return
 	}
@@ -224,7 +239,7 @@ func (h *UserHandler) UpdatePrivacy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err := h.userUseCase.SetPrivacy(userID, req.ShowLastSeen, req.AllowFriendRequests, req.AllowDMFrom)
+	err := h.userUseCase.SetPrivacy(userID, req.ShowLastSeen, req.AllowFriendRequests, req.AllowDMFrom, req.AllowSearchByPhone)
 	if errors.Is(err, domain.ErrInvalidPrivacyMode) {
 		h.sendError(w, http.StatusBadRequest, httperr.CodeInvalidPrivacyValue, "invalid privacy value")
 		return
@@ -237,6 +252,49 @@ func (h *UserHandler) UpdatePrivacy(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// UpdatePhone сохраняет номер пользователя. Нормализация и шифрование —
+// в usecase.SetPhone; сюда приходит уже строка как была введена.
+func (h *UserHandler) UpdatePhone(w http.ResponseWriter, r *http.Request) {
+	userID := r.Context().Value("user_id").(uuid.UUID)
+	var body struct {
+		Phone string `json:"phone"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		h.sendError(w, http.StatusBadRequest, httperr.CodeInvalidBody, "invalid request body")
+		return
+	}
+
+	user, err := h.userUseCase.SetPhone(userID, strings.TrimSpace(body.Phone))
+	if errors.Is(err, domain.ErrInvalidPhone) {
+		h.sendError(w, http.StatusBadRequest, httperr.CodePhoneInvalid, "invalid phone number")
+		return
+	}
+	if errors.Is(err, domain.ErrPhoneTaken) {
+		h.sendError(w, http.StatusConflict, httperr.CodePhoneTaken, "phone number is already in use")
+		return
+	}
+	if err != nil {
+		h.log.Error("failed to update phone", "request_id", middleware.RequestIDFromContext(r.Context()), "error", err)
+		h.sendError(w, http.StatusInternalServerError, httperr.CodeInternalError, "internal error")
+		return
+	}
+
+	h.sendJSON(w, http.StatusOK, h.me(user))
+}
+
+// DeletePhone снимает номер. Идемпотентен: без номера — тот же 200.
+func (h *UserHandler) DeletePhone(w http.ResponseWriter, r *http.Request) {
+	userID := r.Context().Value("user_id").(uuid.UUID)
+
+	user, err := h.userUseCase.ClearPhone(userID)
+	if err != nil {
+		h.log.Error("failed to delete phone", "request_id", middleware.RequestIDFromContext(r.Context()), "error", err)
+		h.sendError(w, http.StatusInternalServerError, httperr.CodeInternalError, "internal error")
+		return
+	}
+
+	h.sendJSON(w, http.StatusOK, h.me(user))
+}
 // UploadAvatar accepts a multipart/form-data request with a single "avatar"
 // field (PNG or JPEG, ≤2MB), stores it, updates the user's avatar_url, and
 // broadcasts the change to all connected clients over WebSocket.
@@ -274,11 +332,7 @@ func (h *UserHandler) UploadAvatar(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.hub.BroadcastUserUpdate(userID, user.AvatarURL)
-	h.sendJSON(w, http.StatusOK, meResponse{
-		User:                user,
-		AllowFriendRequests: user.AllowFriendRequests,
-		AllowDMFrom:         user.AllowDMFrom,
-	})
+	h.sendJSON(w, http.StatusOK, h.me(user))
 }
 
 // RemoveAvatar clears the caller's avatar and broadcasts the change.
@@ -292,11 +346,7 @@ func (h *UserHandler) RemoveAvatar(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.hub.BroadcastUserUpdate(userID, user.AvatarURL)
-	h.sendJSON(w, http.StatusOK, meResponse{
-		User:                user,
-		AllowFriendRequests: user.AllowFriendRequests,
-		AllowDMFrom:         user.AllowDMFrom,
-	})
+	h.sendJSON(w, http.StatusOK, h.me(user))
 }
 
 func (h *UserHandler) writeUserError(w http.ResponseWriter, r *http.Request, err error) {

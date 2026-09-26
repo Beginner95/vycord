@@ -51,6 +51,21 @@ func (m *mockUserUseCase) GetByID(id uuid.UUID) (*domain.User, error) {
 	u, _ := args.Get(0).(*domain.User)
 	return u, args.Error(1)
 }
+func (m *mockUserUseCase) GetMe(id uuid.UUID) (*domain.User, error) {
+	args := m.Called(id)
+	u, _ := args.Get(0).(*domain.User)
+	return u, args.Error(1)
+}
+func (m *mockUserUseCase) SetPhone(id uuid.UUID, raw string) (*domain.User, error) {
+	args := m.Called(id, raw)
+	u, _ := args.Get(0).(*domain.User)
+	return u, args.Error(1)
+}
+func (m *mockUserUseCase) ClearPhone(id uuid.UUID) (*domain.User, error) {
+	args := m.Called(id)
+	u, _ := args.Get(0).(*domain.User)
+	return u, args.Error(1)
+}
 func (m *mockUserUseCase) Search(query string, limit int) ([]*domain.User, error) {
 	args := m.Called(query, limit)
 	u, _ := args.Get(0).([]*domain.User)
@@ -92,8 +107,8 @@ func (m *mockUserUseCase) GetLastSeenBatch(ids []uuid.UUID) (map[uuid.UUID]domai
 	return args.Get(0).(map[uuid.UUID]domain.LastSeenInfo), args.Error(1)
 }
 
-func (m *mockUserUseCase) SetPrivacy(id uuid.UUID, showLastSeen *bool, friendRequests, dmFrom *domain.PrivacyMode) error {
-	return m.Called(id, showLastSeen, friendRequests, dmFrom).Error(0)
+func (m *mockUserUseCase) SetPrivacy(id uuid.UUID, showLastSeen *bool, friendRequests, dmFrom *domain.PrivacyMode, allowSearchByPhone *bool) error {
+	return m.Called(id, showLastSeen, friendRequests, dmFrom, allowSearchByPhone).Error(0)
 }
 
 type mockCallUseCase struct{ mock.Mock }

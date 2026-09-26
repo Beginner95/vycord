@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"mime/multipart"
@@ -135,7 +136,7 @@ func TestUserHandler_GetMe_IncludesPrivacySettings(t *testing.T) {
 		AllowFriendRequests: domain.PrivacyMode("mutual_servers"),
 		AllowDMFrom:         domain.PrivacyMode("none"),
 	}
-	mockUC.On("GetByID", userID).Return(user, nil)
+	mockUC.On("GetMe", userID).Return(user, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/users/me", nil)
 	req = req.WithContext(context.WithValue(req.Context(), "user_id", userID))
@@ -397,7 +398,7 @@ func TestUserHandler_UpdatePrivacy_RejectsMissingField(t *testing.T) {
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body.String())
 	}
-	mockUC.AssertNotCalled(t, "SetPrivacy", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
+	mockUC.AssertNotCalled(t, "SetPrivacy", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything)
 }
 
 func TestUserHandler_UpdatePrivacy_Success(t *testing.T) {
@@ -408,7 +409,7 @@ func TestUserHandler_UpdatePrivacy_Success(t *testing.T) {
 
 	userID := uuid.New()
 	show := false
-	mockUC.On("SetPrivacy", userID, &show, (*domain.PrivacyMode)(nil), (*domain.PrivacyMode)(nil)).Return(nil)
+	mockUC.On("SetPrivacy", userID, &show, (*domain.PrivacyMode)(nil), (*domain.PrivacyMode)(nil), (*bool)(nil)).Return(nil)
 
 	req := httptest.NewRequest(http.MethodPatch, "/api/v1/users/me/privacy", strings.NewReader(`{"show_last_seen":false}`))
 	req = req.WithContext(context.WithValue(req.Context(), "user_id", userID))
@@ -426,7 +427,7 @@ func TestUserHandler_UpdatePrivacy_AcceptsOnlyFriendRequestsField(t *testing.T) 
 	mockUC := new(mockUserUseCase)
 	userID := uuid.New()
 	mode := domain.PrivacyMutualServers
-	mockUC.On("SetPrivacy", userID, (*bool)(nil), &mode, (*domain.PrivacyMode)(nil)).Return(nil)
+	mockUC.On("SetPrivacy", userID, (*bool)(nil), &mode, (*domain.PrivacyMode)(nil), (*bool)(nil)).Return(nil)
 
 	h := NewUserHandler(mockUC, ws.NewHub(log), log)
 	req := httptest.NewRequest(http.MethodPatch, "/api/v1/users/me/privacy",
@@ -459,7 +460,7 @@ func TestUserHandler_UpdatePrivacy_RejectsUnknownMode(t *testing.T) {
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400 for allow_dm_from=none, got %d", rec.Code)
 	}
-	mockUC.AssertNotCalled(t, "SetPrivacy", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
+	mockUC.AssertNotCalled(t, "SetPrivacy", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything)
 }
 
 func TestUserHandler_UpdatePrivacy_RejectsEmptyBody(t *testing.T) {
@@ -477,5 +478,210 @@ func TestUserHandler_UpdatePrivacy_RejectsEmptyBody(t *testing.T) {
 
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400 for a body with no fields, got %d", rec.Code)
+	}
+}
+
+func TestUserHandler_UpdatePrivacy_AllowSearchByPhone(t *testing.T) {
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	hub := ws.NewHub(log)
+	mockUC := new(mockUserUseCase)
+	h := NewUserHandler(mockUC, hub, log)
+
+	userID := uuid.New()
+	falseVal := false
+	mockUC.On("SetPrivacy", userID, (*bool)(nil), (*domain.PrivacyMode)(nil), (*domain.PrivacyMode)(nil), &falseVal).Return(nil)
+
+	req := httptest.NewRequest(http.MethodPatch, "/api/v1/users/me/privacy",
+		strings.NewReader(`{"allow_search_by_phone":false}`))
+	req = req.WithContext(context.WithValue(req.Context(), "user_id", userID))
+
+	rec := httptest.NewRecorder()
+	h.UpdatePrivacy(rec, req)
+
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("expected 204, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+// GetMe обязан отдавать и приватность (allow_search_by_phone), и маску номера
+// (phone_masked): он единственный источник обоих для клиента.
+func TestUserHandler_GetMe_IncludesPrivacyAndPhoneMask(t *testing.T) {
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	hub := ws.NewHub(log)
+	mockUC := new(mockUserUseCase)
+	h := NewUserHandler(mockUC, hub, log)
+
+	userID := uuid.New()
+	mask := "+79123 ••• •• 89"
+	user := &domain.User{
+		ID:                 userID,
+		Username:           "alice",
+		AllowSearchByPhone: true,
+		PhoneMasked:        &mask,
+	}
+	mockUC.On("GetMe", userID).Return(user, nil)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/users/me", nil)
+	req = req.WithContext(context.WithValue(req.Context(), "user_id", userID))
+
+	rec := httptest.NewRecorder()
+	h.GetMe(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, `"allow_search_by_phone":true`) {
+		t.Fatalf("expected allow_search_by_phone=true in body, got: %s", body)
+	}
+	if !strings.Contains(body, `"phone_masked":"+79123 ••• •• 89"`) {
+		t.Fatalf("expected phone_masked in body, got: %s", body)
+	}
+}
+
+// Ошибка расшифровки номера (например, смена/потеря PHONE_ENC_KEY) не
+// должна маскироваться под 404: это сбой сервера, а не отсутствие
+// пользователя — и он обязан попасть в лог.
+func TestUserHandler_GetMe_InternalError(t *testing.T) {
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	hub := ws.NewHub(log)
+	mockUC := new(mockUserUseCase)
+	h := NewUserHandler(mockUC, hub, log)
+
+	userID := uuid.New()
+	mockUC.On("GetMe", userID).Return(nil, errors.New("decrypt phone: boom"))
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/users/me", nil)
+	req = req.WithContext(context.WithValue(req.Context(), "user_id", userID))
+
+	rec := httptest.NewRecorder()
+	h.GetMe(rec, req)
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"code":"internal_error"`) {
+		t.Fatalf("expected internal_error, got: %s", rec.Body.String())
+	}
+}
+
+// У usecase.GetMe нет собственного «не найден» — сентинел приходит из
+// репозитория (sql.ErrNoRows → domain.ErrUserNotFound, GetByID). Этот путь
+// обязан оставаться 404, а не деградировать в 500.
+func TestUserHandler_GetMe_NotFound(t *testing.T) {
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	hub := ws.NewHub(log)
+	mockUC := new(mockUserUseCase)
+	h := NewUserHandler(mockUC, hub, log)
+
+	userID := uuid.New()
+	mockUC.On("GetMe", userID).Return(nil, fmt.Errorf("user not found: %w", domain.ErrUserNotFound))
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/users/me", nil)
+	req = req.WithContext(context.WithValue(req.Context(), "user_id", userID))
+
+	rec := httptest.NewRecorder()
+	h.GetMe(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"code":"user_not_found"`) {
+		t.Fatalf("expected user_not_found, got: %s", rec.Body.String())
+	}
+}
+
+func TestUserHandler_UpdatePhone_Success(t *testing.T) {
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	hub := ws.NewHub(log)
+	mockUC := new(mockUserUseCase)
+	h := NewUserHandler(mockUC, hub, log)
+
+	userID := uuid.New()
+	mask := "+79123 ••• •• 89"
+	user := &domain.User{ID: userID, Username: "alice", AllowSearchByPhone: true, PhoneMasked: &mask}
+	mockUC.On("SetPhone", userID, "+79123456789").Return(user, nil)
+
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/users/me/phone",
+		strings.NewReader(`{"phone":"+79123456789"}`))
+	req = req.WithContext(context.WithValue(req.Context(), "user_id", userID))
+
+	rec := httptest.NewRecorder()
+	h.UpdatePhone(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"phone_masked":"+79123 ••• •• 89"`) {
+		t.Fatalf("expected phone_masked in body, got: %s", rec.Body.String())
+	}
+}
+
+func TestUserHandler_UpdatePhone_Invalid(t *testing.T) {
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	hub := ws.NewHub(log)
+	mockUC := new(mockUserUseCase)
+	h := NewUserHandler(mockUC, hub, log)
+
+	userID := uuid.New()
+	mockUC.On("SetPhone", userID, "abc").Return(nil, domain.ErrInvalidPhone)
+
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/users/me/phone",
+		strings.NewReader(`{"phone":"abc"}`))
+	req = req.WithContext(context.WithValue(req.Context(), "user_id", userID))
+
+	rec := httptest.NewRecorder()
+	h.UpdatePhone(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"code":"phone_invalid"`) {
+		t.Fatalf("expected phone_invalid, got: %s", rec.Body.String())
+	}
+}
+
+func TestUserHandler_UpdatePhone_Taken(t *testing.T) {
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	hub := ws.NewHub(log)
+	mockUC := new(mockUserUseCase)
+	h := NewUserHandler(mockUC, hub, log)
+
+	userID := uuid.New()
+	mockUC.On("SetPhone", userID, "+79123456789").Return(nil, domain.ErrPhoneTaken)
+
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/users/me/phone",
+		strings.NewReader(`{"phone":"+79123456789"}`))
+	req = req.WithContext(context.WithValue(req.Context(), "user_id", userID))
+
+	rec := httptest.NewRecorder()
+	h.UpdatePhone(rec, req)
+
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("expected 409, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"code":"phone_taken"`) {
+		t.Fatalf("expected phone_taken, got: %s", rec.Body.String())
+	}
+}
+
+func TestUserHandler_DeletePhone_Success(t *testing.T) {
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	hub := ws.NewHub(log)
+	mockUC := new(mockUserUseCase)
+	h := NewUserHandler(mockUC, hub, log)
+
+	userID := uuid.New()
+	user := &domain.User{ID: userID, Username: "alice"}
+	mockUC.On("ClearPhone", userID).Return(user, nil)
+
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/users/me/phone", nil)
+	req = req.WithContext(context.WithValue(req.Context(), "user_id", userID))
+
+	rec := httptest.NewRecorder()
+	h.DeletePhone(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
 	}
 }

@@ -74,6 +74,7 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 			User:                user,
 			AllowFriendRequests: user.AllowFriendRequests,
 			AllowDMFrom:         user.AllowDMFrom,
+			AllowSearchByPhone:  user.AllowSearchByPhone,
 		},
 	})
 }
@@ -116,6 +117,7 @@ func (h *AuthHandler) Refresh(w http.ResponseWriter, r *http.Request) {
 			User:                user,
 			AllowFriendRequests: user.AllowFriendRequests,
 			AllowDMFrom:         user.AllowDMFrom,
+			AllowSearchByPhone:  user.AllowSearchByPhone,
 		},
 	})
 }

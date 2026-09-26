@@ -42,6 +42,24 @@ type User struct {
 	// режим: переписка с друзьями им не ограничивается.
 	// json:"-": та же причина, что у AllowFriendRequests выше.
 	AllowDMFrom PrivacyMode `json:"-"`
+	// PhoneIndex — детерминированный поисковый ключ номера телефона
+	// (HMAC-SHA256 от нормализованного номера). UNIQUE (миграция 026).
+	// json:"-": номер — личные данные, наружу идёт только маска.
+	PhoneIndex *string `json:"-"`
+	// PhoneCipher — зашифрованный AES-256-GCM номер (base64 nonce||ct).
+	// Расшифровать можно только с PHONE_ENC_KEY.
+	PhoneCipher *string `json:"-"`
+	// PhoneVerifiedAt — задел под SMS-верификацию (VYC-97): всегда NULL,
+	// пока верификация не реализована.
+	PhoneVerifiedAt *time.Time `json:"-"`
+	// AllowSearchByPhone — приватность: false → поиск по номеру при заявке
+	// в друзья возвращает «не найден». Дефолт true (миграция 026).
+	// json:"-": раздаётся только через meResponse — как AllowFriendRequests.
+	AllowSearchByPhone bool `json:"-"`
+	// PhoneMasked — презентационная маска номера, заполняется ТОЛЬКО в
+	// usecase.GetMe/SetPhone/ClearPhone. Во всех остальных местах (GetByID,
+	// SearchUsers) nil, и omitempty скрывает поле.
+	PhoneMasked *string `json:"phone_masked,omitempty"`
 }
 
 type UserStatus string
@@ -58,6 +76,16 @@ type UserRepository interface {
 	GetByID(id uuid.UUID) (*User, error)
 	GetByEmail(email string) (*User, error)
 	GetByUsername(username string) (*User, error)
+	// GetByPhoneIndex ищет пользователя по детерминированному индексу
+	// номера. ErrUserNotFound, если номера нет.
+	GetByPhoneIndex(index string) (*User, error)
+	// SetPhone пишет индекс и шифротекст номера. ErrPhoneTaken, если индекс
+	// уже занят ДРУГИМ пользователем (users_phone_index_key).
+	// Всегда сбрасывает phone_verified_at: повторная установка номера
+	// аннулирует будущую верификацию.
+	SetPhone(id uuid.UUID, index, cipher string) error
+	// ClearPhone снимает номер (обе колонки в NULL). Идемпотентна.
+	ClearPhone(id uuid.UUID) error
 	Update(id uuid.UUID, updates map[string]interface{}) error
 	Search(query string, limit, offset int) ([]*User, error)
 	UpdateLastVisited(id uuid.UUID, serverID, channelID *uuid.UUID) error
@@ -81,7 +109,7 @@ type UserRepository interface {
 	// метод, а не Update с картой — тот же принцип, что у MarkEmailVerified
 	// и UpdateLastSeen: колонки не входят в whitelist произвольных
 	// обновлений и меняются ровно в одном сценарии.
-	UpdatePrivacy(id uuid.UUID, showLastSeen *bool, friendRequests, dmFrom *PrivacyMode) error
+	UpdatePrivacy(id uuid.UUID, showLastSeen *bool, friendRequests, dmFrom *PrivacyMode, allowSearchByPhone *bool) error
 }
 
 // LastSeenInfo — снимок «когда видели» с учётом приватности: Visible=false

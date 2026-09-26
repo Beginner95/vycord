@@ -1,6 +1,7 @@
 package config
 
 import (
+	"encoding/hex"
 	"fmt"
 	"os"
 	"strconv"
@@ -59,6 +60,11 @@ type Config struct {
 	// Отдельный от JWTSecret намеренно: ротация одного секрета не должна
 	// инвалидировать другую подсистему.
 	OTPSecret string
+	// PhoneEncKey — ключ AES-256 для шифрования номеров телефонов
+	// (users.phone_cipher) и детерминированного поискового индекса
+	// (users.phone_index). 64 hex-символа = 32 байта. Один на все номера;
+	// ротация требует перешифрования всех номеров — не в скоупе.
+	PhoneEncKey string
 	// OTPTTL и лимиты. 4-значный код держится не на своей энтропии
 	// (10 000 вариантов), а на этих ограничениях: 3 попытки на код и не
 	// более 5 кодов в час дают максимум 15 попыток в час на аккаунт.
@@ -90,6 +96,13 @@ func New() (*Config, error) {
 	if otpSecret == "" {
 		return nil, fmt.Errorf("OTP_SECRET environment variable is required")
 	}
+	phoneEncKey := getEnv("PHONE_ENC_KEY", "")
+	if phoneEncKey == "" {
+		return nil, fmt.Errorf("PHONE_ENC_KEY environment variable is required")
+	}
+	if decoded, err := hex.DecodeString(phoneEncKey); err != nil || len(decoded) != 32 {
+		return nil, fmt.Errorf("PHONE_ENC_KEY must be 64 hex characters (32 bytes)")
+	}
 
 	cfg := &Config{
 		ServerPort:             getEnv("SERVER_PORT", "8080"),
@@ -119,6 +132,7 @@ func New() (*Config, error) {
 		SMTPFrom:               smtpFrom,
 		SMTPFromName:           getEnv("SMTP_FROM_NAME", "VYCORD"),
 		OTPSecret:              otpSecret,
+		PhoneEncKey:            phoneEncKey,
 		OTPTTL:                 parseDurationMin(getEnv("OTP_TTL", ""), 5*time.Minute, time.Minute),
 		OTPMaxAttempts:         getEnvIntMin("OTP_MAX_ATTEMPTS", 3, 1),
 		OTPResendCooldown:      parseDurationMin(getEnv("OTP_RESEND_COOLDOWN", ""), time.Minute, 5*time.Second),

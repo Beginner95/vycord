@@ -372,6 +372,19 @@ class ApiService {
     });
   }
 
+  async updatePhone(phone: string) {
+    return this.request<User>('/api/v1/users/me/phone', {
+      method: 'PUT',
+      body: JSON.stringify({ phone }),
+    });
+  }
+
+  async deletePhone() {
+    return this.request<User>('/api/v1/users/me/phone', {
+      method: 'DELETE',
+    });
+  }
+
   // Friends (VYC-90)
   async getFriends() {
     return this.request<{ friends: FriendProfile[] }>('/api/v1/friends');
@@ -383,10 +396,10 @@ class ApiService {
     );
   }
 
-  async sendFriendRequest(username: string) {
+  async sendFriendRequest(input: { username?: string; phone?: string }) {
     return this.request<{ status: 'pending' | 'accepted'; request?: FriendRequest; user?: UserBrief }>(
       '/api/v1/friends/requests',
-      { method: 'POST', body: JSON.stringify({ username }) },
+      { method: 'POST', body: JSON.stringify(input) },
     );
   }
 
@@ -701,6 +714,7 @@ class ApiService {
     show_last_seen?: boolean;
     allow_friend_requests?: PrivacyMode;
     allow_dm_from?: PrivacyMode;
+    allow_search_by_phone?: boolean;
   }) {
     return this.request<void>('/api/v1/users/me/privacy', {
       method: 'PATCH',

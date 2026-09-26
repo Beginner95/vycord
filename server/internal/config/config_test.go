@@ -1,6 +1,7 @@
 package config_test
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -18,6 +19,7 @@ func setRequiredEnv(t *testing.T) {
 	t.Setenv("SMTP_HOST", "localhost")
 	t.Setenv("SMTP_FROM", "noreply@example.com")
 	t.Setenv("OTP_SECRET", "otp-test-secret")
+	t.Setenv("PHONE_ENC_KEY", strings.Repeat("ab", 32)) // 64 hex-символа
 }
 
 func TestAttachmentDefaults(t *testing.T) {
@@ -135,4 +137,32 @@ func TestOTPSecretRequired(t *testing.T) {
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "OTP_SECRET")
+}
+
+func TestPhoneEncKeyRequired(t *testing.T) {
+	setRequiredEnv(t)
+	t.Setenv("PHONE_ENC_KEY", "")
+
+	_, err := config.New()
+
+	require.ErrorContains(t, err, "PHONE_ENC_KEY")
+}
+
+func TestPhoneEncKeyMustBe64Hex(t *testing.T) {
+	setRequiredEnv(t)
+	t.Setenv("PHONE_ENC_KEY", "abc")
+
+	_, err := config.New()
+
+	require.ErrorContains(t, err, "64 hex")
+}
+
+func TestPhoneEncKeyParsed(t *testing.T) {
+	setRequiredEnv(t)
+	t.Setenv("PHONE_ENC_KEY", strings.Repeat("cd", 32))
+
+	cfg, err := config.New()
+
+	require.NoError(t, err)
+	assert.Equal(t, strings.Repeat("cd", 32), cfg.PhoneEncKey)
 }

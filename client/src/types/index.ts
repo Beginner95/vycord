@@ -29,6 +29,9 @@ export interface User {
   show_last_seen: boolean;
   allow_friend_requests?: PrivacyMode;
   allow_dm_from?: PrivacyMode;
+  allow_search_by_phone?: boolean;
+  /** Маска номера («+79123 ••• •• 89»), приходит только в ответах «про себя». */
+  phone_masked?: string | null;
 }
 
 export type UserStatus = 'online' | 'idle' | 'dnd' | 'offline';

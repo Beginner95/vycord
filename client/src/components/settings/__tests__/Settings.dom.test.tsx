@@ -17,6 +17,7 @@ beforeEach(() => {
       id: 'u1', username: 'anna', email: 'anna@example.com', avatar_url: undefined,
       status: 'online', created_at: '', updated_at: '',
       show_last_seen: true, allow_friend_requests: 'everyone', allow_dm_from: 'friends',
+      allow_search_by_phone: true, phone_masked: null,
     } as never,
   });
 });

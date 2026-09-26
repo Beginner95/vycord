@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/vycord/server/internal/domain"
 	"github.com/vycord/server/internal/usecase"
+	"github.com/vycord/server/pkg/phonecrypto"
 )
 
 // newFriendUC собирает юзкейс с моками. Возвращает все моки: тесты
@@ -20,7 +21,7 @@ func newFriendUC(t *testing.T) (domain.FriendUseCase, *MockFriendRepository,
 	br := new(MockBlockRepository)
 	ur := new(MockUserRepository)
 	sr := new(MockServerRepository)
-	return usecase.NewFriendUseCase(fr, br, ur, sr), fr, br, ur, sr
+	return usecase.NewFriendUseCase(fr, br, ur, sr, testPhoneKey), fr, br, ur, sr
 }
 
 func userWith(id uuid.UUID, name string, fr, dm domain.PrivacyMode) *domain.User {
@@ -37,7 +38,7 @@ func TestSendRequest_ToSelf_Rejected(t *testing.T) {
 	me := uuid.New()
 	ur.On("GetByUsername", "self").Return(userWith(me, "self", domain.PrivacyEveryone, domain.PrivacyFriends), nil)
 
-	_, _, _, _, err := uc.SendRequest(me, "self")
+	_, _, _, _, err := uc.SendRequest(me, "self", "")
 	assert.ErrorIs(t, err, domain.ErrSelfFriendship)
 }
 
@@ -47,7 +48,7 @@ func TestSendRequest_Blocked_ReturnsGenericForbidden(t *testing.T) {
 	ur.On("GetByUsername", "other").Return(userWith(other, "other", domain.PrivacyEveryone, domain.PrivacyFriends), nil)
 	br.On("IsBlockedEither", me, other).Return(true, nil)
 
-	_, _, _, _, err := uc.SendRequest(me, "other")
+	_, _, _, _, err := uc.SendRequest(me, "other", "")
 	// Именно ErrInteractionForbidden, а не отдельная «вы заблокированы»:
 	// различимость этих случаев снаружи — утечка.
 	assert.ErrorIs(t, err, domain.ErrInteractionForbidden)
@@ -59,7 +60,7 @@ func TestSendRequest_PrivacyNone_Rejected(t *testing.T) {
 	ur.On("GetByUsername", "other").Return(userWith(other, "other", domain.PrivacyNone, domain.PrivacyFriends), nil)
 	br.On("IsBlockedEither", me, other).Return(false, nil)
 
-	_, _, _, _, err := uc.SendRequest(me, "other")
+	_, _, _, _, err := uc.SendRequest(me, "other", "")
 	assert.ErrorIs(t, err, domain.ErrInteractionForbidden)
 }
 
@@ -70,7 +71,7 @@ func TestSendRequest_MutualServers_NoCommonServer_Rejected(t *testing.T) {
 	br.On("IsBlockedEither", me, other).Return(false, nil)
 	sr.On("HasMutualServer", me, other).Return(false, nil)
 
-	_, _, _, _, err := uc.SendRequest(me, "other")
+	_, _, _, _, err := uc.SendRequest(me, "other", "")
 	assert.ErrorIs(t, err, domain.ErrInteractionForbidden)
 }
 
@@ -84,7 +85,7 @@ func TestSendRequest_MutualServers_WithCommonServer_Allowed(t *testing.T) {
 	fr.On("Create", mock.AnythingOfType("*domain.Friendship")).Return(nil)
 	ur.On("GetByID", me).Return(userWith(me, "me", domain.PrivacyEveryone, domain.PrivacyFriends), nil)
 
-	req, target, self, accepted, err := uc.SendRequest(me, "other")
+	req, target, self, accepted, err := uc.SendRequest(me, "other", "")
 	require.NoError(t, err)
 	assert.False(t, accepted)
 	assert.Equal(t, other, target.UserID)
@@ -110,7 +111,7 @@ func TestSendRequest_ReturnsCallerOwnBriefAsSelf(t *testing.T) {
 	fr.On("GetByPair", me, other).Return(nil, domain.ErrFriendshipNotFound)
 	fr.On("Create", mock.AnythingOfType("*domain.Friendship")).Return(nil)
 
-	_, target, self, accepted, err := uc.SendRequest(me, "other")
+	_, target, self, accepted, err := uc.SendRequest(me, "other", "")
 	require.NoError(t, err)
 	assert.False(t, accepted)
 	require.NotNil(t, self)
@@ -142,7 +143,7 @@ func TestSendRequest_ConcurrentCounterRequest_ResolvesInsteadOf500(t *testing.T)
 	}, nil).Once()
 	fr.On("Accept", reqID, me, mock.AnythingOfType("time.Time")).Return(nil)
 
-	_, target, self, accepted, err := uc.SendRequest(me, "other")
+	_, target, self, accepted, err := uc.SendRequest(me, "other", "")
 	require.NoError(t, err, "гонка обязана разрешиться, а не всплыть как ошибка")
 	assert.True(t, accepted)
 	assert.Equal(t, other, target.UserID)
@@ -198,7 +199,7 @@ func TestSendRequest_CounterRequest_BecomesFriendship(t *testing.T) {
 	fr.On("Accept", reqID, me, mock.AnythingOfType("time.Time")).Return(nil)
 	ur.On("GetByID", me).Return(userWith(me, "me", domain.PrivacyEveryone, domain.PrivacyFriends), nil)
 
-	_, target, self, accepted, err := uc.SendRequest(me, "other")
+	_, target, self, accepted, err := uc.SendRequest(me, "other", "")
 	require.NoError(t, err)
 	assert.True(t, accepted, "встречная заявка обязана сразу становиться дружбой, а не 409")
 	assert.Equal(t, other, target.UserID)
@@ -217,7 +218,7 @@ func TestSendRequest_OwnRequestAlreadyPending_Rejected(t *testing.T) {
 		ID: uuid.New(), RequesterID: me, AddresseeID: other, Status: domain.FriendshipPending,
 	}, nil)
 
-	_, _, _, _, err := uc.SendRequest(me, "other")
+	_, _, _, _, err := uc.SendRequest(me, "other", "")
 	assert.ErrorIs(t, err, domain.ErrFriendRequestExists)
 }
 
@@ -232,7 +233,7 @@ func TestSendRequest_AlreadyFriends_Rejected(t *testing.T) {
 		ID: uuid.New(), RequesterID: other, AddresseeID: me, Status: domain.FriendshipAccepted,
 	}, nil)
 
-	_, _, _, _, err := uc.SendRequest(me, "other")
+	_, _, _, _, err := uc.SendRequest(me, "other", "")
 	assert.ErrorIs(t, err, domain.ErrAlreadyFriends)
 }
 
@@ -362,4 +363,55 @@ func TestUnblock_DelegatesToBlockRepo(t *testing.T) {
 
 	require.NoError(t, uc.Unblock(me, other))
 	br.AssertCalled(t, "Unblock", me, other)
+}
+
+func TestSendRequest_ByPhone_FindsAndNormalizes(t *testing.T) {
+	uc, fr, br, ur, _ := newFriendUC(t)
+	me, other := uuid.New(), uuid.New()
+
+	index, err := phonecrypto.Index(testPhoneKey, "+79123456789")
+	require.NoError(t, err)
+	target := userWith(other, "other", domain.PrivacyEveryone, domain.PrivacyFriends)
+	target.AllowSearchByPhone = true
+	ur.On("GetByPhoneIndex", index).Return(target, nil)
+	br.On("IsBlockedEither", me, other).Return(false, nil)
+	fr.On("GetByPair", me, other).Return(nil, domain.ErrFriendshipNotFound)
+	fr.On("Create", mock.AnythingOfType("*domain.Friendship")).Return(nil)
+	ur.On("GetByID", me).Return(userWith(me, "me", domain.PrivacyEveryone, domain.PrivacyFriends), nil)
+
+	// Ввод с разделителями: "8 912 345-67-89" обязан искаться по индексу
+	// ОТ +79123456789 — иначе mock GetByPhoneIndex не совпадёт.
+	req, targetB, _, accepted, err := uc.SendRequest(me, "", "8 912 345-67-89")
+
+	require.NoError(t, err)
+	assert.False(t, accepted)
+	assert.Equal(t, other, req.User.UserID)
+	assert.Equal(t, other, targetB.UserID)
+}
+
+func TestSendRequest_ByPhone_SearchDisabled_ReturnsNotFound(t *testing.T) {
+	uc, _, br, ur, _ := newFriendUC(t)
+	me, other := uuid.New(), uuid.New()
+
+	index, _ := phonecrypto.Index(testPhoneKey, "+79123456789")
+	target := userWith(other, "other", domain.PrivacyEveryone, domain.PrivacyFriends)
+	target.AllowSearchByPhone = false
+	ur.On("GetByPhoneIndex", index).Return(target, nil)
+
+	// Именно ErrUserNotFound, а не ErrInteractionForbidden: выключенная
+	// настройка не должна выдавать факт существования номера.
+	_, _, _, _, err := uc.SendRequest(me, "", "+79123456789")
+
+	require.ErrorIs(t, err, domain.ErrUserNotFound)
+	br.AssertNotCalled(t, "IsBlockedEither")
+}
+
+func TestSendRequest_ByPhone_InvalidNumber(t *testing.T) {
+	uc, _, _, ur, _ := newFriendUC(t)
+	me := uuid.New()
+
+	_, _, _, _, err := uc.SendRequest(me, "", "not-a-phone")
+
+	require.ErrorIs(t, err, domain.ErrInvalidPhone)
+	ur.AssertNotCalled(t, "GetByPhoneIndex")
 }

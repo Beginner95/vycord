@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/hex"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -100,6 +101,12 @@ func main() {
 		os.Exit(1)
 	}
 
+	phoneKey, err := hex.DecodeString(cfg.PhoneEncKey)
+	if err != nil || len(phoneKey) != 32 {
+		log.Error("PHONE_ENC_KEY must be 64 hex characters (32 bytes)", "error", err)
+		os.Exit(1)
+	}
+
 	// Initialize usecases
 	appMailer := mailer.NewSMTP(mailer.Config{
 		Host:     cfg.SMTPHost,
@@ -127,12 +134,12 @@ func main() {
 	// otpUseCase.VerifyCode, а Login/Refresh/Logout никогда не отправляли
 	// код напрямую.
 	authUseCase := usecase.NewAuthUseCase(userRepo, refreshTokenRepo, cfg.JWTSecret, cfg.JWTExpiration, cfg.RefreshTokenExpiration)
-	userUseCase := usecase.NewUserUseCase(userRepo, storage)
+	userUseCase := usecase.NewUserUseCase(userRepo, storage, phoneKey)
 	permissionUseCase := usecase.NewPermissionUseCase(serverRepo, roleRepo)
 	inviteUseCase := usecase.NewInviteUseCase(inviteRepo, serverRepo, permissionUseCase)
 	roleUseCase := usecase.NewRoleUseCase(serverRepo, roleRepo, permissionUseCase)
 	serverUseCase := usecase.NewServerUseCase(serverRepo, channelRepo, userRepo, roleRepo, storage, permissionUseCase)
-	friendUseCase := usecase.NewFriendUseCase(friendRepo, blockRepo, userRepo, serverRepo)
+	friendUseCase := usecase.NewFriendUseCase(friendRepo, blockRepo, userRepo, serverRepo, phoneKey)
 	voiceTokenUseCase := usecase.NewVoiceTokenUseCase(serverUseCase, cfg.JWTSecret)
 	messageUseCase := usecase.NewMessageUseCase(messageRepo, channelRepo, serverRepo, stickerRepo, permissionUseCase, attachmentRepo, storage)
 	stickerUseCase := usecase.NewStickerUseCase(stickerRepo, serverRepo, permissionUseCase, storage)
@@ -304,6 +311,15 @@ func main() {
 	router.HandleFunc("DELETE /api/v1/users/me/avatar", authMid.RequireAuth(userHandler.RemoveAvatar))
 	router.HandleFunc("POST /api/v1/users/last-seen", authMid.RequireAuth(userHandler.GetLastSeenBatch))
 	router.HandleFunc("PATCH /api/v1/users/me/privacy", authMid.RequireAuth(userHandler.UpdatePrivacy))
+
+	// PHONE_ENDPOINT_LIMIT — 10 установок номера в час на пользователя:
+	// свободного перебора чужих номеров не даёт, легитимной настройке не мешает.
+	phoneLimiter := ratelimit.New(10, time.Hour)
+	router.HandleFunc("PUT /api/v1/users/me/phone",
+		authMid.RequireAuth(phoneLimiter.Middleware(func(r *http.Request) string {
+			return r.Context().Value("user_id").(uuid.UUID).String()
+		}, userHandler.UpdatePhone)))
+	router.HandleFunc("DELETE /api/v1/users/me/phone", authMid.RequireAuth(userHandler.DeletePhone))
 
 	// Friends (VYC-90)
 	router.HandleFunc("GET /api/v1/friends", authMid.RequireAuth(friendHandler.ListFriends))

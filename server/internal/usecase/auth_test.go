@@ -49,6 +49,22 @@ func (m *MockUserRepository) GetByUsername(username string) (*domain.User, error
 	return args.Get(0).(*domain.User), args.Error(1)
 }
 
+func (m *MockUserRepository) GetByPhoneIndex(index string) (*domain.User, error) {
+	args := m.Called(index)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*domain.User), args.Error(1)
+}
+
+func (m *MockUserRepository) SetPhone(id uuid.UUID, index, cipher string) error {
+	return m.Called(id, index, cipher).Error(0)
+}
+
+func (m *MockUserRepository) ClearPhone(id uuid.UUID) error {
+	return m.Called(id).Error(0)
+}
+
 func (m *MockUserRepository) Update(id uuid.UUID, updates map[string]interface{}) error {
 	args := m.Called(id, updates)
 	return args.Error(0)
@@ -88,8 +104,8 @@ func (m *MockUserRepository) GetLastSeenBatch(ids []uuid.UUID) (map[uuid.UUID]do
 	return args.Get(0).(map[uuid.UUID]domain.LastSeenInfo), args.Error(1)
 }
 
-func (m *MockUserRepository) UpdatePrivacy(id uuid.UUID, showLastSeen *bool, friendRequests, dmFrom *domain.PrivacyMode) error {
-	return m.Called(id, showLastSeen, friendRequests, dmFrom).Error(0)
+func (m *MockUserRepository) UpdatePrivacy(id uuid.UUID, showLastSeen *bool, friendRequests, dmFrom *domain.PrivacyMode, allowSearchByPhone *bool) error {
+	return m.Called(id, showLastSeen, friendRequests, dmFrom, allowSearchByPhone).Error(0)
 }
 
 type MockRefreshTokenRepository struct {

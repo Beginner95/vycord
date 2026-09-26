@@ -63,7 +63,7 @@ func fakeJPEGBytes(width, height int) []byte {
 func TestUpdateAvatar_SavesValidPNGAndUpdatesUser(t *testing.T) {
 	userRepo := new(MockUserRepository)
 	storage := new(MockStorage)
-	uc := usecase.NewUserUseCase(userRepo, storage)
+	uc := usecase.NewUserUseCase(userRepo, storage, testPhoneKey)
 
 	userID := uuid.New()
 	existing := &domain.User{ID: userID, Username: "alice"}
@@ -85,7 +85,7 @@ func TestUpdateAvatar_SavesValidPNGAndUpdatesUser(t *testing.T) {
 func TestUpdateAvatar_SavesValidJPEG(t *testing.T) {
 	userRepo := new(MockUserRepository)
 	storage := new(MockStorage)
-	uc := usecase.NewUserUseCase(userRepo, storage)
+	uc := usecase.NewUserUseCase(userRepo, storage, testPhoneKey)
 
 	userID := uuid.New()
 	existing := &domain.User{ID: userID, Username: "alice"}
@@ -102,7 +102,7 @@ func TestUpdateAvatar_SavesValidJPEG(t *testing.T) {
 func TestUpdateAvatar_DeletesOldAvatarAfterReplacing(t *testing.T) {
 	userRepo := new(MockUserRepository)
 	storage := new(MockStorage)
-	uc := usecase.NewUserUseCase(userRepo, storage)
+	uc := usecase.NewUserUseCase(userRepo, storage, testPhoneKey)
 
 	userID := uuid.New()
 	oldURL := "/uploads/avatars/old.png"
@@ -121,7 +121,7 @@ func TestUpdateAvatar_DeletesOldAvatarAfterReplacing(t *testing.T) {
 func TestUpdateAvatar_RejectsUnsupportedFormat(t *testing.T) {
 	userRepo := new(MockUserRepository)
 	storage := new(MockStorage)
-	uc := usecase.NewUserUseCase(userRepo, storage)
+	uc := usecase.NewUserUseCase(userRepo, storage, testPhoneKey)
 
 	_, err := uc.UpdateAvatar(uuid.New(), []byte("not an image, just plain text bytes"))
 
@@ -133,7 +133,7 @@ func TestUpdateAvatar_RejectsUnsupportedFormat(t *testing.T) {
 func TestUpdateAvatar_RejectsCorruptImageData(t *testing.T) {
 	userRepo := new(MockUserRepository)
 	storage := new(MockStorage)
-	uc := usecase.NewUserUseCase(userRepo, storage)
+	uc := usecase.NewUserUseCase(userRepo, storage, testPhoneKey)
 
 	// Valid PNG magic-byte signature, truncated/corrupt body — passes
 	// content-type sniffing, fails image.DecodeConfig.
@@ -147,7 +147,7 @@ func TestUpdateAvatar_RejectsCorruptImageData(t *testing.T) {
 func TestUpdateAvatar_RejectsImageBelowMinimumDimensions(t *testing.T) {
 	userRepo := new(MockUserRepository)
 	storage := new(MockStorage)
-	uc := usecase.NewUserUseCase(userRepo, storage)
+	uc := usecase.NewUserUseCase(userRepo, storage, testPhoneKey)
 
 	_, err := uc.UpdateAvatar(uuid.New(), fakePNGBytes(16, 16))
 
@@ -157,7 +157,7 @@ func TestUpdateAvatar_RejectsImageBelowMinimumDimensions(t *testing.T) {
 func TestUpdateAvatar_RejectsImageAboveMaximumDimensions(t *testing.T) {
 	userRepo := new(MockUserRepository)
 	storage := new(MockStorage)
-	uc := usecase.NewUserUseCase(userRepo, storage)
+	uc := usecase.NewUserUseCase(userRepo, storage, testPhoneKey)
 
 	// Asymmetric dimensions keep the fake PNG small/fast to encode while
 	// still exceeding maxAvatarDimension on one axis.
@@ -169,7 +169,7 @@ func TestUpdateAvatar_RejectsImageAboveMaximumDimensions(t *testing.T) {
 func TestRemoveAvatar_ClearsURLAndDeletesFile(t *testing.T) {
 	userRepo := new(MockUserRepository)
 	storage := new(MockStorage)
-	uc := usecase.NewUserUseCase(userRepo, storage)
+	uc := usecase.NewUserUseCase(userRepo, storage, testPhoneKey)
 
 	userID := uuid.New()
 	oldURL := "/uploads/avatars/old.png"
@@ -189,7 +189,7 @@ func TestRemoveAvatar_ClearsURLAndDeletesFile(t *testing.T) {
 func TestRemoveAvatar_NoOpWhenNoAvatarSet(t *testing.T) {
 	userRepo := new(MockUserRepository)
 	storage := new(MockStorage)
-	uc := usecase.NewUserUseCase(userRepo, storage)
+	uc := usecase.NewUserUseCase(userRepo, storage, testPhoneKey)
 
 	userID := uuid.New()
 	existing := &domain.User{ID: userID, Username: "alice"}
@@ -205,7 +205,7 @@ func TestRemoveAvatar_NoOpWhenNoAvatarSet(t *testing.T) {
 
 func TestUpdateLastSeen_PassesThroughToRepository(t *testing.T) {
 	userRepo := new(MockUserRepository)
-	uc := usecase.NewUserUseCase(userRepo, new(MockStorage))
+	uc := usecase.NewUserUseCase(userRepo, new(MockStorage), testPhoneKey)
 
 	userID := uuid.New()
 	now := time.Now()
@@ -219,7 +219,7 @@ func TestUpdateLastSeen_PassesThroughToRepository(t *testing.T) {
 
 func TestGetLastSeenBatch_EmptyInput_ReturnsEmptyMapWithoutCallingRepository(t *testing.T) {
 	userRepo := new(MockUserRepository)
-	uc := usecase.NewUserUseCase(userRepo, new(MockStorage))
+	uc := usecase.NewUserUseCase(userRepo, new(MockStorage), testPhoneKey)
 
 	result, err := uc.GetLastSeenBatch(nil)
 
@@ -230,7 +230,7 @@ func TestGetLastSeenBatch_EmptyInput_ReturnsEmptyMapWithoutCallingRepository(t *
 
 func TestGetLastSeenBatch_TooManyIDs_ReturnsErrWithoutCallingRepository(t *testing.T) {
 	userRepo := new(MockUserRepository)
-	uc := usecase.NewUserUseCase(userRepo, new(MockStorage))
+	uc := usecase.NewUserUseCase(userRepo, new(MockStorage), testPhoneKey)
 
 	ids := make([]uuid.UUID, 201)
 	for i := range ids {
@@ -245,7 +245,7 @@ func TestGetLastSeenBatch_TooManyIDs_ReturnsErrWithoutCallingRepository(t *testi
 
 func TestGetLastSeenBatch_PassesThroughRepositoryResult(t *testing.T) {
 	userRepo := new(MockUserRepository)
-	uc := usecase.NewUserUseCase(userRepo, new(MockStorage))
+	uc := usecase.NewUserUseCase(userRepo, new(MockStorage), testPhoneKey)
 
 	visibleID := uuid.New()
 	hiddenID := uuid.New()
@@ -265,13 +265,13 @@ func TestGetLastSeenBatch_PassesThroughRepositoryResult(t *testing.T) {
 
 func TestSetPrivacy_UpdatesShowLastSeenColumn(t *testing.T) {
 	userRepo := new(MockUserRepository)
-	uc := usecase.NewUserUseCase(userRepo, new(MockStorage))
+	uc := usecase.NewUserUseCase(userRepo, new(MockStorage), testPhoneKey)
 
 	userID := uuid.New()
 	show := false
-	userRepo.On("UpdatePrivacy", userID, &show, (*domain.PrivacyMode)(nil), (*domain.PrivacyMode)(nil)).Return(nil)
+	userRepo.On("UpdatePrivacy", userID, &show, (*domain.PrivacyMode)(nil), (*domain.PrivacyMode)(nil), (*bool)(nil)).Return(nil)
 
-	err := uc.SetPrivacy(userID, &show, nil, nil)
+	err := uc.SetPrivacy(userID, &show, nil, nil, nil)
 
 	require.NoError(t, err)
 	userRepo.AssertExpectations(t)

@@ -39,8 +39,8 @@ func (m *mockFriendUseCase) ListRequests(userID uuid.UUID) ([]*domain.FriendRequ
 	return in, out, args.Error(2)
 }
 
-func (m *mockFriendUseCase) SendRequest(fromID uuid.UUID, username string) (*domain.FriendRequest, *domain.UserBrief, *domain.UserBrief, bool, error) {
-	args := m.Called(fromID, username)
+func (m *mockFriendUseCase) SendRequest(fromID uuid.UUID, username, phone string) (*domain.FriendRequest, *domain.UserBrief, *domain.UserBrief, bool, error) {
+	args := m.Called(fromID, username, phone)
 	var req *domain.FriendRequest
 	var target *domain.UserBrief
 	var self *domain.UserBrief
@@ -100,7 +100,7 @@ func TestFriendHandler_SendRequest_ForbiddenIsOpaque(t *testing.T) {
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	uc := new(mockFriendUseCase)
 	me := uuid.New()
-	uc.On("SendRequest", me, "other").Return(nil, nil, nil, false, domain.ErrInteractionForbidden)
+	uc.On("SendRequest", me, "other", "").Return(nil, nil, nil, false, domain.ErrInteractionForbidden)
 
 	h := NewFriendHandler(uc, ws.NewHub(log), log)
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/friends/requests",
@@ -140,7 +140,7 @@ func TestFriendHandler_SendRequest_EmptyUsernameRejected(t *testing.T) {
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d", rec.Code)
 	}
-	uc.AssertNotCalled(t, "SendRequest", mock.Anything, mock.Anything)
+	uc.AssertNotCalled(t, "SendRequest", mock.Anything, mock.Anything, mock.Anything)
 }
 
 // Регрессия на баг GetByUsername: postgres-репозиторий сравнивал ошибку с
@@ -154,7 +154,7 @@ func TestFriendHandler_SendRequest_UnknownUsernameIs404(t *testing.T) {
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	uc := new(mockFriendUseCase)
 	me := uuid.New()
-	uc.On("SendRequest", me, "ghost").Return(nil, nil, nil, false, domain.ErrUserNotFound)
+	uc.On("SendRequest", me, "ghost", "").Return(nil, nil, nil, false, domain.ErrUserNotFound)
 
 	h := NewFriendHandler(uc, ws.NewHub(log), log)
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/friends/requests",
@@ -246,7 +246,7 @@ func TestFriendHandler_SendRequest_WSPushToTargetCarriesCallerIdentity(t *testin
 	}
 
 	uc := new(mockFriendUseCase)
-	uc.On("SendRequest", caller, "target").Return(req, targetBrief, callerBrief, false, nil)
+	uc.On("SendRequest", caller, "target", "").Return(req, targetBrief, callerBrief, false, nil)
 
 	h := NewFriendHandler(uc, hub, log)
 	httpReq := httptest.NewRequest(http.MethodPost, "/api/v1/friends/requests",
@@ -335,4 +335,71 @@ func TestFriendHandler_Block_NotifiesBothSides(t *testing.T) {
 
 	readChanUntilType(t, targetClient.Send, "friend_removed", time.Second)
 	readChanUntilType(t, meClient.Send, "friend_removed", time.Second)
+}
+
+func TestFriendHandler_SendRequest_ByPhone(t *testing.T) {
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	uc := new(mockFriendUseCase)
+	me := uuid.New()
+	target := &domain.UserBrief{UserID: uuid.New(), Username: "anna"}
+	req := &domain.FriendRequest{ID: uuid.New(), User: *target}
+	uc.On("SendRequest", me, "", "+79123456789").Return(req, target, &domain.UserBrief{UserID: me, Username: "me"}, false, nil)
+
+	h := NewFriendHandler(uc, ws.NewHub(log), log)
+	httpReq := httptest.NewRequest(http.MethodPost, "/api/v1/friends/requests",
+		strings.NewReader(`{"phone":"+79123456789"}`))
+	httpReq = httpReq.WithContext(context.WithValue(httpReq.Context(), "user_id", me))
+
+	rec := httptest.NewRecorder()
+	h.SendRequest(rec, httpReq)
+
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"status":"pending"`) {
+		t.Fatalf("expected pending status, got: %s", rec.Body.String())
+	}
+}
+
+func TestFriendHandler_SendRequest_BothKeys_Rejected(t *testing.T) {
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	uc := new(mockFriendUseCase)
+	me := uuid.New()
+
+	h := NewFriendHandler(uc, ws.NewHub(log), log)
+	httpReq := httptest.NewRequest(http.MethodPost, "/api/v1/friends/requests",
+		strings.NewReader(`{"username":"alice","phone":"+79123456789"}`))
+	httpReq = httpReq.WithContext(context.WithValue(httpReq.Context(), "user_id", me))
+
+	rec := httptest.NewRecorder()
+	h.SendRequest(rec, httpReq)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"code":"invalid_request_body"`) {
+		t.Fatalf("expected invalid_request_body, got: %s", rec.Body.String())
+	}
+}
+
+func TestFriendHandler_SendRequest_InvalidPhone_400(t *testing.T) {
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	uc := new(mockFriendUseCase)
+	me := uuid.New()
+	uc.On("SendRequest", me, "", "abc").Return(nil, nil, nil, false, domain.ErrInvalidPhone)
+
+	h := NewFriendHandler(uc, ws.NewHub(log), log)
+	httpReq := httptest.NewRequest(http.MethodPost, "/api/v1/friends/requests",
+		strings.NewReader(`{"phone":"abc"}`))
+	httpReq = httpReq.WithContext(context.WithValue(httpReq.Context(), "user_id", me))
+
+	rec := httptest.NewRecorder()
+	h.SendRequest(rec, httpReq)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"code":"phone_invalid"`) {
+		t.Fatalf("expected phone_invalid, got: %s", rec.Body.String())
+	}
 }

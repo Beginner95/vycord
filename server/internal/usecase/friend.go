@@ -7,6 +7,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/vycord/server/internal/domain"
+	"github.com/vycord/server/pkg/phonecrypto"
 )
 
 type friendUseCase struct {
@@ -14,6 +15,8 @@ type friendUseCase struct {
 	blockRepo  domain.BlockRepository
 	userRepo   domain.UserRepository
 	serverRepo domain.ServerRepository
+	// phoneKey — PHONE_ENC_KEY: индекс-поиск при заявке по номеру (VYC-97).
+	phoneKey []byte
 }
 
 func NewFriendUseCase(
@@ -21,13 +24,9 @@ func NewFriendUseCase(
 	blockRepo domain.BlockRepository,
 	userRepo domain.UserRepository,
 	serverRepo domain.ServerRepository,
+	phoneKey []byte,
 ) domain.FriendUseCase {
-	return &friendUseCase{
-		friendRepo: friendRepo,
-		blockRepo:  blockRepo,
-		userRepo:   userRepo,
-		serverRepo: serverRepo,
-	}
+	return &friendUseCase{friendRepo: friendRepo, blockRepo: blockRepo, userRepo: userRepo, serverRepo: serverRepo, phoneKey: phoneKey}
 }
 
 type interaction int
@@ -104,8 +103,34 @@ func (uc *friendUseCase) CanDM(fromID, toID uuid.UUID) error {
 	return uc.canInteract(fromID, to, interactionDM)
 }
 
-func (uc *friendUseCase) SendRequest(fromID uuid.UUID, username string) (*domain.FriendRequest, *domain.UserBrief, *domain.UserBrief, bool, error) {
-	target, err := uc.userRepo.GetByUsername(username)
+// lookupTarget находит адресата заявки по имени или номеру. По номеру:
+// нормализация → индекс → поиск. Выключенный allow_search_by_phone отдаёт
+// ErrUserNotFound, а не ErrInteractionForbidden: «скрыт» и «не существует»
+// неразличимы наружу.
+func (uc *friendUseCase) lookupTarget(username, phone string) (*domain.User, error) {
+	if phone == "" {
+		return uc.userRepo.GetByUsername(username)
+	}
+	normalized, err := phonecrypto.Normalize(phone)
+	if err != nil {
+		return nil, domain.ErrInvalidPhone
+	}
+	index, err := phonecrypto.Index(uc.phoneKey, normalized)
+	if err != nil {
+		return nil, fmt.Errorf("phone index: %w", err)
+	}
+	target, err := uc.userRepo.GetByPhoneIndex(index)
+	if err != nil {
+		return nil, err
+	}
+	if !target.AllowSearchByPhone {
+		return nil, domain.ErrUserNotFound
+	}
+	return target, nil
+}
+
+func (uc *friendUseCase) SendRequest(fromID uuid.UUID, username, phone string) (*domain.FriendRequest, *domain.UserBrief, *domain.UserBrief, bool, error) {
+	target, err := uc.lookupTarget(username, phone)
 	if err != nil {
 		return nil, nil, nil, false, err
 	}
