@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/hex"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -100,6 +101,12 @@ func main() {
 		os.Exit(1)
 	}
 
+	phoneKey, err := hex.DecodeString(cfg.PhoneEncKey)
+	if err != nil || len(phoneKey) != 32 {
+		log.Error("PHONE_ENC_KEY must be 64 hex characters (32 bytes)", "error", err)
+		os.Exit(1)
+	}
+
 	// Initialize usecases
 	appMailer := mailer.NewSMTP(mailer.Config{
 		Host:     cfg.SMTPHost,
@@ -127,7 +134,7 @@ func main() {
 	// otpUseCase.VerifyCode, а Login/Refresh/Logout никогда не отправляли
 	// код напрямую.
 	authUseCase := usecase.NewAuthUseCase(userRepo, refreshTokenRepo, cfg.JWTSecret, cfg.JWTExpiration, cfg.RefreshTokenExpiration)
-	userUseCase := usecase.NewUserUseCase(userRepo, storage)
+	userUseCase := usecase.NewUserUseCase(userRepo, storage, phoneKey)
 	permissionUseCase := usecase.NewPermissionUseCase(serverRepo, roleRepo)
 	inviteUseCase := usecase.NewInviteUseCase(inviteRepo, serverRepo, permissionUseCase)
 	roleUseCase := usecase.NewRoleUseCase(serverRepo, roleRepo, permissionUseCase)

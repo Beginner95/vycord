@@ -11,16 +11,18 @@ import (
 	"github.com/google/uuid"
 	"github.com/vycord/server/internal/domain"
 	"github.com/vycord/server/pkg/filestorage"
+	"github.com/vycord/server/pkg/phonecrypto"
 )
-
 
 type userUseCase struct {
 	userRepo domain.UserRepository
 	storage  filestorage.Storage
+	// phoneKey — PHONE_ENC_KEY (32 байта), шифрование номеров (VYC-97).
+	phoneKey []byte
 }
 
-func NewUserUseCase(userRepo domain.UserRepository, storage filestorage.Storage) domain.UserUseCase {
-	return &userUseCase{userRepo: userRepo, storage: storage}
+func NewUserUseCase(userRepo domain.UserRepository, storage filestorage.Storage, phoneKey []byte) domain.UserUseCase {
+	return &userUseCase{userRepo: userRepo, storage: storage, phoneKey: phoneKey}
 }
 
 func (uc *userUseCase) GetByID(id uuid.UUID) (*domain.User, error) {
@@ -32,6 +34,59 @@ func (uc *userUseCase) GetByID(id uuid.UUID) (*domain.User, error) {
 	// Clear password hash
 	user.Password = ""
 	return user, nil
+}
+
+// GetMe — как GetByID, но с PhoneMasked: расшифровывает phone_cipher и
+// строит маску. Только для ответов «про себя».
+func (uc *userUseCase) GetMe(id uuid.UUID) (*domain.User, error) {
+	return uc.getMe(id)
+}
+
+func (uc *userUseCase) getMe(id uuid.UUID) (*domain.User, error) {
+	user, err := uc.userRepo.GetByID(id)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get user: %w", err)
+	}
+	user.Password = ""
+	if user.PhoneCipher != nil {
+		plain, err := phonecrypto.Decrypt(uc.phoneKey, *user.PhoneCipher)
+		if err != nil {
+			return nil, fmt.Errorf("decrypt phone: %w", err)
+		}
+		mask := phonecrypto.Mask(plain)
+		user.PhoneMasked = &mask
+	}
+	return user, nil
+}
+
+// SetPhone — нормализация → индекс+шифротекст → сохранение → «про себя» с
+// маской. Единственная точка, где открытый номер попадает в хранилище
+// (только в зашифрованном виде).
+func (uc *userUseCase) SetPhone(id uuid.UUID, raw string) (*domain.User, error) {
+	normalized, err := phonecrypto.Normalize(raw)
+	if err != nil {
+		return nil, domain.ErrInvalidPhone
+	}
+	index, err := phonecrypto.Index(uc.phoneKey, normalized)
+	if err != nil {
+		return nil, fmt.Errorf("phone index: %w", err)
+	}
+	cipher, err := phonecrypto.Encrypt(uc.phoneKey, normalized)
+	if err != nil {
+		return nil, fmt.Errorf("encrypt phone: %w", err)
+	}
+	if err := uc.userRepo.SetPhone(id, index, cipher); err != nil {
+		return nil, err
+	}
+	return uc.getMe(id)
+}
+
+// ClearPhone снимает номер (освобождает его для других).
+func (uc *userUseCase) ClearPhone(id uuid.UUID) (*domain.User, error) {
+	if err := uc.userRepo.ClearPhone(id); err != nil {
+		return nil, fmt.Errorf("clear phone: %w", err)
+	}
+	return uc.getMe(id)
 }
 
 func (uc *userUseCase) Search(query string, limit int) ([]*domain.User, error) {

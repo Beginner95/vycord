@@ -46,6 +46,14 @@ type UserUseCase interface {
 	UpdateLastVisited(id uuid.UUID, serverID, channelID *uuid.UUID) error
 	UpdateAvatar(id uuid.UUID, data []byte) (*User, error)
 	RemoveAvatar(id uuid.UUID) (*User, error)
+	// GetMe — «про себя»: как GetByID, но с заполненным PhoneMasked.
+	// Единственный источник маски номера для клиента.
+	GetMe(id uuid.UUID) (*User, error)
+	// SetPhone нормализует, шифрует и сохраняет номер пользователя.
+	// ErrInvalidPhone — невалидный ввод; ErrPhoneTaken — номер занят.
+	SetPhone(id uuid.UUID, raw string) (*User, error)
+	// ClearPhone снимает номер. Идемпотентна.
+	ClearPhone(id uuid.UUID) (*User, error)
 	UpdateLastSeen(id uuid.UUID, at time.Time) error
 	GetLastSeenBatch(ids []uuid.UUID) (map[uuid.UUID]LastSeenInfo, error)
 	// SetPrivacy обновляет настройки приватности. nil-поле не трогается —
