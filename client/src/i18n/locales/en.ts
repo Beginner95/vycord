@@ -354,6 +354,7 @@ export const en: Dictionary = {
     outputDeviceDescription: 'Select your speakers',
     defaultMicrophone: 'Default Microphone',
     defaultSpeakers: 'Default Speakers',
+    unnamedDevice: 'Unnamed device',
 
     video: 'Video',
     camera: 'Camera',
