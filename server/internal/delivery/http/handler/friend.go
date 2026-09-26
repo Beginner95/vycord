@@ -53,6 +53,8 @@ func (h *FriendHandler) writeFriendError(w http.ResponseWriter, r *http.Request,
 		h.sendError(w, http.StatusForbidden, httperr.CodeInteractionForbidden, "interaction not allowed")
 	case errors.Is(err, domain.ErrUserNotFound):
 		h.sendError(w, http.StatusNotFound, httperr.CodeUserNotFound, "user not found")
+	case errors.Is(err, domain.ErrInvalidPhone):
+		h.sendError(w, http.StatusBadRequest, httperr.CodePhoneInvalid, "invalid phone number")
 	default:
 		h.log.Error("friend operation failed",
 			"request_id", middleware.RequestIDFromContext(r.Context()), "error", err)
@@ -83,19 +85,31 @@ func (h *FriendHandler) ListRequests(w http.ResponseWriter, r *http.Request) {
 func (h *FriendHandler) SendRequest(w http.ResponseWriter, r *http.Request) {
 	userID := r.Context().Value("user_id").(uuid.UUID)
 	var body struct {
-		Username string `json:"username"`
+		Username *string `json:"username"`
+		Phone    *string `json:"phone"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		h.sendError(w, http.StatusBadRequest, httperr.CodeInvalidBody, "invalid request body")
 		return
 	}
-	username := strings.TrimSpace(body.Username)
-	if username == "" {
+	// ровно один ключ: оба — ошибка клиента, ни одного — как раньше.
+	if body.Username != nil && body.Phone != nil {
+		h.sendError(w, http.StatusBadRequest, httperr.CodeInvalidBody, "provide exactly one of username or phone")
+		return
+	}
+	username, phone := "", ""
+	if body.Username != nil {
+		username = strings.TrimSpace(*body.Username)
+	}
+	if body.Phone != nil {
+		phone = strings.TrimSpace(*body.Phone)
+	}
+	if username == "" && phone == "" {
 		h.sendError(w, http.StatusBadRequest, httperr.CodeUsernameRequired, "username is required")
 		return
 	}
 
-	req, target, self, accepted, err := h.friendUseCase.SendRequest(userID, username)
+	req, target, self, accepted, err := h.friendUseCase.SendRequest(userID, username, phone)
 	if err != nil {
 		h.writeFriendError(w, r, err)
 		return

@@ -139,7 +139,7 @@ func main() {
 	inviteUseCase := usecase.NewInviteUseCase(inviteRepo, serverRepo, permissionUseCase)
 	roleUseCase := usecase.NewRoleUseCase(serverRepo, roleRepo, permissionUseCase)
 	serverUseCase := usecase.NewServerUseCase(serverRepo, channelRepo, userRepo, roleRepo, storage, permissionUseCase)
-	friendUseCase := usecase.NewFriendUseCase(friendRepo, blockRepo, userRepo, serverRepo)
+	friendUseCase := usecase.NewFriendUseCase(friendRepo, blockRepo, userRepo, serverRepo, phoneKey)
 	voiceTokenUseCase := usecase.NewVoiceTokenUseCase(serverUseCase, cfg.JWTSecret)
 	messageUseCase := usecase.NewMessageUseCase(messageRepo, channelRepo, serverRepo, stickerRepo, permissionUseCase, attachmentRepo, storage)
 	stickerUseCase := usecase.NewStickerUseCase(stickerRepo, serverRepo, permissionUseCase, storage)
