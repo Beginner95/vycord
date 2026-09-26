@@ -10,6 +10,7 @@ import { logger } from '@/utils/logger';
 // Нехуковый t: groupCall — обычный класс, useT() здесь вызвать нельзя.
 import { t } from '@/i18n';
 import { getDeniedMediaKinds } from './mediaPermissions';
+import { acquireUserMedia, buildCameraConstraints, buildMicConstraints } from '@/services/mediaDevices';
 
 const SFU_URL = import.meta.env.VITE_SFU_URL || 'ws://localhost:8081';
 
@@ -46,20 +47,6 @@ function gcLog(userId: string, action: string, data?: Record<string, unknown>): 
     console.log(prefix);
   }
 }
-
-// Explicit constraints avoid macOS/Android-specific quirks:
-// - channelCount ideal:1 → Opus mono, prevents macOS from injecting stereo fmtp params
-//   that older pion versions may not accept (stereo=1;sprop-stereo=1 mismatch).
-// - sampleRate ideal:48000 → Opus native rate; avoids resampling artefacts on Android.
-// Using ideal: (not exact) so the browser still works on devices that can't hit 48kHz.
-// Module-level: acquireMedia and rebuildMicPipeline must capture identically.
-const MIC_AUDIO_CONSTRAINTS: MediaTrackConstraints = {
-  channelCount: { ideal: 1 },
-  sampleRate: { ideal: 48000 },
-  echoCancellation: true,
-  noiseSuppression: true,
-  autoGainControl: true,
-};
 
 // Non-reversible 8-hex digest: device signatures embed personal device names
 // ("Ivan's AirPods"); telemetry needs same/different only. Full strings stay in gcLog.
@@ -1761,22 +1748,15 @@ class GroupCallService {
   }
 
   private async acquireMedia(): Promise<MediaStream | null> {
-    const audioConstraints = MIC_AUDIO_CONSTRAINTS;
-    gcLog(this.currentUserId, 'getUserMedia constraints', { audio: audioConstraints });
-    try {
-      return await navigator.mediaDevices.getUserMedia({ audio: audioConstraints, video: true });
-    } catch { /* try next */ }
-    try {
-      // Fall back to audio-only if camera is unavailable.
-      return await navigator.mediaDevices.getUserMedia({ audio: audioConstraints, video: false });
-    } catch { /* try next */ }
-    try {
-      // No audio device — try video-only.
-      gcLog(this.currentUserId, 'no audio device, trying video-only');
-      return await navigator.mediaDevices.getUserMedia({ audio: false, video: true });
-    } catch { /* try next */ }
-    gcLog(this.currentUserId, 'no media devices available, joining without local media');
-    return null;
+    gcLog(this.currentUserId, 'getUserMedia constraints', {
+      audio: buildMicConstraints(),
+      video: buildCameraConstraints(),
+    });
+    const stream = await acquireUserMedia();
+    if (stream === null) {
+      gcLog(this.currentUserId, 'no media devices available, joining without local media');
+    }
+    return stream;
   }
 
   // ── Private: mic-device watch (see the field block for the why) ────────────
@@ -1915,7 +1895,7 @@ class GroupCallService {
     let rebuilt: MediaStream | null = null;
     let swapped = false;
     try {
-      rawAudio = await navigator.mediaDevices.getUserMedia({ audio: MIC_AUDIO_CONSTRAINTS });
+      rawAudio = await navigator.mediaDevices.getUserMedia({ audio: buildMicConstraints() });
       if (epoch !== this.sessionEpoch || this.localStream !== oldStream) {
         rawAudio.getTracks().forEach((t) => t.stop());
         return;
