@@ -4,6 +4,7 @@ import {
   coverFit,
   fillPersonAlpha,
   loadBackgroundImage,
+  paintBlurLayer,
 } from '@/services/videoBackground';
 
 describe('coverFit', () => {
@@ -105,3 +106,53 @@ describe('loadBackgroundImage', () => {
     expect(img.naturalWidth).toBe(0);
   });
 });
+
+describe('paintBlurLayer', () => {
+  /**
+   * VYC-100: фильтр blur() нельзя трогать на КОМПОЗИТНОМ канвасе — тот
+   * захватывается captureStream(), и Chromium «приклеивает» фильтр к кадрам
+   * стрима после первого выставления (смена blur↔image превращает картинку
+   * в однотонный градиент). Размытие рисуется на внеэкранном канвасе,
+   * композит получает уже готовый кадр и о filter не знает.
+   */
+  it('не выставляет filter на канвасе-композите', () => {
+    const target = createStubCtx();
+    const blur = createStubCtx();
+    const blurCanvas = { tag: 'blur-canvas' } as unknown as HTMLCanvasElement;
+    const video = { tag: 'video-source' } as unknown as HTMLVideoElement;
+    paintBlurLayer(
+      target.ctx,
+      blur.ctx,
+      blurCanvas,
+      video,
+      640,
+      480,
+      14,
+    );
+
+    // Захватываемый канвас не должен знать о filter ни одного раза.
+    expect(target.filterWrites).toEqual([]);
+    // Размытие живёт на внеэкранном канвасе: фильтр выставлен и снят.
+    expect(blur.filterWrites).toEqual(['blur(14px)', 'none']);
+    // В композит уходит готовый размытый слой, а не сырое видео.
+    expect(blur.drawList[0][0]).toBe(video);
+    expect(blur.drawList[0].slice(1)).toEqual([0, 0, 640, 480]);
+    expect(target.drawList).toEqual([[blurCanvas, 0, 0]]);
+  });
+});
+
+function createStubCtx() {
+  const filterWrites: Array<string | null> = [];
+  const drawList: Array<Array<unknown>> = [];
+  const ctx = {} as CanvasRenderingContext2D;
+  ctx.drawImage = ((...args: unknown[]) => {
+    drawList.push(args);
+  }) as CanvasRenderingContext2D['drawImage'];
+  Object.defineProperty(ctx, 'filter', {
+    get: () => filterWrites[filterWrites.length - 1] ?? 'none',
+    set: (value: string) => {
+      filterWrites.push(value);
+    },
+  });
+  return { ctx, filterWrites, drawList };
+}

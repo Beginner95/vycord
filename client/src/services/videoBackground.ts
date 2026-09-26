@@ -89,6 +89,31 @@ export function loadBackgroundImage(url: string): Promise<HTMLImageElement> {
   });
 }
 
+/**
+ * Рисует размытый фон на ВНЕЭКРАННОМ канвасе и блёпает его в композит.
+ * filter() нельзя выставлять на композитном канвасе: он захватывается
+ * captureStream(), и Chromium после первого выставления «приклеивает» фильтр
+ * к кадрам стрима — смена blur↔image превращает картинку в однотонный
+ * градиент. Здесь композит (target) о filter не знает вовсе.
+ */
+export function paintBlurLayer(
+  targetCtx: CanvasRenderingContext2D,
+  blurCtx: CanvasRenderingContext2D,
+  blurCanvas: HTMLCanvasElement,
+  video: HTMLVideoElement,
+  width: number,
+  height: number,
+  radius: number,
+): void {
+  blurCtx.filter = `blur(${radius}px)`;
+  try {
+    blurCtx.drawImage(video, 0, 0, width, height);
+  } finally {
+    blurCtx.filter = 'none';
+  }
+  targetCtx.drawImage(blurCanvas, 0, 0);
+}
+
 export class VideoBackgroundEngine {
   onStatusChange: ((status: VideoBackgroundStatus) => void) | null = null;
 
@@ -103,6 +128,8 @@ export class VideoBackgroundEngine {
   private maskImageData: ImageData | null = null;
   private compositeCanvas: HTMLCanvasElement | null = null;
   private compositeCtx: CanvasRenderingContext2D | null = null;
+  private blurCanvas: HTMLCanvasElement | null = null;
+  private blurCtx: CanvasRenderingContext2D | null = null;
   private personCanvas: HTMLCanvasElement | null = null;
   private personCtx: CanvasRenderingContext2D | null = null;
   private captureTrack: CanvasCaptureMediaStreamTrack | null = null;
@@ -263,6 +290,10 @@ export class VideoBackgroundEngine {
     composite.width = width;
     composite.height = height;
 
+    const blurLayer = document.createElement('canvas');
+    blurLayer.width = width;
+    blurLayer.height = height;
+
     const person = document.createElement('canvas');
     person.width = width;
     person.height = height;
@@ -272,6 +303,8 @@ export class VideoBackgroundEngine {
     this.maskImageData = imageData;
     this.compositeCanvas = composite;
     this.compositeCtx = composite.getContext('2d');
+    this.blurCanvas = blurLayer;
+    this.blurCtx = blurLayer.getContext('2d');
     this.personCanvas = person;
     this.personCtx = person.getContext('2d');
 
@@ -287,6 +320,8 @@ export class VideoBackgroundEngine {
     this.maskImageData = null;
     this.compositeCanvas = null;
     this.compositeCtx = null;
+    this.blurCanvas = null;
+    this.blurCtx = null;
     this.personCanvas = null;
     this.personCtx = null;
   }
@@ -363,11 +398,12 @@ export class VideoBackgroundEngine {
     // 3. Фон: blur-кадр или картинка cover-fit; без готового фона — резкий кадр.
     ctx.clearRect(0, 0, frameW, frameH);
     if (this.mode === 'blur') {
-      ctx.filter = `blur(${BLUR_RADIUS}px)`;
-      try {
+      const blurCtx = this.blurCtx;
+      const blurCanvas = this.blurCanvas;
+      if (blurCtx && blurCanvas) {
+        paintBlurLayer(ctx, blurCtx, blurCanvas, video, frameW, frameH, BLUR_RADIUS);
+      } else {
         ctx.drawImage(video, 0, 0, frameW, frameH);
-      } finally {
-        ctx.filter = 'none';
       }
     } else if (this.mode === 'image') {
       const img = this.backgroundUrl ? this.bgCache.get(this.backgroundUrl) : undefined;
