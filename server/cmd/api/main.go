@@ -422,6 +422,12 @@ func main() {
 	// Статика загрузок: только публичные подкаталоги (см. newUploadsHandler).
 	router.Handle("GET /uploads/", newUploadsHandler(cfg.UploadDir))
 
+	// Виртуальные фоны видеозвонков (VYC-100). Список — под авторизацией;
+	// файлы — публично: <img src> не умеет слать Authorization (как /uploads/).
+	backgroundHandler := handler.NewBackgroundHandler(cfg.BackgroundsDir, cfg.BackgroundsURLPrefix, log)
+	router.HandleFunc("GET /api/v1/backgrounds", authMid.RequireAuth(backgroundHandler.ListBackgrounds))
+	router.HandleFunc("GET /backgrounds/{id}/file", backgroundHandler.ServeFile)
+
 	// WebSocket route
 	router.HandleFunc("GET /ws", wsHandler.HandleWebSocket)
 
