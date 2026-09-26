@@ -1,7 +1,7 @@
 // client/src/components/settings/__tests__/Settings.dom.test.tsx
 // @vitest-environment jsdom
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { render, cleanup } from '@testing-library/react';
+import { render, cleanup, fireEvent } from '@testing-library/react';
 import { Settings } from '@/components/Settings';
 import { useAuthStore } from '@/stores/authStore';
 
@@ -27,5 +27,15 @@ describe('Settings modal DOM (desktop parity, снято до VYC-95 этапа 
   it('вкладка «Профиль» по умолчанию', () => {
     render(<Settings isOpen onClose={() => {}} onLogout={() => {}} />);
     expect(document.body.innerHTML).toMatchFileSnapshot('./__snapshots__/Settings.profile.html');
+  });
+
+  it('вкладка «О приложении» рендерит AboutBody', () => {
+    render(<Settings isOpen onClose={() => {}} onLogout={() => {}} />);
+    const aboutTab = [...document.querySelectorAll('.settings-nav-btn')]
+      .find((btn) => btn.textContent?.includes('О приложении'));
+    expect(aboutTab).toBeTruthy();
+    fireEvent.click(aboutTab!);
+    expect(document.body.textContent).toContain('Мессенджер для голосовых и видеозвонков');
+    expect(document.body.textContent).toContain(__APP_VERSION__);
   });
 });
