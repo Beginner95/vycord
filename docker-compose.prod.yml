@@ -62,6 +62,9 @@ services:
       # host, not the container's writable layer — otherwise every rebuild
       # (docker compose up -d --build) recreates the container and wipes them.
       - /var/lib/vycord/uploads:/var/lib/vycord/uploads
+      # Virtual-call backgrounds (VYC-100, BACKGROUNDS_DIR in .env.prod):
+      # same host-disk rationale as uploads — survives rebuilds.
+      - /var/lib/vycord/backgrounds:/var/lib/vycord/backgrounds
     depends_on:
       migrate:
         condition: service_completed_successfully
