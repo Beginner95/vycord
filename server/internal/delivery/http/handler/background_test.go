@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -49,10 +50,14 @@ func TestListBackgrounds(t *testing.T) {
 	if len(body.Backgrounds) != 4 {
 		t.Fatalf("items = %d, want 4 (notes.txt отфильтрован)", len(body.Backgrounds))
 	}
-	wantFirst := backgroundItem{ID: "alps", Name: "alps", URL: "/backgrounds/alps/file"}
-	got := body.Backgrounds[0]
-	if got != wantFirst {
-		t.Fatalf("first = %+v, want %+v", got, wantFirst)
+	want := []backgroundItem{
+		{ID: "alps", Name: "alps", URL: "/backgrounds/alps/file"},
+		{ID: "JOE", Name: "JOE", URL: "/backgrounds/JOE/file"},
+		{ID: "ocean", Name: "ocean", URL: "/backgrounds/ocean/file"},
+		{ID: "town", Name: "town", URL: "/backgrounds/town/file"},
+	}
+	if !reflect.DeepEqual(body.Backgrounds, want) {
+		t.Fatalf("items = %+v, want %+v", body.Backgrounds, want)
 	}
 }
 
@@ -92,6 +97,23 @@ func TestServeFile(t *testing.T) {
 	}
 	if rec.Body.String() != "png-bytes" {
 		t.Fatalf("body = %q, want png-bytes", rec.Body.String())
+	}
+}
+
+func TestServeFileDottedId(t *testing.T) {
+	h, dir := newTestBackgroundHandler(t)
+	writeBgFile(t, dir, "city.night.png", "night-bytes")
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/backgrounds/city.night/file", nil)
+	req.SetPathValue("id", "city.night")
+	h.ServeFile(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	if rec.Body.String() != "night-bytes" {
+		t.Fatalf("body = %q, want night-bytes", rec.Body.String())
 	}
 }
 

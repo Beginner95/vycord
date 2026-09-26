@@ -72,7 +72,7 @@ func (h *BackgroundHandler) ListBackgrounds(w http.ResponseWriter, r *http.Reque
 // Для картинки расширение извне неизвестно, поэтому перебираем каталог; это же
 // делает подмену невозможной: путь всегда строится из имени реального файла.
 func (h *BackgroundHandler) resolvePath(id string) (string, bool) {
-	if id == "" || strings.ContainsAny(id, `/\..`) {
+	if id == "" || strings.ContainsAny(id, `/\`) {
 		return "", false
 	}
 	entries, err := os.ReadDir(h.dir)
