@@ -81,7 +81,7 @@ export const useMediaDeviceStore = create<MediaDeviceState>((set, get) => ({
         audioinput: [], audiooutput: [], videoinput: [],
       };
       for (const device of all) {
-        if (isRealDevice(device)) next[device.kind].push(device);
+        if (isRealDevice(device) && device.kind in next) next[device.kind].push(device);
       }
       set({ devices: next });
       get().prune();
