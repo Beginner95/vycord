@@ -3,6 +3,7 @@ import {
   backgroundLabelIndex,
   coverFit,
   fillPersonAlpha,
+  isOwnOutputTrack,
   loadBackgroundImage,
   paintBlurLayer,
 } from '@/services/videoBackground';
@@ -104,6 +105,21 @@ describe('loadBackgroundImage', () => {
     const img = await loadBackgroundImage('https://cdn.example.com/404.jpg');
 
     expect(img.naturalWidth).toBe(0);
+  });
+});
+
+describe('isOwnOutputTrack', () => {
+  /** VYC-100: setCameraOutput подменяет камерный трек на канвас-трек движка
+   *  ВНУТРИ того же localStream, который движок читает как вход. Без этого
+   *  фильтра setInput перестраивается на собственный выход — сегментация
+   *  ест собственный композит, маска «фон» заливает всё, человек тает в
+   *  однотонный градиент. */
+  it('помечает собственный канвас-трек движка', () => {
+    const t = {} as MediaStreamTrack;
+    expect(isOwnOutputTrack(t, t)).toBe(true);
+    expect(isOwnOutputTrack(t, null)).toBe(false);
+    expect(isOwnOutputTrack(null, t)).toBe(false);
+    expect(isOwnOutputTrack(t, {} as MediaStreamTrack)).toBe(false);
   });
 });
 

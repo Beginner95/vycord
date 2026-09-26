@@ -73,6 +73,18 @@ interface VideoBackgroundEngineOptions {
  * является: ни один входной трек не стопается.
  */
 /**
+ * True, когда переданный трек — собственный канвас-трек движка. setCameraOutput
+ * в звонке подменяет камерный трек на канвас-трек ВНУТРИ того же localStream,
+ * который движок читает как вход; addtrack/removetrack приводит к повторному
+ * setInput. Принять собственный выход как вход — значит сегментировать свой же
+ * композит: модель объявляет «фоном» весь гладкий кадр, человек тает в
+ * однотонный градиент.
+ */
+export function isOwnOutputTrack(track: MediaStreamTrack | null, captureTrack: MediaStreamTrack | null): boolean {
+  return track !== null && track === captureTrack;
+}
+
+/**
  * Грузит фоновую картинку для композитного canvas. crossOrigin обязателен:
  * фон лежит на api-домене (или file:// в Electron), и без CORS-режима канвас
  * таится — captureStream() отдаёт чёрные кадры. onerror тоже резолвится:
@@ -212,6 +224,9 @@ export class VideoBackgroundEngine {
       ? currentVideo.srcObject.getVideoTracks()[0] ?? null
       : null;
     if (this.inputStream === stream && nextTrack === currentTrack) return;
+    // Собственный канвас-трек (подмена треков в звонке) не может быть входом —
+    // обратная связь убьёт маску (см. isOwnOutputTrack).
+    if (isOwnOutputTrack(nextTrack, this.captureTrack ?? null)) return;
 
     this.inputStream = stream;
     this.stopLoop();
