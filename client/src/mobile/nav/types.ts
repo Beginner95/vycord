@@ -1,6 +1,6 @@
 export type TabId = 'servers' | 'friends' | 'profile';
 
-export type SettingsSection = 'profile' | 'privacy' | 'audio' | 'video' | 'appearance' | 'language';
+export type SettingsSection = 'profile' | 'privacy' | 'audio' | 'video' | 'appearance' | 'language' | 'about';
 
 export type Screen =
   | { kind: 'servers' }

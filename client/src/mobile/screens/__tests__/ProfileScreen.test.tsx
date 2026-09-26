@@ -42,6 +42,12 @@ describe('ProfileScreen (VYC-95 этап 5)', () => {
     expect(n.push).toHaveBeenCalledWith({ kind: 'settings', section: 'language' });
   });
 
+  it('пункт «О приложении» (последний) ведёт на settings{about}', () => {
+    const { n } = mount();
+    fireEvent.click(document.querySelectorAll('.mobile-row')[6]);
+    expect(n.push).toHaveBeenCalledWith({ kind: 'settings', section: 'about' });
+  });
+
   it('«Выйти» требует подтверждения перед c.logout', () => {
     const { c } = mount();
     fireEvent.click(document.querySelector('.profile-logout-btn')!);

@@ -2,6 +2,7 @@ import { ScreenHeader } from '@/mobile/components/ScreenHeader';
 import { ProfileAccountBody } from '@/components/settings/ProfileAccountBody';
 import { PrivacyBody } from '@/components/settings/PrivacyBody';
 import { LanguageBody } from '@/components/settings/LanguageBody';
+import { AboutBody } from '@/components/settings/AboutBody';
 import { AudioSettings } from '@/components/settings/AudioSettings';
 import { VideoSettings } from '@/components/settings/VideoSettings';
 import { AppearanceSettings } from '@/components/settings/AppearanceSettings';
@@ -16,6 +17,7 @@ const TITLE_KEY: Record<SettingsSection, TKey> = {
   video: 'settings.tabVideo',
   appearance: 'settings.tabAppearance',
   language: 'settings.language',
+  about: 'settings.tabAbout',
 };
 
 /** Экран `settings{section}` (спека §5.8, §5.9): каждый пункт списка
@@ -38,6 +40,7 @@ export function SettingsScreen({ section, onBack }: { section: SettingsSection; 
         {section === 'video' && <VideoSettings />}
         {section === 'appearance' && <AppearanceSettings />}
         {section === 'language' && <LanguageBody />}
+        {section === 'about' && <AboutBody />}
       </div>
     </div>
   );

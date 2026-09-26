@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Globe, Palette, Shield, User as UserIcon, Video, Volume2 } from 'lucide-react';
+import { Globe, Info, Palette, Shield, User as UserIcon, Video, Volume2 } from 'lucide-react';
 import { Avatar } from '@/components/Avatar';
 import { ConfirmModal } from '@/components/ConfirmModal';
 import { noiseCancellationService } from '@/services/noiseCancellation';
@@ -17,6 +17,7 @@ const ROWS: { section: SettingsSection; labelKey: TKey; Icon: typeof UserIcon }[
   { section: 'video', labelKey: 'settings.tabVideo', Icon: Video },
   { section: 'appearance', labelKey: 'settings.tabAppearance', Icon: Palette },
   { section: 'language', labelKey: 'settings.language', Icon: Globe },
+  { section: 'about', labelKey: 'settings.tabAbout', Icon: Info },
 ];
 
 /** Корень вкладки «Профиль» (спека §5.8). Карточка — новая мобильная
