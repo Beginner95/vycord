@@ -2986,6 +2986,10 @@ class GroupCallService {
       // и снимает keepAlive-поллинг (всё это теперь живёт внутри сервиса).
       noiseCancellationService.releaseChain(this.localStream.id);
       this.localStream.getTracks().forEach((t) => t.stop());
+      // Оригинальный камерный трек при активном эффекте уже не в localStream
+      // (подменён канвас-треком) — стопаем его отдельно, иначе камера
+      // продолжит светиться после завершения звонка. stop() идемпотентен.
+      this.cameraTrack?.stop();
       this.localStream = null;
     }
     this.cameraTrack = null;

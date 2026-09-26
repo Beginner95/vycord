@@ -335,6 +335,10 @@ class CallService {
       // цепочки (video-only fallback) releaseChain — no-op.
       noiseCancellationService.releaseChain(this.localStream.id);
       this.localStream.getTracks().forEach((track) => track.stop());
+      // Оригинальный камерный трек при активном эффекте уже не в localStream
+      // (подменён канвас-треком) — стопаем его отдельно, иначе камера
+      // продолжит светиться после завершения звонка. stop() идемпотентен.
+      this.cameraTrack?.stop();
       this.localStream = null;
     }
     this.cameraTrack = null;
