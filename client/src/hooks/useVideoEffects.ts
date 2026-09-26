@@ -43,6 +43,19 @@ export function useVideoEffects(
     engineRef.current.onStatusChange = setStatus;
   }
 
+  // StrictMode в dev (и reconnectPassiveEffects) прогоняет эффекты дважды:
+  // cleanup unmount-эффекта обнуляет engineRef.current без нового render'а, и
+  // повторный setup эффектов видел бы null. ensureEngine воссоздаёт движок
+  // внутри эффектов, а не полагается на ленивую инициализацию в теле render.
+  const ensureEngine = (): VideoBackgroundEngine => {
+    let engine = engineRef.current;
+    if (engine === null) {
+      engine = new VideoBackgroundEngine({ assetsBase: VISION_ASSETS_BASE });
+      engineRef.current = engine;
+    }
+    return engine;
+  };
+
   const backgroundUrl = mode === 'image' && backgroundImageId
     ? (list?.find((b) => b.id === backgroundImageId)?.url ?? null)
     : null;
@@ -107,7 +120,7 @@ export function useVideoEffects(
   // Модель грузится асинхронно: как только движок готов — канал трека мог
   // появиться после apply() (в ленивых конвейерах). Ре-применяем по 'ready'.
   useEffect(() => {
-    const engine = engineRef.current!;
+    const engine = ensureEngine();
     engine.onStatusChange = (s) => {
       setStatus(s);
       if (s === 'ready') apply();
@@ -138,7 +151,7 @@ export function useVideoEffects(
   // застрявшие в цепочке apply не оживили dispose'нутый движок (и re-mount
   // в StrictMode получил бы свежий экземпляр).
   useEffect(() => {
-    const engine = engineRef.current!;
+    const engine = ensureEngine();
     return () => {
       onTrackRef.current(null);
       engine.dispose();

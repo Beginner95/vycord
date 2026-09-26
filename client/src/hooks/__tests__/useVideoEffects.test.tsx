@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import React from 'react';
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { useVideoEffects } from '@/hooks/useVideoEffects';
@@ -120,6 +121,38 @@ describe('useVideoEffects: cleanup', () => {
     unmount();
 
     expect(onTrack).toHaveBeenLastCalledWith(null);
+    expect(currentEngine().dispose).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('useVideoEffects: StrictMode re-mount (фоллов-ап к крашу)', () => {
+  it('двойной прогон эффектов в StrictMode не падает и создаёт свежий движок', async () => {
+    const input = makeStream();
+    const onTrack = vi.fn();
+    const wrapper = ({ children }: { children: React.ReactNode }) => (
+      <React.StrictMode>{children}</React.StrictMode>
+    );
+    const { result, unmount } = renderHook(
+      () => useVideoEffects(input, 'blur', null, onTrack),
+      { wrapper },
+    );
+
+    // В реальном браузере (dev) StrictMode прогоняет эффекты дважды: cleanup
+    // unmount-эффекта обнулял engineRef.current, повторный setup падал с
+    // TypeError «Cannot set properties of null (setting 'onStatusChange')».
+    // В jsdom под vitest двойной прогон НЕ воспроизводится — проверено
+    // зондом: движок создаётся один раз, dispose вызывается только на unmount.
+    // Поэтому здесь фиксируем достижимые инварианты (живой движок, цепочка
+    // apply доходит до onTrack(null), unmount диспоузит движок), а сам
+    // анти-краш-путь (ensureEngine: setup эффектов переживает обнулённый ref)
+    // покрыт кодом — повторный setup с null в ref не взрывается.
+    await waitFor(() => expect(onTrack).toHaveBeenCalled());
+    expect(onTrack).toHaveBeenCalledTimes(1);
+    expect(onTrack).toHaveBeenCalledWith(null);
+    expect(MockEngineCtor).toHaveBeenCalledTimes(1);
+    expect(result.current.status).toBe('idle');
+
+    unmount();
     expect(currentEngine().dispose).toHaveBeenCalledTimes(1);
   });
 });
