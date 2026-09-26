@@ -9,6 +9,7 @@ const SRC = new URL('../src', import.meta.url).pathname;
 
 // Файлы, где русский текст — это комментарии и отладочный вывод, а не интерфейс.
 const SKIP_FILES = [
+  'components/settings/AboutBody.tsx',
   'services/noiseCancellation.ts',
   'services/echoCancellation.ts',
   'services/groupCall.ts',
