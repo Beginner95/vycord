@@ -162,25 +162,32 @@ export class VideoBackgroundEngine {
    * конвейер заново.
    */
   async setInput(stream: MediaStream | null): Promise<void> {
-    if (this.inputStream === stream) return;
+    const nextTrack = stream?.getVideoTracks()[0] ?? null;
+    const currentVideo = this.inputVideo;
+    const currentTrack = currentVideo && currentVideo.srcObject instanceof MediaStream
+      ? currentVideo.srcObject.getVideoTracks()[0] ?? null
+      : null;
+    if (this.inputStream === stream && nextTrack === currentTrack) return;
+
     this.inputStream = stream;
     this.stopLoop();
     this.teardownPipeline();
 
     if (!stream) return;
-    const camera = stream.getVideoTracks()[0];
-    if (!camera) return;
+    if (!nextTrack) return;
 
-    const video = this.inputVideo ?? document.createElement('video');
+    const video = currentVideo ?? document.createElement('video');
     video.muted = true;
     video.playsInline = true;
     // На беззвучный локальный элемент не действует автовоспроизведение-политика;
     // play() зовём руками, чтобы ошибка не молчала.
-    video.srcObject = new MediaStream([camera]);
+    const nextSource = new MediaStream([nextTrack]);
+    if (video.srcObject !== nextSource) video.srcObject = nextSource;
     this.inputVideo = video;
     await video.play().catch(() => {});
+    this.canvasSizeFromVideo();
+
     if (this.mode !== 'none') {
-      this.canvasSizeFromVideo();
       await this.loadModel();
       const bg = this.backgroundUrl;
       if (bg) void this.ensureBackground(bg);

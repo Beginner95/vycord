@@ -30,7 +30,7 @@ export function useVideoEffects(
   backgroundImageId: string | null,
   onTrack: (track: MediaStreamTrack | null) => void,
 ): UseVideoEffectsResult {
-  const urlById = useBackgroundStore((s) => s.urlById);
+  const list = useBackgroundStore((s) => s.list);
   const [status, setStatus] = useState<VideoBackgroundStatus>('idle');
   const onTrackRef = useRef(onTrack);
   onTrackRef.current = onTrack;
@@ -44,7 +44,7 @@ export function useVideoEffects(
   }
 
   const backgroundUrl = mode === 'image' && backgroundImageId
-    ? urlById(backgroundImageId)
+    ? (list?.find((b) => b.id === backgroundImageId)?.url ?? null)
     : null;
 
   const sendTrack = useCallback((track: MediaStreamTrack | null): void => {

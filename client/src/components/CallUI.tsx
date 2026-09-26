@@ -276,6 +276,7 @@ export function CallUI() {
               <button
                 ref={bgBtnRef}
                 className={`p2p-ctl-btn${bgPickerOpen ? ' is-on' : ''}`}
+                onMouseDown={(e) => e.stopPropagation()}
                 onClick={() => setBgPickerOpen((o) => !o)}
                 title={t('call.bgMenu')}
               >

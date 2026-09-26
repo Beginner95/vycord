@@ -356,6 +356,7 @@ export function CallStage({ onLeave, extraControls }: CallStageProps) {
           <button
             ref={bgBtnRef}
             className={`stage-ctl-btn${bgPickerOpen ? ' is-on' : ''}`}
+            onMouseDown={(e) => e.stopPropagation()}
             onClick={() => setBgPickerOpen((o) => !o)}
             title={t('call.bgMenu')}
           >
