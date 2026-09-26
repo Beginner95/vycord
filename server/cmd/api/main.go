@@ -312,6 +312,15 @@ func main() {
 	router.HandleFunc("POST /api/v1/users/last-seen", authMid.RequireAuth(userHandler.GetLastSeenBatch))
 	router.HandleFunc("PATCH /api/v1/users/me/privacy", authMid.RequireAuth(userHandler.UpdatePrivacy))
 
+	// PHONE_ENDPOINT_LIMIT — 10 установок номера в час на пользователя:
+	// свободного перебора чужих номеров не даёт, легитимной настройке не мешает.
+	phoneLimiter := ratelimit.New(10, time.Hour)
+	router.HandleFunc("PUT /api/v1/users/me/phone",
+		authMid.RequireAuth(phoneLimiter.Middleware(func(r *http.Request) string {
+			return r.Context().Value("user_id").(uuid.UUID).String()
+		}, userHandler.UpdatePhone)))
+	router.HandleFunc("DELETE /api/v1/users/me/phone", authMid.RequireAuth(userHandler.DeletePhone))
+
 	// Friends (VYC-90)
 	router.HandleFunc("GET /api/v1/friends", authMid.RequireAuth(friendHandler.ListFriends))
 	router.HandleFunc("GET /api/v1/friends/requests", authMid.RequireAuth(friendHandler.ListRequests))

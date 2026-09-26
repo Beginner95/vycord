@@ -7,6 +7,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"strings"
 
 	"github.com/google/uuid"
 	"github.com/vycord/server/internal/delivery/http/httperr"
@@ -71,7 +72,7 @@ func (h *UserHandler) me(u *domain.User) meResponse {
 func (h *UserHandler) GetMe(w http.ResponseWriter, r *http.Request) {
 	userID := r.Context().Value("user_id").(uuid.UUID)
 
-	user, err := h.userUseCase.GetByID(userID)
+	user, err := h.userUseCase.GetMe(userID)
 	if err != nil {
 		h.sendError(w, http.StatusNotFound, httperr.CodeUserNotFound, "user not found")
 		return
@@ -246,7 +247,49 @@ func (h *UserHandler) UpdatePrivacy(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// UploadAvatar accepts a multipart/form-data request with a single "avatar"
+// UpdatePhone сохраняет номер пользователя. Нормализация и шифрование —
+// в usecase.SetPhone; сюда приходит уже строка как была введена.
+func (h *UserHandler) UpdatePhone(w http.ResponseWriter, r *http.Request) {
+	userID := r.Context().Value("user_id").(uuid.UUID)
+	var body struct {
+		Phone string `json:"phone"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		h.sendError(w, http.StatusBadRequest, httperr.CodeInvalidBody, "invalid request body")
+		return
+	}
+
+	user, err := h.userUseCase.SetPhone(userID, strings.TrimSpace(body.Phone))
+	if errors.Is(err, domain.ErrInvalidPhone) {
+		h.sendError(w, http.StatusBadRequest, httperr.CodePhoneInvalid, "invalid phone number")
+		return
+	}
+	if errors.Is(err, domain.ErrPhoneTaken) {
+		h.sendError(w, http.StatusConflict, httperr.CodePhoneTaken, "phone number is already in use")
+		return
+	}
+	if err != nil {
+		h.log.Error("failed to update phone", "request_id", middleware.RequestIDFromContext(r.Context()), "error", err)
+		h.sendError(w, http.StatusInternalServerError, httperr.CodeInternalError, "internal error")
+		return
+	}
+
+	h.sendJSON(w, http.StatusOK, h.me(user))
+}
+
+// DeletePhone снимает номер. Идемпотентен: без номера — тот же 200.
+func (h *UserHandler) DeletePhone(w http.ResponseWriter, r *http.Request) {
+	userID := r.Context().Value("user_id").(uuid.UUID)
+
+	user, err := h.userUseCase.ClearPhone(userID)
+	if err != nil {
+		h.log.Error("failed to delete phone", "request_id", middleware.RequestIDFromContext(r.Context()), "error", err)
+		h.sendError(w, http.StatusInternalServerError, httperr.CodeInternalError, "internal error")
+		return
+	}
+
+	h.sendJSON(w, http.StatusOK, h.me(user))
+}
 // field (PNG or JPEG, ≤2MB), stores it, updates the user's avatar_url, and
 // broadcasts the change to all connected clients over WebSocket.
 func (h *UserHandler) UploadAvatar(w http.ResponseWriter, r *http.Request) {

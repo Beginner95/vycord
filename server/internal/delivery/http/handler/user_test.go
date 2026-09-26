@@ -135,7 +135,7 @@ func TestUserHandler_GetMe_IncludesPrivacySettings(t *testing.T) {
 		AllowFriendRequests: domain.PrivacyMode("mutual_servers"),
 		AllowDMFrom:         domain.PrivacyMode("none"),
 	}
-	mockUC.On("GetByID", userID).Return(user, nil)
+	mockUC.On("GetMe", userID).Return(user, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/users/me", nil)
 	req = req.WithContext(context.WithValue(req.Context(), "user_id", userID))
@@ -518,7 +518,7 @@ func TestUserHandler_GetMe_IncludesPrivacyAndPhoneMask(t *testing.T) {
 		AllowSearchByPhone: true,
 		PhoneMasked:        &mask,
 	}
-	mockUC.On("GetByID", userID).Return(user, nil)
+	mockUC.On("GetMe", userID).Return(user, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/users/me", nil)
 	req = req.WithContext(context.WithValue(req.Context(), "user_id", userID))
@@ -535,5 +535,100 @@ func TestUserHandler_GetMe_IncludesPrivacyAndPhoneMask(t *testing.T) {
 	}
 	if !strings.Contains(body, `"phone_masked":"+79123 ••• •• 89"`) {
 		t.Fatalf("expected phone_masked in body, got: %s", body)
+	}
+}
+
+func TestUserHandler_UpdatePhone_Success(t *testing.T) {
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	hub := ws.NewHub(log)
+	mockUC := new(mockUserUseCase)
+	h := NewUserHandler(mockUC, hub, log)
+
+	userID := uuid.New()
+	mask := "+79123 ••• •• 89"
+	user := &domain.User{ID: userID, Username: "alice", AllowSearchByPhone: true, PhoneMasked: &mask}
+	mockUC.On("SetPhone", userID, "+79123456789").Return(user, nil)
+
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/users/me/phone",
+		strings.NewReader(`{"phone":"+79123456789"}`))
+	req = req.WithContext(context.WithValue(req.Context(), "user_id", userID))
+
+	rec := httptest.NewRecorder()
+	h.UpdatePhone(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"phone_masked":"+79123 ••• •• 89"`) {
+		t.Fatalf("expected phone_masked in body, got: %s", rec.Body.String())
+	}
+}
+
+func TestUserHandler_UpdatePhone_Invalid(t *testing.T) {
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	hub := ws.NewHub(log)
+	mockUC := new(mockUserUseCase)
+	h := NewUserHandler(mockUC, hub, log)
+
+	userID := uuid.New()
+	mockUC.On("SetPhone", userID, "abc").Return(nil, domain.ErrInvalidPhone)
+
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/users/me/phone",
+		strings.NewReader(`{"phone":"abc"}`))
+	req = req.WithContext(context.WithValue(req.Context(), "user_id", userID))
+
+	rec := httptest.NewRecorder()
+	h.UpdatePhone(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"code":"phone_invalid"`) {
+		t.Fatalf("expected phone_invalid, got: %s", rec.Body.String())
+	}
+}
+
+func TestUserHandler_UpdatePhone_Taken(t *testing.T) {
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	hub := ws.NewHub(log)
+	mockUC := new(mockUserUseCase)
+	h := NewUserHandler(mockUC, hub, log)
+
+	userID := uuid.New()
+	mockUC.On("SetPhone", userID, "+79123456789").Return(nil, domain.ErrPhoneTaken)
+
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/users/me/phone",
+		strings.NewReader(`{"phone":"+79123456789"}`))
+	req = req.WithContext(context.WithValue(req.Context(), "user_id", userID))
+
+	rec := httptest.NewRecorder()
+	h.UpdatePhone(rec, req)
+
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("expected 409, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"code":"phone_taken"`) {
+		t.Fatalf("expected phone_taken, got: %s", rec.Body.String())
+	}
+}
+
+func TestUserHandler_DeletePhone_Success(t *testing.T) {
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	hub := ws.NewHub(log)
+	mockUC := new(mockUserUseCase)
+	h := NewUserHandler(mockUC, hub, log)
+
+	userID := uuid.New()
+	user := &domain.User{ID: userID, Username: "alice"}
+	mockUC.On("ClearPhone", userID).Return(user, nil)
+
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/users/me/phone", nil)
+	req = req.WithContext(context.WithValue(req.Context(), "user_id", userID))
+
+	rec := httptest.NewRecorder()
+	h.DeletePhone(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
 	}
 }
