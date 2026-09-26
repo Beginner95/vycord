@@ -456,10 +456,12 @@ export const en: Dictionary = {
     statusOnline: 'Online',
     statusOffline: 'Offline',
     addTitle: 'Add friend',
-    addPlaceholder: 'Enter a username',
+    addPlaceholder: 'Username or phone number',
     addSubmit: 'Send request',
     addSent: 'Friend request sent',
     addAccepted: 'You are now friends',
+    addSentTo: 'Friend request sent: {{name}}',
+    addAcceptedTo: 'You are now friends with {{name}}',
     emptyOnline: 'None of your friends are online right now',
     emptyAll: 'No friends yet — send your first request in the Pending tab',
     emptyBlocked: 'No blocked users',
@@ -746,6 +748,8 @@ export const en: Dictionary = {
     friend_request_exists: 'Friend request already sent',
     already_friends: 'You are already friends',
     friendship_not_found: 'Request or friendship not found',
+    phone_taken: 'This number is already linked to another account',
+    phone_invalid: 'Invalid phone number',
     // final-review fix M-6: was friend-request-specific text, but this same
     // interaction_forbidden code will also cover DM denials in a future
     // phase — neutralized to text that names neither case.

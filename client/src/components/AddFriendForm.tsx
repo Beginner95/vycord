@@ -17,9 +17,19 @@ export function AddFriendForm() {
 
     setStatus('sending');
     try {
-      const res = await apiService.sendFriendRequest(value);
+      // Ввод, похожий на номер (10+ цифр), уходит как phone, иначе — username.
+      const looksLikePhone = value.replace(/\D/g, '').length >= 10;
+
+      const res = await apiService.sendFriendRequest(
+        looksLikePhone ? { phone: value } : { username: value },
+      );
       setStatus('ok');
-      setMessage(res.status === 'accepted' ? t('friends.addAccepted') : t('friends.addSent'));
+      const name = res.status === 'accepted' ? res.user?.username : res.request?.user.username;
+      setMessage(
+        res.status === 'accepted'
+          ? t('friends.addAcceptedTo', { name: name ?? '' })
+          : t('friends.addSentTo', { name: name ?? '' }),
+      );
       setUsername('');
       await load();
     } catch (err) {
