@@ -288,6 +288,12 @@ export const ru = {
     tabAudio: 'Аудио',
     tabVideo: 'Видео',
     tabAppearance: 'Внешний вид',
+    tabAbout: 'О приложении',
+
+    aboutDescription: 'Мессенджер для голосовых и видеозвонков, чатов и своих серверов — с нейроочисткой шума',
+    aboutVersionLabel: 'Версия',
+    aboutGithub: 'GitHub',
+    aboutReportIssue: 'Сообщить о проблеме',
 
     privacy: 'Приватность',
     showLastSeen: 'Показывать последний визит',
