@@ -7,6 +7,7 @@ import { logger } from '@/utils/logger';
 // смена языка после её показа значения не имеет.
 import { t } from '@/i18n';
 import { getDeniedMediaKinds } from './mediaPermissions';
+import { acquireUserMedia } from '@/services/mediaDevices';
 
 interface WebRTCCallbacks {
   onRemoteStream: (stream: MediaStream) => void;
@@ -52,25 +53,19 @@ class CallService {
         this.callbacks?.onError(t('call.mediaPermissionDenied'));
       }
 
-      // Get local media stream; fall back to audio-only, then video-only, then nothing
+      // Get local media stream; acquireUserMedia сам деградирует: выбранные
+      // устройства → системные дефолты → audio-only → video-only → без медиа.
       try {
-        let rawStream: MediaStream;
-        try {
-          rawStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: true });
-        } catch {
-          rawStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
-        }
-        this.localStream = await noiseCancellationService.createChain(rawStream);
-        this.localStream.getVideoTracks().forEach((t) => { t.enabled = false; });
-        this._microphoneAvailable = this.localStream.getAudioTracks().length > 0;
-      } catch {
-        // No audio device — try video-only, or proceed without local media
-        try {
-          this.localStream = await navigator.mediaDevices.getUserMedia({ audio: false, video: true });
+        const rawStream = await acquireUserMedia();
+        if (rawStream) {
+          this.localStream = await noiseCancellationService.createChain(rawStream);
           this.localStream.getVideoTracks().forEach((t) => { t.enabled = false; });
-        } catch {
+          this._microphoneAvailable = this.localStream.getAudioTracks().length > 0;
+        } else {
           this.localStream = null;
         }
+      } catch {
+        this.localStream = null;
       }
 
       // Create peer connection
@@ -130,24 +125,17 @@ class CallService {
         this.callbacks?.onError(t('call.mediaPermissionDenied'));
       }
 
-      try {
-        let rawStream: MediaStream;
+      const rawStream = await acquireUserMedia();
+      if (rawStream) {
         try {
-          rawStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: true });
-        } catch {
-          rawStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
-        }
-        this.localStream = await noiseCancellationService.createChain(rawStream);
-        this.localStream.getVideoTracks().forEach((t) => { t.enabled = false; });
-        this._microphoneAvailable = this.localStream.getAudioTracks().length > 0;
-      } catch {
-        // No audio device — try video-only, or proceed without local media
-        try {
-          this.localStream = await navigator.mediaDevices.getUserMedia({ audio: false, video: true });
+          this.localStream = await noiseCancellationService.createChain(rawStream);
           this.localStream.getVideoTracks().forEach((t) => { t.enabled = false; });
+          this._microphoneAvailable = this.localStream.getAudioTracks().length > 0;
         } catch {
           this.localStream = null;
         }
+      } else {
+        this.localStream = null;
       }
     }
 
