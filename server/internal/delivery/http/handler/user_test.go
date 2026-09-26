@@ -397,7 +397,7 @@ func TestUserHandler_UpdatePrivacy_RejectsMissingField(t *testing.T) {
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body.String())
 	}
-	mockUC.AssertNotCalled(t, "SetPrivacy", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
+	mockUC.AssertNotCalled(t, "SetPrivacy", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything)
 }
 
 func TestUserHandler_UpdatePrivacy_Success(t *testing.T) {
@@ -408,7 +408,7 @@ func TestUserHandler_UpdatePrivacy_Success(t *testing.T) {
 
 	userID := uuid.New()
 	show := false
-	mockUC.On("SetPrivacy", userID, &show, (*domain.PrivacyMode)(nil), (*domain.PrivacyMode)(nil)).Return(nil)
+	mockUC.On("SetPrivacy", userID, &show, (*domain.PrivacyMode)(nil), (*domain.PrivacyMode)(nil), (*bool)(nil)).Return(nil)
 
 	req := httptest.NewRequest(http.MethodPatch, "/api/v1/users/me/privacy", strings.NewReader(`{"show_last_seen":false}`))
 	req = req.WithContext(context.WithValue(req.Context(), "user_id", userID))
@@ -426,7 +426,7 @@ func TestUserHandler_UpdatePrivacy_AcceptsOnlyFriendRequestsField(t *testing.T) 
 	mockUC := new(mockUserUseCase)
 	userID := uuid.New()
 	mode := domain.PrivacyMutualServers
-	mockUC.On("SetPrivacy", userID, (*bool)(nil), &mode, (*domain.PrivacyMode)(nil)).Return(nil)
+	mockUC.On("SetPrivacy", userID, (*bool)(nil), &mode, (*domain.PrivacyMode)(nil), (*bool)(nil)).Return(nil)
 
 	h := NewUserHandler(mockUC, ws.NewHub(log), log)
 	req := httptest.NewRequest(http.MethodPatch, "/api/v1/users/me/privacy",
@@ -459,7 +459,7 @@ func TestUserHandler_UpdatePrivacy_RejectsUnknownMode(t *testing.T) {
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400 for allow_dm_from=none, got %d", rec.Code)
 	}
-	mockUC.AssertNotCalled(t, "SetPrivacy", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
+	mockUC.AssertNotCalled(t, "SetPrivacy", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything)
 }
 
 func TestUserHandler_UpdatePrivacy_RejectsEmptyBody(t *testing.T) {
@@ -477,5 +477,63 @@ func TestUserHandler_UpdatePrivacy_RejectsEmptyBody(t *testing.T) {
 
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400 for a body with no fields, got %d", rec.Code)
+	}
+}
+
+func TestUserHandler_UpdatePrivacy_AllowSearchByPhone(t *testing.T) {
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	hub := ws.NewHub(log)
+	mockUC := new(mockUserUseCase)
+	h := NewUserHandler(mockUC, hub, log)
+
+	userID := uuid.New()
+	falseVal := false
+	mockUC.On("SetPrivacy", userID, (*bool)(nil), (*domain.PrivacyMode)(nil), (*domain.PrivacyMode)(nil), &falseVal).Return(nil)
+
+	req := httptest.NewRequest(http.MethodPatch, "/api/v1/users/me/privacy",
+		strings.NewReader(`{"allow_search_by_phone":false}`))
+	req = req.WithContext(context.WithValue(req.Context(), "user_id", userID))
+
+	rec := httptest.NewRecorder()
+	h.UpdatePrivacy(rec, req)
+
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("expected 204, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+// GetMe обязан отдавать и приватность (allow_search_by_phone), и маску номера
+// (phone_masked): он единственный источник обоих для клиента.
+func TestUserHandler_GetMe_IncludesPrivacyAndPhoneMask(t *testing.T) {
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	hub := ws.NewHub(log)
+	mockUC := new(mockUserUseCase)
+	h := NewUserHandler(mockUC, hub, log)
+
+	userID := uuid.New()
+	mask := "+79123 ••• •• 89"
+	user := &domain.User{
+		ID:                 userID,
+		Username:           "alice",
+		AllowSearchByPhone: true,
+		PhoneMasked:        &mask,
+	}
+	mockUC.On("GetByID", userID).Return(user, nil)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/users/me", nil)
+	req = req.WithContext(context.WithValue(req.Context(), "user_id", userID))
+
+	rec := httptest.NewRecorder()
+	h.GetMe(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, `"allow_search_by_phone":true`) {
+		t.Fatalf("expected allow_search_by_phone=true in body, got: %s", body)
+	}
+	if !strings.Contains(body, `"phone_masked":"+79123 ••• •• 89"`) {
+		t.Fatalf("expected phone_masked in body, got: %s", body)
 	}
 }

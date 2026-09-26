@@ -58,7 +58,7 @@ type UserUseCase interface {
 	GetLastSeenBatch(ids []uuid.UUID) (map[uuid.UUID]LastSeenInfo, error)
 	// SetPrivacy обновляет настройки приватности. nil-поле не трогается —
 	// частичное обновление, а не перезапись всего набора.
-	SetPrivacy(id uuid.UUID, showLastSeen *bool, friendRequests, dmFrom *PrivacyMode) error
+	SetPrivacy(id uuid.UUID, showLastSeen *bool, friendRequests, dmFrom *PrivacyMode, allowSearchByPhone *bool) error
 }
 
 // ChannelAccessChecker — минимальный срез ServerUseCase для мест, которым

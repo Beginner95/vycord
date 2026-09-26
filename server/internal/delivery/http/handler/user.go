@@ -43,17 +43,29 @@ func NewUserHandler(userUseCase domain.UserUseCase, hub *ws.Hub, log *slog.Logge
 	}
 }
 
-// meResponse re-exposes AllowFriendRequests/AllowDMFrom with real JSON tags.
-// domain.User tags these json:"-" (see its comment) so that GetUserByID and
-// SearchUsers, which serialize domain.User directly, never leak another
-// user's privacy settings. GetMe is the ONE legitimate place to show them —
-// you're looking at your own profile — so the outer struct's shallower,
-// explicitly-tagged fields win over the embedded *domain.User's json:"-"
-// fields of the same name.
+// meResponse re-exposes AllowFriendRequests/AllowDMFrom/AllowSearchByPhone
+// with real JSON tags. domain.User tags these json:"-" (see its comment) so
+// that GetUserByID and SearchUsers, which serialize domain.User directly,
+// never leak another user's privacy settings. GetMe is the ONE legitimate
+// place to show them — you're looking at your own profile — so the outer
+// struct's shallower, explicitly-tagged fields win over the embedded
+// *domain.User's json:"-" fields of the same name.
 type meResponse struct {
 	*domain.User
 	AllowFriendRequests domain.PrivacyMode `json:"allow_friend_requests"`
 	AllowDMFrom         domain.PrivacyMode `json:"allow_dm_from"`
+	AllowSearchByPhone  bool               `json:"allow_search_by_phone"`
+}
+
+// me собирает meResponse из доменного пользователя так, чтобы приватность
+// нигде не оставалась у молчащего значения (false для AllowSearchByPhone).
+func (h *UserHandler) me(u *domain.User) meResponse {
+	return meResponse{
+		User:                u,
+		AllowFriendRequests: u.AllowFriendRequests,
+		AllowDMFrom:         u.AllowDMFrom,
+		AllowSearchByPhone:  u.AllowSearchByPhone,
+	}
 }
 
 func (h *UserHandler) GetMe(w http.ResponseWriter, r *http.Request) {
@@ -65,11 +77,7 @@ func (h *UserHandler) GetMe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.sendJSON(w, http.StatusOK, meResponse{
-		User:                user,
-		AllowFriendRequests: user.AllowFriendRequests,
-		AllowDMFrom:         user.AllowDMFrom,
-	})
+	h.sendJSON(w, http.StatusOK, h.me(user))
 }
 
 func (h *UserHandler) GetUserByID(w http.ResponseWriter, r *http.Request) {
@@ -202,13 +210,14 @@ func (h *UserHandler) UpdatePrivacy(w http.ResponseWriter, r *http.Request) {
 		ShowLastSeen        *bool               `json:"show_last_seen"`
 		AllowFriendRequests *domain.PrivacyMode `json:"allow_friend_requests"`
 		AllowDMFrom         *domain.PrivacyMode `json:"allow_dm_from"`
+		AllowSearchByPhone  *bool               `json:"allow_search_by_phone"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		h.sendError(w, http.StatusBadRequest, httperr.CodeInvalidBody, "invalid request body")
 		return
 	}
 	// Тело без единого поля — не «ничего не менять», а ошибка клиента.
-	if req.ShowLastSeen == nil && req.AllowFriendRequests == nil && req.AllowDMFrom == nil {
+	if req.ShowLastSeen == nil && req.AllowFriendRequests == nil && req.AllowDMFrom == nil && req.AllowSearchByPhone == nil {
 		h.sendError(w, http.StatusBadRequest, httperr.CodeInvalidBody, "no privacy fields provided")
 		return
 	}
@@ -224,7 +233,7 @@ func (h *UserHandler) UpdatePrivacy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err := h.userUseCase.SetPrivacy(userID, req.ShowLastSeen, req.AllowFriendRequests, req.AllowDMFrom)
+	err := h.userUseCase.SetPrivacy(userID, req.ShowLastSeen, req.AllowFriendRequests, req.AllowDMFrom, req.AllowSearchByPhone)
 	if errors.Is(err, domain.ErrInvalidPrivacyMode) {
 		h.sendError(w, http.StatusBadRequest, httperr.CodeInvalidPrivacyValue, "invalid privacy value")
 		return
@@ -274,11 +283,7 @@ func (h *UserHandler) UploadAvatar(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.hub.BroadcastUserUpdate(userID, user.AvatarURL)
-	h.sendJSON(w, http.StatusOK, meResponse{
-		User:                user,
-		AllowFriendRequests: user.AllowFriendRequests,
-		AllowDMFrom:         user.AllowDMFrom,
-	})
+	h.sendJSON(w, http.StatusOK, h.me(user))
 }
 
 // RemoveAvatar clears the caller's avatar and broadcasts the change.
@@ -292,11 +297,7 @@ func (h *UserHandler) RemoveAvatar(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.hub.BroadcastUserUpdate(userID, user.AvatarURL)
-	h.sendJSON(w, http.StatusOK, meResponse{
-		User:                user,
-		AllowFriendRequests: user.AllowFriendRequests,
-		AllowDMFrom:         user.AllowDMFrom,
-	})
+	h.sendJSON(w, http.StatusOK, h.me(user))
 }
 
 func (h *UserHandler) writeUserError(w http.ResponseWriter, r *http.Request, err error) {

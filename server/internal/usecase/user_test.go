@@ -269,9 +269,9 @@ func TestSetPrivacy_UpdatesShowLastSeenColumn(t *testing.T) {
 
 	userID := uuid.New()
 	show := false
-	userRepo.On("UpdatePrivacy", userID, &show, (*domain.PrivacyMode)(nil), (*domain.PrivacyMode)(nil)).Return(nil)
+	userRepo.On("UpdatePrivacy", userID, &show, (*domain.PrivacyMode)(nil), (*domain.PrivacyMode)(nil), (*bool)(nil)).Return(nil)
 
-	err := uc.SetPrivacy(userID, &show, nil, nil)
+	err := uc.SetPrivacy(userID, &show, nil, nil, nil)
 
 	require.NoError(t, err)
 	userRepo.AssertExpectations(t)

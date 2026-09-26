@@ -337,7 +337,7 @@ func (r *userRepository) UpdateLastSeen(id uuid.UUID, at time.Time) error {
 	return nil
 }
 
-func (r *userRepository) UpdatePrivacy(id uuid.UUID, showLastSeen *bool, friendRequests, dmFrom *domain.PrivacyMode) error {
+func (r *userRepository) UpdatePrivacy(id uuid.UUID, showLastSeen *bool, friendRequests, dmFrom *domain.PrivacyMode, allowSearchByPhone *bool) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
@@ -348,10 +348,11 @@ func (r *userRepository) UpdatePrivacy(id uuid.UUID, showLastSeen *bool, friendR
 		SET show_last_seen        = COALESCE($2, show_last_seen),
 		    allow_friend_requests = COALESCE($3, allow_friend_requests),
 		    allow_dm_from         = COALESCE($4, allow_dm_from),
+		    allow_search_by_phone = COALESCE($5, allow_search_by_phone),
 		    updated_at            = NOW()
 		WHERE id = $1
 	`
-	_, err := r.db.Exec(ctx, query, id, showLastSeen, friendRequests, dmFrom)
+	_, err := r.db.Exec(ctx, query, id, showLastSeen, friendRequests, dmFrom, allowSearchByPhone)
 	if err != nil {
 		return fmt.Errorf("failed to update privacy: %w", err)
 	}

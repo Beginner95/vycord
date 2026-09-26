@@ -104,8 +104,8 @@ func (m *MockUserRepository) GetLastSeenBatch(ids []uuid.UUID) (map[uuid.UUID]do
 	return args.Get(0).(map[uuid.UUID]domain.LastSeenInfo), args.Error(1)
 }
 
-func (m *MockUserRepository) UpdatePrivacy(id uuid.UUID, showLastSeen *bool, friendRequests, dmFrom *domain.PrivacyMode) error {
-	return m.Called(id, showLastSeen, friendRequests, dmFrom).Error(0)
+func (m *MockUserRepository) UpdatePrivacy(id uuid.UUID, showLastSeen *bool, friendRequests, dmFrom *domain.PrivacyMode, allowSearchByPhone *bool) error {
+	return m.Called(id, showLastSeen, friendRequests, dmFrom, allowSearchByPhone).Error(0)
 }
 
 type MockRefreshTokenRepository struct {

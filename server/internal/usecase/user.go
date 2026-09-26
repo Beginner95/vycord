@@ -205,14 +205,14 @@ func (uc *userUseCase) GetLastSeenBatch(ids []uuid.UUID) (map[uuid.UUID]domain.L
 	return uc.userRepo.GetLastSeenBatch(ids)
 }
 
-func (uc *userUseCase) SetPrivacy(id uuid.UUID, showLastSeen *bool, friendRequests, dmFrom *domain.PrivacyMode) error {
+func (uc *userUseCase) SetPrivacy(id uuid.UUID, showLastSeen *bool, friendRequests, dmFrom *domain.PrivacyMode, allowSearchByPhone *bool) error {
 	if friendRequests != nil && !friendRequests.ValidForFriendRequests() {
 		return domain.ErrInvalidPrivacyMode
 	}
 	if dmFrom != nil && !dmFrom.ValidForDM() {
 		return domain.ErrInvalidPrivacyMode
 	}
-	return uc.userRepo.UpdatePrivacy(id, showLastSeen, friendRequests, dmFrom)
+	return uc.userRepo.UpdatePrivacy(id, showLastSeen, friendRequests, dmFrom, allowSearchByPhone)
 }
 
 func randomHex(n int) string {
