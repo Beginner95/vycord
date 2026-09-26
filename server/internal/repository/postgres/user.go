@@ -76,7 +76,8 @@ func (r *userRepository) GetByID(id uuid.UUID) (*domain.User, error) {
 	query := `
 		SELECT id, username, email, password_hash, avatar_url, status,
 		       last_server_id, last_channel_id, created_at, updated_at, email_verified_at,
-		       last_seen_at, show_last_seen, allow_friend_requests, allow_dm_from
+		       last_seen_at, show_last_seen, allow_friend_requests, allow_dm_from,
+		       phone_index, phone_cipher, phone_verified_at, allow_search_by_phone
 		FROM users
 		WHERE id = $1
 	`
@@ -98,6 +99,10 @@ func (r *userRepository) GetByID(id uuid.UUID) (*domain.User, error) {
 		&user.ShowLastSeen,
 		&user.AllowFriendRequests,
 		&user.AllowDMFrom,
+		&user.PhoneIndex,
+		&user.PhoneCipher,
+		&user.PhoneVerifiedAt,
+		&user.AllowSearchByPhone,
 	)
 
 	if err == sql.ErrNoRows {
@@ -116,7 +121,8 @@ func (r *userRepository) GetByEmail(email string) (*domain.User, error) {
 
 	query := `
 		SELECT id, username, email, password_hash, avatar_url, status, created_at, updated_at, email_verified_at,
-		       last_seen_at, show_last_seen, allow_friend_requests, allow_dm_from
+		       last_seen_at, show_last_seen, allow_friend_requests, allow_dm_from,
+		       phone_index, phone_cipher, phone_verified_at, allow_search_by_phone
 		FROM users
 		WHERE email = $1
 	`
@@ -136,6 +142,10 @@ func (r *userRepository) GetByEmail(email string) (*domain.User, error) {
 		&user.ShowLastSeen,
 		&user.AllowFriendRequests,
 		&user.AllowDMFrom,
+		&user.PhoneIndex,
+		&user.PhoneCipher,
+		&user.PhoneVerifiedAt,
+		&user.AllowSearchByPhone,
 	)
 
 	if err == sql.ErrNoRows {
@@ -154,7 +164,8 @@ func (r *userRepository) GetByUsername(username string) (*domain.User, error) {
 
 	query := `
 		SELECT id, username, email, password_hash, avatar_url, status, created_at, updated_at, email_verified_at,
-		       last_seen_at, show_last_seen, allow_friend_requests, allow_dm_from
+		       last_seen_at, show_last_seen, allow_friend_requests, allow_dm_from,
+		       phone_index, phone_cipher, phone_verified_at, allow_search_by_phone
 		FROM users
 		WHERE username = $1
 	`
@@ -174,6 +185,10 @@ func (r *userRepository) GetByUsername(username string) (*domain.User, error) {
 		&user.ShowLastSeen,
 		&user.AllowFriendRequests,
 		&user.AllowDMFrom,
+		&user.PhoneIndex,
+		&user.PhoneCipher,
+		&user.PhoneVerifiedAt,
+		&user.AllowSearchByPhone,
 	)
 
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -380,4 +395,77 @@ func (r *userRepository) DeleteUnverifiedBefore(t time.Time) (int64, error) {
 		return 0, fmt.Errorf("failed to delete unverified users: %w", err)
 	}
 	return tag.RowsAffected(), nil
+}
+
+func (r *userRepository) GetByPhoneIndex(index string) (*domain.User, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	query := `
+		SELECT id, username, email, password_hash, avatar_url, status, created_at, updated_at, email_verified_at,
+		       last_seen_at, show_last_seen, allow_friend_requests, allow_dm_from,
+		       phone_index, phone_cipher, phone_verified_at, allow_search_by_phone
+		FROM users
+		WHERE phone_index = $1
+	`
+
+	user := &domain.User{}
+	err := r.db.QueryRow(ctx, query, index).Scan(
+		&user.ID,
+		&user.Username,
+		&user.Email,
+		&user.Password,
+		&user.AvatarURL,
+		&user.Status,
+		&user.CreatedAt,
+		&user.UpdatedAt,
+		&user.EmailVerifiedAt,
+		&user.LastSeenAt,
+		&user.ShowLastSeen,
+		&user.AllowFriendRequests,
+		&user.AllowDMFrom,
+		&user.PhoneIndex,
+		&user.PhoneCipher,
+		&user.PhoneVerifiedAt,
+		&user.AllowSearchByPhone,
+	)
+
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, domain.ErrUserNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to get user by phone: %w", err)
+	}
+
+	return user, nil
+}
+
+func (r *userRepository) SetPhone(id uuid.UUID, index, cipher string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	_, err := r.db.Exec(ctx,
+		`UPDATE users SET phone_index = $2, phone_cipher = $3, phone_verified_at = NULL, updated_at = NOW() WHERE id = $1`,
+		id, index, cipher)
+	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+			return domain.ErrPhoneTaken
+		}
+		return fmt.Errorf("failed to set phone: %w", err)
+	}
+	return nil
+}
+
+func (r *userRepository) ClearPhone(id uuid.UUID) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	_, err := r.db.Exec(ctx,
+		`UPDATE users SET phone_index = NULL, phone_cipher = NULL, phone_verified_at = NULL, updated_at = NOW() WHERE id = $1`,
+		id)
+	if err != nil {
+		return fmt.Errorf("failed to clear phone: %w", err)
+	}
+	return nil
 }

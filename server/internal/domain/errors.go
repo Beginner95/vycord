@@ -125,6 +125,11 @@ var (
 	// Отдельно от ErrInteractionForbidden: то, что юзернейма не существует,
 	// не секрет (он же виден в /users поиске) — прятать тут нечего.
 	ErrUserNotFound = errors.New("user not found")
+	// ErrInvalidPhone — номер не прошёл нормализацию (phonecrypto).
+	ErrInvalidPhone = errors.New("invalid phone number")
+	// ErrPhoneTaken — номер уже привязан к другому аккаунту
+	// (users.phone_index UNIQUE).
+	ErrPhoneTaken = errors.New("user with this phone number already exists")
 	// ErrFriendshipPairRace — конкурентная вставка нарушила
 	// uq_friendships_pair: два одновременных запроса «стать друзьями» (каждый
 	// становится встречной заявкой для другого) оба прошли GetByPair, не
