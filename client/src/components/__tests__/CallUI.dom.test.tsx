@@ -18,6 +18,7 @@ vi.mock('@/services/call', () => ({
     endCall: vi.fn(),
     toggleMuteAudio: vi.fn(() => false),
     toggleMuteVideo: vi.fn(() => true),
+    setCameraOutput: vi.fn(async () => {}),
   },
 }));
 vi.mock('@/services/audio', () => ({

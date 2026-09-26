@@ -1,0 +1,84 @@
+/* VYC-100: быстрая панель фона в звонке. Поповер-портал на тему-адаптивной
+   поверхности — прецеденты VolumeControlPopover.css и GuestInvitePopover.css.
+   Токены: у дизайн-системы нет spacing-токенов и шага с именами sm/md/lg —
+   отступы это raw px (конвенция Settings.css), радиусы — фиксированная шкала
+   tokens.css. Соответствия брифа → канон:
+   --sp-1/--sp-2/--sp-3 → 4/8/12px (по соседним value, как в Task 9),
+   --radius-lg (корпус поповера) → --radius-card — как у GuestInvitePopover,
+   --radius-sm (внутренние кнопки и миниатюры) → --radius-chip 6px. */
+.background-picker {
+  position: fixed;
+  z-index: var(--z-popover);
+  width: 280px;
+  background: var(--panel);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-popover);
+  padding: 12px;
+}
+
+.background-picker-head {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: 8px;
+}
+
+.background-picker-modes {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 4px;
+}
+
+.background-picker-mode {
+  border: 1px solid var(--line);
+  background: var(--canvas);
+  color: var(--ink);
+  font-size: 12px;
+  padding: 8px 0;
+  border-radius: var(--radius-chip);
+  cursor: pointer;
+}
+
+.background-picker-mode.is-active {
+  border-color: var(--accent);
+  color: var(--accent-text);
+  background: var(--accent-soft);
+}
+
+.background-picker-strip {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+  overflow-x: auto;
+  padding-bottom: 2px;
+}
+
+.background-picker-thumb {
+  flex: 0 0 88px;
+  aspect-ratio: 16 / 9;
+  border: 2px solid transparent;
+  border-radius: var(--radius-chip);
+  overflow: hidden;
+  padding: 0;
+  background: var(--canvas-3);
+  cursor: pointer;
+}
+
+.background-picker-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.background-picker-thumb.is-active {
+  border-color: var(--accent);
+}
+
+.background-picker-note {
+  color: var(--muted);
+  font-size: 12px;
+}
