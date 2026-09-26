@@ -57,7 +57,10 @@ export function useVideoEffects(
   // крутится в setInput/setMode, встают в хвост цепочки и выполняются строго
   // по очереди — без interleaving (иначе параллельные loadModel могли бы
   // задвоить сегментер). seq-метка даёт latest-wins: устаревший apply из
-  // очереди пропускается, если после него запрошен более свежий.
+  // очереди пропускается, если после него запрошен более свежий. Seq
+  // пере-проверяется и ПОСЛЕ каждого await (см. run) — чек до await'ов не
+  // спасает от гона: заснувший в setInput/setMode run может проснуться уже
+  // после синхронного отката в 'none'.
   const applySeqRef = useRef(0);
   const applyChainRef = useRef<Promise<void> | null>(null);
   const apply = useCallback((): void => {
@@ -77,7 +80,13 @@ export function useVideoEffects(
       if (!eng || applySeqRef.current !== seq) return;
       try {
         await eng.setInput(input);
+        // После await'а мог прийти более свежий apply (в т.ч. синхронный
+        // откат в 'none', инкремент seq, unmount) — устаревший run не должен
+        // продолжать: иначе поверх отката дописался бы setMode(effect) и
+        // sendTrack(track) в состоянии 'none'.
+        if (applySeqRef.current !== seq || engineRef.current !== eng) return;
         await eng.setMode(mode, backgroundUrl);
+        if (applySeqRef.current !== seq || engineRef.current !== eng) return;
         // Модель могла не загрузиться (status 'error') — тогда трек не
         // меняем: в эфир уходит оригинальная камера.
         sendTrack(eng.outputTrack);
