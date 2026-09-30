@@ -116,6 +116,22 @@ func (uc *messageUseCase) CreateMessage(channelID, userID uuid.UUID, content str
 		return nil, domain.ErrStickerWithAttachments
 	}
 
+	// Голосовое — самостоятельный вид сообщения (VYC-101): одно голосовое
+	// вложение и никакого текста. Проверяем ДО привязки: откат после
+	// AttachToMessage унёс бы вложения каскадом вместе с сообщением.
+	// Одиночное вложение без текста валидно при любом виде — чтение не нужно.
+	if len(attachmentIDs) > 1 || (len(attachmentIDs) == 1 && content != "") {
+		atts, err := uc.attachRepo.ListByIDs(attachmentIDs)
+		if err != nil {
+			return nil, fmt.Errorf("load attachments: %w", err)
+		}
+		for _, a := range atts {
+			if a.IsVoice {
+				return nil, domain.ErrVoiceMessageInvalid
+			}
+		}
+	}
+
 	now := time.Now()
 	msg := &domain.Message{
 		ID:        uuid.New(),
@@ -215,13 +231,14 @@ func (uc *messageUseCase) GetMessages(channelID, userID uuid.UUID, limit, offset
 		return nil, fmt.Errorf("failed to get messages: %w", err)
 	}
 
-	uc.attachToMessages(messages)
+	uc.attachToMessages(messages, userID)
 	return messages, nil
 }
 
 // attachToMessages подтягивает вложения для пачки сообщений одним запросом:
-// иначе список из 50 сообщений дал бы 50 походов в БД.
-func (uc *messageUseCase) attachToMessages(msgs []*domain.Message) {
+// иначе список из 50 сообщений дал бы 50 походов в БД. Для голосовых
+// проставляет Listened с точки зрения viewerID — тоже одним запросом.
+func (uc *messageUseCase) attachToMessages(msgs []*domain.Message, viewerID uuid.UUID) {
 	if len(msgs) == 0 {
 		return
 	}
@@ -235,8 +252,31 @@ func (uc *messageUseCase) attachToMessages(msgs []*domain.Message) {
 		// них, чем не отдать ничего.
 		return
 	}
+	var voiceIDs []uuid.UUID
 	for _, m := range msgs {
 		m.Attachments = byMsg[m.ID]
+		for _, a := range m.Attachments {
+			if a.IsVoice {
+				voiceIDs = append(voiceIDs, a.ID)
+			}
+		}
+	}
+	if len(voiceIDs) == 0 {
+		return
+	}
+	listened, err := uc.attachRepo.ListenedFor(viewerID, voiceIDs)
+	if err != nil {
+		// Без отметки точка «не прослушано» просто не покажется — это
+		// косметика, ленту из-за неё не роняем.
+		return
+	}
+	for _, m := range msgs {
+		for _, a := range m.Attachments {
+			if a.IsVoice {
+				v := listened[a.ID]
+				a.Listened = &v
+			}
+		}
 	}
 }
 
@@ -267,7 +307,7 @@ func (uc *messageUseCase) SearchMessages(channelID, userID uuid.UUID, query stri
 	for _, r := range results {
 		msgs = append(msgs, &r.Message)
 	}
-	uc.attachToMessages(msgs)
+	uc.attachToMessages(msgs, userID)
 
 	return results, total, nil
 }
@@ -282,7 +322,7 @@ func (uc *messageUseCase) GetMessagesAround(channelID, messageID, userID uuid.UU
 		return nil, fmt.Errorf("failed to get messages around: %w", err)
 	}
 
-	uc.attachToMessages(messages)
+	uc.attachToMessages(messages, userID)
 	return messages, nil
 }
 
@@ -306,6 +346,16 @@ func (uc *messageUseCase) UpdateMessage(channelID, messageID, userID uuid.UUID, 
 		return nil, domain.ErrForbidden
 	}
 
+	// У голосового нечего править, а текст рядом с ним запрещён правилом
+	// создания. Вложения GetByID не подтягивает — берём их явно.
+	if byMsg, err := uc.attachRepo.ListByMessageIDs([]uuid.UUID{msg.ID}); err == nil {
+		for _, a := range byMsg[msg.ID] {
+			if a.IsVoice {
+				return nil, domain.ErrVoiceMessageInvalid
+			}
+		}
+	}
+
 	if msg.Content == content {
 		return msg, nil
 	}
@@ -323,7 +373,7 @@ func (uc *messageUseCase) UpdateMessage(channelID, messageID, userID uuid.UUID, 
 	// GetByID не заполняет Attachments — без этого поле уйдёт пустым, а
 	// из-за omitempty ключа не будет вовсе в JSON: клиент, заменяющий
 	// локальное сообщение пришедшим, потеряет картинки при каждой правке.
-	uc.attachToMessages([]*domain.Message{msg})
+	uc.attachToMessages([]*domain.Message{msg}, userID)
 	return msg, nil
 }
 

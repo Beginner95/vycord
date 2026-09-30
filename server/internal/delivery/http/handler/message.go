@@ -301,6 +301,8 @@ func (h *MessageHandler) writeUseCaseError(w http.ResponseWriter, r *http.Reques
 		h.sendError(w, http.StatusForbidden, httperr.CodeMentionEveryoneDenied, "only server owner/admin can mention @everyone")
 	case errors.Is(err, domain.ErrStickerWithAttachments):
 		h.sendError(w, http.StatusBadRequest, httperr.CodeStickerWithText, "sticker messages cannot contain text or attachments")
+	case errors.Is(err, domain.ErrVoiceMessageInvalid):
+		h.sendError(w, http.StatusBadRequest, httperr.CodeVoiceMessageInvalid, "voice message must be a single voice attachment without text")
 	case errors.Is(err, domain.ErrAttachmentNotFound):
 		h.sendError(w, http.StatusNotFound, httperr.CodeAttachmentNotFound, "attachment not found")
 	case errors.Is(err, domain.ErrAttachmentAlreadyAttached):

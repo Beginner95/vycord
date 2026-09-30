@@ -365,8 +365,10 @@ func TestUpdateMessage_ContentUnchanged_NoOp(t *testing.T) {
 	chRepo.On("GetByID", channelID).Return(&domain.Channel{ID: channelID, ServerID: serverID}, nil)
 	existing := &domain.Message{ID: messageID, ChannelID: channelID, UserID: &userID, Content: "same"}
 	msgRepo.On("GetByID", messageID).Return(existing, nil)
+	attachRepo := new(MockAttachmentRepository)
+	attachRepo.On("ListByMessageIDs", mock.Anything).Return(map[uuid.UUID][]*domain.Attachment{}, nil)
 
-	uc := usecase.NewMessageUseCase(msgRepo, chRepo, srvRepo, &MockStickerRepository{}, perms, new(MockAttachmentRepository), new(MockStorage))
+	uc := usecase.NewMessageUseCase(msgRepo, chRepo, srvRepo, &MockStickerRepository{}, perms, attachRepo, new(MockStorage))
 	msg, err := uc.UpdateMessage(channelID, messageID, userID, "same")
 
 	assert.NoError(t, err)
@@ -853,7 +855,10 @@ func TestUpdateMessage_MentionNonMember_InvalidMention(t *testing.T) {
 	msgRepo.On("GetByID", messageID).Return(existing, nil)
 
 	content := "hi <@" + mentionedID.String() + ">"
-	uc := usecase.NewMessageUseCase(msgRepo, chRepo, srvRepo, &MockStickerRepository{}, perms, new(MockAttachmentRepository), new(MockStorage))
+	attachRepo := new(MockAttachmentRepository)
+	attachRepo.On("ListByMessageIDs", mock.Anything).Return(map[uuid.UUID][]*domain.Attachment{}, nil)
+
+	uc := usecase.NewMessageUseCase(msgRepo, chRepo, srvRepo, &MockStickerRepository{}, perms, attachRepo, new(MockStorage))
 	msg, err := uc.UpdateMessage(channelID, messageID, userID, content)
 
 	assert.Nil(t, msg)
@@ -920,6 +925,7 @@ func TestCreateMessageWithAttachmentsLinksThem(t *testing.T) {
 	chRepo.On("GetByID", channelID).Return(&domain.Channel{ID: channelID, ServerID: serverID}, nil)
 	perms.On("Resolve", serverID, userID).Return(domain.PermissionSet{Bits: domain.PermAll}, nil)
 	msgRepo.On("Create", mock.Anything).Return(nil)
+	attachRepo.On("ListByIDs", []uuid.UUID{attID}).Return([]*domain.Attachment{{ID: attID, Kind: domain.AttachmentKindImage}}, nil)
 	attachRepo.On("AttachToMessage", mock.Anything, userID, channelID, []uuid.UUID{attID}).Return(nil)
 	attachRepo.On("ListByMessageIDs", mock.Anything).Return(map[uuid.UUID][]*domain.Attachment{}, nil).Maybe()
 
@@ -987,6 +993,7 @@ func TestCreateMessageRejectsForeignAttachment(t *testing.T) {
 	perms.On("Resolve", serverID, userID).Return(domain.PermissionSet{Bits: domain.PermAll}, nil)
 	msgRepo.On("Create", mock.Anything).Return(nil)
 	msgRepo.On("Delete", mock.Anything).Return(nil)
+	attachRepo.On("ListByIDs", []uuid.UUID{attID}).Return([]*domain.Attachment{{ID: attID, Kind: domain.AttachmentKindImage}}, nil)
 	attachRepo.On("AttachToMessage", mock.Anything, userID, channelID, []uuid.UUID{attID}).
 		Return(domain.ErrAttachmentNotFound)
 
@@ -1030,6 +1037,7 @@ func TestCreateMessageDedupesDuplicateAttachmentIDs(t *testing.T) {
 	chRepo.On("GetByID", channelID).Return(&domain.Channel{ID: channelID, ServerID: serverID}, nil)
 	perms.On("Resolve", serverID, userID).Return(domain.PermissionSet{Bits: domain.PermAll}, nil)
 	msgRepo.On("Create", mock.Anything).Return(nil)
+	attachRepo.On("ListByIDs", []uuid.UUID{attID}).Return([]*domain.Attachment{{ID: attID, Kind: domain.AttachmentKindImage}}, nil)
 	attachRepo.On("AttachToMessage", mock.Anything, userID, channelID, []uuid.UUID{attID}).Return(nil)
 	attachRepo.On("ListByMessageIDs", mock.Anything).Return(map[uuid.UUID][]*domain.Attachment{}, nil).Maybe()
 
@@ -1083,6 +1091,7 @@ func TestCreateMessageSurfacesRollbackFailure(t *testing.T) {
 	perms.On("Resolve", serverID, userID).Return(domain.PermissionSet{Bits: domain.PermAll}, nil)
 	msgRepo.On("Create", mock.Anything).Return(nil)
 	msgRepo.On("Delete", mock.Anything).Return(errors.New("db is down"))
+	attachRepo.On("ListByIDs", []uuid.UUID{attID}).Return([]*domain.Attachment{{ID: attID, Kind: domain.AttachmentKindImage}}, nil)
 	attachRepo.On("AttachToMessage", mock.Anything, userID, channelID, []uuid.UUID{attID}).
 		Return(domain.ErrAttachmentNotFound)
 
@@ -1104,4 +1113,109 @@ func (m *MockMessageRepository) ListForGuest(channelID uuid.UUID, since time.Tim
 	args := m.Called(channelID, since, after, limit)
 	list, _ := args.Get(0).([]*domain.GuestChatMessage)
 	return list, args.Error(1)
+}
+
+// --- Голосовые сообщения (VYC-101) ---
+
+func voiceAtt(id, owner uuid.UUID) *domain.Attachment {
+	d := 3000
+	return &domain.Attachment{ID: id, UserID: owner, Kind: domain.AttachmentKindAudio, IsVoice: true, DurationMs: &d, Waveform: make([]byte, 64)}
+}
+
+func newMsgUC(t *testing.T, channelID, serverID, userID uuid.UUID, msgRepo *MockMessageRepository, attachRepo *MockAttachmentRepository) domain.MessageUseCase {
+	t.Helper()
+	chRepo := new(MockChannelRepository)
+	chRepo.On("GetByID", channelID).Return(&domain.Channel{ID: channelID, ServerID: serverID}, nil)
+	perms := permsWith(serverID, userID, domain.PermSendMessages|domain.PermViewChannels)
+	return usecase.NewMessageUseCase(msgRepo, chRepo, new(MockServerRepository), &MockStickerRepository{}, perms, attachRepo, new(MockStorage))
+}
+
+func TestCreateMessage_VoiceWithText_Rejected(t *testing.T) {
+	channelID, serverID, userID, attID := uuid.New(), uuid.New(), uuid.New(), uuid.New()
+	attachRepo := new(MockAttachmentRepository)
+	attachRepo.On("ListByIDs", []uuid.UUID{attID}).Return([]*domain.Attachment{voiceAtt(attID, userID)}, nil)
+	msgRepo := new(MockMessageRepository)
+
+	_, err := newMsgUC(t, channelID, serverID, userID, msgRepo, attachRepo).CreateMessage(channelID, userID, "подпись", nil, []uuid.UUID{attID})
+
+	assert.ErrorIs(t, err, domain.ErrVoiceMessageInvalid)
+	msgRepo.AssertNotCalled(t, "Create", mock.Anything)
+}
+
+func TestCreateMessage_VoiceWithOtherAttachment_Rejected(t *testing.T) {
+	channelID, serverID, userID, voiceID, picID := uuid.New(), uuid.New(), uuid.New(), uuid.New(), uuid.New()
+	attachRepo := new(MockAttachmentRepository)
+	attachRepo.On("ListByIDs", []uuid.UUID{voiceID, picID}).
+		Return([]*domain.Attachment{voiceAtt(voiceID, userID), {ID: picID, Kind: domain.AttachmentKindImage}}, nil)
+	msgRepo := new(MockMessageRepository)
+
+	_, err := newMsgUC(t, channelID, serverID, userID, msgRepo, attachRepo).CreateMessage(channelID, userID, "", nil, []uuid.UUID{voiceID, picID})
+
+	assert.ErrorIs(t, err, domain.ErrVoiceMessageInvalid)
+	msgRepo.AssertNotCalled(t, "Create", mock.Anything)
+}
+
+func TestCreateMessage_SingleVoiceNoText_SkipsLookup(t *testing.T) {
+	channelID, serverID, userID, attID := uuid.New(), uuid.New(), uuid.New(), uuid.New()
+	attachRepo := new(MockAttachmentRepository)
+	attachRepo.On("AttachToMessage", mock.Anything, userID, channelID, []uuid.UUID{attID}).Return(nil)
+	attachRepo.On("ListByMessageIDs", mock.Anything).Return(map[uuid.UUID][]*domain.Attachment{}, nil)
+	msgRepo := new(MockMessageRepository)
+	msgRepo.On("Create", mock.Anything).Return(nil)
+
+	_, err := newMsgUC(t, channelID, serverID, userID, msgRepo, attachRepo).CreateMessage(channelID, userID, "", nil, []uuid.UUID{attID})
+
+	require.NoError(t, err)
+	attachRepo.AssertNotCalled(t, "ListByIDs", mock.Anything)
+}
+
+func TestUpdateMessage_VoiceMessage_Rejected(t *testing.T) {
+	channelID, serverID, userID, messageID, attID := uuid.New(), uuid.New(), uuid.New(), uuid.New(), uuid.New()
+	msgRepo := new(MockMessageRepository)
+	msgRepo.On("GetByID", messageID).Return(&domain.Message{ID: messageID, ChannelID: channelID, UserID: &userID, Content: ""}, nil)
+	attachRepo := new(MockAttachmentRepository)
+	attachRepo.On("ListByMessageIDs", []uuid.UUID{messageID}).
+		Return(map[uuid.UUID][]*domain.Attachment{messageID: {voiceAtt(attID, userID)}}, nil)
+
+	_, err := newMsgUC(t, channelID, serverID, userID, msgRepo, attachRepo).UpdateMessage(channelID, messageID, userID, "текст")
+
+	assert.ErrorIs(t, err, domain.ErrVoiceMessageInvalid)
+	msgRepo.AssertNotCalled(t, "Update", mock.Anything, mock.Anything)
+}
+
+func TestGetMessages_SetsListenedForViewer(t *testing.T) {
+	channelID, serverID, viewer, author, msgID, heard, unheard := uuid.New(), uuid.New(), uuid.New(), uuid.New(), uuid.New(), uuid.New(), uuid.New()
+	msgRepo := new(MockMessageRepository)
+	msgRepo.On("GetByChannelID", channelID, 50, 0).Return([]*domain.Message{{ID: msgID, ChannelID: channelID}}, nil)
+	attachRepo := new(MockAttachmentRepository)
+	attachRepo.On("ListByMessageIDs", []uuid.UUID{msgID}).Return(map[uuid.UUID][]*domain.Attachment{
+		msgID: {voiceAtt(heard, author), voiceAtt(unheard, author), {ID: uuid.New(), Kind: domain.AttachmentKindImage}},
+	}, nil)
+	attachRepo.On("ListenedFor", viewer, mock.MatchedBy(func(ids []uuid.UUID) bool { return len(ids) == 2 })).
+		Return(map[uuid.UUID]bool{heard: true}, nil)
+
+	msgs, err := newMsgUC(t, channelID, serverID, viewer, msgRepo, attachRepo).GetMessages(channelID, viewer, 50, 0)
+
+	require.NoError(t, err)
+	atts := msgs[0].Attachments
+	require.NotNil(t, atts[0].Listened)
+	assert.True(t, *atts[0].Listened)
+	require.NotNil(t, atts[1].Listened)
+	assert.False(t, *atts[1].Listened)
+	assert.Nil(t, atts[2].Listened, "у не-голосового поля нет")
+}
+
+func TestGetMessages_ListenedLookupFailureKeepsFeed(t *testing.T) {
+	channelID, serverID, viewer, msgID, attID := uuid.New(), uuid.New(), uuid.New(), uuid.New(), uuid.New()
+	msgRepo := new(MockMessageRepository)
+	msgRepo.On("GetByChannelID", channelID, 50, 0).Return([]*domain.Message{{ID: msgID, ChannelID: channelID}}, nil)
+	attachRepo := new(MockAttachmentRepository)
+	attachRepo.On("ListByMessageIDs", mock.Anything).Return(map[uuid.UUID][]*domain.Attachment{msgID: {voiceAtt(attID, uuid.New())}}, nil)
+	attachRepo.On("ListenedFor", viewer, mock.Anything).Return(nil, errors.New("db down"))
+
+	msgs, err := newMsgUC(t, channelID, serverID, viewer, msgRepo, attachRepo).GetMessages(channelID, viewer, 50, 0)
+
+	require.NoError(t, err)
+	require.Len(t, msgs[0].Attachments, 1)
+	assert.Nil(t, msgs[0].Attachments[0].Listened)
 }
