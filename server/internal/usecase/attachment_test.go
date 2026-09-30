@@ -330,3 +330,66 @@ func TestOpenThumbFallsBackToOriginalForImageWithoutThumbnail(t *testing.T) {
 type nopSeekCloser struct{ *bytes.Reader }
 
 func (nopSeekCloser) Close() error { return nil }
+
+func voiceMeta() *domain.VoiceMeta {
+	return &domain.VoiceMeta{DurationMs: 4200, Waveform: make([]byte, domain.VoiceWaveformLen)}
+}
+
+func webmBytes() []byte { return append([]byte{0x1A, 0x45, 0xDF, 0xA3}, make([]byte, 60)...) }
+
+func TestUploadVoiceRenamesByContainerAndStoresMeta(t *testing.T) {
+	f := newAttachFixture(t)
+	f.quota.On("CheckUpload", f.userID, mock.Anything).Return(nil)
+	f.quota.On("ExpiresAt", f.userID, mock.Anything).Return((*time.Time)(nil), nil)
+	f.storage.On("Save", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return("", nil)
+	f.repo.On("Create", mock.Anything).Return(nil)
+
+	in := f.upload("recording.webm", webmBytes()) // клиент прислал «видео»-имя
+	in.Voice = voiceMeta()
+	att, err := f.uc.Upload(in)
+
+	require.NoError(t, err)
+	assert.Equal(t, domain.AttachmentKindAudio, att.Kind)
+	assert.Equal(t, "voice.weba", att.FileName)
+	assert.True(t, att.IsVoice)
+	require.NotNil(t, att.DurationMs)
+	assert.Equal(t, 4200, *att.DurationMs)
+	assert.Len(t, att.Waveform, domain.VoiceWaveformLen)
+}
+
+func TestUploadVoiceRejectsOutOfRangeMeta(t *testing.T) {
+	for _, meta := range []*domain.VoiceMeta{
+		{DurationMs: 999, Waveform: make([]byte, 64)},
+		{DurationMs: 900001, Waveform: make([]byte, 64)},
+		{DurationMs: 5000, Waveform: make([]byte, 10)},
+	} {
+		f := newAttachFixture(t)
+		in := f.upload("v.weba", webmBytes())
+		in.Voice = meta
+		_, err := f.uc.Upload(in)
+		assert.ErrorIs(t, err, domain.ErrVoiceInvalid)
+		f.storage.AssertNotCalled(t, "Save", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
+	}
+}
+
+func TestUploadVoiceRejectsNonAudioContainer(t *testing.T) {
+	f := newAttachFixture(t)
+	f.quota.On("CheckUpload", f.userID, mock.Anything).Return(nil)
+	in := f.upload("v.weba", []byte("\x89PNG\r\n\x1a\n"+string(make([]byte, 24))))
+	in.Voice = voiceMeta()
+	_, err := f.uc.Upload(in)
+	assert.ErrorIs(t, err, domain.ErrVoiceInvalid)
+}
+
+func TestUploadVoiceRejectsHeicDisguisedAsM4A(t *testing.T) {
+	// ftyp с image-брендом: VoiceFileName даст voice.m4a, но DetectKind
+	// разберёт бренд и скажет image — это не голосовое.
+	f := newAttachFixture(t)
+	f.quota.On("CheckUpload", f.userID, mock.Anything).Return(nil)
+	h := make([]byte, 32)
+	copy(h[4:], "ftypheic")
+	in := f.upload("v.m4a", h)
+	in.Voice = voiceMeta()
+	_, err := f.uc.Upload(in)
+	assert.ErrorIs(t, err, domain.ErrVoiceInvalid)
+}

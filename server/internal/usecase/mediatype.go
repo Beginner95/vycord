@@ -127,3 +127,20 @@ func detectContainer(head []byte, ext string) (domain.AttachmentKind, string, bo
 	}
 	return "", "", false
 }
+
+// VoiceFileName выбирает имя голосового по сигнатуре контейнера (VYC-101).
+// Имя от клиента для голосового не используется: MediaRecorder в Chromium
+// пишет audio/webm, и файл «voice.webm» DetectKind честно счёл бы видео.
+// Здесь только выбор расширения — вид всё равно решает DetectKind, так что
+// ftyp с image-брендом отсеется им как картинка.
+func VoiceFileName(head []byte) (string, bool) {
+	switch {
+	case len(head) >= 4 && bytes.Equal(head[:4], []byte{0x1A, 0x45, 0xDF, 0xA3}):
+		return "voice.weba", true
+	case len(head) >= 12 && bytes.Equal(head[4:8], []byte("ftyp")):
+		return "voice.m4a", true
+	case len(head) >= 4 && bytes.Equal(head[:4], []byte("OggS")):
+		return "voice.ogg", true
+	}
+	return "", false
+}
