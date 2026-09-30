@@ -12,3 +12,8 @@ export function notifyPlaying(el: HTMLMediaElement): void {
   }
   current = el;
 }
+
+/** Ставит на паузу текущее медиа чата — старт записи голосового (VYC-101). */
+export function pauseCurrent(): void {
+  if (current && !current.paused) current.pause();
+}

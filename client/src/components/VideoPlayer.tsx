@@ -2,19 +2,13 @@ import { useRef, useState } from 'react';
 import { Pause, Play, Volume2, VolumeX } from 'lucide-react';
 import { useT } from '@/i18n';
 import { notifyPlaying } from '@/utils/chatMediaCoordinator';
+import { formatTime } from '@/utils/formatTime';
 import './VideoPlayer.css';
 
 interface VideoPlayerProps {
   src: string;
   autoPlay?: boolean;
   lightbox?: boolean;
-}
-
-function formatTime(sec: number): string {
-  if (!Number.isFinite(sec)) return '0:00';
-  const m = Math.floor(sec / 60);
-  const s = Math.floor(sec % 60);
-  return `${m}:${String(s).padStart(2, '0')}`;
 }
 
 /**
