@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -9,6 +10,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/google/uuid"
@@ -108,6 +110,8 @@ func (h *AttachmentHandler) Upload(w http.ResponseWriter, r *http.Request) {
 		fileName  string
 		tmp       *os.File
 		size      int64
+
+		voiceFlag, voiceDuration, voiceWaveform string
 	)
 	defer func() {
 		if tmp != nil {
@@ -217,6 +221,25 @@ func (h *AttachmentHandler) Upload(w http.ResponseWriter, r *http.Request) {
 				h.sendError(w, http.StatusRequestEntityTooLarge, httperr.CodeAttachmentTooLarge, "file is too large")
 				return
 			}
+		case "voice", "duration_ms", "waveform":
+			// Маленькие текстовые поля голосового (VYC-101). 256 байт хватает
+			// base64 от 64 байт волны (88 символов) с запасом.
+			raw, err := io.ReadAll(io.LimitReader(part, 256))
+			name := part.FormName()
+			part.Close()
+			if err != nil {
+				h.drainBody(r)
+				h.sendError(w, http.StatusBadRequest, httperr.CodeVoiceInvalid, "invalid voice fields")
+				return
+			}
+			switch name {
+			case "voice":
+				voiceFlag = string(raw)
+			case "duration_ms":
+				voiceDuration = string(raw)
+			case "waveform":
+				voiceWaveform = string(raw)
+			}
 		default:
 			part.Close()
 		}
@@ -236,12 +259,25 @@ func (h *AttachmentHandler) Upload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	var voice *domain.VoiceMeta
+	if voiceFlag == "1" {
+		// Здесь только разбор; диапазоны — в usecase, единственном владельце правила.
+		d, errD := strconv.Atoi(voiceDuration)
+		wf, errW := base64.StdEncoding.DecodeString(voiceWaveform)
+		if errD != nil || errW != nil {
+			h.sendError(w, http.StatusBadRequest, httperr.CodeVoiceInvalid, "invalid voice fields")
+			return
+		}
+		voice = &domain.VoiceMeta{DurationMs: d, Waveform: wf}
+	}
+
 	att, err := h.uc.Upload(domain.AttachmentUpload{
 		ChannelID: channelID,
 		UserID:    userID,
 		FileName:  fileName,
 		Size:      size,
 		Content:   tmp,
+		Voice:     voice,
 	})
 	if err != nil {
 		h.writeError(w, r, err)
@@ -402,6 +438,8 @@ func (h *AttachmentHandler) writeError(w http.ResponseWriter, r *http.Request, e
 		h.sendError(w, http.StatusConflict, httperr.CodeAttachmentAlreadyAttached, "attachment is already attached to a message")
 	case errors.Is(err, domain.ErrAttachmentNotFound), errors.Is(err, filestorage.ErrNotFound):
 		h.sendError(w, http.StatusNotFound, httperr.CodeAttachmentNotFound, "attachment not found")
+	case errors.Is(err, domain.ErrVoiceInvalid):
+		h.sendError(w, http.StatusBadRequest, httperr.CodeVoiceInvalid, "invalid voice message attachment")
 	case errors.Is(err, domain.ErrForbidden):
 		h.sendError(w, http.StatusForbidden, httperr.CodeForbidden, "access denied")
 	default:
