@@ -44,8 +44,8 @@ async function deliver(deps: SendVoiceDeps, msg: ChatMessage): Promise<void> {
   const channelId = msg.channel_id;
   if (inFlight.has(msg.id)) return;
   inFlight.add(msg.id);
+  let attachment = pv.attachment;
   try {
-    let attachment = pv.attachment;
     if (!attachment) {
       const file = new File([pv.blob], voiceFileName(pv.mimeType), { type: pv.mimeType });
       attachment = await deps.upload(channelId, file, { durationMs: pv.durationMs, waveform: pv.waveform });
@@ -56,7 +56,12 @@ async function deliver(deps: SendVoiceDeps, msg: ChatMessage): Promise<void> {
     deps.revokeObjectURL(pv.objectUrl);
   } catch (err) {
     if (deps.store.has(msg.id)) deps.store.update(msg.id, { deliveryState: 'failed' });
-    else deps.onOrphanFailure(err);
+    else {
+      // Строки нет — discard уже некому сделать: освобождаем URL и убираем сироту сами.
+      deps.revokeObjectURL(pv.objectUrl);
+      if (attachment) void deps.deleteAttachment(attachment.id).catch(() => {});
+      deps.onOrphanFailure(err);
+    }
   } finally {
     inFlight.delete(msg.id);
   }

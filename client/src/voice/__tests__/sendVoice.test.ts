@@ -64,6 +64,16 @@ describe('sendVoice', () => {
     h.deps.store.has = () => false;
     await sendVoice(h.deps, args);
     expect(h.deps.onOrphanFailure).toHaveBeenCalled();
+    expect(h.deps.revokeObjectURL).toHaveBeenCalledWith('blob:1');
+  });
+
+  it('строки нет, загрузка прошла, создание упало — сирота удаляется', async () => {
+    const h = harness({ createMessage: vi.fn(async () => { throw new Error('500'); }) });
+    h.deps.store.has = () => false;
+    await sendVoice(h.deps, args);
+    expect(h.deps.deleteAttachment).toHaveBeenCalledWith('att-1');
+    expect(h.deps.revokeObjectURL).toHaveBeenCalledWith('blob:1');
+    expect(h.deps.onOrphanFailure).toHaveBeenCalled();
   });
 
   it('строки уже нет, но успех — сообщение всё равно создано', async () => {
