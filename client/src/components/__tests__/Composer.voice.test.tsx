@@ -3,6 +3,7 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 import { render, cleanup, fireEvent, screen, act } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { Composer } from '@/components/Composer';
+import { startVoiceRecorder, VoiceRecorderError } from '@/voice/voiceRecorder';
 
 vi.mock('@/services/api', () => ({ apiService: {} }));
 const recorder = vi.hoisted(() => ({
@@ -13,7 +14,7 @@ vi.mock('@/voice/voiceRecorder', async (orig) => ({
   startVoiceRecorder: vi.fn(async () => recorder.handle),
 }));
 
-afterEach(cleanup);
+afterEach(() => { cleanup(); delete (window as { electronAPI?: unknown }).electronAPI; });
 
 const MIC = 'Записать голосовое сообщение';
 const SEND = 'Отправить';
@@ -81,5 +82,27 @@ describe('Composer voice button', () => {
     fireEvent.keyUp(del, { key: 'Enter' });
     expect(field.hidden).toBe(true);
     expect(screen.getByRole('button', { name: 'Удалить запись' })).toBe(del);
+  });
+});
+
+describe('Composer: подсказка отказа в микрофоне', () => {
+  const denyAndRead = async () => {
+    vi.mocked(startVoiceRecorder).mockRejectedValueOnce(new VoiceRecorderError('mic_denied'));
+    mount();
+    await act(async () => { fireEvent.keyDown(mic()!, { key: 'Enter' }); });
+    return screen.getByRole('status').textContent;
+  };
+
+  it('Electron на macOS — текст про «Системные настройки»', async () => {
+    (window as { electronAPI?: unknown }).electronAPI = { platform: 'darwin' };
+    expect(await denyAndRead()).toBe('Нет доступа к микрофону. Откройте «Системные настройки» → «Конфиденциальность и безопасность» → «Микрофон» и включите Vy Cord');
+  });
+
+  it('Electron на другой ОС и обычный браузер — общий текст', async () => {
+    (window as { electronAPI?: unknown }).electronAPI = { platform: 'win32' };
+    expect(await denyAndRead()).toBe('Нет доступа к микрофону. Разрешите его в настройках');
+    cleanup();
+    delete (window as { electronAPI?: unknown }).electronAPI;
+    expect(await denyAndRead()).toBe('Нет доступа к микрофону. Разрешите его в настройках');
   });
 });

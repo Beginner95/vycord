@@ -704,6 +704,7 @@ export const en: Dictionary = {
     hintCall: "You can't record a voice message during a call",
     hintInterrupted: 'Recording interrupted',
     micDenied: 'No microphone access. Allow it in settings',
+    micDeniedMac: 'No microphone access. Open System Settings → Privacy & Security → Microphone and turn on Vy Cord',
     micNotFound: 'No microphone found',
     micFailed: "Couldn't start recording",
     message: 'Voice message',

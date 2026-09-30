@@ -100,6 +100,10 @@ export function ChatArea({
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const pendingSeqRef = useRef(0);
   const composerRef = useRef<ComposerHandle>(null);
+  // Канал, который показан прямо сейчас: голосовое, дописанное после смены канала,
+  // не должно добавлять оптимистичную строку в чужую ленту.
+  const currentChannelIdRef = useRef<string | undefined>(channel?.id);
+  currentChannelIdRef.current = channel?.id;
   // Гости звонка читают новые сообщения канала, поэтому участники должны это
   // видеть, а не догадываться (2026-09-17-guest-call-link-design.md, У11).
   const channelGuests = useGuestManagementStore((store) => store.channelGuests);
@@ -540,6 +544,8 @@ logger.error('Failed to jump to message:', err, { module: 'chat' });
     createObjectURL: (b) => URL.createObjectURL(b),
     revokeObjectURL: (u) => URL.revokeObjectURL(u),
     onOrphanFailure: (err) => showSendError(err),
+    errorCode: (err) => (err instanceof ApiError ? err.code : undefined),
+    isCurrentChannel: (id) => currentChannelIdRef.current === id,
   };
 
   /** Голосовое уходит сразу, без предпросмотра (spec §3.1). */

@@ -11,7 +11,9 @@ import { isVoiceMessage } from '@/voice/listened';
 import { tokenizeMentions, toDisplayMentions, toWireMentions, LEGACY_ROLE_KEYS } from '@/utils/mentions';
 import { parseInline, blockify, normalizeLinkHref, type MdInlineNode } from '@/utils/markdown';
 import { resolveUploadUrl } from '@/services/api';
-import { useT, useDateFormat, type TFunc } from '@/i18n';
+import { useT, useDateFormat, hasKey, type TFunc, type TKey } from '@/i18n';
+import { formatSize } from '@/components/AttachmentTray';
+import { HARD_MAX_BYTES } from '@/hooks/useAttachmentUpload';
 import { useLongPress } from '@/mobile/gestures/useLongPress';
 import type { ChatMessage } from '@/stores/messageStore';
 import type { MemberWithUser } from '@/types';
@@ -154,6 +156,11 @@ export function MessageRow(props: MessageRowProps) {
   const { formatTime } = useDateFormat();
   const longPress = useLongPress(() => props.onLongPress?.());
   const pressable = !!props.onLongPress && !isEditing;
+  // Код серверной ошибки (например, у голосового) → её текст вместо общего «не отправлено».
+  const errKey = msg.deliveryErrorCode ? `errors.${msg.deliveryErrorCode}` : null;
+  const failedText = errKey && hasKey(errKey)
+    ? t(errKey as TKey, msg.deliveryErrorCode === 'attachment_too_large' ? { maxSize: formatSize(HARD_MAX_BYTES) } : undefined)
+    : t('chat.sendFailed');
   const isEdited = msg.updated_at !== msg.created_at;
   const time = formatTime(new Date(msg.created_at));
 
@@ -211,7 +218,7 @@ export function MessageRow(props: MessageRowProps) {
         )}
         {!isEditing && msg.deliveryState === 'failed' && (
           <button type="button" className="msg-delivery is-failed" onClick={props.onRetry}>
-            {t('chat.sendFailed')} · {t('chat.retry')}
+            {failedText} · {t('chat.retry')}
           </button>
         )}
       </div>

@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { sendVoice, retryVoice, discardVoice, type SendVoiceDeps } from '@/voice/sendVoice';
 import type { ChatMessage } from '@/stores/messageStore';
 import type { Attachment, Message } from '@/types';
+import { ApiError } from '@/services/api';
 
 const recording = { blob: new Blob(['a'], { type: 'audio/webm' }), mimeType: 'audio/webm', durationMs: 4200, waveform: new Array(64).fill(9) };
 const serverAtt = { id: 'att-1', is_voice: true, kind: 'audio', url: '/u' } as Attachment;
@@ -22,6 +23,7 @@ function harness(over: Partial<SendVoiceDeps> = {}) {
     createObjectURL: () => 'blob:1',
     revokeObjectURL: vi.fn(),
     onOrphanFailure: vi.fn(),
+    errorCode: (e) => (e instanceof ApiError ? e.code : undefined),
     ...over,
   };
   return { deps, rows };
@@ -82,6 +84,55 @@ describe('sendVoice', () => {
     await sendVoice(h.deps, args);
     expect(h.deps.createMessage).toHaveBeenCalled();
     expect(h.deps.revokeObjectURL).toHaveBeenCalled();
+  });
+});
+
+describe('deliveryErrorCode', () => {
+  it('ApiError с кодом → код сохраняется на failed-строке', async () => {
+    const h = harness({ upload: vi.fn(async () => { throw new ApiError('x', 'voice_invalid', 400); }) });
+    await sendVoice(h.deps, args);
+    expect(h.rows.get('pending-1')).toMatchObject({ deliveryState: 'failed', deliveryErrorCode: 'voice_invalid' });
+  });
+
+  it('сетевая ошибка без кода → deliveryErrorCode не задан', async () => {
+    const h = harness({ upload: vi.fn(async () => { throw new Error('net'); }) });
+    await sendVoice(h.deps, args);
+    expect(h.rows.get('pending-1')!.deliveryErrorCode).toBeUndefined();
+  });
+
+  it('retry сбрасывает код', async () => {
+    const h = harness({ upload: vi.fn(async () => { throw new ApiError('x', 'voice_invalid', 400); }) });
+    await sendVoice(h.deps, args);
+    let during: string | undefined = 'unset';
+    h.deps.upload = vi.fn(async () => { during = h.rows.get('pending-1')!.deliveryErrorCode; return serverAtt; });
+    await retryVoice(h.deps, h.rows.get('pending-1')!);
+    expect(during).toBeUndefined();
+  });
+});
+
+describe('isCurrentChannel', () => {
+  it('false: строка не добавляется, доставка идёт в исходный канал, URL освобождается', async () => {
+    const h = harness({ isCurrentChannel: () => false });
+    const add = vi.spyOn(h.deps.store, 'add');
+    await sendVoice(h.deps, args);
+    expect(add).not.toHaveBeenCalled();
+    expect(h.deps.upload).toHaveBeenCalledWith('ch', expect.any(File), expect.anything());
+    expect(h.deps.createMessage).toHaveBeenCalledWith('ch', 'att-1');
+    expect(h.deps.revokeObjectURL).toHaveBeenCalledWith('blob:1');
+  });
+
+  it('false и сбой → onOrphanFailure', async () => {
+    const h = harness({ isCurrentChannel: () => false, upload: vi.fn(async () => { throw new Error('net'); }) });
+    await sendVoice(h.deps, args);
+    expect(h.deps.onOrphanFailure).toHaveBeenCalled();
+    expect(h.deps.revokeObjectURL).toHaveBeenCalledWith('blob:1');
+  });
+
+  it('true или не задан — строка добавляется как раньше', async () => {
+    const h = harness({ isCurrentChannel: (id) => id === 'ch' });
+    const add = vi.spyOn(h.deps.store, 'add');
+    await sendVoice(h.deps, args);
+    expect(add).toHaveBeenCalledTimes(1);
   });
 });
 

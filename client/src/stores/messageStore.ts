@@ -14,7 +14,12 @@ export interface PendingVoice {
 }
 
 /** Client-only delivery state for optimistic send (spec §4.4). Never sent to the server. */
-export type ChatMessage = Message & { deliveryState?: 'sending' | 'failed'; pendingVoice?: PendingVoice };
+export type ChatMessage = Message & {
+  deliveryState?: 'sending' | 'failed';
+  pendingVoice?: PendingVoice;
+  /** Серверный код ошибки последней неудачной отправки (для текста на failed-строке). Никогда не уходит на сервер. */
+  deliveryErrorCode?: string;
+};
 
 interface MessageState {
   messages: ChatMessage[];

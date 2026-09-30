@@ -50,6 +50,10 @@ const HINT_KEYS = {
   mic_denied: 'voice.micDenied', mic_not_found: 'voice.micNotFound', mic_failed: 'voice.micFailed',
 } as const satisfies Record<HintKind, TKey>;
 
+/** Только Electron на macOS: разрешение микрофона живёт в «Системных настройках»; в браузере — в настройках сайта. */
+const isElectronMac = () => (window as Window & typeof globalThis).electronAPI?.platform === 'darwin';
+
+
 function lineRangeForSelection(value: string, start: number, end: number) {
   const lineStart = start <= 0 ? 0 : value.lastIndexOf('\n', start - 1) + 1;
   // A selection that ends exactly at the start of a new line (e.g. Shift+Down
@@ -471,7 +475,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
       </form>
       <p className="composer-hint">{t('chat.composerHint')}</p>
       {voice.hint && (
-        <p className="composer-voice-hint" role="status" aria-live="polite">{t(HINT_KEYS[voice.hint])}</p>
+        <p className="composer-voice-hint" role="status" aria-live="polite">{t(voice.hint === 'mic_denied' && isElectronMac() ? 'voice.micDeniedMac' : HINT_KEYS[voice.hint])}</p>
       )}
       {pickerOpen && (() => {
         const noStickers = textOnly || !onSendSticker;

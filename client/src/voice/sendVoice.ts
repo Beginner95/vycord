@@ -18,6 +18,10 @@ export interface SendVoiceDeps {
   createObjectURL(b: Blob): string;
   revokeObjectURL(url: string): void;
   onOrphanFailure(err: unknown): void;
+  /** Серверный код ошибки (ApiError.code) — инъекция, чтобы модуль не тянул сервис API. */
+  errorCode?(err: unknown): string | undefined;
+  /** Показан ли сейчас канал получателя: иначе оптимистичная строка попала бы в чужую ленту. */
+  isCurrentChannel?(channelId: string): boolean;
 }
 
 /** Синтетическое вложение: пузырь играет из локального blob, пока файл грузится. */
@@ -55,7 +59,7 @@ async function deliver(deps: SendVoiceDeps, msg: ChatMessage): Promise<void> {
     deps.store.replace(msg.id, saved);
     deps.revokeObjectURL(pv.objectUrl);
   } catch (err) {
-    if (deps.store.has(msg.id)) deps.store.update(msg.id, { deliveryState: 'failed' });
+    if (deps.store.has(msg.id)) deps.store.update(msg.id, { deliveryState: 'failed', deliveryErrorCode: deps.errorCode?.(err) });
     else {
       // Строки нет — discard уже некому сделать: освобождаем URL и убираем сироту сами.
       deps.revokeObjectURL(pv.objectUrl);
@@ -70,13 +74,15 @@ async function deliver(deps: SendVoiceDeps, msg: ChatMessage): Promise<void> {
 export async function sendVoice(deps: SendVoiceDeps, a: { tempId: string; channelId: string; userId: string; now: string; recording: VoiceRecording }): Promise<void> {
   const objectUrl = deps.createObjectURL(a.recording.blob);
   const msg = buildPendingVoiceMessage({ ...a, objectUrl });
-  deps.store.add(msg);
+  // Канал могли сменить между решением «отправить» и onstop: тогда строки нет,
+  // а доставка идёт в исходный канал (успех/сирота обрабатывает deliver).
+  if (deps.isCurrentChannel?.(a.channelId) !== false) deps.store.add(msg);
   await deliver(deps, msg);
 }
 
 export async function retryVoice(deps: SendVoiceDeps, msg: ChatMessage): Promise<void> {
   if (!msg.pendingVoice || inFlight.has(msg.id)) return;
-  deps.store.update(msg.id, { deliveryState: 'sending' });
+  deps.store.update(msg.id, { deliveryState: 'sending', deliveryErrorCode: undefined });
   // attachment мог записаться в store после того, как msg был прочитан вызывающим.
   await deliver(deps, msg);
 }

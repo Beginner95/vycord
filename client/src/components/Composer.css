@@ -145,7 +145,12 @@
   color: var(--ink);
   box-shadow: var(--shadow-popover);
   font-size: 13px;
-  white-space: nowrap;
+
+  /* Длинные подсказки (mac-текст про «Системные настройки») переносятся внутри композера. */
+  width: max-content;
+  max-width: calc(100% - 24px);
+  text-align: center;
+  white-space: normal;
   pointer-events: none;
   animation: fade-in var(--transition);
 }

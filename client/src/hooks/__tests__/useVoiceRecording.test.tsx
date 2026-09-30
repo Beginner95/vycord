@@ -15,7 +15,7 @@ function deferredHandle() {
   return { handle, start: vi.fn(() => promise), resolve: () => resolve(handle) };
 }
 
-const ptr = (x: number, y: number) => ({ clientX: x, clientY: y, pointerId: 1, button: 0, currentTarget: { setPointerCapture: vi.fn() }, preventDefault: vi.fn() }) as never;
+const ptr = (x: number, y: number, pointerId = 1) => ({ clientX: x, clientY: y, pointerId, button: 0, currentTarget: { setPointerCapture: vi.fn() }, preventDefault: vi.fn() }) as never;
 
 describe('useVoiceRecording', () => {
   let now = 0;
@@ -132,5 +132,38 @@ describe('useVoiceRecording', () => {
     expect(d.handle.discard).not.toHaveBeenCalled();
     expect(result.current.state.kind).toBe('locked');
     expect(result.current.hint).toBeNull();
+  });
+
+  it('мультитач: второй палец не управляет жестом, первый отправляет', async () => {
+    const d = deferredHandle(); const onSend = vi.fn();
+    const { result } = renderHook(() => useVoiceRecording({ channelId: 'a', onSend, start: d.start, isInCall: () => false }));
+    act(() => result.current.micProps.onPointerDown(ptr(100, 100, 1)));
+    await act(async () => { d.resolve(); });
+    const second = ptr(100, 100, 2);
+    act(() => result.current.micProps.onPointerDown(second));
+    expect((second as unknown as { currentTarget: { setPointerCapture: () => void } }).currentTarget.setPointerCapture).not.toHaveBeenCalled();
+    now = 1500;
+    act(() => result.current.micProps.onPointerUp(ptr(100, 100, 2)));
+    expect(result.current.state.kind).toBe('recording');
+    expect(onSend).not.toHaveBeenCalled();
+    now = 2000;
+    await act(async () => { result.current.micProps.onPointerUp(ptr(100, 100, 1)); });
+    expect(onSend).toHaveBeenCalledTimes(1);
+  });
+
+  it('мультитач: движение и cancel чужого пальца не отменяют запись', async () => {
+    const d = deferredHandle(); const onSend = vi.fn();
+    const { result } = renderHook(() => useVoiceRecording({ channelId: 'a', onSend, start: d.start, isInCall: () => false }));
+    act(() => result.current.micProps.onPointerDown(ptr(300, 100, 1)));
+    await act(async () => { d.resolve(); });
+    act(() => result.current.micProps.onPointerMove(ptr(-500, 100, 2)));
+    act(() => result.current.micProps.onPointerCancel(ptr(0, 0, 2)));
+    expect(result.current.state.kind).toBe('recording');
+    expect(d.handle.discard).not.toHaveBeenCalled();
+    act(() => result.current.micProps.onPointerCancel(ptr(0, 0, 1)));
+    expect(result.current.state.kind).toBe('idle');
+    // после возврата в idle новый жест принимается любым пальцем
+    act(() => result.current.micProps.onPointerDown(ptr(100, 100, 7)));
+    expect(result.current.state.kind).toBe('starting');
   });
 });

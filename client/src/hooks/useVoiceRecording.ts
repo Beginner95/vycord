@@ -20,7 +20,7 @@ export interface UseVoiceRecording {
     onPointerDown(e: PointerEvent<HTMLButtonElement>): void;
     onPointerMove(e: PointerEvent<HTMLButtonElement>): void;
     onPointerUp(e: PointerEvent<HTMLButtonElement>): void;
-    onPointerCancel(): void;
+    onPointerCancel(e: PointerEvent<HTMLButtonElement>): void;
     onKeyDown(e: KeyboardEvent<HTMLButtonElement>): void;
     onClick(e: MouseEvent<HTMLButtonElement>): void;
     onContextMenu(e: MouseEvent): void;
@@ -41,6 +41,8 @@ export function useVoiceRecording({ channelId, onSend, start = startVoiceRecorde
   const handleRef = useRef<VoiceRecorderHandle | null>(null);
   // Поколение старта: запоздавший getUserMedia старого поколения освобождается сразу.
   const genRef = useRef(0);
+  // Указатель, начавший жест: события других пальцев (мультитач) игнорируются.
+  const pointerIdRef = useRef<number | null>(null);
   const onSendRef = useRef(onSend);
   onSendRef.current = onSend;
   const hintTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -54,6 +56,7 @@ export function useVoiceRecording({ channelId, onSend, start = startVoiceRecorde
   const dispatch = useCallback((event: GestureEvent) => {
     const { state: next, effects } = reduce(stateRef.current, event);
     stateRef.current = next;
+    if (next.kind === 'idle') pointerIdRef.current = null;
     setState(next);
     for (const fx of effects) {
       switch (fx.type) {
@@ -130,6 +133,7 @@ export function useVoiceRecording({ channelId, onSend, start = startVoiceRecorde
       handleRef.current?.discard();
       handleRef.current = null;
       stateRef.current = IDLE;
+      pointerIdRef.current = null;
       setState(IDLE);
     }
   }, [channelId]);
@@ -138,13 +142,16 @@ export function useVoiceRecording({ channelId, onSend, start = startVoiceRecorde
   const micProps: UseVoiceRecording['micProps'] = {
     onPointerDown: (e) => {
       if (e.button !== 0) return;
+      // Жест уже идёт (второй палец, повторное нажатие) — не трогаем его.
+      if (stateRef.current.kind !== 'idle') return;
       e.preventDefault();
+      pointerIdRef.current = e.pointerId;
       e.currentTarget.setPointerCapture?.(e.pointerId);
       dispatch({ type: 'press', x: e.clientX, y: e.clientY, inCall: isInCall() });
     },
-    onPointerMove: (e) => dispatch({ type: 'move', x: e.clientX, y: e.clientY }),
-    onPointerUp: () => dispatch({ type: 'release', t: performance.now() }),
-    onPointerCancel: () => dispatch({ type: 'interrupt' }),
+    onPointerMove: (e) => { if (e.pointerId === pointerIdRef.current) dispatch({ type: 'move', x: e.clientX, y: e.clientY }); },
+    onPointerUp: (e) => { if (e.pointerId === pointerIdRef.current) dispatch({ type: 'release', t: performance.now() }); },
+    onPointerCancel: (e) => { if (e.pointerId === pointerIdRef.current) dispatch({ type: 'interrupt' }); },
     onKeyDown: (e) => {
       if (e.key !== 'Enter' && e.key !== ' ') return;
       e.preventDefault();
