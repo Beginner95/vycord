@@ -36,6 +36,7 @@ export function useMediaPlayback<T extends HTMLMediaElement>(opts: { onPlay?: ()
     onEnded: () => setPlaying(false),
     onTimeUpdate: (e: SyntheticEvent<T>) => setCurrent(e.currentTarget.currentTime),
     onLoadedMetadata: (e: SyntheticEvent<T>) => setDuration(e.currentTarget.duration),
+    onDurationChange: (e: SyntheticEvent<T>) => setDuration(e.currentTarget.duration),
   };
 
   return { ref, playing, current, duration, toggle, seek, mediaProps };

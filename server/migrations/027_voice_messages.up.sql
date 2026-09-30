@@ -12,6 +12,7 @@ ALTER TABLE attachments
 ALTER TABLE attachments ADD CONSTRAINT attachments_voice_check CHECK (
     NOT is_voice OR (
         kind = 'audio'
+        AND duration_ms IS NOT NULL
         AND duration_ms BETWEEN 1000 AND 900000
         AND waveform IS NOT NULL
         AND octet_length(waveform) = 64

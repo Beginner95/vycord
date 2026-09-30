@@ -40,6 +40,29 @@ describe('VoiceMessage', () => {
     expect(container.querySelector('.voice-msg-time')?.textContent).toBe('0:04');
   });
 
+  it('корень — role=group', () => {
+    const { container } = render(<VoiceMessage att={att()} />);
+    expect(container.querySelector('.voice-msg')?.getAttribute('role')).toBe('group');
+  });
+
+  it('Infinity: проба currentTime=1e101, затем durationchange сбрасывает в 0 без POST и play', () => {
+    const spy = vi.spyOn(apiService, 'markVoiceListened').mockResolvedValue();
+    const { container } = render(<VoiceMessage att={att()} />);
+    const audio = container.querySelector('audio')!;
+    Object.defineProperty(audio, 'duration', { value: Infinity, configurable: true });
+    Object.defineProperty(audio, 'currentTime', { value: 0, writable: true, configurable: true });
+    fireEvent.loadedMetadata(audio);
+    expect(audio.currentTime).toBe(1e101);
+    fireEvent.timeUpdate(audio); // браузер шлёт timeupdate на пробе — не должен попасть в состояние
+    expect(container.querySelector('.voice-msg-time')?.textContent).toBe('0:04');
+    Object.defineProperty(audio, 'duration', { value: 4.2, configurable: true });
+    fireEvent.durationChange(audio);
+    expect(audio.currentTime).toBe(0);
+    expect(spy).not.toHaveBeenCalled();
+    expect(container.querySelector('.voice-msg-time')?.textContent).toBe('0:04');
+    expect(screen.getByRole('button', { name: /play|Воспроизвести|Слушать/i })).toBeTruthy();
+  });
+
   it('точка у не-прослушанного; первый onPlay шлёт POST один раз и гасит точку', () => {
     const spy = vi.spyOn(apiService, 'markVoiceListened').mockResolvedValue();
     const { container } = render(<VoiceMessage att={att()} />);
@@ -60,10 +83,10 @@ describe('VoiceMessage', () => {
     expect(container.querySelector('.voice-msg-dot')).not.toBeNull();
   });
 
-  it('гостю (listened нет) точки нет и POST нет', () => {
+  it('гостю (нет user, listened:false из WS) точки нет и POST нет', () => {
     useAuthStore.setState({ user: null } as never);
     const spy = vi.spyOn(apiService, 'markVoiceListened').mockResolvedValue();
-    const { container } = render(<VoiceMessage att={att({ listened: undefined })} />);
+    const { container } = render(<VoiceMessage att={att({ listened: false })} />);
     fireEvent.play(container.querySelector('audio')!);
     expect(container.querySelector('.voice-msg-dot')).toBeNull();
     expect(spy).not.toHaveBeenCalled();

@@ -130,7 +130,7 @@
   background: var(--danger);
   color: var(--white);
   transform: scale(1.15);
-  transition: transform var(--transition) var(--ease-out);
+  transition: transform var(--transition);
 }
 
 .composer-voice-hint {
@@ -147,7 +147,7 @@
   font-size: 13px;
   white-space: nowrap;
   pointer-events: none;
-  animation: fade-in var(--transition) var(--ease-out);
+  animation: fade-in var(--transition);
 }
 
 /* ═══ Mobile (board 1f) — safe-area inset + 16px field (iOS zooms below 16px) ═══ */

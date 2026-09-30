@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Pause, Play } from 'lucide-react';
 import { useT } from '@/i18n';
 import { apiService } from '@/services/api';
@@ -35,6 +35,8 @@ export function VoiceMessage({ att }: { att: Attachment }) {
       logger.error('Failed to mark voice listened', err, { module: 'chat' });
     });
   };
+  // Проба длительности: у WebM из MediaRecorder duration = Infinity и seekable пуст.
+  const probing = useRef(false);
   const media = useMediaPlayback<HTMLAudioElement>({ onPlay });
 
   useEffect(() => { if (media.ref.current) media.ref.current.playbackRate = rate; }, [rate, media.ref]);
@@ -47,7 +49,7 @@ export function VoiceMessage({ att }: { att: Attachment }) {
   const shown = media.playing || media.current > 0 ? media.current : metaSec;
 
   return (
-    <div className="voice-msg" aria-label={t('voice.message')}>
+    <div className="voice-msg" role="group" aria-label={t('voice.message')}>
       <button type="button" className="voice-msg-play" onClick={media.toggle} aria-label={media.playing ? t('voice.pause') : t('voice.play')}>
         {media.playing ? <Pause size={18} strokeWidth={1.8} /> : <Play size={18} strokeWidth={1.8} />}
       </button>
@@ -55,14 +57,32 @@ export function VoiceMessage({ att }: { att: Attachment }) {
         <VoiceWaveform values={values} progress={progress} durationSec={totalSec} onSeek={(f) => media.seek(f * totalSec)} />
         <div className="voice-msg-meta">
           <span className="voice-msg-time">{formatTime(shown)}</span>
-          {listened === false && <span className="voice-msg-dot" role="img" aria-label={t('voice.unlistened')} />}
+          {!!meId && listened === false && <span className="voice-msg-dot" role="img" aria-label={t('voice.unlistened')} />}
         </div>
       </div>
       <button type="button" className="voice-msg-rate" onClick={cycleRate} aria-label={t('voice.speed', { rate: `${rate}x` })}>
         {`${rate}x`}
       </button>
       <audio {...media.mediaProps} src={healed.src} preload="metadata" onError={healed.onError}
-        onLoadedMetadata={(e) => { e.currentTarget.playbackRate = rate; media.mediaProps.onLoadedMetadata(e); }} />
+        onLoadedMetadata={(e) => {
+          const el = e.currentTarget;
+          el.playbackRate = rate;
+          media.mediaProps.onLoadedMetadata(e);
+          if (!Number.isFinite(el.duration)) {
+            // Известный приём: прыжок в «бесконечность» заставляет браузер посчитать длительность.
+            probing.current = true;
+            el.currentTime = 1e101;
+          }
+        }}
+        onDurationChange={(e) => {
+          const el = e.currentTarget;
+          media.mediaProps.onDurationChange(e);
+          if (probing.current && Number.isFinite(el.duration)) {
+            probing.current = false;
+            el.currentTime = 0;
+          }
+        }}
+        onTimeUpdate={(e) => { if (!probing.current) media.mediaProps.onTimeUpdate(e); }} />
     </div>
   );
 }

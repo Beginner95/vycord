@@ -95,6 +95,8 @@ export async function startVoiceRecorder(over: Partial<RecorderDeps> = {}): Prom
     const mimeType = pickMimeType(deps.isTypeSupported);
     const recorder = deps.createRecorder(stream, mimeType);
     ctx = deps.createAudioContext();
+    // iOS/Safari: контекст, созданный после await getUserMedia, может остаться suspended.
+    void ctx.resume?.()?.catch(() => {});
     const analyser = ctx.createAnalyser();
     analyser.fftSize = 1024;
     ctx.createMediaStreamSource(stream).connect(analyser);

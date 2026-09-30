@@ -54,6 +54,15 @@ func TestMigration027_VoiceCheck(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "attachments_voice_check")
 
+	// NULL BETWEEN даёт NULL, а CHECK пропускает NULL: длительность обязана быть задана явно.
+	err = execErr(f.pool, `
+		INSERT INTO attachments (id, user_id, channel_id, message_id, kind, file_name, content_type,
+			size_bytes, storage_key, is_voice, duration_ms, waveform)
+		VALUES ($1, $2, $3, $4, 'audio', 'voice.weba', 'audio/webm', 10, 'k', true, NULL, $5)`,
+		uuid.New(), f.author, f.channelID, f.messageID, make([]byte, 64))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "attachments_voice_check")
+
 	_, err = f.insertVoice(t, 5000, 64)
 	require.NoError(t, err)
 }

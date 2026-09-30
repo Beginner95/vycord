@@ -22,7 +22,7 @@
   background: var(--accent);
   color: var(--white);
   cursor: pointer;
-  transition: background var(--transition) var(--ease-out);
+  transition: background var(--transition);
 }
 
 .voice-msg-play:hover { background: var(--accent-hover); }
