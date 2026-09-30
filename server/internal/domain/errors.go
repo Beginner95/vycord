@@ -77,6 +77,12 @@ var (
 	// ErrStorageQuotaExceeded — превышен суммарный объём хранения по плану.
 	// Сегодня не срабатывает: у плана free max_total_bytes = NULL.
 	ErrStorageQuotaExceeded = errors.New("storage quota exceeded")
+	// ErrVoiceInvalid — метаданные голосового вне диапазонов или файл не
+	// опознан как аудио-контейнер.
+	ErrVoiceInvalid = errors.New("invalid voice message attachment")
+	// ErrVoiceMessageInvalid — голосовое не единственное вложение сообщения,
+	// у сообщения есть текст, либо голосовое пытаются отредактировать.
+	ErrVoiceMessageInvalid = errors.New("voice message must be a single voice attachment without text")
 	// ErrStickerWithAttachments — стикер прислан вместе с вложениями. Стикер
 	// самостоятелен: с ним не бывает ни текста, ни файлов.
 	ErrStickerWithAttachments = errors.New("sticker message cannot contain attachments")

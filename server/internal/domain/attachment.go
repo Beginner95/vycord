@@ -29,6 +29,34 @@ func (k AttachmentKind) IsValid() bool {
 	return false
 }
 
+// Контракт голосового (VYC-101). Значения дублирует CHECK миграции 027.
+const (
+	VoiceWaveformLen   = 64
+	VoiceMinDurationMs = 1000
+	VoiceMaxDurationMs = 900000
+)
+
+// VoiceMeta — метаданные голосового, посчитанные клиентом при записи.
+// Доверие клиенту здесь достаточное: это косметика его собственного
+// сообщения, а диапазон и размер проверяются.
+type VoiceMeta struct {
+	DurationMs int
+	Waveform   []byte
+}
+
+func (v VoiceMeta) Valid() bool {
+	return v.DurationMs >= VoiceMinDurationMs && v.DurationMs <= VoiceMaxDurationMs &&
+		len(v.Waveform) == VoiceWaveformLen
+}
+
+// VoiceListened — событие «получатель начал слушать голосовое» для WS.
+type VoiceListened struct {
+	ChannelID    uuid.UUID `json:"channel_id"`
+	MessageID    uuid.UUID `json:"message_id"`
+	AttachmentID uuid.UUID `json:"attachment_id"`
+	UserID       uuid.UUID `json:"user_id"`
+}
+
 // Attachment — файл, приложенный к сообщению.
 //
 // StorageKey/ThumbKey наружу не отдаются: клиент работает только с
@@ -48,7 +76,14 @@ type Attachment struct {
 	Width       *int           `json:"width,omitempty"`
 	Height      *int           `json:"height,omitempty"`
 	ExpiresAt   *time.Time     `json:"expires_at,omitempty"`
-	CreatedAt   time.Time      `json:"created_at"`
+	IsVoice     bool           `json:"is_voice,omitempty"`
+	DurationMs  *int           `json:"duration_ms,omitempty"`
+	Waveform    []byte         `json:"waveform,omitempty"` // base64 в JSON
+	// Listened вычисляется для конкретного зрителя и в БД не хранится: для
+	// автора — «слушал кто-то», для остальных — «слушал я». nil у
+	// не-голосовых и там, где зрителя нет (гостевой чат).
+	Listened  *bool     `json:"listened,omitempty"`
+	CreatedAt time.Time `json:"created_at"`
 
 	// URL и ThumbURL в БД не хранятся — заполняются подписью перед отдачей.
 	URL      string `json:"url,omitempty"`
@@ -73,6 +108,7 @@ type AttachmentUpload struct {
 	FileName  string
 	Size      int64
 	Content   io.ReadSeeker
+	Voice     *VoiceMeta // nil — обычное вложение
 }
 
 type AttachmentRepository interface {
@@ -94,6 +130,14 @@ type AttachmentRepository interface {
 	// ListSweepable отдаёт сирот старше orphanBefore и всё протухшее по now.
 	ListSweepable(now, orphanBefore time.Time, limit int) ([]*Attachment, error)
 	TotalBytesByUser(userID uuid.UUID) (int64, error)
+	// ListByIDs — вложения по id (порядок не гарантирован). Нужен правилу
+	// голосового сообщения, которое проверяется ДО привязки.
+	ListByIDs(ids []uuid.UUID) ([]*Attachment, error)
+	// MarkListened идемпотентна: inserted=false, если строка уже была.
+	MarkListened(attachmentID, userID uuid.UUID) (inserted bool, err error)
+	// ListenedFor отдаёт id голосовых из attachmentIDs, которые для viewerID
+	// считаются прослушанными (для автора — кем-то, иначе — им самим).
+	ListenedFor(viewerID uuid.UUID, attachmentIDs []uuid.UUID) (map[uuid.UUID]bool, error)
 }
 
 type PlanRepository interface {

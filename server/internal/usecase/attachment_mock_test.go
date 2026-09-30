@@ -55,3 +55,24 @@ func (m *MockAttachmentRepository) TotalBytesByUser(userID uuid.UUID) (int64, er
 	args := m.Called(userID)
 	return args.Get(0).(int64), args.Error(1)
 }
+
+func (m *MockAttachmentRepository) ListByIDs(ids []uuid.UUID) ([]*domain.Attachment, error) {
+	args := m.Called(ids)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]*domain.Attachment), args.Error(1)
+}
+
+func (m *MockAttachmentRepository) MarkListened(attachmentID, userID uuid.UUID) (bool, error) {
+	args := m.Called(attachmentID, userID)
+	return args.Bool(0), args.Error(1)
+}
+
+func (m *MockAttachmentRepository) ListenedFor(viewerID uuid.UUID, ids []uuid.UUID) (map[uuid.UUID]bool, error) {
+	args := m.Called(viewerID, ids)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(map[uuid.UUID]bool), args.Error(1)
+}
