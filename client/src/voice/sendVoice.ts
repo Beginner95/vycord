@@ -1,0 +1,85 @@
+import type { ChatMessage } from '@/stores/messageStore';
+import type { Attachment, Message } from '@/types';
+import { waveformToBase64 } from './waveform';
+import { voiceFileName, type VoiceRecording } from './voiceRecorder';
+
+export interface VoiceStore {
+  add(m: ChatMessage): void;
+  update(id: string, patch: Partial<ChatMessage>): void;
+  replace(id: string, m: ChatMessage): void;
+  has(id: string): boolean;
+}
+
+export interface SendVoiceDeps {
+  upload(channelId: string, file: File, voice: { durationMs: number; waveform: number[] }): Promise<Attachment>;
+  createMessage(channelId: string, attachmentId: string): Promise<Message>;
+  deleteAttachment(id: string): Promise<unknown>;
+  store: VoiceStore;
+  createObjectURL(b: Blob): string;
+  revokeObjectURL(url: string): void;
+  onOrphanFailure(err: unknown): void;
+}
+
+/** Синтетическое вложение: пузырь играет из локального blob, пока файл грузится. */
+export function buildPendingVoiceMessage(a: { tempId: string; channelId: string; userId: string; now: string; recording: VoiceRecording; objectUrl: string }): ChatMessage {
+  const { recording: r } = a;
+  const att: Attachment = {
+    id: `${a.tempId}-voice`, channel_id: a.channelId, user_id: a.userId, kind: 'audio',
+    file_name: voiceFileName(r.mimeType), content_type: r.mimeType, size_bytes: r.blob.size,
+    url: a.objectUrl, created_at: a.now,
+    is_voice: true, duration_ms: r.durationMs, waveform: waveformToBase64(r.waveform), listened: false,
+  };
+  return {
+    id: a.tempId, channel_id: a.channelId, user_id: a.userId, kind: 'user', content: '',
+    created_at: a.now, updated_at: a.now, deliveryState: 'sending', attachments: [att],
+    pendingVoice: { blob: r.blob, objectUrl: a.objectUrl, mimeType: r.mimeType, durationMs: r.durationMs, waveform: r.waveform },
+  };
+}
+
+// Строки, по которым прямо сейчас идёт отправка: защита от двойного retry.
+const inFlight = new Set<string>();
+
+async function deliver(deps: SendVoiceDeps, msg: ChatMessage): Promise<void> {
+  const pv = msg.pendingVoice!;
+  const channelId = msg.channel_id;
+  if (inFlight.has(msg.id)) return;
+  inFlight.add(msg.id);
+  try {
+    let attachment = pv.attachment;
+    if (!attachment) {
+      const file = new File([pv.blob], voiceFileName(pv.mimeType), { type: pv.mimeType });
+      attachment = await deps.upload(channelId, file, { durationMs: pv.durationMs, waveform: pv.waveform });
+      deps.store.update(msg.id, { pendingVoice: { ...pv, attachment } });
+    }
+    const saved = await deps.createMessage(channelId, attachment.id);
+    deps.store.replace(msg.id, saved);
+    deps.revokeObjectURL(pv.objectUrl);
+  } catch (err) {
+    if (deps.store.has(msg.id)) deps.store.update(msg.id, { deliveryState: 'failed' });
+    else deps.onOrphanFailure(err);
+  } finally {
+    inFlight.delete(msg.id);
+  }
+}
+
+export async function sendVoice(deps: SendVoiceDeps, a: { tempId: string; channelId: string; userId: string; now: string; recording: VoiceRecording }): Promise<void> {
+  const objectUrl = deps.createObjectURL(a.recording.blob);
+  const msg = buildPendingVoiceMessage({ ...a, objectUrl });
+  deps.store.add(msg);
+  await deliver(deps, msg);
+}
+
+export async function retryVoice(deps: SendVoiceDeps, msg: ChatMessage): Promise<void> {
+  if (!msg.pendingVoice || inFlight.has(msg.id)) return;
+  deps.store.update(msg.id, { deliveryState: 'sending' });
+  // attachment мог записаться в store после того, как msg был прочитан вызывающим.
+  await deliver(deps, msg);
+}
+
+export function discardVoice(deps: Pick<SendVoiceDeps, 'deleteAttachment' | 'revokeObjectURL'>, msg: ChatMessage): void {
+  const pv = msg.pendingVoice;
+  if (!pv) return;
+  deps.revokeObjectURL(pv.objectUrl);
+  // Уборщик подберёт сироту и сам; удаляем сразу, чтобы не ждать его прохода.
+  if (pv.attachment) void deps.deleteAttachment(pv.attachment.id).catch(() => {});
+}

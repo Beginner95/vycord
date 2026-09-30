@@ -1,8 +1,19 @@
 import { create } from 'zustand';
-import type { Message } from '@/types';
+import type { Attachment, Message } from '@/types';
+
+/** Локальная запись голосового до/во время отправки (VYC-101). Никогда не уходит на сервер. */
+export interface PendingVoice {
+  blob: Blob;
+  objectUrl: string;
+  mimeType: string;
+  durationMs: number;
+  waveform: number[];
+  /** Есть, если загрузка прошла — retry тогда не грузит файл заново. */
+  attachment?: Attachment;
+}
 
 /** Client-only delivery state for optimistic send (spec §4.4). Never sent to the server. */
-export type ChatMessage = Message & { deliveryState?: 'sending' | 'failed' };
+export type ChatMessage = Message & { deliveryState?: 'sending' | 'failed'; pendingVoice?: PendingVoice };
 
 interface MessageState {
   messages: ChatMessage[];

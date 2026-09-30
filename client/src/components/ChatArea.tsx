@@ -35,6 +35,8 @@ import type { Attachment, Channel, User } from '@/types';
 import type { Sticker } from '@/types';
 import { useT, useTp, useDateFormat, isSameCalendarDay } from '@/i18n';
 import wolvesArt from '@/assets/images/sitting-and-wolf-far-away.webp';
+import { sendVoice, retryVoice, discardVoice, type SendVoiceDeps } from '@/voice/sendVoice';
+import type { VoiceRecording } from '@/voice/voiceRecorder';
 import './ChatArea.css';
 
 // Shared card recipe for the three ChatArea empty states (board 2a): quiet
@@ -519,6 +521,38 @@ logger.error('Failed to jump to message:', err, { module: 'chat' });
     }
   };
 
+  const voiceDeps: SendVoiceDeps = {
+    upload: (chan, file, voice) => apiService.uploadAttachment(chan, file, { voice }).promise,
+    createMessage: async (chan, attId) => (await apiService.createMessage(chan, '', undefined, [attId])) as Message,
+    deleteAttachment: (id) => apiService.deleteAttachment(id),
+    store: {
+      add: addMessage,
+      update: updateMessage,
+      replace: replaceMessage,
+      has: (id) => useMessageStore.getState().messages.some((m) => m.id === id),
+    },
+    createObjectURL: (b) => URL.createObjectURL(b),
+    revokeObjectURL: (u) => URL.revokeObjectURL(u),
+    onOrphanFailure: (err) => showSendError(err),
+  };
+
+  /** Голосовое уходит сразу, без предпросмотра (spec §3.1). */
+  const sendVoiceMessage = (recording: VoiceRecording) => {
+    if (!channel || !user) return;
+    void sendVoice(voiceDeps, {
+      tempId: `pending-${Date.now()}-${pendingSeqRef.current++}`,
+      channelId: channel.id, userId: user.id, now: new Date().toISOString(), recording,
+    });
+  };
+
+  // Task 13 passes `sendVoiceMessage` to Composer as `onSendVoice`; until then keep it referenced.
+  void sendVoiceMessage;
+
+  const discardFailed = (msg: ChatMessage) => {
+    discardVoice(voiceDeps, msg);
+    removeMessage(msg.id);
+  };
+
   const retrySend = async (msg: ChatMessage) => {
     if (!channel) return;
     // Guards a same-task double-click on the retry chip the same way the
@@ -532,6 +566,10 @@ logger.error('Failed to jump to message:', err, { module: 'chat' });
     // immediately, before the second click's handler runs.
     const current = useMessageStore.getState().messages.find((m) => m.id === msg.id);
     if (!current || current.deliveryState !== 'failed') return;
+    if (current.pendingVoice) {
+      await retryVoice(voiceDeps, current);
+      return;
+    }
     updateMessage(msg.id, { deliveryState: 'sending' });
     try {
       // Re-send the ids the failed row was carrying, or the retry would
@@ -861,7 +899,7 @@ logger.error('Failed to jump to message:', err, { module: 'chat' });
                     onRetry={() => retrySend(msg)}
                     // Client-only row (never reached the server) — no API call,
                     // no confirm modal, just drop it from the store.
-                    onDiscard={() => removeMessage(msg.id)}
+                    onDiscard={() => discardFailed(msg)}
                     // pickLightboxMedia narrows the row-local index to the
                     // image/video subset and returns null for a non-media
                     // click (a pdf chip) — nothing to open fullscreen.
@@ -975,7 +1013,7 @@ logger.error('Failed to jump to message:', err, { module: 'chat' });
           onEdit={(m) => setEditingId(m.id)}
           onDelete={(m) => setConfirmDeleteId(m.id)}
           onRetry={(m) => retrySend(m)}
-          onDiscard={(m) => removeMessage(m.id)}
+          onDiscard={(m) => discardFailed(m)}
         />
       )}
     </main>
