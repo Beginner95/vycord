@@ -1,0 +1,101 @@
+/* Пузырь голосового (VYC-101). --voice-bar-h инжектируется из JS — fallback обязателен. */
+.voice-msg {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 240px;
+  max-width: 360px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-card);
+  background: var(--canvas-2);
+}
+
+.voice-msg-play {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: var(--accent);
+  color: var(--white);
+  cursor: pointer;
+  transition: background var(--transition) var(--ease-out);
+}
+
+.voice-msg-play:hover { background: var(--accent-hover); }
+
+.voice-msg-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.voice-msg-wave {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  height: 28px;
+  cursor: pointer;
+  touch-action: none;
+  border-radius: var(--radius-chip);
+}
+
+.voice-msg-bar {
+  flex: 1;
+  height: var(--voice-bar-h, 12%);
+  min-width: 2px;
+  border-radius: var(--radius-pill);
+  background: var(--muted-2);
+}
+
+.voice-msg-bar.is-played { background: var(--accent); }
+
+.voice-msg-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.voice-msg-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: var(--radius-pill);
+  background: var(--accent);
+}
+
+.voice-msg-rate {
+  flex: none;
+  min-width: 38px;
+  padding: 3px 6px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-chip);
+  background: transparent;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.voice-msg-rate:hover { color: var(--ink); }
+
+.voice-msg-play:focus-visible,
+.voice-msg-rate:focus-visible,
+.voice-msg-wave:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+@media (width < 900px) {
+  .voice-msg {
+    min-width: 0;
+    width: 100%;
+  }
+}

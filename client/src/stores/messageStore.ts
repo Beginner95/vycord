@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import type { Attachment, Message } from '@/types';
+import { applyVoiceListened, type VoiceListenedEvent } from '@/voice/listened';
 
 /** Локальная запись голосового до/во время отправки (VYC-101). Никогда не уходит на сервер. */
 export interface PendingVoice {
@@ -25,6 +26,7 @@ interface MessageState {
   removeMessage: (id: string) => void;
   clearMessages: () => void;
   setLoading: (loading: boolean) => void;
+  applyListened: (ev: Pick<VoiceListenedEvent, 'attachment_id' | 'user_id'>, meId: string) => void;
 }
 
 export const useMessageStore = create<MessageState>((set) => ({
@@ -46,4 +48,9 @@ export const useMessageStore = create<MessageState>((set) => ({
     set((state) => ({ messages: state.messages.filter((m) => m.id !== id) })),
   clearMessages: () => set({ messages: [] }),
   setLoading: (loading) => set({ loading }),
+  applyListened: (ev, meId) =>
+    set((state) => {
+      const messages = applyVoiceListened(state.messages, ev, meId);
+      return messages === state.messages ? state : { messages };
+    }),
 }));

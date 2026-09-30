@@ -5,6 +5,7 @@ import { Download, FileText, Maximize2 } from 'lucide-react';
 import { AudioPlayer } from './AudioPlayer';
 import { VideoPlayer } from './VideoPlayer';
 import { useT } from '@/i18n';
+import { VoiceMessage } from './VoiceMessage';
 import { useSelfHealingSrc } from '@/hooks/useSelfHealingSrc';
 import './MessageAttachments.css';
 
@@ -49,6 +50,14 @@ export function MessageAttachments({ attachments, onOpen }: MessageAttachmentsPr
     <div className={`message-attachments attachment-count-${Math.min(attachments.length, 4)}`}>
       {attachments.map((att, i) => {
         const content = resolveUploadUrl(att.url);
+
+        if (att.is_voice) {
+          return (
+            <div className="attachment-cell is-wide" key={att.id}>
+              <VoiceMessage att={att} />
+            </div>
+          );
+        }
 
         if (att.kind === 'image') {
           return (

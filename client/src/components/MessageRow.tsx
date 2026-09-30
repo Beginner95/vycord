@@ -7,6 +7,7 @@ import { LinkDialog } from '@/components/LinkDialog';
 import { MessageAttachments } from '@/components/MessageAttachments';
 import { useMentionAutocomplete } from '@/hooks/useMentionAutocomplete';
 import { toggleBullet, toggleNumbered, applyLineToggle, applyWrap, insertAtCaret, linkToken } from '@/utils/textTransforms';
+import { isVoiceMessage } from '@/voice/listened';
 import { tokenizeMentions, toDisplayMentions, toWireMentions, LEGACY_ROLE_KEYS } from '@/utils/mentions';
 import { parseInline, blockify, normalizeLinkHref, type MdInlineNode } from '@/utils/markdown';
 import { resolveUploadUrl } from '@/services/api';
@@ -148,6 +149,7 @@ interface MessageRowProps {
 export function MessageRow(props: MessageRowProps) {
   const { msg, isOwn, isContinuation, displayName, avatarUrl, isEditing, highlighted, entered } = props;
   const canModify = isOwn && props.canModify !== false;
+  const voice = isVoiceMessage(msg);
   const t = useT();
   const { formatTime } = useDateFormat();
   const longPress = useLongPress(() => props.onLongPress?.());
@@ -216,14 +218,14 @@ export function MessageRow(props: MessageRowProps) {
       {/* A sticker row has nothing to quote (quoting it inserts a bare `> `)
           and nothing to edit, so for someone else's sticker the popover would
           be an empty bordered chip on hover — don't render the wrapper at all. */}
-      {!isEditing && !msg.deliveryState && (!msg.sticker_id || canModify) && (
+      {!isEditing && !msg.deliveryState && ((!msg.sticker_id && !voice) || canModify) && (
         <div className="msg-actions">
-          {!msg.sticker_id && (
+          {!msg.sticker_id && !voice && (
             <button type="button" className="msg-action-btn" aria-label={t('chat.quote')} title={t('chat.quote')} onClick={props.onQuote}>
               <Quote size={15} strokeWidth={1.8} />
             </button>
           )}
-          {canModify && !msg.sticker_id && (
+          {canModify && !msg.sticker_id && !voice && (
             <button type="button" className="msg-action-btn" aria-label={t('common.edit')} title={t('common.edit')} onClick={props.onStartEdit}>
               <Pencil size={15} strokeWidth={1.8} />
             </button>
