@@ -36,6 +36,7 @@ import type { Sticker } from '@/types';
 import { useT, useTp, useDateFormat, isSameCalendarDay } from '@/i18n';
 import wolvesArt from '@/assets/images/sitting-and-wolf-far-away.webp';
 import { sendVoice, retryVoice, discardVoice, type SendVoiceDeps } from '@/voice/sendVoice';
+import type { VoiceListenedEvent } from '@/voice/listened';
 import type { VoiceRecording } from '@/voice/voiceRecorder';
 import './ChatArea.css';
 
@@ -90,7 +91,8 @@ export function ChatArea({
   const t = useT();
   const tp = useTp();
   const { formatFullDate } = useDateFormat();
-  const { messages, loading, setMessages, addMessage, updateMessage, replaceMessage, removeMessage } = useMessageStore();
+  const { messages, loading, setMessages, addMessage, updateMessage, replaceMessage, removeMessage, applyListened } = useMessageStore();
+  const meId = user?.id;
   const { members, currentServer } = useServerStore();
   const servers = useServerStore((s) => s.servers);
   const serversLoaded = useServerStore((s) => s.serversLoaded);
@@ -441,11 +443,15 @@ export function ChatArea({
       const { id } = payload as { id: string; channel_id: string };
       removeMessage(id);
     });
+    const unsubListened = wsService.on('voice_listened', (payload) => {
+      if (meId) applyListened(payload as VoiceListenedEvent, meId);
+    });
     return () => {
       unsubUpdate();
       unsubDelete();
+      unsubListened();
     };
-  }, [updateMessage, removeMessage]);
+  }, [updateMessage, removeMessage, applyListened, meId]);
 
   const jumpToMessage = async (messageId: string) => {
     if (!channel) return;
