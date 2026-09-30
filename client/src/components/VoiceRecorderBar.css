@@ -1,0 +1,65 @@
+/* Полоса записи голосового (VYC-101). --voice-drag-x и --meter-level
+   инжектируются из JS — fallback обязателен. */
+.composer-voice {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 4px;
+  user-select: none;
+}
+
+.composer-voice-dot {
+  flex: none;
+  width: 9px;
+  height: 9px;
+  border-radius: var(--radius-pill);
+  background: var(--danger);
+  animation: composer-voice-pulse 1.2s var(--ease-out) infinite;
+}
+
+@keyframes composer-voice-pulse {
+  50% { opacity: 0.35; }
+}
+
+.composer-voice-time {
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.composer-voice-level {
+  flex: none;
+  width: 90px;
+}
+
+.composer-voice-cancel {
+  flex: 1;
+  text-align: center;
+  color: var(--muted);
+  transform: translateX(var(--voice-drag-x, 0));
+}
+
+.composer-voice-lock {
+  display: grid;
+  place-items: center;
+  color: var(--muted-2);
+}
+
+.composer-voice-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+}
+
+.composer-voice-delete { color: var(--danger-text); }
+
+@media (prefers-reduced-motion: reduce) {
+  .composer-voice-dot { animation: none; }
+}
+
+@media (width < 900px) {
+  .composer-voice-level { width: 56px; }
+}

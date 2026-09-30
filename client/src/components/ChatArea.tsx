@@ -551,9 +551,6 @@ logger.error('Failed to jump to message:', err, { module: 'chat' });
     });
   };
 
-  // Task 13 passes `sendVoiceMessage` to Composer as `onSendVoice`; until then keep it referenced.
-  void sendVoiceMessage;
-
   const discardFailed = (msg: ChatMessage) => {
     discardVoice(voiceDeps, msg);
     removeMessage(msg.id);
@@ -944,6 +941,7 @@ logger.error('Failed to jump to message:', err, { module: 'chat' });
         onOpenStickerManager={() => setStickerManagerOpen(true)}
         variant={composerVariant}
         enterSends={enterSends}
+        onSendVoice={sendVoiceMessage}
       />
       {chatSelectionToolbar.visible && (
         <FloatingQuoteButton
