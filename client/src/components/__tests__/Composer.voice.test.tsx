@@ -71,4 +71,15 @@ describe('Composer voice button', () => {
     expect(field.hidden).toBe(false);
     expect(mic()).not.toBeNull();
   });
+  it('автоповтор Enter после перехода фокуса на «Удалить» не удаляет запись', async () => {
+    const { field } = mount();
+    await act(async () => { fireEvent.keyDown(mic()!, { key: 'Enter' }); });
+    const del = screen.getByRole('button', { name: 'Удалить запись' });
+    expect(document.activeElement).toBe(del);
+    expect(fireEvent.keyDown(del, { key: 'Enter', repeat: true })).toBe(false);
+    expect(fireEvent.keyDown(del, { key: ' ', repeat: true })).toBe(false);
+    fireEvent.keyUp(del, { key: 'Enter' });
+    expect(field.hidden).toBe(true);
+    expect(screen.getByRole('button', { name: 'Удалить запись' })).toBe(del);
+  });
 });

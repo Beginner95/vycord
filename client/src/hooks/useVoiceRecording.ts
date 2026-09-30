@@ -80,7 +80,10 @@ export function useVoiceRecording({ channelId, onSend, start = startVoiceRecorde
           genRef.current++;
           const h = handleRef.current;
           handleRef.current = null;
-          h?.stop().then((r) => onSendRef.current(r), () => showHint('mic_failed'));
+          // Получатель фиксируется в момент решения «отправить»: канал может
+          // смениться, пока MediaRecorder дописывает onstop.
+          const send = onSendRef.current;
+          h?.stop().then((r) => send(r), () => showHint('mic_failed'));
           break;
         }
         case 'hint':
@@ -90,7 +93,10 @@ export function useVoiceRecording({ channelId, onSend, start = startVoiceRecorde
     }
   }, [start, showHint]);
 
-  const active = state.kind !== 'idle';
+  // Прерывать нечего в locked (машина игнорирует interrupt) и в клавиатурном
+  // starting: диалог разрешения микрофона забирает фокус окна, и blur убил бы
+  // первую же запись. Удержание указателем — отменяется, как и раньше.
+  const interruptible = state.kind === 'recording' || (state.kind === 'starting' && !state.keyboard);
   const recordingLike = state.kind === 'recording' || state.kind === 'locked';
   const startedAt = recordingLike ? state.startedAt : 0;
 
@@ -106,15 +112,15 @@ export function useVoiceRecording({ channelId, onSend, start = startVoiceRecorde
     return () => clearInterval(id);
   }, [recordingLike, startedAt, dispatch]);
 
-  // Потеря фокуса/скрытие вкладки — interrupt (в locked машина его игнорирует).
+  // Потеря фокуса/скрытие вкладки во время удержания — interrupt.
   useEffect(() => {
-    if (!active) return;
+    if (!interruptible) return;
     const onBlur = () => dispatch({ type: 'interrupt' });
     const onVis = () => { if (document.visibilityState === 'hidden') dispatch({ type: 'interrupt' }); };
     window.addEventListener('blur', onBlur);
     document.addEventListener('visibilitychange', onVis);
     return () => { window.removeEventListener('blur', onBlur); document.removeEventListener('visibilitychange', onVis); };
-  }, [active, dispatch]);
+  }, [interruptible, dispatch]);
 
   // Смена канала и размонтирование — запись не должна уехать не туда.
   // Cleanup эффекта с [channelId] срабатывает в обоих случаях.

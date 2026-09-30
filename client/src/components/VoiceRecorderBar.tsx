@@ -19,7 +19,12 @@ export function VoiceRecorderBar({ state, elapsedMs, level, onDelete, onSend }: 
   if (state.kind !== 'recording' && state.kind !== 'locked' && state.kind !== 'starting') return null;
   const dx = state.kind === 'recording' ? state.dx : 0;
   // Escape в закреплённой записи — «Удалить». Обработчик на самой полосе, не на document.
-  const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => { if (locked && e.key === 'Escape') { e.preventDefault(); onDelete(); } };
+  // Автоповтор Enter/Space, которым запись начали с клавиатуры, долетает сюда
+  // после переноса фокуса на «Удалить» — гасим его, иначе он «нажмёт» кнопку.
+  const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
+    if (e.repeat && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); return; }
+    if (locked && e.key === 'Escape') { e.preventDefault(); onDelete(); }
+  };
 
   return (
     <div className={`composer-voice${locked ? ' is-locked' : ''}`} role="group" aria-label={t('voice.recording')} onKeyDown={onKeyDown}>

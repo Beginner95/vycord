@@ -106,4 +106,31 @@ describe('useVoiceRecording', () => {
     await act(async () => { vi.advanceTimersByTime(250); });
     expect(onSend).toHaveBeenCalledTimes(1);
   });
+  it('send уходит в канал, где запись закончена, даже если канал сменился до stop()', async () => {
+    const d = deferredHandle();
+    const rec = { blob: new Blob(['x']), mimeType: 'audio/webm', durationMs: 2000, waveform: new Array(64).fill(1) };
+    let finish!: () => void;
+    d.handle.stop = vi.fn(() => new Promise<typeof rec>((r) => { finish = () => r(rec); }));
+    const onSendA = vi.fn(); const onSendB = vi.fn();
+    const { result, rerender } = renderHook(({ ch, onSend }) => useVoiceRecording({ channelId: ch, onSend, start: d.start, isInCall: () => false }), { initialProps: { ch: 'a', onSend: onSendA } });
+    act(() => result.current.micProps.onPointerDown(ptr(100, 100)));
+    await act(async () => { d.resolve(); });
+    now = 2000;
+    act(() => result.current.micProps.onPointerUp(ptr(100, 100)));
+    rerender({ ch: 'b', onSend: onSendB });
+    await act(async () => { finish(); });
+    expect(onSendA).toHaveBeenCalledWith(rec);
+    expect(onSendB).not.toHaveBeenCalled();
+  });
+
+  it('blur во время клавиатурного starting (диалог разрешения) не прерывает', async () => {
+    const d = deferredHandle();
+    const { result } = renderHook(() => useVoiceRecording({ channelId: 'a', onSend: vi.fn(), start: d.start, isInCall: () => false }));
+    act(() => result.current.micProps.onKeyDown({ key: 'Enter', repeat: false, preventDefault: vi.fn() } as never));
+    act(() => { window.dispatchEvent(new Event('blur')); });
+    await act(async () => { d.resolve(); });
+    expect(d.handle.discard).not.toHaveBeenCalled();
+    expect(result.current.state.kind).toBe('locked');
+    expect(result.current.hint).toBeNull();
+  });
 });
