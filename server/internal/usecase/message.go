@@ -191,6 +191,14 @@ func (uc *messageUseCase) CreateMessage(channelID, userID uuid.UUID, content str
 		atts, err := uc.attachRepo.ListByMessageIDs([]uuid.UUID{msg.ID})
 		if err == nil {
 			msg.Attachments = atts[msg.ID]
+			// Свежее сообщение никто ещё не слушал — Listened=false верно
+			// для всех получателей WS-рассылки, отдельный запрос не нужен.
+			for _, a := range msg.Attachments {
+				if a.IsVoice {
+					listened := false
+					a.Listened = &listened
+				}
+			}
 		}
 	}
 

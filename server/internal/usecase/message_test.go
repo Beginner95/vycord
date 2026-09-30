@@ -1219,3 +1219,25 @@ func TestGetMessages_ListenedLookupFailureKeepsFeed(t *testing.T) {
 	require.Len(t, msgs[0].Attachments, 1)
 	assert.Nil(t, msgs[0].Attachments[0].Listened)
 }
+
+func TestCreateMessage_VoiceAttachmentListenedFalse(t *testing.T) {
+	channelID, serverID, userID, voiceID, picID := uuid.New(), uuid.New(), uuid.New(), uuid.New(), uuid.New()
+	// ID сообщения создаётся внутри usecase: карту результата наполняем из Create.
+	byMsg := map[uuid.UUID][]*domain.Attachment{}
+	msgRepo := new(MockMessageRepository)
+	msgRepo.On("Create", mock.Anything).Return(nil).Run(func(args mock.Arguments) {
+		m := args.Get(0).(*domain.Message)
+		byMsg[m.ID] = []*domain.Attachment{voiceAtt(voiceID, userID), {ID: picID, Kind: domain.AttachmentKindImage}}
+	})
+	attachRepo := new(MockAttachmentRepository)
+	attachRepo.On("AttachToMessage", mock.Anything, userID, channelID, []uuid.UUID{voiceID}).Return(nil)
+	attachRepo.On("ListByMessageIDs", mock.Anything).Return(byMsg, nil)
+
+	msg, err := newMsgUC(t, channelID, serverID, userID, msgRepo, attachRepo).CreateMessage(channelID, userID, "", nil, []uuid.UUID{voiceID})
+
+	require.NoError(t, err)
+	require.Len(t, msg.Attachments, 2)
+	require.NotNil(t, msg.Attachments[0].Listened)
+	assert.False(t, *msg.Attachments[0].Listened)
+	assert.Nil(t, msg.Attachments[1].Listened, "у не-голосового поля нет")
+}
