@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -20,6 +21,7 @@ import (
 	"github.com/vycord/server/internal/delivery/http/middleware"
 	"github.com/vycord/server/internal/delivery/http/ratelimit"
 	"github.com/vycord/server/internal/delivery/ws"
+	"github.com/vycord/server/internal/domain"
 	"github.com/vycord/server/internal/guestevents"
 	presencepkg "github.com/vycord/server/internal/presence"
 	"github.com/vycord/server/internal/repository/postgres"
@@ -257,6 +259,10 @@ func main() {
 	roleHandler := handler.NewRoleHandler(roleUseCase, permissionUseCase, log)
 	voiceTokenHandler := handler.NewVoiceTokenHandler(voiceTokenUseCase, log)
 	attachmentHandler := handler.NewAttachmentHandler(attachmentUseCase, quotaUseCase, attachmentSigner, cfg.MaxUploadBytes, log)
+	attachmentHandler.SetVoiceListenedNotifier(func(ev *domain.VoiceListened) {
+		payload, _ := json.Marshal(ev)
+		hub.SendToChannel(ev.ChannelID, &ws.Message{Type: "voice_listened", Payload: payload})
+	})
 	friendHandler := handler.NewFriendHandler(friendUseCase, hub, log)
 	guestLinkHandler := handler.NewGuestLinkHandler(guestUseCase, serverUseCase, hub, log)
 	guestHandler := handler.NewGuestHandler(guestUseCase, messageUseCase, hub, handler.GuestRateLimits{
@@ -386,6 +392,7 @@ func main() {
 	router.HandleFunc("POST /api/v1/attachments", authMid.RequireAuth(attachmentHandler.Upload))
 	router.HandleFunc("GET /api/v1/attachments/{id}", authMid.RequireAuth(attachmentHandler.Get))
 	router.HandleFunc("DELETE /api/v1/attachments/{id}", authMid.RequireAuth(attachmentHandler.Delete))
+	router.HandleFunc("POST /api/v1/attachments/{id}/listen", authMid.RequireAuth(attachmentHandler.MarkListened))
 
 	// Отдача содержимого — БЕЗ RequireAuth: <img src> и <video src> не умеют
 	// слать заголовок Authorization, поэтому доступ даёт подпись в URL

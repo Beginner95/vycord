@@ -30,6 +30,7 @@ type AttachmentHandler struct {
 	// защита от бесконечного тела.
 	maxRequestBytes int64
 	log             *slog.Logger
+	onListened      func(*domain.VoiceListened)
 }
 
 func NewAttachmentHandler(uc domain.AttachmentUseCase, quota domain.QuotaUseCase, signer *attachlink.Signer, maxRequestBytes int64, log *slog.Logger) *AttachmentHandler {
@@ -470,4 +471,27 @@ func (h *AttachmentHandler) sendError(w http.ResponseWriter, status int, code, m
 // уже некому.
 func (h *AttachmentHandler) drainBody(r *http.Request) {
 	_, _ = io.Copy(io.Discard, io.LimitReader(r.Body, h.maxRequestBytes))
+}
+
+// SetVoiceListenedNotifier — доставка события «прослушано» (main.go шлёт его
+// в хаб участникам канала). Отдельный сеттер, а не зависимость конструктора:
+// хендлер вложений не знает о WS, как и раньше.
+func (h *AttachmentHandler) SetVoiceListenedNotifier(f func(*domain.VoiceListened)) { h.onListened = f }
+
+func (h *AttachmentHandler) MarkListened(w http.ResponseWriter, r *http.Request) {
+	userID := r.Context().Value("user_id").(uuid.UUID)
+	id, err := uuid.Parse(r.PathValue("id"))
+	if err != nil {
+		h.sendError(w, http.StatusBadRequest, httperr.CodeInvalidAttachmentID, "invalid attachment id")
+		return
+	}
+	ev, err := h.uc.MarkListened(id, userID)
+	if err != nil {
+		h.writeError(w, r, err)
+		return
+	}
+	if ev != nil && h.onListened != nil {
+		h.onListened(ev)
+	}
+	w.WriteHeader(http.StatusNoContent)
 }

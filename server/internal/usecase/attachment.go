@@ -249,3 +249,31 @@ func (uc *attachmentUseCase) Delete(id, userID uuid.UUID) error {
 	}
 	return nil
 }
+
+func (uc *attachmentUseCase) MarkListened(id, userID uuid.UUID) (*domain.VoiceListened, error) {
+	att, err := uc.repo.GetByID(id)
+	if err != nil {
+		return nil, err
+	}
+	// Черновик (ещё не в сообщении) и не-голосовое прослушанными не бывают.
+	if !att.IsVoice || att.MessageID == nil {
+		return nil, domain.ErrAttachmentNotFound
+	}
+	// Как GetForUser: без права на канал — «не найдено», чтобы не
+	// подтверждать существование вложения постороннему.
+	if _, err := uc.requirePermission(att.ChannelID, userID, domain.PermViewChannels); err != nil {
+		return nil, domain.ErrAttachmentNotFound
+	}
+	// Прослушивание автором не считается (spec §1.5) и не пишется.
+	if att.UserID == userID {
+		return nil, nil
+	}
+	inserted, err := uc.repo.MarkListened(id, userID)
+	if err != nil {
+		return nil, fmt.Errorf("mark listened: %w", err)
+	}
+	if !inserted {
+		return nil, nil
+	}
+	return &domain.VoiceListened{ChannelID: att.ChannelID, MessageID: *att.MessageID, AttachmentID: att.ID, UserID: userID}, nil
+}

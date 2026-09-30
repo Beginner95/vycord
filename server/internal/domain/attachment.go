@@ -168,4 +168,7 @@ type AttachmentUseCase interface {
 	OpenContent(id uuid.UUID) (*Attachment, io.ReadSeekCloser, error)
 	OpenThumb(id uuid.UUID) (*Attachment, io.ReadSeekCloser, error)
 	Delete(id, userID uuid.UUID) error
+	// MarkListened отмечает, что userID начал слушать голосовое. Событие
+	// возвращается только при первой записи не-автора — его и шлют в WS.
+	MarkListened(id, userID uuid.UUID) (*VoiceListened, error)
 }

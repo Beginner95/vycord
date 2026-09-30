@@ -393,3 +393,69 @@ func TestUploadVoiceRejectsHeicDisguisedAsM4A(t *testing.T) {
 	_, err := f.uc.Upload(in)
 	assert.ErrorIs(t, err, domain.ErrVoiceInvalid)
 }
+
+func (f *attachFixture) voiceRow(owner uuid.UUID, attached bool) *domain.Attachment {
+	a := &domain.Attachment{ID: uuid.New(), UserID: owner, ChannelID: f.channelID, Kind: domain.AttachmentKindAudio, IsVoice: true}
+	if attached {
+		m := uuid.New()
+		a.MessageID = &m
+	}
+	return a
+}
+
+func TestMarkListenedEmitsEventOnFirstListen(t *testing.T) {
+	f := newAttachFixture(t)
+	att := f.voiceRow(uuid.New(), true)
+	f.repo.On("GetByID", att.ID).Return(att, nil)
+	f.repo.On("MarkListened", att.ID, f.userID).Return(true, nil)
+
+	ev, err := f.uc.MarkListened(att.ID, f.userID)
+
+	require.NoError(t, err)
+	require.NotNil(t, ev)
+	assert.Equal(t, domain.VoiceListened{ChannelID: f.channelID, MessageID: *att.MessageID, AttachmentID: att.ID, UserID: f.userID}, *ev)
+}
+
+func TestMarkListenedRepeatIsSilent(t *testing.T) {
+	f := newAttachFixture(t)
+	att := f.voiceRow(uuid.New(), true)
+	f.repo.On("GetByID", att.ID).Return(att, nil)
+	f.repo.On("MarkListened", att.ID, f.userID).Return(false, nil)
+
+	ev, err := f.uc.MarkListened(att.ID, f.userID)
+
+	require.NoError(t, err)
+	assert.Nil(t, ev)
+}
+
+func TestMarkListenedByAuthorIsNoOp(t *testing.T) {
+	f := newAttachFixture(t)
+	att := f.voiceRow(f.userID, true)
+	f.repo.On("GetByID", att.ID).Return(att, nil)
+
+	ev, err := f.uc.MarkListened(att.ID, f.userID)
+
+	require.NoError(t, err)
+	assert.Nil(t, ev)
+	f.repo.AssertNotCalled(t, "MarkListened", mock.Anything, mock.Anything)
+}
+
+func TestMarkListenedRejectsNonVoiceUnattachedAndForeign(t *testing.T) {
+	f := newAttachFixture(t)
+	notVoice := &domain.Attachment{ID: uuid.New(), ChannelID: f.channelID, Kind: domain.AttachmentKindAudio}
+	draft := f.voiceRow(uuid.New(), false)
+	f.repo.On("GetByID", notVoice.ID).Return(notVoice, nil)
+	f.repo.On("GetByID", draft.ID).Return(draft, nil)
+	for _, id := range []uuid.UUID{notVoice.ID, draft.ID} {
+		_, err := f.uc.MarkListened(id, f.userID)
+		assert.ErrorIs(t, err, domain.ErrAttachmentNotFound)
+	}
+
+	outsider := uuid.New()
+	f.perms.On("Resolve", f.serverID, outsider).Return(domain.PermissionSet{}, nil)
+	att := f.voiceRow(uuid.New(), true)
+	f.repo.On("GetByID", att.ID).Return(att, nil)
+	_, err := f.uc.MarkListened(att.ID, outsider)
+	assert.ErrorIs(t, err, domain.ErrAttachmentNotFound)
+	f.repo.AssertNotCalled(t, "MarkListened", mock.Anything, mock.Anything)
+}

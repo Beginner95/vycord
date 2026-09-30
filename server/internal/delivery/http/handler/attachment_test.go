@@ -62,6 +62,14 @@ func (m *MockAttachmentUseCase) Delete(id, userID uuid.UUID) error {
 	return m.Called(id, userID).Error(0)
 }
 
+func (m *MockAttachmentUseCase) MarkListened(id, userID uuid.UUID) (*domain.VoiceListened, error) {
+	args := m.Called(id, userID)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*domain.VoiceListened), args.Error(1)
+}
+
 type MockQuotaUseCase struct{ mock.Mock }
 
 func (m *MockQuotaUseCase) For(userID uuid.UUID) (*domain.Quota, error) {
@@ -530,4 +538,51 @@ func TestUploadWithoutVoiceFieldLeavesVoiceNil(t *testing.T) {
 	newAttachmentHandler(uc).Upload(rec, newUploadRequest(t, uuid.New(), "a.bin", []byte("x"), uuid.New()))
 	assert.Equal(t, http.StatusCreated, rec.Code)
 	uc.AssertExpectations(t)
+}
+
+func newListenRequest(t *testing.T, id string, userID uuid.UUID) *http.Request {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/attachments/"+id+"/listen", nil)
+	req.SetPathValue("id", id)
+	return req.WithContext(context.WithValue(req.Context(), "user_id", userID))
+}
+
+func TestMarkListenedNotifiesAndReturns204(t *testing.T) {
+	id, userID := uuid.New(), uuid.New()
+	ev := &domain.VoiceListened{ChannelID: uuid.New(), MessageID: uuid.New(), AttachmentID: id, UserID: userID}
+	uc := new(MockAttachmentUseCase)
+	uc.On("MarkListened", id, userID).Return(ev, nil)
+	h := newAttachmentHandler(uc)
+	var got *domain.VoiceListened
+	h.SetVoiceListenedNotifier(func(e *domain.VoiceListened) { got = e })
+
+	rec := httptest.NewRecorder()
+	h.MarkListened(rec, newListenRequest(t, id.String(), userID))
+
+	assert.Equal(t, http.StatusNoContent, rec.Code)
+	assert.Equal(t, ev, got)
+}
+
+func TestMarkListenedWithoutEventDoesNotNotify(t *testing.T) {
+	id, userID := uuid.New(), uuid.New()
+	uc := new(MockAttachmentUseCase)
+	uc.On("MarkListened", id, userID).Return(nil, nil)
+	h := newAttachmentHandler(uc)
+	called := false
+	h.SetVoiceListenedNotifier(func(*domain.VoiceListened) { called = true })
+
+	rec := httptest.NewRecorder()
+	h.MarkListened(rec, newListenRequest(t, id.String(), userID))
+
+	assert.Equal(t, http.StatusNoContent, rec.Code)
+	assert.False(t, called)
+}
+
+func TestMarkListenedMapsNotFoundTo404(t *testing.T) {
+	id, userID := uuid.New(), uuid.New()
+	uc := new(MockAttachmentUseCase)
+	uc.On("MarkListened", id, userID).Return(nil, domain.ErrAttachmentNotFound)
+	rec := httptest.NewRecorder()
+	newAttachmentHandler(uc).MarkListened(rec, newListenRequest(t, id.String(), userID))
+	assert.Equal(t, http.StatusNotFound, rec.Code)
 }
