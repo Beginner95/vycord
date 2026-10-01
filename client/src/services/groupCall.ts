@@ -1244,10 +1244,14 @@ class GroupCallService {
     // `current`, and keeps it on a revert — reacquireCamera puts the output
     // back. An effect's canvas does replace it: a camera re-captured with an
     // effect on waits behind the placeholder for exactly this (see
-    // setCameraEffectWanted).
+    // setCameraEffectWanted). Not while the camera is released, though: a
+    // canvas landing late (camera turned off before it was ready) stays off
+    // the sender, or a later revert would put the ended camera there.
     const placeholder = this.cameraPlaceholder;
+    const cameraLive = this.cameraTrack.readyState === 'live';
     const sender = this.pc?.getSenders().find(
-      (s) => s.track === current || (track !== null && placeholder !== null && s.track === placeholder),
+      (s) => s.track === current
+        || (track !== null && cameraLive && placeholder !== null && s.track === placeholder),
     ) ?? null;
     const fromPlaceholder = sender !== null && placeholder !== null && sender.track === placeholder;
     try {

@@ -123,6 +123,17 @@ describe('callService — camera off frees the device', () => {
     expect(sender.track).toBe(placeholders[0]);
   });
 
+  it('a canvas landing after the camera was turned off stays off the sender', async () => {
+    callService.toggleMuteVideo(); // off
+    await settle();
+    const canvas = track('video');
+    await callService.setCameraOutput(canvas as unknown as MediaStreamTrack);
+    expect(sender.track).toBe(placeholders[0]);
+
+    await callService.setCameraOutput(null);
+    expect(sender.track).toBe(placeholders[0]);
+  });
+
   it('with an effect on, the re-captured camera waits for the effect canvas', async () => {
     callService.setCameraEffectWanted(true);
     callService.toggleMuteVideo();

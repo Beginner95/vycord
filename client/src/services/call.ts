@@ -254,10 +254,13 @@ class CallService {
     if (current === target) return;
 
     const sender = this.videoSender();
-    // Откат на камеру, пока на отправителе заглушка: камера освобождена (или
-    // ждёт канвас эффекта) — заглушку снимет включение / syncCamera.
-    const keepPlaceholder = track === null && sender !== null
-      && this.cameraPlaceholder !== null && sender.track === this.cameraPlaceholder;
+    // На отправителе заглушка: откат на камеру её не снимает (камера
+    // освобождена или ждёт канвас эффекта — снимет включение / syncCamera), и
+    // запоздавший канвас при освобождённой камере тоже (иначе следующий откат
+    // поставил бы на отправитель остановленную камеру).
+    const cameraLive = this.cameraTrack?.readyState === 'live';
+    const keepPlaceholder = sender !== null && this.cameraPlaceholder !== null
+      && sender.track === this.cameraPlaceholder && (track === null || !cameraLive);
     try {
       if (sender && !keepPlaceholder) await sender.replaceTrack(target);
     } catch {

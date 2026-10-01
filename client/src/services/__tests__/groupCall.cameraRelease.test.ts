@@ -156,6 +156,20 @@ describe('groupCallService — camera off frees the device', () => {
     expect(sender.track).toBe(placeholders[0]);
   });
 
+  it('asks the SFU for a keyframe once the camera replaces the placeholder', async () => {
+    const keyframe = vi.spyOn(
+      groupCallService as unknown as { requestKeyframeWithRetry: () => void },
+      'requestKeyframeWithRetry',
+    ).mockImplementation(() => {});
+    groupCallService.toggleMuteVideo();
+    await settle();
+    expect(keyframe).not.toHaveBeenCalled();
+
+    groupCallService.toggleMuteVideo();
+    await settle();
+    expect(keyframe).toHaveBeenCalledTimes(1);
+  });
+
   it('a failed re-capture turns the camera back off and reports it', async () => {
     groupCallService.toggleMuteVideo();
     await settle();
@@ -224,6 +238,25 @@ describe('groupCallService — camera off frees the device', () => {
 
       expect(sender.track).toBe(local.getVideoTracks()[0]);
       expect(placeholders[0].stop).toHaveBeenCalled();
+    });
+
+    it('a canvas landing after the camera was turned off stays off the sender', async () => {
+      groupCallService.setCameraEffectWanted(true);
+      groupCallService.toggleMuteVideo(); // off
+      await settle();
+      groupCallService.toggleMuteVideo(); // on — held behind the placeholder
+      await settle();
+      groupCallService.toggleMuteVideo(); // off again before the canvas is ready
+      await settle();
+      expect(sender.track).toBe(placeholders[0]);
+
+      const canvas = track('video', true);
+      await groupCallService.setCameraOutput(canvas as unknown as MediaStreamTrack);
+      expect(sender.track).toBe(placeholders[0]);
+
+      await groupCallService.setCameraOutput(null); // effect reverted
+      expect(sender.track).toBe(placeholders[0]);
+      expect(placeholders[0].stop).not.toHaveBeenCalled();
     });
   });
 });
