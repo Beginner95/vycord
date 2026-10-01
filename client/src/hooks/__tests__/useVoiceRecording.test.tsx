@@ -166,4 +166,58 @@ describe('useVoiceRecording', () => {
     act(() => result.current.micProps.onPointerDown(ptr(100, 100, 7)));
     expect(result.current.state.kind).toBe('starting');
   });
+
+  describe('отклик (вибрация/звук)', () => {
+    const setup = () => {
+      const d = deferredHandle(); const onSend = vi.fn(); const feedback = vi.fn();
+      const r = renderHook(() => useVoiceRecording({ channelId: 'a', onSend, start: d.start, isInCall: () => false, feedback }));
+      return { d, onSend, feedback, result: r.result };
+    };
+
+    it('старт записи → start, отпускание после 1 с → send', async () => {
+      const { d, feedback, result } = setup();
+      act(() => result.current.micProps.onPointerDown(ptr(100, 100)));
+      expect(feedback).not.toHaveBeenCalled();
+      await act(async () => { d.resolve(); });
+      expect(feedback).toHaveBeenLastCalledWith('start');
+      now = 2000;
+      await act(async () => { result.current.micProps.onPointerUp(ptr(100, 100)); });
+      expect(feedback.mock.calls.map((c) => c[0])).toEqual(['start', 'send']);
+    });
+
+    it('свайп влево → cancel', async () => {
+      const { d, feedback, result } = setup();
+      act(() => result.current.micProps.onPointerDown(ptr(300, 100)));
+      await act(async () => { d.resolve(); });
+      act(() => result.current.micProps.onPointerMove(ptr(150, 100)));
+      expect(feedback.mock.calls.map((c) => c[0])).toEqual(['start', 'cancel']);
+    });
+
+    it('отпустил раньше 1 с после старта → cancel', async () => {
+      const { d, feedback, result } = setup();
+      act(() => result.current.micProps.onPointerDown(ptr(100, 100)));
+      await act(async () => { d.resolve(); });
+      now = 500;
+      act(() => result.current.micProps.onPointerUp(ptr(100, 100)));
+      expect(feedback.mock.calls.map((c) => c[0])).toEqual(['start', 'cancel']);
+    });
+
+    it('вверх → lock, затем «Отправить» → send', async () => {
+      const { d, feedback, result } = setup();
+      act(() => result.current.micProps.onPointerDown(ptr(100, 300)));
+      await act(async () => { d.resolve(); });
+      act(() => result.current.micProps.onPointerMove(ptr(100, 200)));
+      now = 2000;
+      await act(async () => { result.current.lockedSend(); });
+      expect(feedback.mock.calls.map((c) => c[0])).toEqual(['start', 'lock', 'send']);
+    });
+
+    it('короткий клик до старта рекордера — без отклика', async () => {
+      const { d, feedback, result } = setup();
+      act(() => result.current.micProps.onPointerDown(ptr(100, 100)));
+      act(() => result.current.micProps.onPointerUp(ptr(100, 100)));
+      await act(async () => { d.resolve(); });
+      expect(feedback).not.toHaveBeenCalled();
+    });
+  });
 });

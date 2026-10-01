@@ -189,6 +189,28 @@ class AudioService {
   }
 
   /**
+   * Отклик записи голосового (VYC-101): старт — восходящий щелчок, отправка —
+   * короткий «поп», отмена — нисходящий. Под тем же переключателем, что и
+   * звук сообщений. Стартовый звук играет уже во время записи, но
+   * эхоподавление микрофона его вычищает.
+   */
+  playVoiceRecord(kind: 'start' | 'send' | 'cancel'): void {
+    if (!this.settings.messageSound) return;
+    const ctx = this.getAudioContext();
+    const vol = this.settings.volume * 0.25;
+
+    if (kind === 'start') {
+      this.playTone(ctx, 880, 0, 0.05, vol);      // A5
+      this.playTone(ctx, 1174.7, 0.05, 0.07, vol); // D6
+    } else if (kind === 'send') {
+      this.playTone(ctx, 1318.5, 0, 0.08, vol);   // E6
+    } else {
+      this.playTone(ctx, 587.3, 0, 0.06, vol);    // D5
+      this.playTone(ctx, 440, 0.06, 0.1, vol);    // A4
+    }
+  }
+
+  /**
    * Rate-limit chimes per event kind: extra events inside the window are dropped,
    * never queued — several participants joining at once should sound once.
    */

@@ -3,6 +3,7 @@ import { callService } from '@/services/call';
 import { useCallStore } from '@/stores/callStore';
 import { pauseCurrent } from '@/utils/chatMediaCoordinator';
 import { IDLE, reduce, type GestureEvent, type GestureState, type HintKind } from '@/voice/voiceGesture';
+import { recordFeedback } from '@/voice/recordFeedback';
 import { startVoiceRecorder, toRecorderFailure, type VoiceRecorderHandle, type VoiceRecording } from '@/voice/voiceRecorder';
 
 const TICK_MS = 200;
@@ -30,8 +31,12 @@ export interface UseVoiceRecording {
 }
 
 /** Связка жест ↔ рекордер ↔ DOM (spec §2.3). Вся логика переходов — в voiceGesture. */
-export function useVoiceRecording({ channelId, onSend, start = startVoiceRecorder, isInCall = defaultInCall }: {
+export function useVoiceRecording({
+  channelId, onSend, start = startVoiceRecorder, isInCall = defaultInCall, feedback = recordFeedback,
+}: {
   channelId: string; onSend(r: VoiceRecording): void; start?: typeof startVoiceRecorder; isInCall?: () => boolean;
+  /** Вибрация/звук на старт, конец, отмену и закрепление записи. */
+  feedback?: typeof recordFeedback;
 }): UseVoiceRecording {
   const [state, setState] = useState<GestureState>(IDLE);
   const [elapsedMs, setElapsed] = useState(0);
@@ -54,8 +59,10 @@ export function useVoiceRecording({ channelId, onSend, start = startVoiceRecorde
   }, []);
 
   const dispatch = useCallback((event: GestureEvent) => {
-    const { state: next, effects } = reduce(stateRef.current, event);
+    const prev = stateRef.current;
+    const { state: next, effects } = reduce(prev, event);
     stateRef.current = next;
+    if (prev.kind === 'recording' && next.kind === 'locked') feedback('lock');
     if (next.kind === 'idle') pointerIdRef.current = null;
     setState(next);
     for (const fx of effects) {
@@ -69,6 +76,7 @@ export function useVoiceRecording({ channelId, onSend, start = startVoiceRecorde
               if (gen !== genRef.current || stateRef.current.kind !== 'starting') { h.discard(); return; }
               handleRef.current = h;
               dispatch({ type: 'recorderStarted', t: performance.now() });
+              feedback('start');
             },
             (err: unknown) => { if (gen === genRef.current) dispatch({ type: 'recorderFailed', reason: toRecorderFailure(err) }); },
           );
@@ -76,6 +84,8 @@ export function useVoiceRecording({ channelId, onSend, start = startVoiceRecorde
         }
         case 'discard':
           genRef.current++;
+          // Отклик — только если запись реально шла (старт тоже был с откликом).
+          if (handleRef.current) feedback('cancel');
           handleRef.current?.discard();
           handleRef.current = null;
           break;
@@ -83,6 +93,7 @@ export function useVoiceRecording({ channelId, onSend, start = startVoiceRecorde
           genRef.current++;
           const h = handleRef.current;
           handleRef.current = null;
+          if (h) feedback('send');
           // Получатель фиксируется в момент решения «отправить»: канал может
           // смениться, пока MediaRecorder дописывает onstop.
           const send = onSendRef.current;
@@ -94,7 +105,7 @@ export function useVoiceRecording({ channelId, onSend, start = startVoiceRecorde
           break;
       }
     }
-  }, [start, showHint]);
+  }, [start, showHint, feedback]);
 
   // Прерывать нечего в locked (машина игнорирует interrupt) и в клавиатурном
   // starting: диалог разрешения микрофона забирает фокус окна, и blur убил бы
