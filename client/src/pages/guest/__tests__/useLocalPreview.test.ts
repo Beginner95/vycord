@@ -3,8 +3,8 @@ import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { useLocalPreview } from '../useLocalPreview';
 
-// Превью гостя до входа: выключенная камера освобождается (браузер гасит
-// индикатор «камера используется»), включение захватывает её заново.
+// Превью гостя до входа: выключенные камера / микрофон освобождаются (браузер
+// гасит индикатор «используется»), включение захватывает их заново.
 
 interface FakeTrack {
   kind: string;
@@ -50,7 +50,7 @@ describe('useLocalPreview', () => {
   const live = (kind: string) => captured.filter((t) => t.kind === kind && t.readyState === 'live');
 
   it('captures mic and camera in one request', async () => {
-    const { result } = renderHook(() => useLocalPreview(true));
+    const { result } = renderHook(() => useLocalPreview({ micOn: true, videoOn: true }));
     await waitFor(() => expect(result.current.camera).not.toBeNull());
     expect(gum).toHaveBeenCalledTimes(1);
     expect(gum).toHaveBeenCalledWith({ audio: true, video: true });
@@ -58,7 +58,7 @@ describe('useLocalPreview', () => {
   });
 
   it('camera off stops the camera but keeps the mic; on captures it again', async () => {
-    const { result, rerender } = renderHook(({ on }) => useLocalPreview(on), { initialProps: { on: true } });
+    const { result, rerender } = renderHook(({ on }) => useLocalPreview({ micOn: true, videoOn: on }), { initialProps: { on: true } });
     await waitFor(() => expect(result.current.camera).not.toBeNull());
 
     rerender({ on: false });
@@ -78,7 +78,7 @@ describe('useLocalPreview', () => {
       resolve = (s) => r(s);
       void c;
     }));
-    const { result, rerender } = renderHook(({ on }) => useLocalPreview(on), { initialProps: { on: true } });
+    const { result, rerender } = renderHook(({ on }) => useLocalPreview({ micOn: true, videoOn: on }), { initialProps: { on: true } });
     rerender({ on: false });
 
     const audio = track('audio');
@@ -94,7 +94,7 @@ describe('useLocalPreview', () => {
   it('unmount right after the first capture lands still releases its camera', async () => {
     let resolve!: (s: FakeMediaStream) => void;
     gum.mockImplementationOnce(() => new Promise((r) => { resolve = r; }));
-    const { unmount } = renderHook(() => useLocalPreview(true));
+    const { unmount } = renderHook(() => useLocalPreview({ micOn: true, videoOn: true }));
     const audio = track('audio');
     const video = track('video');
     // Промис резолвится, но React ещё не закоммитил ready — сразу размонтируем.
@@ -105,8 +105,67 @@ describe('useLocalPreview', () => {
     expect(audio.readyState).toBe('ended');
   });
 
+  it('mic off stops the mic but keeps the camera; on captures it again', async () => {
+    const { result, rerender } = renderHook(
+      ({ mic }) => useLocalPreview({ micOn: mic, videoOn: true }),
+      { initialProps: { mic: true } },
+    );
+    await waitFor(() => expect(result.current.mic).not.toBeNull());
+
+    rerender({ mic: false });
+    expect(result.current.mic).toBeNull();
+    expect(live('audio')).toHaveLength(0);
+    expect(live('video')).toHaveLength(1);
+
+    rerender({ mic: true });
+    await waitFor(() => expect(result.current.mic).not.toBeNull());
+    expect(gum).toHaveBeenLastCalledWith({ audio: true });
+    expect(live('audio')).toHaveLength(1);
+  });
+
+  it('first capture asks only for what is on; nothing when both are off', async () => {
+    const { result } = renderHook(() => useLocalPreview({ micOn: false, videoOn: true }));
+    await waitFor(() => expect(result.current.camera).not.toBeNull());
+    expect(gum).toHaveBeenCalledWith({ audio: false, video: true });
+    expect(result.current.mic).toBeNull();
+
+    gum.mockClear();
+    renderHook(() => useLocalPreview({ micOn: false, videoOn: false }));
+    await act(async () => {});
+    expect(gum).not.toHaveBeenCalled();
+  });
+
+  it('a blocked camera warns without hiding the working mic, and the warning clears', async () => {
+    let cameraBlocked = true;
+    gum.mockImplementation(async (c: MediaStreamConstraints) => {
+      if (c.video && cameraBlocked) throw new DOMException('blocked', 'NotAllowedError');
+      const tracks = [
+        ...(c.audio ? [track('audio')] : []),
+        ...(c.video ? [track('video')] : []),
+      ];
+      captured.push(...tracks);
+      return new FakeMediaStream(tracks);
+    });
+    const { result, rerender } = renderHook(
+      ({ cam }) => useLocalPreview({ micOn: true, videoOn: cam }),
+      { initialProps: { cam: true } },
+    );
+    // Общий запрос отклонён целиком — микрофон захвачен отдельным запросом.
+    await waitFor(() => expect(result.current.mic).not.toBeNull());
+    await waitFor(() => expect(result.current.denied).toBe(true));
+    expect(result.current.camera).toBeNull();
+
+    rerender({ cam: false }); // выключенная камера — не «недоступна»
+    await waitFor(() => expect(result.current.denied).toBe(false));
+
+    cameraBlocked = false; // доступ выдали
+    rerender({ cam: true });
+    await waitFor(() => expect(result.current.camera).not.toBeNull());
+    expect(result.current.denied).toBe(false);
+  });
+
   it('unmount releases everything', async () => {
-    const { result, unmount } = renderHook(() => useLocalPreview(true));
+    const { result, unmount } = renderHook(() => useLocalPreview({ micOn: true, videoOn: true }));
     await waitFor(() => expect(result.current.camera).not.toBeNull());
     unmount();
     expect(live('audio')).toHaveLength(0);

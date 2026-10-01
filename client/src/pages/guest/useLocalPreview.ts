@@ -1,80 +1,106 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type MutableRefObject } from 'react';
+
+type Kind = 'audio' | 'video';
+type InitialCapture = Record<Kind, MediaStream | null>;
 
 function stopTracks(stream: MediaStream | null): void {
   stream?.getTracks().forEach((track) => track.stop());
 }
 
 /**
- * Локальное превью до входа: микрофон (индикатор уровня) и камера. Выключенная
- * камера освобождается — скрытый <video> её не отпускает, и браузер продолжал
- * бы показывать «камера используется»; включение захватывает её заново.
- * Первый захват — микрофон и камера одним запросом (один диалог разрешений).
- * Всё гасится при уходе с экрана.
+ * Локальное превью до входа: микрофон (индикатор уровня) и камера. Выключенное
+ * устройство освобождается — иначе браузер продолжал бы показывать «камера /
+ * микрофон используется»; включение захватывает его заново. Первый захват —
+ * всё включённое одним запросом (один диалог разрешений). Всё гасится при
+ * уходе с экрана. `denied` — включённое устройство сейчас недоступно (по
+ * видам: отказ одного не прячет работающее второе).
  */
-export function useLocalPreview(videoOn: boolean) {
-  const [mic, setMic] = useState<MediaStream | null>(null);
-  const [camera, setCamera] = useState<MediaStream | null>(null);
-  const [denied, setDenied] = useState(false);
-  /** Первый захват завершён — дальше камерой владеет эффект ниже. */
+export function useLocalPreview({ micOn, videoOn }: { micOn: boolean; videoOn: boolean }) {
+  /** Первый захват завершён — дальше каждым устройством владеет useDevice. */
   const [ready, setReady] = useState(false);
-  const videoOnRef = useRef(videoOn);
-  videoOnRef.current = videoOn;
-  /** Камера из первого захвата — передаётся эффекту камеры. */
-  const initialCameraRef = useRef<MediaStream | null>(null);
+  const wantRef = useRef({ audio: micOn, video: videoOn });
+  wantRef.current = { audio: micOn, video: videoOn };
+  /** Треки первого захвата — передаются useDevice своего вида. */
+  const initialRef = useRef<InitialCapture>({ audio: null, video: null });
 
   useEffect(() => {
+    const want = wantRef.current;
+    if (!want.audio && !want.video) {
+      setReady(true);
+      return;
+    }
     let cancelled = false;
-    let acquired: MediaStream | null = null;
 
     navigator.mediaDevices
-      .getUserMedia({ audio: true, video: videoOnRef.current })
+      .getUserMedia({ audio: want.audio, video: want.video })
       .then((media) => {
         if (cancelled) {
           stopTracks(media);
           return;
         }
-        acquired = media;
-        setMic(new MediaStream(media.getAudioTracks()));
+        const audio = media.getAudioTracks();
         const video = media.getVideoTracks();
-        if (video.length > 0) initialCameraRef.current = new MediaStream(video);
+        initialRef.current = {
+          audio: audio.length > 0 ? new MediaStream(audio) : null,
+          video: video.length > 0 ? new MediaStream(video) : null,
+        };
       })
-      .catch(() => {
-        if (!cancelled) setDenied(true);
-      })
+      // Отказ общего запроса ничего не решает: браузер отклоняет его целиком,
+      // даже если недоступен только один вид. useDevice каждого вида запросит
+      // своё отдельно и сам отметит отказ.
+      .catch(() => {})
       .finally(() => {
         if (!cancelled) setReady(true);
       });
 
     return () => {
       cancelled = true;
-      acquired?.getAudioTracks().forEach((track) => track.stop());
-      // Ушли с экрана раньше, чем эффект камеры забрал камеру первого захвата.
-      stopTracks(initialCameraRef.current);
-      initialCameraRef.current = null;
-      setMic(null);
+      // Ушли с экрана раньше, чем useDevice забрали треки первого захвата.
+      stopTracks(initialRef.current.audio);
+      stopTracks(initialRef.current.video);
+      initialRef.current = { audio: null, video: null };
     };
   }, []);
 
+  const mic = useDevice('audio', micOn, ready, initialRef);
+  const camera = useDevice('video', videoOn, ready, initialRef);
+  return { mic: mic.stream, camera: camera.stream, denied: mic.denied || camera.denied };
+}
+
+/** Одно устройство после первого захвата: «вкл» — держит (или захватывает
+ *  заново), «выкл» — стопает. */
+function useDevice(
+  kind: Kind,
+  on: boolean,
+  ready: boolean,
+  initialRef: MutableRefObject<InitialCapture>,
+): { stream: MediaStream | null; denied: boolean } {
+  const [stream, setStream] = useState<MediaStream | null>(null);
+  const [denied, setDenied] = useState(false);
+
   useEffect(() => {
     if (!ready) return;
-    const initial = initialCameraRef.current;
-    initialCameraRef.current = null;
-    if (!videoOn) {
-      // Выключили, пока шёл первый захват.
+    const initial = initialRef.current[kind];
+    initialRef.current[kind] = null;
+    if (!on) {
+      // Выключили, пока шёл первый захват. Выключенное устройство не
+      // «недоступно» — предупреждение о нём снимается.
       stopTracks(initial);
+      setDenied(false);
       return;
     }
     let cancelled = false;
     let acquired: MediaStream | null = null;
 
-    (initial ? Promise.resolve(initial) : navigator.mediaDevices.getUserMedia({ video: true }))
+    (initial ? Promise.resolve(initial) : navigator.mediaDevices.getUserMedia({ [kind]: true }))
       .then((media) => {
         if (cancelled) {
           stopTracks(media);
           return;
         }
         acquired = media;
-        setCamera(media);
+        setStream(media);
+        setDenied(false);
       })
       .catch(() => {
         if (!cancelled) setDenied(true);
@@ -83,9 +109,9 @@ export function useLocalPreview(videoOn: boolean) {
     return () => {
       cancelled = true;
       stopTracks(acquired);
-      setCamera(null);
+      setStream(null);
     };
-  }, [ready, videoOn]);
+  }, [kind, on, ready, initialRef]);
 
-  return { mic, camera, denied };
+  return { stream, denied };
 }

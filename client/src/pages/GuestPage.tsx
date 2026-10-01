@@ -147,7 +147,7 @@ function GuestEntry({ secret, previewReady }: { secret: string; previewReady: bo
   const [name, setName] = useState(() => localStorage.getItem('vycord.guest.name') ?? '');
   const [muted, setMuted] = useState(false);
   const [videoOff, setVideoOff] = useState(false);
-  const { mic, camera, denied } = useLocalPreview(!videoOff);
+  const { mic, camera, denied } = useLocalPreview({ micOn: !muted, videoOn: !videoOff });
   const level = useMicLevel(mic, muted);
   const videoRef = useRef<HTMLVideoElement>(null);
 
