@@ -1,8 +1,25 @@
 import { create } from 'zustand';
-import type { Message } from '@/types';
+import type { Attachment, Message } from '@/types';
+import { applyVoiceListened, type VoiceListenedEvent } from '@/voice/listened';
+
+/** Локальная запись голосового до/во время отправки (VYC-101). Никогда не уходит на сервер. */
+export interface PendingVoice {
+  blob: Blob;
+  objectUrl: string;
+  mimeType: string;
+  durationMs: number;
+  waveform: number[];
+  /** Есть, если загрузка прошла — retry тогда не грузит файл заново. */
+  attachment?: Attachment;
+}
 
 /** Client-only delivery state for optimistic send (spec §4.4). Never sent to the server. */
-export type ChatMessage = Message & { deliveryState?: 'sending' | 'failed' };
+export type ChatMessage = Message & {
+  deliveryState?: 'sending' | 'failed';
+  pendingVoice?: PendingVoice;
+  /** Серверный код ошибки последней неудачной отправки (для текста на failed-строке). Никогда не уходит на сервер. */
+  deliveryErrorCode?: string;
+};
 
 interface MessageState {
   messages: ChatMessage[];
@@ -14,6 +31,7 @@ interface MessageState {
   removeMessage: (id: string) => void;
   clearMessages: () => void;
   setLoading: (loading: boolean) => void;
+  applyListened: (ev: Pick<VoiceListenedEvent, 'attachment_id' | 'user_id'>, meId: string) => void;
 }
 
 export const useMessageStore = create<MessageState>((set) => ({
@@ -35,4 +53,9 @@ export const useMessageStore = create<MessageState>((set) => ({
     set((state) => ({ messages: state.messages.filter((m) => m.id !== id) })),
   clearMessages: () => set({ messages: [] }),
   setLoading: (loading) => set({ loading }),
+  applyListened: (ev, meId) =>
+    set((state) => {
+      const messages = applyVoiceListened(state.messages, ev, meId);
+      return messages === state.messages ? state : { messages };
+    }),
 }));

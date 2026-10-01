@@ -7,10 +7,13 @@ import { LinkDialog } from '@/components/LinkDialog';
 import { MessageAttachments } from '@/components/MessageAttachments';
 import { useMentionAutocomplete } from '@/hooks/useMentionAutocomplete';
 import { toggleBullet, toggleNumbered, applyLineToggle, applyWrap, insertAtCaret, linkToken } from '@/utils/textTransforms';
+import { isVoiceMessage } from '@/voice/listened';
 import { tokenizeMentions, toDisplayMentions, toWireMentions, LEGACY_ROLE_KEYS } from '@/utils/mentions';
 import { parseInline, blockify, normalizeLinkHref, type MdInlineNode } from '@/utils/markdown';
 import { resolveUploadUrl } from '@/services/api';
-import { useT, useDateFormat, type TFunc } from '@/i18n';
+import { useT, useDateFormat, hasKey, type TFunc, type TKey } from '@/i18n';
+import { formatSize } from '@/components/AttachmentTray';
+import { HARD_MAX_BYTES } from '@/hooks/useAttachmentUpload';
 import { useLongPress } from '@/mobile/gestures/useLongPress';
 import type { ChatMessage } from '@/stores/messageStore';
 import type { MemberWithUser } from '@/types';
@@ -148,10 +151,16 @@ interface MessageRowProps {
 export function MessageRow(props: MessageRowProps) {
   const { msg, isOwn, isContinuation, displayName, avatarUrl, isEditing, highlighted, entered } = props;
   const canModify = isOwn && props.canModify !== false;
+  const voice = isVoiceMessage(msg);
   const t = useT();
   const { formatTime } = useDateFormat();
   const longPress = useLongPress(() => props.onLongPress?.());
   const pressable = !!props.onLongPress && !isEditing;
+  // Код серверной ошибки (например, у голосового) → её текст вместо общего «не отправлено».
+  const errKey = msg.deliveryErrorCode ? `errors.${msg.deliveryErrorCode}` : null;
+  const failedText = errKey && hasKey(errKey)
+    ? t(errKey as TKey, msg.deliveryErrorCode === 'attachment_too_large' ? { maxSize: formatSize(HARD_MAX_BYTES) } : undefined)
+    : t('chat.sendFailed');
   const isEdited = msg.updated_at !== msg.created_at;
   const time = formatTime(new Date(msg.created_at));
 
@@ -209,21 +218,21 @@ export function MessageRow(props: MessageRowProps) {
         )}
         {!isEditing && msg.deliveryState === 'failed' && (
           <button type="button" className="msg-delivery is-failed" onClick={props.onRetry}>
-            {t('chat.sendFailed')} · {t('chat.retry')}
+            {failedText} · {t('chat.retry')}
           </button>
         )}
       </div>
       {/* A sticker row has nothing to quote (quoting it inserts a bare `> `)
           and nothing to edit, so for someone else's sticker the popover would
           be an empty bordered chip on hover — don't render the wrapper at all. */}
-      {!isEditing && !msg.deliveryState && (!msg.sticker_id || canModify) && (
+      {!isEditing && !msg.deliveryState && ((!msg.sticker_id && !voice) || canModify) && (
         <div className="msg-actions">
-          {!msg.sticker_id && (
+          {!msg.sticker_id && !voice && (
             <button type="button" className="msg-action-btn" aria-label={t('chat.quote')} title={t('chat.quote')} onClick={props.onQuote}>
               <Quote size={15} strokeWidth={1.8} />
             </button>
           )}
-          {canModify && !msg.sticker_id && (
+          {canModify && !msg.sticker_id && !voice && (
             <button type="button" className="msg-action-btn" aria-label={t('common.edit')} title={t('common.edit')} onClick={props.onStartEdit}>
               <Pencil size={15} strokeWidth={1.8} />
             </button>

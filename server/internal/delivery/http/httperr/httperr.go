@@ -124,6 +124,8 @@ const (
 
 	// Вложения
 	CodeAttachmentTooLarge        = "attachment_too_large"
+	CodeVoiceInvalid              = "voice_invalid"
+	CodeVoiceMessageInvalid       = "voice_message_invalid"
 	CodeAttachmentRequired        = "attachment_required"
 	CodeAttachmentNotFound        = "attachment_not_found"
 	CodeAttachmentAlreadyAttached = "attachment_already_attached"

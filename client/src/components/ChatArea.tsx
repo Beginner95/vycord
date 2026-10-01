@@ -35,6 +35,9 @@ import type { Attachment, Channel, User } from '@/types';
 import type { Sticker } from '@/types';
 import { useT, useTp, useDateFormat, isSameCalendarDay } from '@/i18n';
 import wolvesArt from '@/assets/images/sitting-and-wolf-far-away.webp';
+import { sendVoice, retryVoice, discardVoice, type SendVoiceDeps } from '@/voice/sendVoice';
+import type { VoiceListenedEvent } from '@/voice/listened';
+import type { VoiceRecording } from '@/voice/voiceRecorder';
 import './ChatArea.css';
 
 // Shared card recipe for the three ChatArea empty states (board 2a): quiet
@@ -88,7 +91,8 @@ export function ChatArea({
   const t = useT();
   const tp = useTp();
   const { formatFullDate } = useDateFormat();
-  const { messages, loading, setMessages, addMessage, updateMessage, replaceMessage, removeMessage } = useMessageStore();
+  const { messages, loading, setMessages, addMessage, updateMessage, replaceMessage, removeMessage, applyListened } = useMessageStore();
+  const meId = user?.id;
   const { members, currentServer } = useServerStore();
   const servers = useServerStore((s) => s.servers);
   const serversLoaded = useServerStore((s) => s.serversLoaded);
@@ -96,6 +100,10 @@ export function ChatArea({
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const pendingSeqRef = useRef(0);
   const composerRef = useRef<ComposerHandle>(null);
+  // Канал, который показан прямо сейчас: голосовое, дописанное после смены канала,
+  // не должно добавлять оптимистичную строку в чужую ленту.
+  const currentChannelIdRef = useRef<string | undefined>(channel?.id);
+  currentChannelIdRef.current = channel?.id;
   // Гости звонка читают новые сообщения канала, поэтому участники должны это
   // видеть, а не догадываться (2026-09-17-guest-call-link-design.md, У11).
   const channelGuests = useGuestManagementStore((store) => store.channelGuests);
@@ -439,11 +447,15 @@ export function ChatArea({
       const { id } = payload as { id: string; channel_id: string };
       removeMessage(id);
     });
+    const unsubListened = wsService.on('voice_listened', (payload) => {
+      if (meId) applyListened(payload as VoiceListenedEvent, meId);
+    });
     return () => {
       unsubUpdate();
       unsubDelete();
+      unsubListened();
     };
-  }, [updateMessage, removeMessage]);
+  }, [updateMessage, removeMessage, applyListened, meId]);
 
   const jumpToMessage = async (messageId: string) => {
     if (!channel) return;
@@ -519,6 +531,37 @@ logger.error('Failed to jump to message:', err, { module: 'chat' });
     }
   };
 
+  const voiceDeps: SendVoiceDeps = {
+    upload: (chan, file, voice) => apiService.uploadAttachment(chan, file, { voice }).promise,
+    createMessage: async (chan, attId) => (await apiService.createMessage(chan, '', undefined, [attId])) as Message,
+    deleteAttachment: (id) => apiService.deleteAttachment(id),
+    store: {
+      add: addMessage,
+      update: updateMessage,
+      replace: replaceMessage,
+      has: (id) => useMessageStore.getState().messages.some((m) => m.id === id),
+    },
+    createObjectURL: (b) => URL.createObjectURL(b),
+    revokeObjectURL: (u) => URL.revokeObjectURL(u),
+    onOrphanFailure: (err) => showSendError(err),
+    errorCode: (err) => (err instanceof ApiError ? err.code : undefined),
+    isCurrentChannel: (id) => currentChannelIdRef.current === id,
+  };
+
+  /** Голосовое уходит сразу, без предпросмотра (spec §3.1). */
+  const sendVoiceMessage = (recording: VoiceRecording) => {
+    if (!channel || !user) return;
+    void sendVoice(voiceDeps, {
+      tempId: `pending-${Date.now()}-${pendingSeqRef.current++}`,
+      channelId: channel.id, userId: user.id, now: new Date().toISOString(), recording,
+    });
+  };
+
+  const discardFailed = (msg: ChatMessage) => {
+    discardVoice(voiceDeps, msg);
+    removeMessage(msg.id);
+  };
+
   const retrySend = async (msg: ChatMessage) => {
     if (!channel) return;
     // Guards a same-task double-click on the retry chip the same way the
@@ -532,6 +575,10 @@ logger.error('Failed to jump to message:', err, { module: 'chat' });
     // immediately, before the second click's handler runs.
     const current = useMessageStore.getState().messages.find((m) => m.id === msg.id);
     if (!current || current.deliveryState !== 'failed') return;
+    if (current.pendingVoice) {
+      await retryVoice(voiceDeps, current);
+      return;
+    }
     updateMessage(msg.id, { deliveryState: 'sending' });
     try {
       // Re-send the ids the failed row was carrying, or the retry would
@@ -861,7 +908,7 @@ logger.error('Failed to jump to message:', err, { module: 'chat' });
                     onRetry={() => retrySend(msg)}
                     // Client-only row (never reached the server) — no API call,
                     // no confirm modal, just drop it from the store.
-                    onDiscard={() => removeMessage(msg.id)}
+                    onDiscard={() => discardFailed(msg)}
                     // pickLightboxMedia narrows the row-local index to the
                     // image/video subset and returns null for a non-media
                     // click (a pdf chip) — nothing to open fullscreen.
@@ -900,6 +947,7 @@ logger.error('Failed to jump to message:', err, { module: 'chat' });
         onOpenStickerManager={() => setStickerManagerOpen(true)}
         variant={composerVariant}
         enterSends={enterSends}
+        onSendVoice={sendVoiceMessage}
       />
       {chatSelectionToolbar.visible && (
         <FloatingQuoteButton
@@ -975,7 +1023,7 @@ logger.error('Failed to jump to message:', err, { module: 'chat' });
           onEdit={(m) => setEditingId(m.id)}
           onDelete={(m) => setConfirmDeleteId(m.id)}
           onRetry={(m) => retrySend(m)}
-          onDiscard={(m) => removeMessage(m.id)}
+          onDiscard={(m) => discardFailed(m)}
         />
       )}
     </main>

@@ -43,3 +43,28 @@ describe('notifyPlaying', () => {
     expect(el.pause).not.toHaveBeenCalled();
   });
 });
+
+describe('pauseCurrent', () => {
+  let notifyPlaying: typeof import('../chatMediaCoordinator').notifyPlaying;
+  let pauseCurrent: typeof import('../chatMediaCoordinator').pauseCurrent;
+
+  beforeEach(async () => {
+    vi.resetModules();
+    ({ notifyPlaying, pauseCurrent } = await import('../chatMediaCoordinator'));
+  });
+
+  it('ставит на паузу играющее', () => {
+    const a = fakeMedia(false);
+    notifyPlaying(a);
+    pauseCurrent();
+    expect(a.pause).toHaveBeenCalled();
+  });
+
+  it('ничего не делает без текущего или на паузе', () => {
+    expect(() => pauseCurrent()).not.toThrow();
+    const a = fakeMedia(true);
+    notifyPlaying(a);
+    pauseCurrent();
+    expect(a.pause).not.toHaveBeenCalled();
+  });
+});

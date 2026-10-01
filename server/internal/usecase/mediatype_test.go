@@ -80,6 +80,30 @@ func TestDetectKind(t *testing.T) {
 			wantContentType: "video/webm",
 		},
 		{
+			name:            "EBML с .weba — аудио (имя голосового)",
+			head:            webmHeader(),
+			fileName:        "voice.weba",
+			wantKind:        domain.AttachmentKindAudio,
+			wantContentType: "audio/webm",
+		},
+		{
+			// Ловушка VYC-101: MediaRecorder даёт audio/webm, но с именем
+			// .webm DetectKind видит видео. Поэтому имя голосового выбирает
+			// сервер (VoiceFileName), а не клиент.
+			name:            "EBML с .webm остаётся видео — ловушка голосового",
+			head:            webmHeader(),
+			fileName:        "voice.webm",
+			wantKind:        domain.AttachmentKindVideo,
+			wantContentType: "video/webm",
+		},
+		{
+			name:            "ftyp с .m4a — аудио (Safari MediaRecorder)",
+			head:            isoHeader("M4A "),
+			fileName:        "voice.m4a",
+			wantKind:        domain.AttachmentKindAudio,
+			wantContentType: "audio/mp4",
+		},
+		{
 			name:            "ogg по OggS",
 			head:            append([]byte("OggS"), make([]byte, 28)...),
 			fileName:        "sound.ogg",
@@ -203,4 +227,26 @@ func TestDetectKindIgnoresExtensionWhenContentSaysOtherwise(t *testing.T) {
 
 	assert.Equal(t, domain.AttachmentKindFile, kind)
 	assert.Equal(t, "application/octet-stream", ct)
+}
+
+func TestVoiceFileName(t *testing.T) {
+	tests := []struct {
+		name   string
+		head   []byte
+		want   string
+		wantOK bool
+	}{
+		{"webm", webmHeader(), "voice.weba", true},
+		{"mp4", isoHeader("M4A "), "voice.m4a", true},
+		{"ogg", append([]byte("OggS"), make([]byte, 28)...), "voice.ogg", true},
+		{"png — не голосовое", []byte("\x89PNG\r\n\x1a\n" + string(make([]byte, 24))), "", false},
+		{"пусто", nil, "", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, ok := usecase.VoiceFileName(tt.head)
+			assert.Equal(t, tt.wantOK, ok)
+			assert.Equal(t, tt.want, got)
+		})
+	}
 }

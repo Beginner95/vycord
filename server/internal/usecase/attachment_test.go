@@ -330,3 +330,132 @@ func TestOpenThumbFallsBackToOriginalForImageWithoutThumbnail(t *testing.T) {
 type nopSeekCloser struct{ *bytes.Reader }
 
 func (nopSeekCloser) Close() error { return nil }
+
+func voiceMeta() *domain.VoiceMeta {
+	return &domain.VoiceMeta{DurationMs: 4200, Waveform: make([]byte, domain.VoiceWaveformLen)}
+}
+
+func webmBytes() []byte { return append([]byte{0x1A, 0x45, 0xDF, 0xA3}, make([]byte, 60)...) }
+
+func TestUploadVoiceRenamesByContainerAndStoresMeta(t *testing.T) {
+	f := newAttachFixture(t)
+	f.quota.On("CheckUpload", f.userID, mock.Anything).Return(nil)
+	f.quota.On("ExpiresAt", f.userID, mock.Anything).Return((*time.Time)(nil), nil)
+	f.storage.On("Save", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return("", nil)
+	f.repo.On("Create", mock.Anything).Return(nil)
+
+	in := f.upload("recording.webm", webmBytes()) // клиент прислал «видео»-имя
+	in.Voice = voiceMeta()
+	att, err := f.uc.Upload(in)
+
+	require.NoError(t, err)
+	assert.Equal(t, domain.AttachmentKindAudio, att.Kind)
+	assert.Equal(t, "voice.weba", att.FileName)
+	assert.True(t, att.IsVoice)
+	require.NotNil(t, att.DurationMs)
+	assert.Equal(t, 4200, *att.DurationMs)
+	assert.Len(t, att.Waveform, domain.VoiceWaveformLen)
+}
+
+func TestUploadVoiceRejectsOutOfRangeMeta(t *testing.T) {
+	for _, meta := range []*domain.VoiceMeta{
+		{DurationMs: 999, Waveform: make([]byte, 64)},
+		{DurationMs: 900001, Waveform: make([]byte, 64)},
+		{DurationMs: 5000, Waveform: make([]byte, 10)},
+	} {
+		f := newAttachFixture(t)
+		in := f.upload("v.weba", webmBytes())
+		in.Voice = meta
+		_, err := f.uc.Upload(in)
+		assert.ErrorIs(t, err, domain.ErrVoiceInvalid)
+		f.storage.AssertNotCalled(t, "Save", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
+	}
+}
+
+func TestUploadVoiceRejectsNonAudioContainer(t *testing.T) {
+	f := newAttachFixture(t)
+	f.quota.On("CheckUpload", f.userID, mock.Anything).Return(nil)
+	in := f.upload("v.weba", []byte("\x89PNG\r\n\x1a\n"+string(make([]byte, 24))))
+	in.Voice = voiceMeta()
+	_, err := f.uc.Upload(in)
+	assert.ErrorIs(t, err, domain.ErrVoiceInvalid)
+}
+
+func TestUploadVoiceRejectsHeicDisguisedAsM4A(t *testing.T) {
+	// ftyp с image-брендом: VoiceFileName даст voice.m4a, но DetectKind
+	// разберёт бренд и скажет image — это не голосовое.
+	f := newAttachFixture(t)
+	f.quota.On("CheckUpload", f.userID, mock.Anything).Return(nil)
+	h := make([]byte, 32)
+	copy(h[4:], "ftypheic")
+	in := f.upload("v.m4a", h)
+	in.Voice = voiceMeta()
+	_, err := f.uc.Upload(in)
+	assert.ErrorIs(t, err, domain.ErrVoiceInvalid)
+}
+
+func (f *attachFixture) voiceRow(owner uuid.UUID, attached bool) *domain.Attachment {
+	a := &domain.Attachment{ID: uuid.New(), UserID: owner, ChannelID: f.channelID, Kind: domain.AttachmentKindAudio, IsVoice: true}
+	if attached {
+		m := uuid.New()
+		a.MessageID = &m
+	}
+	return a
+}
+
+func TestMarkListenedEmitsEventOnFirstListen(t *testing.T) {
+	f := newAttachFixture(t)
+	att := f.voiceRow(uuid.New(), true)
+	f.repo.On("GetByID", att.ID).Return(att, nil)
+	f.repo.On("MarkListened", att.ID, f.userID).Return(true, nil)
+
+	ev, err := f.uc.MarkListened(att.ID, f.userID)
+
+	require.NoError(t, err)
+	require.NotNil(t, ev)
+	assert.Equal(t, domain.VoiceListened{ChannelID: f.channelID, MessageID: *att.MessageID, AttachmentID: att.ID, UserID: f.userID}, *ev)
+}
+
+func TestMarkListenedRepeatIsSilent(t *testing.T) {
+	f := newAttachFixture(t)
+	att := f.voiceRow(uuid.New(), true)
+	f.repo.On("GetByID", att.ID).Return(att, nil)
+	f.repo.On("MarkListened", att.ID, f.userID).Return(false, nil)
+
+	ev, err := f.uc.MarkListened(att.ID, f.userID)
+
+	require.NoError(t, err)
+	assert.Nil(t, ev)
+}
+
+func TestMarkListenedByAuthorIsNoOp(t *testing.T) {
+	f := newAttachFixture(t)
+	att := f.voiceRow(f.userID, true)
+	f.repo.On("GetByID", att.ID).Return(att, nil)
+
+	ev, err := f.uc.MarkListened(att.ID, f.userID)
+
+	require.NoError(t, err)
+	assert.Nil(t, ev)
+	f.repo.AssertNotCalled(t, "MarkListened", mock.Anything, mock.Anything)
+}
+
+func TestMarkListenedRejectsNonVoiceUnattachedAndForeign(t *testing.T) {
+	f := newAttachFixture(t)
+	notVoice := &domain.Attachment{ID: uuid.New(), ChannelID: f.channelID, Kind: domain.AttachmentKindAudio}
+	draft := f.voiceRow(uuid.New(), false)
+	f.repo.On("GetByID", notVoice.ID).Return(notVoice, nil)
+	f.repo.On("GetByID", draft.ID).Return(draft, nil)
+	for _, id := range []uuid.UUID{notVoice.ID, draft.ID} {
+		_, err := f.uc.MarkListened(id, f.userID)
+		assert.ErrorIs(t, err, domain.ErrAttachmentNotFound)
+	}
+
+	outsider := uuid.New()
+	f.perms.On("Resolve", f.serverID, outsider).Return(domain.PermissionSet{}, nil)
+	att := f.voiceRow(uuid.New(), true)
+	f.repo.On("GetByID", att.ID).Return(att, nil)
+	_, err := f.uc.MarkListened(att.ID, outsider)
+	assert.ErrorIs(t, err, domain.ErrAttachmentNotFound)
+	f.repo.AssertNotCalled(t, "MarkListened", mock.Anything, mock.Anything)
+}

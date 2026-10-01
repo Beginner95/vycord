@@ -1,11 +1,12 @@
-import { useState } from 'react';
 import type { Attachment } from '@/types';
-import { apiService, resolveUploadUrl } from '@/services/api';
+import { resolveUploadUrl } from '@/services/api';
 import { downloadUrl } from '@/utils/attachmentUrl';
 import { Download, FileText, Maximize2 } from 'lucide-react';
 import { AudioPlayer } from './AudioPlayer';
 import { VideoPlayer } from './VideoPlayer';
 import { useT } from '@/i18n';
+import { VoiceMessage } from './VoiceMessage';
+import { useSelfHealingSrc } from '@/hooks/useSelfHealingSrc';
 import './MessageAttachments.css';
 
 interface MessageAttachmentsProps {
@@ -25,20 +26,7 @@ function formatSize(bytes: number): string {
  * и перерисовывает — без ручной перезагрузки.
  */
 function AttachmentImage({ att, onOpen }: { att: Attachment; onOpen: () => void }) {
-  const [src, setSrc] = useState(resolveUploadUrl(att.thumb_url || att.url));
-  const [refreshed, setRefreshed] = useState(false);
-
-  const handleError = async () => {
-    if (refreshed) return;
-    setRefreshed(true);
-    try {
-      const fresh = await apiService.getAttachment(att.id);
-      setSrc(resolveUploadUrl(fresh.thumb_url || fresh.url));
-    } catch {
-      // Вложение удалено или доступ пропал — оставляем сломанную картинку,
-      // подменять её заглушкой смысла нет.
-    }
-  };
+  const { src, onError } = useSelfHealingSrc(att.id, att.thumb_url || att.url, (a) => a.thumb_url || a.url);
 
   return (
     <img
@@ -49,7 +37,7 @@ function AttachmentImage({ att, onOpen }: { att: Attachment; onOpen: () => void 
       height={att.height}
       loading="lazy"
       onClick={onOpen}
-      onError={handleError}
+      onError={onError}
     />
   );
 }
@@ -62,6 +50,14 @@ export function MessageAttachments({ attachments, onOpen }: MessageAttachmentsPr
     <div className={`message-attachments attachment-count-${Math.min(attachments.length, 4)}`}>
       {attachments.map((att, i) => {
         const content = resolveUploadUrl(att.url);
+
+        if (att.is_voice) {
+          return (
+            <div className="attachment-cell is-wide" key={att.id}>
+              <VoiceMessage att={att} />
+            </div>
+          );
+        }
 
         if (att.kind === 'image') {
           return (
@@ -91,7 +87,7 @@ export function MessageAttachments({ attachments, onOpen }: MessageAttachmentsPr
         if (att.kind === 'audio') {
           return (
             <div className="attachment-cell is-wide" key={att.id}>
-              <AudioPlayer src={content ?? ''} fileName={att.file_name} />
+              <AudioPlayer attachmentId={att.id} src={att.url} fileName={att.file_name} />
               <a className="attachment-download" href={downloadUrl(att.url)} aria-label={t('chat.download')} title={t('chat.download')}>
                 <Download size={16} strokeWidth={1.8} />
               </a>

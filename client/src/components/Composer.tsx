@@ -9,7 +9,7 @@ import {
   type FormEvent,
   type KeyboardEvent,
 } from 'react';
-import { Paperclip, SendHorizontal, Smile } from 'lucide-react';
+import { Mic, Paperclip, SendHorizontal, Smile } from 'lucide-react';
 import { FormattingToolbar } from '@/components/FormattingToolbar';
 import { FloatingQuoteButton } from '@/components/FloatingQuoteButton';
 import { MentionDropdown } from '@/components/MentionDropdown';
@@ -18,11 +18,13 @@ import { MobileAttachSheet } from '@/mobile/components/MobileAttachSheet';
 import { MobileExpressionSheet } from '@/mobile/components/MobileExpressionSheet';
 import { useFilePicker } from '@/mobile/hooks/useFilePicker';
 import { LinkDialog } from '@/components/LinkDialog';
+import { VoiceRecorderBar } from '@/components/VoiceRecorderBar';
 import { AttachmentButton } from '@/components/AttachmentButton';
 import { AttachmentTray } from '@/components/AttachmentTray';
 import { useAttachmentUpload } from '@/hooks/useAttachmentUpload';
 import { useMentionAutocomplete } from '@/hooks/useMentionAutocomplete';
 import { useFloatingSelectionToolbar } from '@/hooks/useFloatingSelectionToolbar';
+import { useVoiceRecording } from '@/hooks/useVoiceRecording';
 import {
   toggleQuote,
   toggleBullet,
@@ -34,12 +36,23 @@ import {
 } from '@/utils/textTransforms';
 import { isUnsafeUrl } from '@/utils/markdown';
 import { toWireMentions } from '@/utils/mentions';
-import { useT } from '@/i18n';
+import { useT, type TKey } from '@/i18n';
 import type { ExpressionTab } from '@/stores/expressionRecentsStore';
 import type { Attachment, Channel, MemberWithUser, Sticker as ServerSticker } from '@/types';
+import type { HintKind } from '@/voice/voiceGesture';
+import type { VoiceRecording } from '@/voice/voiceRecorder';
 import './Composer.css';
 
 const QUOTE_PREFIX = '> ';
+
+const HINT_KEYS = {
+  hold: 'voice.hintHold', call: 'voice.hintCall', interrupted: 'voice.hintInterrupted',
+  mic_denied: 'voice.micDenied', mic_not_found: 'voice.micNotFound', mic_failed: 'voice.micFailed',
+} as const satisfies Record<HintKind, TKey>;
+
+/** Только Electron на macOS: разрешение микрофона живёт в «Системных настройках»; в браузере — в настройках сайта. */
+const isElectronMac = () => (window as Window & typeof globalThis).electronAPI?.platform === 'darwin';
+
 
 function lineRangeForSelection(value: string, start: number, end: number) {
   const lineStart = start <= 0 ? 0 : value.lastIndexOf('\n', start - 1) + 1;
@@ -98,6 +111,11 @@ interface ComposerProps {
    * на экранной клавиатуре Enter — перевод строки, отправка — кнопкой.
    */
   enterSends?: boolean;
+  /**
+   * VYC-101: отправка записанного голосового. Без него микрофона нет —
+   * гостевой чат и textOnly-режим голосовые не записывают.
+   */
+  onSendVoice?: (recording: VoiceRecording) => void;
 }
 
 /**
@@ -109,7 +127,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
   {
     channel, members, canMentionEveryone, onSend,
     serverStickers = [], onSendSticker, canManageStickers = false, onOpenStickerManager, textOnly = false,
-    variant = 'desktop', enterSends = true,
+    variant = 'desktop', enterSends = true, onSendVoice,
   },
   ref,
 ) {
@@ -173,6 +191,15 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
     .filter((a): a is Attachment => !!a);
   const filePicker = useFilePicker((files) => uploads.addFiles(files));
   const canSend = !!input.trim() || readyAttachments.length > 0;
+
+  const voiceEnabled = !!onSendVoice && !textOnly;
+  const voice = useVoiceRecording({ channelId: channel.id, onSend: (r) => onSendVoice?.(r) });
+  const voiceActive = voice.state.kind !== 'idle';
+  const showMic = voiceEnabled && !canSend && !voiceActive;
+  // Микрофон остаётся смонтированным в starting/recording, даже если за время
+  // жеста появилось что отправить (догрузилось вложение), — иначе теряется
+  // pointer capture и отпускание не дойдёт. В locked его заменяет полоса.
+  const micMounted = voiceEnabled && voice.state.kind !== 'locked' && (!canSend || voiceActive);
 
   const mention = useMentionAutocomplete({
     value: input,
@@ -363,7 +390,19 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
           placeholder={t('chat.messagePlaceholder', { channel: channel.name })}
           maxLength={2000}
           rows={1}
+          // Не размонтируем: inputRef и фокус-логика завязаны на поле.
+          hidden={voiceActive}
         />
+        {voiceActive && (
+          <VoiceRecorderBar
+            state={voice.state}
+            elapsedMs={voice.elapsedMs}
+            level={voice.level}
+            onDelete={voice.lockedDelete}
+            onSend={voice.lockedSend}
+          />
+        )}
+        {!voiceActive && (<>
         <button
           type="button"
           className={`composer-aa${fmtOpen ? ' is-active' : ''}`}
@@ -409,7 +448,19 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
             <Paperclip size={20} strokeWidth={1.8} />
           </button>
         )}
-        {(!mobile || canSend) && (
+        </>)}
+        {micMounted && (
+          <button
+            type="button"
+            className={`composer-send composer-mic${voiceActive ? ' is-recording' : ''}`}
+            aria-label={t('voice.record')}
+            title={t('voice.recordKeyboardHint')}
+            {...voice.micProps}
+          >
+            <Mic size={17} strokeWidth={1.8} />
+          </button>
+        )}
+        {!showMic && !voiceActive && (!mobile || canSend) && (
           <button
             type="submit"
             className="composer-send"
@@ -423,6 +474,9 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
         <MentionDropdown mention={mention} />
       </form>
       <p className="composer-hint">{t('chat.composerHint')}</p>
+      {voice.hint && (
+        <p className="composer-voice-hint" role="status" aria-live="polite">{t(voice.hint === 'mic_denied' && isElectronMac() ? 'voice.micDeniedMac' : HINT_KEYS[voice.hint])}</p>
+      )}
       {pickerOpen && (() => {
         const noStickers = textOnly || !onSendSticker;
         const tabs: ExpressionTab[] = noStickers ? ['emoji'] : ['emoji', 'stickers'];

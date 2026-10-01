@@ -188,3 +188,24 @@ func TestSweepReturnsZeroWhenNothingToDo(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 0, n)
 }
+
+func (m *MockRepo) ListByIDs(ids []uuid.UUID) ([]*domain.Attachment, error) {
+	args := m.Called(ids)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]*domain.Attachment), args.Error(1)
+}
+
+func (m *MockRepo) MarkListened(attachmentID, userID uuid.UUID) (bool, error) {
+	args := m.Called(attachmentID, userID)
+	return args.Bool(0), args.Error(1)
+}
+
+func (m *MockRepo) ListenedFor(viewerID uuid.UUID, ids []uuid.UUID) (map[uuid.UUID]bool, error) {
+	args := m.Called(viewerID, ids)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(map[uuid.UUID]bool), args.Error(1)
+}

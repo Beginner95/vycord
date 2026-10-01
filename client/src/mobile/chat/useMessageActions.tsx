@@ -4,6 +4,7 @@ import type { ChatMessage } from '@/stores/messageStore';
 import type { MemberWithUser } from '@/types';
 import { toDisplayMentions } from '@/utils/mentions';
 import { useT } from '@/i18n';
+import { isVoiceMessage } from '@/voice/listened';
 
 export interface MessageActionsInput {
   msg: ChatMessage;
@@ -42,7 +43,7 @@ export function useMessageActions(i: MessageActionsInput): ContextMenuItem[] {
       onClick: () => { void navigator.clipboard?.writeText(toDisplayMentions(msg.content, i.members))?.catch(() => {}); },
     });
   }
-  if (i.canModify && !msg.sticker_id) items.push({ label: t('common.edit'), icon: icon(Pencil), onClick: i.onEdit });
+  if (i.canModify && !msg.sticker_id && !isVoiceMessage(msg)) items.push({ label: t('common.edit'), icon: icon(Pencil), onClick: i.onEdit });
   if (i.canModify) items.push({ label: t('common.delete'), icon: icon(Trash2), danger: true, onClick: i.onDelete });
   return items;
 }

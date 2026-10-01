@@ -15,6 +15,13 @@ export interface Attachment {
   url: string;
   /** Только для картинок. */
   thumb_url?: string;
+  /** Голосовое сообщение (VYC-101). Остальные поля ниже есть только у него. */
+  is_voice?: boolean;
+  duration_ms?: number;
+  /** base64 от 64 байт 0–255 — см. voice/waveform.ts. */
+  waveform?: string;
+  /** Для автора — «слушал кто-то», для остальных — «слушал я». У гостей нет. */
+  listened?: boolean;
   created_at: string;
 }
 

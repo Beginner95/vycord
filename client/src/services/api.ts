@@ -4,6 +4,7 @@ import { hasKey, type TFunc, type TKey } from '@/i18n';
 import { decodeJwtExpMs } from '@/utils/jwt';
 import { ACCESS_TOKEN_KEY, REFRESH_TOKEN_KEY } from '@/stores/authStore';
 import { wsService } from '@/services/websocket';
+import { waveformToBase64 } from '@/voice/waveform';
 
 const REFRESH_BUFFER_MS = 60_000;
 
@@ -746,7 +747,7 @@ class ApiService {
   uploadAttachment(
     channelId: string,
     file: File,
-    opts: { onProgress?: (percent: number) => void },
+    opts: { onProgress?: (percent: number) => void; voice?: { durationMs: number; waveform: number[] } },
   ): { promise: Promise<Attachment>; abort: () => void } {
     const xhr = new XMLHttpRequest();
 
@@ -758,6 +759,11 @@ class ApiService {
     const promise = new Promise<Attachment>(async (resolve, reject) => {
       const form = new FormData();
       form.append('channel_id', channelId);
+      if (opts.voice) {
+        form.append('voice', '1');
+        form.append('duration_ms', String(Math.round(opts.voice.durationMs)));
+        form.append('waveform', waveformToBase64(opts.voice.waveform));
+      }
       form.append('file', file, file.name);
 
       // Перед стартом обновляем токен, если он близок к истечению: загрузка
@@ -817,6 +823,11 @@ class ApiService {
   /** Свежая подпись для вложения — им чинится протухшая ссылка на картинку. */
   async getAttachment(id: string) {
     return this.request<Attachment>(`/api/v1/attachments/${id}`);
+  }
+
+  /** Отметка «начал слушать голосовое». Идемпотентна на сервере. */
+  async markVoiceListened(attachmentId: string): Promise<void> {
+    await this.request(`/api/v1/attachments/${attachmentId}/listen`, { method: 'POST' });
   }
 
   // Backgrounds (VYC-100)

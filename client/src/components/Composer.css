@@ -117,6 +117,44 @@
   margin-bottom: 6px;
 }
 
+/* VYC-101: микрофон на месте «Отправить». Жест не должен уходить в скролл/выделение. */
+.composer-mic {
+  touch-action: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+
+/* Три класса — чтобы перебить .composer-send:hover:not(:disabled) порядком:
+   под пальцем/курсором идёт запись, фон остаётся красным. */
+.composer-send.composer-mic.is-recording {
+  background: var(--danger);
+  color: var(--white);
+  transform: scale(1.15);
+  transition: transform var(--transition);
+}
+
+.composer-voice-hint {
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  margin: 0 0 6px;
+  padding: 6px 12px;
+  border-radius: var(--radius-row);
+  background: var(--panel);
+  color: var(--ink);
+  box-shadow: var(--shadow-popover);
+  font-size: 13px;
+
+  /* Длинные подсказки (mac-текст про «Системные настройки») переносятся внутри композера. */
+  width: max-content;
+  max-width: calc(100% - 24px);
+  text-align: center;
+  white-space: normal;
+  pointer-events: none;
+  animation: fade-in var(--transition);
+}
+
 /* ═══ Mobile (board 1f) — safe-area inset + 16px field (iOS zooms below 16px) ═══ */
 @media (width < 900px) {
   .composer-root {

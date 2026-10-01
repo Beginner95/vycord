@@ -3,6 +3,7 @@ package handler_test
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"io"
 	"log/slog"
@@ -59,6 +60,14 @@ func (m *MockAttachmentUseCase) OpenThumb(id uuid.UUID) (*domain.Attachment, io.
 
 func (m *MockAttachmentUseCase) Delete(id, userID uuid.UUID) error {
 	return m.Called(id, userID).Error(0)
+}
+
+func (m *MockAttachmentUseCase) MarkListened(id, userID uuid.UUID) (*domain.VoiceListened, error) {
+	args := m.Called(id, userID)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*domain.VoiceListened), args.Error(1)
 }
 
 type MockQuotaUseCase struct{ mock.Mock }
@@ -463,4 +472,117 @@ func TestUploadAllowsFileNearLimitDespiteEnvelopeOverhead(t *testing.T) {
 
 	assert.Equal(t, http.StatusCreated, rec.Code)
 	uc.AssertExpectations(t)
+}
+
+func newVoiceUploadRequest(t *testing.T, channelID uuid.UUID, duration, waveform string, userID uuid.UUID) *http.Request {
+	t.Helper()
+	var buf bytes.Buffer
+	w := multipart.NewWriter(&buf)
+	require.NoError(t, w.WriteField("channel_id", channelID.String()))
+	require.NoError(t, w.WriteField("voice", "1"))
+	require.NoError(t, w.WriteField("duration_ms", duration))
+	require.NoError(t, w.WriteField("waveform", waveform))
+	fw, err := w.CreateFormFile("file", "voice.webm")
+	require.NoError(t, err)
+	_, _ = fw.Write([]byte("data"))
+	require.NoError(t, w.Close())
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/attachments", &buf)
+	req.Header.Set("Content-Type", w.FormDataContentType())
+	return req.WithContext(context.WithValue(req.Context(), "user_id", userID))
+}
+
+func TestUploadPassesVoiceMetaToUseCase(t *testing.T) {
+	channelID, userID := uuid.New(), uuid.New()
+	wf := base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{7}, 64))
+	uc := new(MockAttachmentUseCase)
+	uc.On("Upload", mock.MatchedBy(func(in domain.AttachmentUpload) bool {
+		return in.Voice != nil && in.Voice.DurationMs == 4200 && len(in.Voice.Waveform) == 64 && in.Voice.Waveform[0] == 7
+	})).Return(&domain.Attachment{ID: uuid.New(), Kind: domain.AttachmentKindAudio, IsVoice: true}, nil)
+
+	rec := httptest.NewRecorder()
+	newAttachmentHandler(uc).Upload(rec, newVoiceUploadRequest(t, channelID, "4200", wf, userID))
+
+	assert.Equal(t, http.StatusCreated, rec.Code)
+	uc.AssertExpectations(t)
+}
+
+func TestUploadRejectsMalformedVoiceFields(t *testing.T) {
+	for _, tc := range []struct{ duration, waveform string }{
+		{"abc", base64.StdEncoding.EncodeToString(make([]byte, 64))},
+		{"4200", "%%%не-base64%%%"},
+	} {
+		uc := new(MockAttachmentUseCase)
+		rec := httptest.NewRecorder()
+		newAttachmentHandler(uc).Upload(rec, newVoiceUploadRequest(t, uuid.New(), tc.duration, tc.waveform, uuid.New()))
+		assert.Equal(t, http.StatusBadRequest, rec.Code)
+		assert.Contains(t, rec.Body.String(), "voice_invalid")
+		uc.AssertNotCalled(t, "Upload", mock.Anything)
+	}
+}
+
+func TestUploadMapsVoiceInvalidTo400(t *testing.T) {
+	uc := new(MockAttachmentUseCase)
+	uc.On("Upload", mock.Anything).Return(nil, domain.ErrVoiceInvalid)
+	rec := httptest.NewRecorder()
+	wf := base64.StdEncoding.EncodeToString(make([]byte, 64))
+	newAttachmentHandler(uc).Upload(rec, newVoiceUploadRequest(t, uuid.New(), "10", wf, uuid.New()))
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Contains(t, rec.Body.String(), "voice_invalid")
+}
+
+func TestUploadWithoutVoiceFieldLeavesVoiceNil(t *testing.T) {
+	uc := new(MockAttachmentUseCase)
+	uc.On("Upload", mock.MatchedBy(func(in domain.AttachmentUpload) bool { return in.Voice == nil })).
+		Return(&domain.Attachment{ID: uuid.New()}, nil)
+	rec := httptest.NewRecorder()
+	newAttachmentHandler(uc).Upload(rec, newUploadRequest(t, uuid.New(), "a.bin", []byte("x"), uuid.New()))
+	assert.Equal(t, http.StatusCreated, rec.Code)
+	uc.AssertExpectations(t)
+}
+
+func newListenRequest(t *testing.T, id string, userID uuid.UUID) *http.Request {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/attachments/"+id+"/listen", nil)
+	req.SetPathValue("id", id)
+	return req.WithContext(context.WithValue(req.Context(), "user_id", userID))
+}
+
+func TestMarkListenedNotifiesAndReturns204(t *testing.T) {
+	id, userID := uuid.New(), uuid.New()
+	ev := &domain.VoiceListened{ChannelID: uuid.New(), MessageID: uuid.New(), AttachmentID: id, UserID: userID}
+	uc := new(MockAttachmentUseCase)
+	uc.On("MarkListened", id, userID).Return(ev, nil)
+	h := newAttachmentHandler(uc)
+	var got *domain.VoiceListened
+	h.SetVoiceListenedNotifier(func(e *domain.VoiceListened) { got = e })
+
+	rec := httptest.NewRecorder()
+	h.MarkListened(rec, newListenRequest(t, id.String(), userID))
+
+	assert.Equal(t, http.StatusNoContent, rec.Code)
+	assert.Equal(t, ev, got)
+}
+
+func TestMarkListenedWithoutEventDoesNotNotify(t *testing.T) {
+	id, userID := uuid.New(), uuid.New()
+	uc := new(MockAttachmentUseCase)
+	uc.On("MarkListened", id, userID).Return(nil, nil)
+	h := newAttachmentHandler(uc)
+	called := false
+	h.SetVoiceListenedNotifier(func(*domain.VoiceListened) { called = true })
+
+	rec := httptest.NewRecorder()
+	h.MarkListened(rec, newListenRequest(t, id.String(), userID))
+
+	assert.Equal(t, http.StatusNoContent, rec.Code)
+	assert.False(t, called)
+}
+
+func TestMarkListenedMapsNotFoundTo404(t *testing.T) {
+	id, userID := uuid.New(), uuid.New()
+	uc := new(MockAttachmentUseCase)
+	uc.On("MarkListened", id, userID).Return(nil, domain.ErrAttachmentNotFound)
+	rec := httptest.NewRecorder()
+	newAttachmentHandler(uc).MarkListened(rec, newListenRequest(t, id.String(), userID))
+	assert.Equal(t, http.StatusNotFound, rec.Code)
 }

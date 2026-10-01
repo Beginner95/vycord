@@ -58,6 +58,9 @@ func (uc *attachmentUseCase) Upload(in domain.AttachmentUpload) (*domain.Attachm
 	if _, err := uc.requirePermission(in.ChannelID, in.UserID, domain.PermSendMessages); err != nil {
 		return nil, err
 	}
+	if in.Voice != nil && !in.Voice.Valid() {
+		return nil, domain.ErrVoiceInvalid
+	}
 
 	// Лимит — только через QuotaUseCase: никаких констант размера здесь.
 	if err := uc.quota.CheckUpload(in.UserID, in.Size); err != nil {
@@ -72,7 +75,17 @@ func (uc *attachmentUseCase) Upload(in domain.AttachmentUpload) (*domain.Attachm
 	head = head[:n]
 
 	safeName := filename.Sanitize(in.FileName)
+	if in.Voice != nil {
+		name, ok := VoiceFileName(head)
+		if !ok {
+			return nil, domain.ErrVoiceInvalid
+		}
+		safeName = name
+	}
 	kind, contentType := DetectKind(head, safeName)
+	if in.Voice != nil && kind != domain.AttachmentKindAudio {
+		return nil, domain.ErrVoiceInvalid
+	}
 
 	id := uuid.New()
 	ext := strings.ToLower(strings.TrimPrefix(filepath.Ext(safeName), "."))
@@ -92,6 +105,12 @@ func (uc *attachmentUseCase) Upload(in domain.AttachmentUpload) (*domain.Attachm
 		// коллизий, ни обхода каталога быть не может.
 		StorageKey: fmt.Sprintf("attachments/%s/%s.%s", in.ChannelID, id, ext),
 		CreatedAt:  time.Now(),
+	}
+	if in.Voice != nil {
+		d := in.Voice.DurationMs
+		att.IsVoice = true
+		att.DurationMs = &d
+		att.Waveform = in.Voice.Waveform
 	}
 
 	// Для картинок получаем размеры и миниатюру.
@@ -229,4 +248,32 @@ func (uc *attachmentUseCase) Delete(id, userID uuid.UUID) error {
 		_ = uc.storage.Delete(ctx, att.ThumbKey)
 	}
 	return nil
+}
+
+func (uc *attachmentUseCase) MarkListened(id, userID uuid.UUID) (*domain.VoiceListened, error) {
+	att, err := uc.repo.GetByID(id)
+	if err != nil {
+		return nil, err
+	}
+	// Черновик (ещё не в сообщении) и не-голосовое прослушанными не бывают.
+	if !att.IsVoice || att.MessageID == nil {
+		return nil, domain.ErrAttachmentNotFound
+	}
+	// Как GetForUser: без права на канал — «не найдено», чтобы не
+	// подтверждать существование вложения постороннему.
+	if _, err := uc.requirePermission(att.ChannelID, userID, domain.PermViewChannels); err != nil {
+		return nil, domain.ErrAttachmentNotFound
+	}
+	// Прослушивание автором не считается (spec §1.5) и не пишется.
+	if att.UserID == userID {
+		return nil, nil
+	}
+	inserted, err := uc.repo.MarkListened(id, userID)
+	if err != nil {
+		return nil, fmt.Errorf("mark listened: %w", err)
+	}
+	if !inserted {
+		return nil, nil
+	}
+	return &domain.VoiceListened{ChannelID: att.ChannelID, MessageID: *att.MessageID, AttachmentID: att.ID, UserID: userID}, nil
 }

@@ -21,14 +21,15 @@ func NewAttachmentRepository(db *pgxpool.Pool) domain.AttachmentRepository {
 }
 
 const attachmentColumns = `id, user_id, channel_id, message_id, kind, file_name,
-	content_type, size_bytes, storage_key, thumb_key, width, height, expires_at, created_at`
+	content_type, size_bytes, storage_key, thumb_key, width, height, expires_at, created_at,
+	is_voice, duration_ms, waveform`
 
 func scanAttachment(row pgx.Row) (*domain.Attachment, error) {
 	a := &domain.Attachment{}
 	var thumbKey *string
 	err := row.Scan(&a.ID, &a.UserID, &a.ChannelID, &a.MessageID, &a.Kind, &a.FileName,
 		&a.ContentType, &a.SizeBytes, &a.StorageKey, &thumbKey, &a.Width, &a.Height,
-		&a.ExpiresAt, &a.CreatedAt)
+		&a.ExpiresAt, &a.CreatedAt, &a.IsVoice, &a.DurationMs, &a.Waveform)
 	if err != nil {
 		return nil, err
 	}
@@ -51,12 +52,13 @@ func (r *attachmentRepository) Create(a *domain.Attachment) error {
 
 	query := `
 		INSERT INTO attachments (id, user_id, channel_id, message_id, kind, file_name,
-			content_type, size_bytes, storage_key, thumb_key, width, height, expires_at, created_at)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+			content_type, size_bytes, storage_key, thumb_key, width, height, expires_at, created_at,
+			is_voice, duration_ms, waveform)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
 	`
 	_, err := r.db.Exec(ctx, query, a.ID, a.UserID, a.ChannelID, a.MessageID, a.Kind,
 		a.FileName, a.ContentType, a.SizeBytes, a.StorageKey, thumbKey, a.Width, a.Height,
-		a.ExpiresAt, a.CreatedAt)
+		a.ExpiresAt, a.CreatedAt, a.IsVoice, a.DurationMs, a.Waveform)
 	if err != nil {
 		return fmt.Errorf("failed to create attachment: %w", err)
 	}
@@ -224,4 +226,71 @@ func (r *attachmentRepository) TotalBytesByUser(userID uuid.UUID) (int64, error)
 		return 0, fmt.Errorf("failed to sum attachment sizes: %w", err)
 	}
 	return total, nil
+}
+
+func (r *attachmentRepository) ListByIDs(ids []uuid.UUID) ([]*domain.Attachment, error) {
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	rows, err := r.db.Query(ctx, `SELECT `+attachmentColumns+` FROM attachments WHERE id = ANY($1)`, ids)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list attachments by id: %w", err)
+	}
+	defer rows.Close()
+
+	var out []*domain.Attachment
+	for rows.Next() {
+		a, err := scanAttachment(rows)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan attachment: %w", err)
+		}
+		out = append(out, a)
+	}
+	return out, rows.Err()
+}
+
+func (r *attachmentRepository) MarkListened(attachmentID, userID uuid.UUID) (bool, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	tag, err := r.db.Exec(ctx, `
+		INSERT INTO voice_listens (attachment_id, user_id) VALUES ($1, $2)
+		ON CONFLICT (attachment_id, user_id) DO NOTHING`, attachmentID, userID)
+	if err != nil {
+		return false, fmt.Errorf("failed to mark voice listened: %w", err)
+	}
+	return tag.RowsAffected() == 1, nil
+}
+
+// ListenedFor — одним запросом на пачку. Прослушивания автора не пишутся,
+// поэтому для автора условие a.user_id = viewer означает «слушал кто-то другой».
+func (r *attachmentRepository) ListenedFor(viewerID uuid.UUID, attachmentIDs []uuid.UUID) (map[uuid.UUID]bool, error) {
+	out := make(map[uuid.UUID]bool, len(attachmentIDs))
+	if len(attachmentIDs) == 0 {
+		return out, nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	rows, err := r.db.Query(ctx, `
+		SELECT a.id FROM attachments a
+		WHERE a.id = ANY($2) AND a.is_voice
+		  AND EXISTS (SELECT 1 FROM voice_listens l
+		              WHERE l.attachment_id = a.id
+		                AND (a.user_id = $1 OR l.user_id = $1))`, viewerID, attachmentIDs)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query voice listens: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id uuid.UUID
+		if err := rows.Scan(&id); err != nil {
+			return nil, fmt.Errorf("failed to scan voice listen: %w", err)
+		}
+		out[id] = true
+	}
+	return out, rows.Err()
 }
