@@ -1,17 +1,29 @@
-import { useRef, type KeyboardEvent, type PointerEvent } from 'react';
+import { useEffect, useRef, useState, type KeyboardEvent, type PointerEvent } from 'react';
 import { useT } from '@/i18n';
 import { formatTime } from '@/utils/formatTime';
+import { barsForWidth, resampleWaveform, WAVEFORM_LEN } from '@/voice/waveform';
 
 interface Props { values: number[]; progress: number; durationSec: number; onSeek(fraction: number): void }
 
 const STEP_SEC = 5;
 
-/** Волна голосового: 64 столбика, клик/перетаскивание и стрелки — перемотка. */
+/**
+ * Волна голосового: до 64 столбиков (на узком экране — сколько влезает),
+ * клик/перетаскивание и стрелки — перемотка.
+ */
 export function VoiceWaveform({ values, progress, durationSec, onSeek }: Props) {
   const t = useT();
   const ref = useRef<HTMLDivElement>(null);
   const dragging = useRef(false);
-  const bars = values.length ? values : new Array(64).fill(0);
+  const [width, setWidth] = useState(0);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver((entries) => setWidth(entries[0]?.contentRect.width ?? 0));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+  const bars = resampleWaveform(values.length ? values : new Array(WAVEFORM_LEN).fill(0), barsForWidth(width));
   const played = Math.round(progress * bars.length);
 
   const fractionAt = (clientX: number) => {

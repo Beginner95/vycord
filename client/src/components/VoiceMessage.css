@@ -40,6 +40,7 @@
   align-items: center;
   gap: 2px;
   height: 28px;
+  overflow: hidden;
   cursor: pointer;
   touch-action: none;
   border-radius: var(--radius-chip);
@@ -48,7 +49,7 @@
 .voice-msg-bar {
   flex: 1;
   height: var(--voice-bar-h, 12%);
-  min-width: 2px;
+  min-width: 2px; /* BAR_PX/GAP_PX в voice/waveform.ts — менять вместе */
   border-radius: var(--radius-pill);
   background: var(--muted-2);
 }

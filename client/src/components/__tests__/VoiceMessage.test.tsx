@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, fireEvent, screen, cleanup } from '@testing-library/react';
+import { render, fireEvent, screen, cleanup, act } from '@testing-library/react';
 import { VoiceMessage } from '@/components/VoiceMessage';
 import { apiService } from '@/services/api';
 import { useAuthStore } from '@/stores/authStore';
@@ -29,6 +29,25 @@ describe('VoiceMessage', () => {
     const { container } = render(<VoiceMessage att={att()} />);
     expect(container.querySelectorAll('.voice-msg-bar')).toHaveLength(64);
     expect(container.querySelector('.voice-msg-time')?.textContent).toBe('0:04');
+  });
+
+  it('узкая волна — меньше столбиков, чтобы не вылезать за пузырь', () => {
+    let cb: ResizeObserverCallback = () => {};
+    const disconnect = vi.fn();
+    vi.stubGlobal('ResizeObserver', class {
+      constructor(fn: ResizeObserverCallback) { cb = fn; }
+      observe() {}
+      disconnect = disconnect;
+    });
+    try {
+      const { container, unmount } = render(<VoiceMessage att={att()} />);
+      act(() => cb([{ contentRect: { width: 150 } } as ResizeObserverEntry], {} as ResizeObserver));
+      expect(container.querySelectorAll('.voice-msg-bar')).toHaveLength(38);
+      unmount();
+      expect(disconnect).toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it('infinite duration falls back: Infinity у <audio> не показывается', () => {
