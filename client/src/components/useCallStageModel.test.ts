@@ -11,7 +11,7 @@ import { stubBrowser } from './__tests__/callHarness';
 // это только чистые куски (форматирование, производные булевы, резолв имени),
 // полный цикл эффектов уже покрыт T1's DOM-тестами через CallStage.
 vi.mock('@/services/groupCall', () => ({
-  groupCallService: { localStreamState: null, screenStreamState: null, toggleMuteAudio: vi.fn(), toggleMuteVideo: vi.fn(), stopScreenShare: vi.fn(), startScreenShare: vi.fn(), watchShare: vi.fn(), unwatchShare: vi.fn() },
+  groupCallService: { localStreamState: null, screenStreamState: null, cameraInputState: null, subscribeCameraInput: () => () => {}, toggleMuteAudio: vi.fn(), toggleMuteVideo: vi.fn(), stopScreenShare: vi.fn(), startScreenShare: vi.fn(), watchShare: vi.fn(), unwatchShare: vi.fn() },
 }));
 vi.mock('@/services/callBus', () => ({ callBus: { send: vi.fn(), on: vi.fn(() => () => {}) } }));
 vi.mock('@/services/api', async (orig) => {

@@ -5,6 +5,8 @@ import { render, cleanup, act } from '@testing-library/react';
 const fakeService = vi.hoisted(() => ({
   localStreamState: null as unknown,
   screenStreamState: null as unknown,
+  cameraInputState: null,
+  subscribeCameraInput: () => () => {},
   toggleMuteAudio: vi.fn(() => true),
   toggleMuteVideo: vi.fn(),
   stopScreenShare: vi.fn(),

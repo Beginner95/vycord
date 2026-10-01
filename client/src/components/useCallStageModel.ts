@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useSyncExternalStore } from 'react';
 import { useAuthStore } from '@/stores/authStore';
 import { useCallStore, callWatchState } from '@/stores/callStore';
 import type { CallStatus, RemoteParticipant } from '@/stores/callStore';
@@ -298,13 +298,23 @@ export function useCallStageModel({ onLeave, externalAudio = false }: CallStageM
   const qualityByUser = useCallStore((s) => s.qualityByUser);
   const localQuality = useCallStore((s) => s.localQuality);
 
+  // Включение камеры захватывает её заново: трек меняется внутри того же
+  // localStream, а Safari такую подмену в <video> не перерисовывает —
+  // переприсваиваем srcObject на каждую смену захвата.
+  const cameraInput = useSyncExternalStore(
+    groupCallService.subscribeCameraInput,
+    () => groupCallService.cameraInputState,
+  );
   useEffect(() => {
-    if (!localVideoRef.current) return;
+    const el = localVideoRef.current;
+    if (!el) return;
     const stream = isScreenSharing
       ? groupCallService.screenStreamState
       : groupCallService.localStreamState;
-    if (stream) localVideoRef.current.srcObject = stream;
-  }, [isInGroupCall, isScreenSharing, focusedUserId]);
+    if (!stream) return;
+    if (el.srcObject === stream) el.srcObject = null;
+    el.srcObject = stream;
+  }, [isInGroupCall, isScreenSharing, focusedUserId, cameraInput]);
 
   // Attach remote streams after React commits the video elements to DOM.
   // This is the primary attachment path — by the time this effect runs,

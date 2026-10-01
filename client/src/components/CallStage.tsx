@@ -1,5 +1,5 @@
 import { createPortal } from 'react-dom';
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import {
   Layers, Maximize2, Minimize2, Mic, MicOff, Video, VideoOff,
   MonitorUp, PhoneOff, X, LayoutGrid, UserPlus,
@@ -45,14 +45,29 @@ export function CallStage({ onLeave, extraControls }: CallStageProps) {
   const bgMode = useBackgroundStore((s) => s.mode);
   const bgId = useBackgroundStore((s) => s.backgroundId);
 
-  useVideoEffects(
-    m.isInGroupCall ? groupCallService.localStreamState : null,
+  // Вход эффекта — сырая камера, а не localStream: при подменённом канвасе
+  // localStream несёт выход самого движка, а выключенная камера освобождена
+  // (null) — повторный захват приходит новым потоком, и конвейер пересобирается.
+  const cameraInput = useSyncExternalStore(
+    groupCallService.subscribeCameraInput,
+    () => groupCallService.cameraInputState,
+  );
+  const { status: effectStatus } = useVideoEffects(
+    m.isInGroupCall ? cameraInput : null,
     bgMode,
     bgId,
     useCallback((track) => {
       void groupCallService.setCameraOutput(track);
     }, []),
   );
+  // Пока эффект включён, заново захваченная камера ждёт за чёрной заглушкой
+  // его канвас — сырой кадр в эфир не уходит. Ошибка модели или уход со
+  // сцены снимают ожидание: тогда в эфир идёт сама камера.
+  const effectWanted = m.isInGroupCall && bgMode !== 'none' && effectStatus !== 'error';
+  useEffect(() => {
+    groupCallService.setCameraEffectWanted(effectWanted);
+    return () => groupCallService.setCameraEffectWanted(false);
+  }, [effectWanted]);
 
   if (!m.isInGroupCall) return null;
 

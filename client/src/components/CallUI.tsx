@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useSyncExternalStore } from 'react';
 import { Layers, Mic, MicOff, Phone, PhoneOff, Video, VideoOff } from 'lucide-react';
 import { BackgroundPicker } from '@/components/call/BackgroundPicker';
 import { useAuthStore } from '@/stores/authStore';
@@ -54,12 +54,18 @@ export function CallUI() {
         setRemoteStream(null);
         setIsMuted(false);
         setIsMicAvailable(true);
-        setIsVideoOff(false);
+        // Каждый звонок начинается с выключенной (освобождённой) камерой.
+        setIsVideoOff(true);
         setRemoteMicMuted(false);
       },
       onError: (msg) => {
         audioService.stopRingtone();
         setError(msg);
+        setTimeout(() => setError(null), 5000);
+      },
+      onCameraFailed: () => {
+        setIsVideoOff(true);
+        setError(t('call.cameraStartFailed'));
         setTimeout(() => setError(null), 5000);
       },
     });
@@ -160,14 +166,24 @@ export function CallUI() {
     return () => { unsubMuted(); unsubUnmuted(); };
   }, [activeCall]);
 
-  useVideoEffects(
-    activeCall ? callService.localStreamState : null,
+  // Вход эффекта — сырая камера (null, пока она освобождена), см. CallStage.
+  const cameraInput = useSyncExternalStore(
+    callService.subscribeCameraInput,
+    () => callService.cameraInputState,
+  );
+  const { status: effectStatus } = useVideoEffects(
+    activeCall ? cameraInput : null,
     bgMode,
     bgId,
     useCallback((track) => {
       void callService.setCameraOutput(track);
     }, []),
   );
+  const effectWanted = activeCall !== null && bgMode !== 'none' && effectStatus !== 'error';
+  useEffect(() => {
+    callService.setCameraEffectWanted(effectWanted);
+    return () => callService.setCameraEffectWanted(false);
+  }, [effectWanted]);
 
   // If no active call or incoming call, don't render anything
   if (!activeCall && !incomingCall) {
