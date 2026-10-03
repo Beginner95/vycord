@@ -4,7 +4,7 @@ import type { ExpressionPickerProps } from '@/components/ExpressionPicker';
 import { useT } from '@/i18n';
 import './MobileExpressionSheet.css';
 
-export function MobileExpressionSheet({ onClose, ...body }: ExpressionPickerProps) {
+export function MobileExpressionSheet({ onClose, className, ...body }: ExpressionPickerProps) {
   const t = useT();
   return (
     <BottomSheet open onClose={onClose} title={t('mobile.attachEmoji')}>

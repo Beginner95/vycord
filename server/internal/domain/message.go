@@ -39,9 +39,11 @@ type Message struct {
 	CallParticipantIDs []uuid.UUID `json:"call_participant_ids,omitempty"`
 	// CallGuestCount — число гостей, которых впускали в этот звонок (только
 	// для Kind == "call"). Плашка звонка показывает «и N гостей».
-	CallGuestCount int       `json:"call_guest_count,omitempty"`
-	CreatedAt      time.Time `json:"created_at"`
-	UpdatedAt      time.Time `json:"updated_at"`
+	CallGuestCount int `json:"call_guest_count,omitempty"`
+	// Reactions — снимок реакций (VYC-106). Заполняется там же, где вложения.
+	Reactions []Reaction `json:"reactions,omitempty"`
+	CreatedAt time.Time  `json:"created_at"`
+	UpdatedAt time.Time  `json:"updated_at"`
 }
 
 // MessageGuest — автор-гость сообщения, как его видят участники канала.
@@ -137,4 +139,6 @@ type GuestChatMessage struct {
 	Attachments []*Attachment   `json:"attachments,omitempty"`
 	StickerID   *uuid.UUID      `json:"sticker_id,omitempty"`
 	Sticker     *Sticker        `json:"sticker,omitempty"`
+	// Reactions — без user_ids: гостю не отдаются идентификаторы участников.
+	Reactions []Reaction `json:"reactions,omitempty"`
 }

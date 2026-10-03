@@ -3,6 +3,7 @@ import { Composer, type ComposerHandle } from '@/components/Composer';
 import { MessageRow } from '@/components/MessageRow';
 import { DayDivider } from '@/components/DayDivider';
 import { MediaLightbox, pickLightboxMedia } from '@/components/MediaLightbox';
+import type { MessageRowReactions } from '@/components/MessageReactions';
 import { useGuestCallStore } from '@/stores/guestCallStore';
 import type { ChatMessage } from '@/stores/messageStore';
 import type { GuestChatMessage } from '@/services/guestApi';
@@ -23,10 +24,14 @@ function toChatMessage(m: GuestChatMessage, channelId: string): ChatMessage {
     attachments: m.attachments,
     sticker_id: m.sticker_id,
     sticker: m.sticker,
+    reactions: m.reactions,
     created_at: m.created_at,
     updated_at: m.updated_at ?? m.created_at,
   };
 }
+
+/** Гость реакции только видит: без кликов, без имён (VYC-106). */
+const GUEST_REACTIONS: MessageRowReactions = { canReact: false, showReactors: false, inlinePicker: false, onToggle: () => {} };
 
 /** Тело гостевого чата — та же лента (MessageRow) с тем же композером в режиме
  *  «только текст», что была встроена в `GuestCallView`. Используется и
@@ -99,6 +104,7 @@ export function GuestChatBody() {
                 members={members}
                 canMentionEveryone={false}
                 canModify={false}
+                reactions={GUEST_REACTIONS}
                 onStartEdit={() => {}}
                 onCancelEdit={() => {}}
                 onSaveEdit={async () => {}}

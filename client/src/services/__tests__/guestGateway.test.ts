@@ -84,6 +84,19 @@ describe('guestGateway', () => {
     });
   });
 
+  it('translates message_reactions', () => {
+    const events: GuestGatewayEvent[] = [];
+    guestGateway.connect('t', (e) => events.push(e));
+    const socket = FakeSocket.last!;
+    socket.open();
+    socket.deliver('message_reactions', { message_id: 'm1', reactions: [{ key: '👍', emoji: '👍', count: 2 }] });
+    socket.deliver('message_reactions', { message_id: 'm1' });
+    expect(events).toEqual([
+      { type: 'message_reactions', message_id: 'm1', reactions: [{ key: '👍', emoji: '👍', count: 2 }] },
+      { type: 'message_reactions', message_id: 'm1', reactions: [] },
+    ]);
+  });
+
   it('stops reconnecting after a terminal event', () => {
     guestGateway.connect('t', () => {});
     const socket = FakeSocket.last!;

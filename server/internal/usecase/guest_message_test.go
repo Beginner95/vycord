@@ -16,7 +16,7 @@ import (
 
 func guestMessageUseCase(msgRepo *MockMessageRepository, perms *MockPermissionUseCase) domain.MessageUseCase {
 	return usecase.NewMessageUseCase(msgRepo, new(MockChannelRepository), new(MockServerRepository),
-		&MockStickerRepository{}, perms, new(MockAttachmentRepository), new(MockStorage))
+		&MockStickerRepository{}, perms, new(MockAttachmentRepository), nil, new(MockStorage))
 }
 
 func admittedGuest(channelID uuid.UUID, admittedAt time.Time) *domain.GuestContext {
@@ -147,7 +147,7 @@ func TestDeleteGuestMessage(t *testing.T) {
 		perms := permsWith(serverID, userID, domain.PermSendMessages)
 
 		uc := usecase.NewMessageUseCase(msgRepo, chRepo, new(MockServerRepository), &MockStickerRepository{},
-			perms, new(MockAttachmentRepository), new(MockStorage))
+			perms, new(MockAttachmentRepository), nil, new(MockStorage))
 		assert.ErrorIs(t, uc.DeleteMessage(channelID, messageID, userID), domain.ErrForbidden)
 		msgRepo.AssertNotCalled(t, "Delete", mock.Anything)
 	})
@@ -164,7 +164,7 @@ func TestDeleteGuestMessage(t *testing.T) {
 		perms := permsWith(serverID, userID, domain.PermAdministrator)
 
 		uc := usecase.NewMessageUseCase(msgRepo, chRepo, new(MockServerRepository), &MockStickerRepository{},
-			perms, attachRepo, new(MockStorage))
+			perms, attachRepo, nil, new(MockStorage))
 		require.NoError(t, uc.DeleteMessage(channelID, messageID, userID))
 	})
 
@@ -177,7 +177,7 @@ func TestDeleteGuestMessage(t *testing.T) {
 		perms := permsWith(serverID, userID, domain.PermAdministrator)
 
 		uc := usecase.NewMessageUseCase(msgRepo, chRepo, new(MockServerRepository), &MockStickerRepository{},
-			perms, new(MockAttachmentRepository), new(MockStorage))
+			perms, new(MockAttachmentRepository), nil, new(MockStorage))
 		assert.ErrorIs(t, uc.DeleteMessage(channelID, messageID, userID), domain.ErrForbidden)
 	})
 }
@@ -199,7 +199,7 @@ func TestListGuestMessagesCarriesAttachments(t *testing.T) {
 		Return(map[uuid.UUID][]*domain.Attachment{withFile.ID: {file}}, nil)
 
 	uc := usecase.NewMessageUseCase(msgRepo, new(MockChannelRepository), new(MockServerRepository),
-		&MockStickerRepository{}, new(MockPermissionUseCase), attachRepo, new(MockStorage))
+		&MockStickerRepository{}, new(MockPermissionUseCase), attachRepo, nil, new(MockStorage))
 	list, err := uc.ListGuestMessages(gc, nil, 0)
 	require.NoError(t, err)
 

@@ -1,9 +1,9 @@
-import { Fragment, useState, useEffect, useRef, useCallback, type DragEvent, type ReactNode } from 'react';
+import { Fragment, useState, useEffect, useRef, useCallback, useMemo, type DragEvent, type ReactNode } from 'react';
 import { ArrowDown, Hash, Headphones, Mic, Plus, Search, Users } from 'lucide-react';
 import { useMessageStore, type ChatMessage } from '@/stores/messageStore';
 import { useUnreadStore, firstUnreadId } from '@/stores/unreadStore';
 import { StickerManager } from '@/components/StickerManager';
-import type { Message } from '@/types';
+import type { Message, Reaction } from '@/types';
 import { apiService, apiErrorText, ApiError } from '@/services/api';
 import { wsService } from '@/services/websocket';
 import { useServerStore } from '@/stores/serverStore';
@@ -20,10 +20,15 @@ import { MessageSearch } from '@/components/MessageSearch';
 import { MobileMessageSearch } from '@/mobile/components/MobileMessageSearch';
 import { BackDismissGate } from '@/mobile/sheets/BackDismissGate';
 import { MessageActionsSheet } from '@/mobile/chat/MessageActionsSheet';
+import { ReactorsSheet } from '@/mobile/chat/ReactorsSheet';
+import { MobileExpressionSheet } from '@/mobile/components/MobileExpressionSheet';
 import { BottomSheet } from '@/mobile/sheets/BottomSheet';
 import { ReadersDialog, ReadersList } from '@/components/ReadersDialog';
 import { canViewReaders } from '@/utils/readers';
 import { MessageRow } from '@/components/MessageRow';
+import type { MessageRowReactions } from '@/components/MessageReactions';
+import { stickerReactionKey } from '@/utils/reactions';
+import { useMessageReactions } from '@/hooks/useMessageReactions';
 import { CallEventRow } from '@/components/CallEventRow';
 import { Composer, type ComposerHandle } from '@/components/Composer';
 import { FloatingQuoteButton } from '@/components/FloatingQuoteButton';
@@ -120,6 +125,8 @@ export function ChatArea({
   const openSearch = () => { setSearchSeed(null); setSearchOpen(true); };
   const closeSearch = () => { setSearchOpen(false); setSearchSeed(null); };
   const [actionsMsg, setActionsMsg] = useState<ChatMessage | null>(null);
+  const [reactionSheetFor, setReactionSheetFor] = useState<string | null>(null);
+  const [reactorsFor, setReactorsFor] = useState<Reaction | null>(null);
   const [readersFor, setReadersFor] = useState<string | null>(null);
   const paletteCommand = usePaletteStore((s) => s.command);
   const clearPaletteCommand = usePaletteStore((s) => s.clearCommand);
@@ -127,6 +134,9 @@ export function ChatArea({
   const [highlightedId, setHighlightedId] = useState<string | null>(null);
   const [stickerManagerOpen, setStickerManagerOpen] = useState(false);
   const [serverStickers, setServerStickers] = useState<Sticker[]>([]);
+  // Сервер, для которого serverStickers реально загружен (null — ещё нет / сбой).
+  const [stickersServerId, setStickersServerId] = useState<string | null>(null);
+  const [reactionPicker, setReactionPicker] = useState<{ messageId: string; placement: 'above' | 'below' } | null>(null);
 
   // Drag-and-drop is a column-level concern (the scrim covers the whole chat
   // area, not just the composer), so ChatArea calls the upload hook too. The
@@ -214,6 +224,7 @@ export function ChatArea({
   const readersAllowed = (m: ChatMessage) => !m.deliveryState && canViewReaders(m, user?.id, permissions);
   const canMentionEveryone = can(permissions, PERMISSIONS.MENTION_EVERYONE);
   const canManageStickers = can(permissions, PERMISSIONS.MANAGE_SERVER);
+  const canReact = can(permissions, PERMISSIONS.SEND_MESSAGES);
 
   // Прокрутка к низу (см. useStickToBottom): при входе в канал — мгновенно и
   // после отрисовки списка именно ЭТОГО канала (не скелетон и не хвост
@@ -315,7 +326,7 @@ export function ChatArea({
     const sid = currentServer?.id;
     if (sid) {
       apiService.listStickers(sid).then((s) => {
-        if (sid === currentServer?.id) setServerStickers(s);
+        if (sid === currentServer?.id) { setServerStickers(s); setStickersServerId(sid); }
       }).catch(() => {});
     }
   }, [currentServer?.id]);
@@ -472,6 +483,31 @@ logger.error('Failed to jump to message:', err, { module: 'chat' });
     setSendError(apiErrorText(err, t));
     setTimeout(() => setSendError(null), 5000);
   };
+
+  const reportReactionError = useCallback((err: unknown) => {
+    setSendError(apiErrorText(err, t));
+    setTimeout(() => setSendError(null), 5000);
+  }, [t]);
+  const { toggle: toggleReaction } = useMessageReactions(channel?.id, user?.id, reportReactionError);
+  const stickersLoaded = !!currentServer && stickersServerId === currentServer.id;
+  const knownStickerIds = useMemo(
+    () => (stickersLoaded ? new Set(serverStickers.map((s) => s.id)) : undefined),
+    [stickersLoaded, serverStickers],
+  );
+  const onTogglePicker = useCallback((messageId: string, placement: 'above' | 'below' | null) => {
+    setReactionPicker(placement ? { messageId, placement } : null);
+  }, []);
+  const reactionsBinding = useMemo<MessageRowReactions>(() => ({
+    canReact,
+    showReactors: messageActions !== 'sheet',
+    inlinePicker: messageActions !== 'sheet',
+    knownStickerIds,
+    stickers: currentServer ? { serverId: currentServer.id, items: serverStickers } : undefined,
+    onToggle: (messageId, key, sticker) => { void toggleReaction(messageId, key, sticker); },
+    openPicker: reactionPicker,
+    onTogglePicker,
+    onShowReactors: messageActions === 'sheet' ? (_id, r) => setReactorsFor(r) : undefined,
+  }), [canReact, messageActions, knownStickerIds, currentServer, serverStickers, toggleReaction, reactionPicker, onTogglePicker]);
 
   /**
    * Composer's send callback (Task 11: optimistic). The row is added right
@@ -872,6 +908,7 @@ logger.error('Failed to jump to message:', err, { module: 'chat' });
                 ) : (
                   <MessageRow
                     msg={msg}
+                    reactions={reactionsBinding}
                     isOwn={isOwn}
                     isContinuation={continuation}
                     displayName={displayName}
@@ -1010,7 +1047,29 @@ logger.error('Failed to jump to message:', err, { module: 'chat' });
           onDiscard={(m) => discardFailed(m)}
           canViewReaders={readersAllowed}
           onReaders={(m) => setReadersFor(m.id)}
+          currentUserId={user?.id}
+          reactions={{
+            canReact,
+            onToggle: (m, key) => { void toggleReaction(m.id, key); },
+            onMore: (m) => setReactionSheetFor(m.id),
+          }}
         />
+      )}
+      {messageActions === 'sheet' && reactionSheetFor && (
+        <MobileExpressionSheet
+          tabs={currentServer ? ['emoji', 'stickers'] : ['emoji']}
+          initialTab="emoji"
+          onClose={() => setReactionSheetFor(null)}
+          onSelectEmoji={(emoji) => { void toggleReaction(reactionSheetFor, emoji); setReactionSheetFor(null); }}
+          stickers={currentServer ? {
+            serverId: currentServer.id,
+            items: serverStickers,
+            onSend: async (s) => { void toggleReaction(reactionSheetFor, stickerReactionKey(s.id), s); setReactionSheetFor(null); return true; },
+          } : undefined}
+        />
+      )}
+      {messageActions === 'sheet' && (
+        <ReactorsSheet reaction={reactorsFor} members={members} onClose={() => setReactorsFor(null)} />
       )}
       {readersFor && channel && (messageActions === 'sheet' ? (
         <BottomSheet open onClose={() => setReadersFor(null)} title={t('chat.readersTitle')}>

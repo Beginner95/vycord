@@ -243,6 +243,15 @@ func (e *Events) MessageDeleted(channelID, messageID uuid.UUID) {
 	}))
 }
 
+// MessageReactions — снимок реакций сообщения гостям канала. Без user_ids:
+// идентификаторы участников гостю не отдаются (VYC-106).
+func (e *Events) MessageReactions(channelID, messageID uuid.UUID, reactions []domain.Reaction) {
+	e.gw.Broadcast(channelID, guestws.Marshal("message_reactions", map[string]any{
+		"message_id": messageID.String(),
+		"reactions":  domain.ReactionsWithoutUsers(reactions),
+	}))
+}
+
 func guestChatMessage(msg *domain.Message, author *domain.User) domain.GuestChatMessage {
 	// Вложения к этому моменту уже подписаны (MessageHandler.CreateMessage
 	// подписывает их до рассылки), поэтому гость может открыть их как есть.

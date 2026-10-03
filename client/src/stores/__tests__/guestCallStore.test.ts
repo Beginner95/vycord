@@ -140,6 +140,10 @@ describe('guestCallStore', () => {
     expect(useGuestCallStore.getState().messages).toHaveLength(1);
     expect(useGuestCallStore.getState().chatUnread).toBe(1);
 
+    emit({ type: 'message_reactions', message_id: 'm1', reactions: [{ key: '🔥', emoji: '🔥', count: 3 }] });
+    expect(useGuestCallStore.getState().messages[0].reactions).toEqual([{ key: '🔥', emoji: '🔥', count: 3 }]);
+    expect(useGuestCallStore.getState().chatUnread).toBe(1); // реакция — не новое сообщение
+
     emit({ type: 'message_delete', id: 'm1' });
     expect(useGuestCallStore.getState().messages).toHaveLength(0);
   });

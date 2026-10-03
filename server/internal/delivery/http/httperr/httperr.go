@@ -120,6 +120,9 @@ const (
 	CodeInvalidMention        = "invalid_mention"
 	CodeMentionEveryoneDenied = "mention_everyone_denied"
 	CodeCallMessageImmutable  = "call_message_immutable"
+	CodeReactionInvalid       = "reaction_invalid"
+	CodeReactionLimitReached  = "reaction_limit_reached"
+	CodeReactionNotAllowed    = "reaction_not_allowed"
 
 	// Роли
 	CodeRoleNotFound       = "role_not_found"

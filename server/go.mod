@@ -15,6 +15,7 @@ require (
 	github.com/pion/rtp v1.10.1
 	github.com/pion/webrtc/v4 v4.2.11
 	github.com/redis/go-redis/v9 v9.5.1
+	github.com/rivo/uniseg v0.4.7
 	github.com/stretchr/testify v1.11.1
 	golang.org/x/crypto v0.48.0
 	golang.org/x/image v0.31.0

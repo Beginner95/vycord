@@ -87,6 +87,15 @@ var (
 	// самостоятелен: с ним не бывает ни текста, ни файлов.
 	ErrStickerWithAttachments = errors.New("sticker message cannot contain attachments")
 
+	// ErrReactionInvalid — ключ реакции не эмодзи из одного графемного
+	// кластера и не sticker:<uuid>.
+	ErrReactionInvalid = errors.New("invalid reaction")
+	// ErrReactionLimitReached — у сообщения уже MaxDistinctReactions разных
+	// реакций, а эта — новая.
+	ErrReactionLimitReached = errors.New("reaction limit reached")
+	// ErrReactionNotAllowed — реакции на это сообщение не ставятся (плашка звонка).
+	ErrReactionNotAllowed = errors.New("reactions are not allowed on this message")
+
 	// ErrOTPNotFound — репозиторный сентинел: живого кода нет. Наружу не
 	// выходит, юзкейс переводит его в ErrOTPInvalid.
 	ErrOTPNotFound = errors.New("otp code not found")

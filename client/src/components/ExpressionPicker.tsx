@@ -13,15 +13,17 @@ export interface ExpressionPickerProps {
   onSelectEmoji: (emoji: string) => void;
   /** Отсутствует ⇒ вкладку «Стикеры» отрисовать нельзя. */
   stickers?: StickerPanelProps;
+  /** Модификатор места рендера (пикер реакций в строке сообщения). */
+  className?: string;
 }
 
-export function ExpressionPicker({ onClose, ...body }: ExpressionPickerProps) {
+export function ExpressionPicker({ onClose, className, ...body }: ExpressionPickerProps) {
   // Единственная подписка на весь пикер. Панели — «глупые» тела: хук держит
   // capture-listener на document и должен жить ровно столько, сколько
   // смонтирована поверхность (см. useDismissOnOutside.ts).
   const ref = useDismissOnOutside<HTMLDivElement>(onClose);
   return (
-    <div className="expression-picker" role="dialog" ref={ref}>
+    <div className={className ? `expression-picker ${className}` : 'expression-picker'} role="dialog" ref={ref}>
       <ExpressionBody {...body} />
     </div>
   );

@@ -1,5 +1,6 @@
 import { API_BASE_URL } from './api';
 import { logger } from '@/utils/logger';
+import type { Reaction } from '@/types';
 import type { GuestChatMessage } from './guestApi';
 
 /**
@@ -30,6 +31,7 @@ export type GuestGatewayEvent =
   | { type: 'participants'; users: GuestParticipantUser[]; guests: GuestParticipantGuest[] }
   | { type: 'chat_message'; message: GuestChatMessage }
   | { type: 'message_delete'; id: string }
+  | { type: 'message_reactions'; message_id: string; reactions: Reaction[] }
   | { type: 'peer_signal'; signal: string; userId: string; payload: Record<string, unknown> }
   | { type: 'session_invalid' }
   | { type: 'closed' };
@@ -186,6 +188,12 @@ class GuestGateway {
         return { type: 'chat_message', message: payload as unknown as GuestChatMessage };
       case 'message_delete':
         return { type: 'message_delete', id: String(payload.id ?? '') };
+      case 'message_reactions':
+        return {
+          type: 'message_reactions',
+          message_id: String(payload.message_id ?? ''),
+          reactions: (payload.reactions as Reaction[] | undefined) ?? [],
+        };
       case 'pong':
         return null;
       default:

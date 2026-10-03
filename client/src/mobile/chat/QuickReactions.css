@@ -1,0 +1,57 @@
+.quick-reactions {
+  display: flex;
+  gap: 6px;
+  justify-content: space-between;
+  padding: 4px 4px 12px;
+}
+
+.quick-reaction {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 1 1 0;
+  min-width: 0;
+  max-width: 44px;
+  height: auto;
+  aspect-ratio: 1;
+  color: var(--muted);
+  font: inherit;
+  font-size: 22px;
+  line-height: 1;
+  background: var(--canvas-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-pill);
+}
+
+.quick-reaction.is-mine {
+  background: var(--accent-soft);
+  border-color: var(--accent-border);
+}
+
+.reactors-sheet-head {
+  display: flex;
+  justify-content: center;
+  padding-bottom: 8px;
+}
+
+.reactors-sheet-emoji {
+  font-size: 28px;
+}
+
+.reactors-sheet-sticker {
+  width: 40px;
+  height: 40px;
+  object-fit: contain;
+}
+
+.reactors-sheet-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.reactors-sheet-item {
+  padding: 10px 4px;
+  color: var(--ink);
+  border-top: 1px solid var(--line);
+}
