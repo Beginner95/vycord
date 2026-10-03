@@ -250,3 +250,19 @@ func TestGuestHandler_ListMessagesSignsAttachments(t *testing.T) {
 	// <img src> не шлёт токен: без подписи в URL гость картинку не откроет.
 	assert.Contains(t, rec.Body.String(), "/api/v1/attachments/"+fileID.String()+"/content?")
 }
+
+func TestGuestHandler_PostMessage_NotifiesActivity(t *testing.T) {
+	channelID := uuid.New()
+	gc := admittedGuestContext(channelID)
+	h, _, messages := newGuestHandler(t)
+	act := new(mockActivity)
+	h.SetActivity(act)
+	msg := &domain.Message{ID: uuid.New(), ChannelID: channelID, Content: "привет", Kind: "user"}
+	messages.On("CreateGuestMessage", gc, "привет").Return(msg, nil)
+	act.On("Created", msg).Return()
+
+	rec := httptest.NewRecorder()
+	h.PostMessage(rec, guestRequest(http.MethodPost, "/x", `{"content":"привет"}`, gc))
+	require.Equal(t, http.StatusCreated, rec.Code)
+	act.AssertCalled(t, "Created", msg)
+}

@@ -248,3 +248,64 @@ func (m *mockMessageUseCase) ListGuestMessages(guest *domain.GuestContext, after
 	list, _ := args.Get(0).([]*domain.GuestChatMessage)
 	return list, args.Error(1)
 }
+
+type mockActivity struct{ mock.Mock }
+
+func (m *mockActivity) Created(msg *domain.Message) { m.Called(msg) }
+func (m *mockActivity) Lookup(id uuid.UUID) *domain.Message {
+	msg, _ := m.Called(id).Get(0).(*domain.Message)
+	return msg
+}
+func (m *mockActivity) Deleted(msg *domain.Message) { m.Called(msg) }
+
+func TestMessageHandler_CreateMessage_NotifiesActivity(t *testing.T) {
+	log := slog.New(slog.NewTextHandler(&bytes.Buffer{}, nil))
+	mockUC, act := new(mockMessageUseCase), new(mockActivity)
+	channelID, userID := uuid.New(), uuid.New()
+	msg := &domain.Message{ID: uuid.New(), ChannelID: channelID, UserID: &userID, Content: "hi", Kind: "user"}
+	mockUC.On("CreateMessage", channelID, userID, "hi", (*uuid.UUID)(nil), []uuid.UUID(nil)).Return(msg, nil)
+	act.On("Created", msg).Return()
+
+	h := NewMessageHandler(mockUC, ws.NewHub(log), log, testSigner())
+	h.SetActivity(act)
+
+	body, _ := json.Marshal(CreateMessageRequest{Content: "hi"})
+	req := httptest.NewRequest(http.MethodPost, "/x", bytes.NewReader(body))
+	req.SetPathValue("channel_id", channelID.String())
+	req = req.WithContext(context.WithValue(req.Context(), "user_id", userID))
+	rec := httptest.NewRecorder()
+	h.CreateMessage(rec, req)
+
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d", rec.Code)
+	}
+	act.AssertCalled(t, "Created", msg)
+}
+
+func TestMessageHandler_DeleteMessage_SnapshotsBeforeDelete(t *testing.T) {
+	log := slog.New(slog.NewTextHandler(&bytes.Buffer{}, nil))
+	channelID, userID, messageID := uuid.New(), uuid.New(), uuid.New()
+	snapshot := &domain.Message{ID: messageID, ChannelID: channelID, Kind: "user"}
+
+	for _, deleteErr := range []error{nil, domain.ErrForbidden} {
+		mockUC, act := new(mockMessageUseCase), new(mockActivity)
+		act.On("Lookup", messageID).Return(snapshot)
+		act.On("Deleted", snapshot).Return()
+		mockUC.On("DeleteMessage", channelID, messageID, userID).Return(deleteErr)
+
+		h := NewMessageHandler(mockUC, ws.NewHub(log), log, testSigner())
+		h.SetActivity(act)
+		req := httptest.NewRequest(http.MethodDelete, "/x", nil)
+		req.SetPathValue("channel_id", channelID.String())
+		req.SetPathValue("message_id", messageID.String())
+		req = req.WithContext(context.WithValue(req.Context(), "user_id", userID))
+		h.DeleteMessage(httptest.NewRecorder(), req)
+
+		act.AssertCalled(t, "Lookup", messageID)
+		if deleteErr == nil {
+			act.AssertCalled(t, "Deleted", snapshot)
+		} else {
+			act.AssertNotCalled(t, "Deleted", mock.Anything)
+		}
+	}
+}

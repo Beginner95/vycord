@@ -26,6 +26,7 @@ type GuestChatFanout interface {
 
 type MessageHandler struct {
 	guestChat      GuestChatFanout
+	activity       ChannelActivityNotifier
 	messageUseCase domain.MessageUseCase
 	hub            *ws.Hub
 	log            *slog.Logger
@@ -49,6 +50,10 @@ type CreateMessageRequest struct {
 
 // SetGuestChat installs the guest chat fan-out. Called once from main.go.
 func (h *MessageHandler) SetGuestChat(f GuestChatFanout) { h.guestChat = f }
+
+// SetActivity installs the unread/read-receipt side effects (VYC-104).
+// Called once from main.go.
+func (h *MessageHandler) SetActivity(n ChannelActivityNotifier) { h.activity = n }
 
 func (h *MessageHandler) CreateMessage(w http.ResponseWriter, r *http.Request) {
 	userID := r.Context().Value("user_id").(uuid.UUID)
@@ -93,6 +98,10 @@ func (h *MessageHandler) CreateMessage(w http.ResponseWriter, r *http.Request) {
 	if h.guestChat != nil {
 		author, _ := r.Context().Value("user").(*domain.User)
 		h.guestChat.ChatMessage(channelID, msg, author)
+	}
+
+	if h.activity != nil {
+		h.activity.Created(msg)
 	}
 
 	h.sendJSON(w, http.StatusCreated, msg)
@@ -267,6 +276,13 @@ func (h *MessageHandler) DeleteMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Снимок до удаления: после него ни времени, ни автора сообщения уже не
+	// узнать, а клиентам нужно и то и другое, чтобы поправить счётчик.
+	var snapshot *domain.Message
+	if h.activity != nil {
+		snapshot = h.activity.Lookup(messageID)
+	}
+
 	if err := h.messageUseCase.DeleteMessage(channelID, messageID, userID); err != nil {
 		h.writeUseCaseError(w, r, err)
 		return
@@ -280,6 +296,10 @@ func (h *MessageHandler) DeleteMessage(w http.ResponseWriter, r *http.Request) {
 
 	if h.guestChat != nil {
 		h.guestChat.MessageDeleted(channelID, messageID)
+	}
+
+	if snapshot != nil {
+		h.activity.Deleted(snapshot)
 	}
 
 	w.WriteHeader(http.StatusNoContent)

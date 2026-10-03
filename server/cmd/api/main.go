@@ -301,6 +301,9 @@ func main() {
 	hub.SetVoiceParticipantsObserver(guestEvents.VoiceParticipantsChanged)
 	messageHandler.SetGuestChat(guestEvents)
 	guestHandler.SetGuestChat(guestEvents)
+	activityFanout := handler.NewChannelActivityFanout(readStateUseCase, hub, log)
+	messageHandler.SetActivity(activityFanout)
+	guestHandler.SetActivity(activityFanout)
 	guestHandler.SetAttachmentSigner(attachmentSigner)
 
 	// Setup router
