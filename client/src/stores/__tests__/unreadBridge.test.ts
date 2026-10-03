@@ -9,7 +9,11 @@ vi.mock('@/services/api', () => ({
   apiService: { getUnread: vi.fn(async () => []), markChannelRead: vi.fn(), getReadReceipts: vi.fn(async () => ({ others_max_read_at: null, others_max_read_message_id: null })) },
 }));
 
+vi.mock('@/services/audio', () => ({ audioService: { playIncomingMessage: vi.fn() } }));
+
 import { apiService } from '@/services/api';
+import { audioService } from '@/services/audio';
+import { useAuthStore } from '@/stores/authStore';
 import { useServerStore } from '@/stores/serverStore';
 import { initUnreadBridge } from '../unreadBridge';
 
@@ -20,6 +24,13 @@ beforeEach(() => {
   api.getUnread.mockClear();
   api.getReadReceipts.mockClear();
   useServerStore.setState({ currentChannel: null });
+  vi.mocked(audioService.playIncomingMessage).mockClear();
+  useAuthStore.setState({ user: { id: 'me' } as never });
+});
+
+const activity = (over: Record<string, unknown> = {}) => ({
+  op: 'create', server_id: 's2', channel_id: 'c9', message_id: 'm1',
+  created_at: '2026-10-03T10:00:00Z', author_user_id: 'u2', ...over,
 });
 
 describe('unreadBridge', () => {
@@ -39,5 +50,37 @@ describe('unreadBridge', () => {
     handlers.get('ws_open')!(undefined);
     expect(api.getReadReceipts).not.toHaveBeenCalled();
     off();
+  });
+
+  // VYC-105: звук на сообщение в любом канале любого сервера, не только открытом.
+  describe('incoming message sound', () => {
+    it('plays for someone else\'s message in a channel that is not open', () => {
+      useServerStore.setState({ currentChannel: { id: 'c1', server_id: 's1', name: 'g', type: 'text' } as never });
+      const off = initUnreadBridge();
+      handlers.get('channel_activity')!(activity());
+      expect(audioService.playIncomingMessage).toHaveBeenCalledTimes(1);
+      off();
+    });
+
+    it('plays for a guest message (no author user)', () => {
+      const off = initUnreadBridge();
+      handlers.get('channel_activity')!(activity({ author_user_id: null }));
+      expect(audioService.playIncomingMessage).toHaveBeenCalledTimes(1);
+      off();
+    });
+
+    it('is silent for my own message', () => {
+      const off = initUnreadBridge();
+      handlers.get('channel_activity')!(activity({ author_user_id: 'me' }));
+      expect(audioService.playIncomingMessage).not.toHaveBeenCalled();
+      off();
+    });
+
+    it('is silent for a deletion', () => {
+      const off = initUnreadBridge();
+      handlers.get('channel_activity')!(activity({ op: 'delete' }));
+      expect(audioService.playIncomingMessage).not.toHaveBeenCalled();
+      off();
+    });
   });
 });

@@ -1,3 +1,4 @@
+import { audioService } from '@/services/audio';
 import { wsService, WS_OPEN_EVENT } from '@/services/websocket';
 import { useAuthStore } from '@/stores/authStore';
 import { useServerStore } from '@/stores/serverStore';
@@ -5,6 +6,17 @@ import { useUnreadStore } from '@/stores/unreadStore';
 import type { ChannelActivityEvent, ChannelReadEvent } from '@/types';
 
 const LEGACY_KEY = 'vycord.lastRead';
+
+/**
+ * VYC-105: звук на чужое сообщение в любом канале любого сервера, открыт он
+ * или нет. channel_activity приходит всем участникам сервера, а плашки
+ * звонков сервер в него не кладёт. Гость (author_user_id === null) — чужой.
+ */
+function notifyIncoming(ev: ChannelActivityEvent, selfId: string | undefined) {
+  if (ev.op !== 'create') return;
+  if (ev.author_user_id !== null && ev.author_user_id === selfId) return;
+  audioService.playIncomingMessage();
+}
 
 /**
  * VYC-104: счётчики непрочитанного живут всю сессию, а не пока открыт какой-то
@@ -25,7 +37,12 @@ export function initUnreadBridge(): () => void {
       const open = useServerStore.getState().currentChannel;
       if (open) void store().loadReceipts(open.id);
     }),
-    wsService.on('channel_activity', (p) => store().applyActivity(p as ChannelActivityEvent, useAuthStore.getState().user?.id)),
+    wsService.on('channel_activity', (p) => {
+      const ev = p as ChannelActivityEvent;
+      const selfId = useAuthStore.getState().user?.id;
+      store().applyActivity(ev, selfId);
+      notifyIncoming(ev, selfId);
+    }),
     wsService.on('channel_read', (p) => store().applyChannelRead(p as ChannelReadEvent)),
     wsService.on('channel_delete', (p) => store().forgetChannel((p as { id: string }).id)),
     wsService.on('server_delete', (p) => store().forgetServer((p as { id: string }).id)),

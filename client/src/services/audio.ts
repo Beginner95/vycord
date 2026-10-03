@@ -32,6 +32,10 @@ const SETTINGS_KEY = 'vycord_audio_settings';
 // joining or leaving at once must not stack into noise.
 const VOICE_SOUND_MIN_GAP_MS = 250;
 
+// VYC-105: звук входящего сообщения из любого канала любого сервера. Пачка
+// сообщений (в том числе из разных каналов) звучит один раз.
+export const INCOMING_MESSAGE_MIN_GAP_MS = 1200;
+
 class AudioService {
   private ctx: AudioContext | null = null;
   private settings: AudioSettings;
@@ -43,6 +47,7 @@ class AudioService {
   // -Infinity, not 0: performance.now() starts near zero, so a 0 baseline would throttle
   // the very first chime of each kind within 250 ms of page load.
   private lastVoiceSoundAt: { joined: number; left: number } = { joined: -Infinity, left: -Infinity };
+  private lastIncomingMessageAt = -Infinity;
 
   constructor() {
     const stored = localStorage.getItem(SETTINGS_KEY);
@@ -78,6 +83,19 @@ class AudioService {
 
     this.playTone(ctx, 1046.5, 0, 0.08, vol);  // C6
     this.playTone(ctx, 1318.5, 0.08, 0.12, vol); // E6
+  }
+
+  /**
+   * Звук чужого сообщения (VYC-105) — тот же «поп», но с троттлингом:
+   * лишние события в окне отбрасываются, а не копятся в очередь.
+   * Кнопка «Тест» в настройках зовёт playMessage напрямую, мимо окна.
+   */
+  playIncomingMessage(): void {
+    if (!this.settings.messageSound) return;
+    const now = performance.now();
+    if (now - this.lastIncomingMessageAt < INCOMING_MESSAGE_MIN_GAP_MS) return;
+    this.lastIncomingMessageAt = now;
+    this.playMessage();
   }
 
   /**
