@@ -1,4 +1,4 @@
-import { Copy, Pencil, Quote, RotateCw, Trash2 } from 'lucide-react';
+import { Copy, Eye, Pencil, Quote, RotateCw, Trash2 } from 'lucide-react';
 import type { ContextMenuItem } from '@/components/ContextMenu';
 import type { ChatMessage } from '@/stores/messageStore';
 import type { MemberWithUser } from '@/types';
@@ -16,6 +16,8 @@ export interface MessageActionsInput {
   onDelete(): void;
   onRetry(): void;
   onDiscard(): void;
+  /** «Кто прочитал» — только если вызывающий уже проверил права (canViewReaders). */
+  onReaders?: () => void;
 }
 
 const icon = (Icon: typeof Quote) => <Icon size={20} strokeWidth={1.8} />;
@@ -45,5 +47,6 @@ export function useMessageActions(i: MessageActionsInput): ContextMenuItem[] {
   }
   if (i.canModify && !msg.sticker_id && !isVoiceMessage(msg)) items.push({ label: t('common.edit'), icon: icon(Pencil), onClick: i.onEdit });
   if (i.canModify) items.push({ label: t('common.delete'), icon: icon(Trash2), danger: true, onClick: i.onDelete });
+  if (i.onReaders) items.push({ label: t('chat.readersTitle'), icon: icon(Eye), onClick: i.onReaders });
   return items;
 }

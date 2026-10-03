@@ -17,6 +17,7 @@ const setup = (m: ChatMessage | null, isOwn = true) => {
   const h = {
     onClose: vi.fn(), onQuote: vi.fn(), onEdit: vi.fn(),
     onDelete: vi.fn(), onRetry: vi.fn(), onDiscard: vi.fn(),
+    canViewReaders: () => false, onReaders: vi.fn(),
   };
   render(
     <MemoryRouter>

@@ -21,6 +21,9 @@ import { MessageSearch } from '@/components/MessageSearch';
 import { MobileMessageSearch } from '@/mobile/components/MobileMessageSearch';
 import { BackDismissGate } from '@/mobile/sheets/BackDismissGate';
 import { MessageActionsSheet } from '@/mobile/chat/MessageActionsSheet';
+import { BottomSheet } from '@/mobile/sheets/BottomSheet';
+import { ReadersDialog, ReadersList } from '@/components/ReadersDialog';
+import { canViewReaders } from '@/utils/readers';
 import { MessageRow } from '@/components/MessageRow';
 import { CallEventRow } from '@/components/CallEventRow';
 import { Composer, type ComposerHandle } from '@/components/Composer';
@@ -118,6 +121,7 @@ export function ChatArea({
   const openSearch = () => { setSearchSeed(null); setSearchOpen(true); };
   const closeSearch = () => { setSearchOpen(false); setSearchSeed(null); };
   const [actionsMsg, setActionsMsg] = useState<ChatMessage | null>(null);
+  const [readersFor, setReadersFor] = useState<string | null>(null);
   const paletteCommand = usePaletteStore((s) => s.command);
   const clearPaletteCommand = usePaletteStore((s) => s.clearCommand);
   const [historyMode, setHistoryMode] = useState(false);
@@ -208,6 +212,7 @@ export function ChatArea({
   const pendingUserFetchesRef = useRef(new Set<string>());
 
   const permissions = useServerStore((s) => (currentServer ? s.permissions.get(currentServer.id) : undefined));
+  const readersAllowed = (m: ChatMessage) => !m.deliveryState && canViewReaders(m, user?.id, permissions);
   const canMentionEveryone = can(permissions, PERMISSIONS.MENTION_EVERYONE);
   const canManageStickers = can(permissions, PERMISSIONS.MANAGE_SERVER);
 
@@ -236,6 +241,7 @@ export function ChatArea({
 
   useEffect(() => {
     setEditingId(null);
+    setReadersFor(null);
     setSearchOpen(false);
     // Иначе стартовавший в канале A запрос из палитры переживает переключение
     // канала и всплывает как initialQuery при следующем РУЧНОМ открытии через
@@ -892,6 +898,7 @@ logger.error('Failed to jump to message:', err, { module: 'chat' });
                     // Client-only row (never reached the server) — no API call,
                     // no confirm modal, just drop it from the store.
                     onDiscard={() => discardFailed(msg)}
+                    onOpenReaders={readersAllowed(msg) ? () => setReadersFor(msg.id) : undefined}
                     // pickLightboxMedia narrows the row-local index to the
                     // image/video subset and returns null for a non-media
                     // click (a pdf chip) — nothing to open fullscreen.
@@ -1008,8 +1015,17 @@ logger.error('Failed to jump to message:', err, { module: 'chat' });
           onDelete={(m) => setConfirmDeleteId(m.id)}
           onRetry={(m) => retrySend(m)}
           onDiscard={(m) => discardFailed(m)}
+          canViewReaders={readersAllowed}
+          onReaders={(m) => setReadersFor(m.id)}
         />
       )}
+      {readersFor && channel && (messageActions === 'sheet' ? (
+        <BottomSheet open onClose={() => setReadersFor(null)} title={t('chat.readersTitle')}>
+          <ReadersList channelId={channel.id} messageId={readersFor} />
+        </BottomSheet>
+      ) : (
+        <ReadersDialog channelId={channel.id} messageId={readersFor} onClose={() => setReadersFor(null)} />
+      ))}
     </main>
   );
 }
