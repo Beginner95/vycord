@@ -6,7 +6,6 @@ import { StickerManager } from '@/components/StickerManager';
 import type { Message } from '@/types';
 import { apiService, apiErrorText, ApiError } from '@/services/api';
 import { wsService } from '@/services/websocket';
-import { audioService } from '@/services/audio';
 import { useServerStore } from '@/stores/serverStore';
 import { useCallStore } from '@/stores/callStore';
 import { useGuestManagementStore } from '@/stores/guestManagementStore';
@@ -379,18 +378,12 @@ export function ChatArea({
     }
   }, [messages, user]);
 
-  // Play sound for incoming messages (from other users)
+  // Cache the author of incoming messages. The incoming-message sound is not
+  // here: it plays for every channel of every server from unreadBridge (VYC-105).
   useEffect(() => {
     const handleMessage = async (payload: unknown) => {
       const msg = payload as Record<string, unknown>;
       if (user && msg.user_id !== user.id) {
-        // Не звук на плашку звонка — тот же дух «тихости», что и у бейджа
-        // непрочитанного (spec «Тихость»), просто обнаруженный при
-        // интеграции: этот эффект — единственный источник звукового «пинга»
-        // на входящий chat_message. Кэш имени ниже всё равно нужен для
-        // CallEventRow (displayName для незнакомого автора), поэтому только
-        // звук пропускается, а не весь блок.
-        if (msg.kind !== 'call') audioService.playMessage();
         // Cache username if not already cached
         const uid = msg.user_id as string | undefined;
         const unresolvedIds = collectUnresolvedUserIds(
