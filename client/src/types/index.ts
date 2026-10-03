@@ -139,6 +139,23 @@ export interface Sticker {
   created_at: string;
 }
 
+/** VYC-106: одна реакция в снимке. key — эмодзи или `sticker:<uuid>`.
+ *  user_ids нет у гостя: идентификаторы участников ему не отдаются. */
+export interface Reaction {
+  key: string;
+  emoji?: string;
+  sticker?: Sticker;
+  count: number;
+  user_ids?: string[];
+}
+
+/** Ответ PUT/DELETE реакции и WS message_reactions — один и тот же снимок. */
+export interface ReactionsSnapshot {
+  channel_id?: string;
+  message_id: string;
+  reactions: Reaction[];
+}
+
 export interface Message {
   id: string;
   channel_id: string;
@@ -161,6 +178,8 @@ export interface Message {
   call_participant_ids?: string[];
   /** Сколько гостей впускали в этот звонок (только для kind === 'call'). */
   call_guest_count?: number;
+  /** VYC-106: снимок реакций; отсутствует — реакций нет. */
+  reactions?: Reaction[];
   created_at: string;
   updated_at: string;
 }

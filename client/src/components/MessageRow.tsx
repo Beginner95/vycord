@@ -1,11 +1,13 @@
 import { Fragment, useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
-import { Pencil, Trash2, Quote, Clock, Eye } from 'lucide-react';
+import { Pencil, Trash2, Quote, Clock, Eye, SmilePlus } from 'lucide-react';
 import { Avatar } from '@/components/Avatar';
 import { FormattingToolbar } from '@/components/FormattingToolbar';
 import { MentionDropdown } from '@/components/MentionDropdown';
 import { LinkDialog } from '@/components/LinkDialog';
 import { MessageAttachments } from '@/components/MessageAttachments';
 import { ReadReceipt } from '@/components/ReadReceipt';
+import { MessageReactions, type MessageRowReactions } from '@/components/MessageReactions';
+import { ReactionPicker, pickerPlacement } from '@/components/ReactionPicker';
 import { useMentionAutocomplete } from '@/hooks/useMentionAutocomplete';
 import { toggleBullet, toggleNumbered, applyLineToggle, applyWrap, insertAtCaret, linkToken } from '@/utils/textTransforms';
 import { isVoiceMessage } from '@/voice/listened';
@@ -152,6 +154,8 @@ interface MessageRowProps {
   showReceipt?: boolean;
   /** Открыть «Кто прочитал» (автор, владелец, администратор). */
   onOpenReaders?: () => void;
+  /** VYC-106: реакции. Нет — в этой ленте реакций нет вовсе. */
+  reactions?: MessageRowReactions;
 }
 
 export function MessageRow(props: MessageRowProps) {
@@ -162,6 +166,11 @@ export function MessageRow(props: MessageRowProps) {
   const { formatTime } = useDateFormat();
   const longPress = useLongPress(() => props.onLongPress?.());
   const pressable = !!props.onLongPress && !isEditing;
+  const rowRef = useRef<HTMLDivElement>(null);
+  const picker = props.reactions?.openPicker?.messageId === msg.id ? props.reactions.openPicker.placement : null;
+  const canAddReaction = !!props.reactions?.canReact && props.reactions.inlinePicker && !msg.deliveryState && msg.kind === 'user';
+  const openPicker = () => props.reactions?.onTogglePicker?.(
+    msg.id, picker ? null : rowRef.current ? pickerPlacement(rowRef.current) : 'above');
   // Код серверной ошибки (например, у голосового) → её текст вместо общего «не отправлено».
   const errKey = msg.deliveryErrorCode ? `errors.${msg.deliveryErrorCode}` : null;
   const failedText = errKey && hasKey(errKey)
@@ -182,7 +191,7 @@ export function MessageRow(props: MessageRowProps) {
   ].filter(Boolean).join(' ');
 
   return (
-    <div data-message-id={msg.id} className={rowClass} {...(pressable ? longPress : undefined)}>
+    <div data-message-id={msg.id} ref={rowRef} className={rowClass} {...(pressable ? longPress : undefined)}>
       <div className="msg-gutter">
         {isContinuation
           ? <span className="msg-gutter-time">{time}</span>
@@ -217,6 +226,16 @@ export function MessageRow(props: MessageRowProps) {
             onOpen={(index) => props.onOpenAttachment?.(index)}
           />
         )}
+        {!isEditing && props.reactions && msg.reactions && msg.reactions.length > 0 && (
+          <MessageReactions
+            messageId={msg.id}
+            reactions={msg.reactions}
+            currentUserId={props.currentUserId}
+            members={props.members}
+            binding={props.reactions}
+            onAdd={canAddReaction ? openPicker : undefined}
+          />
+        )}
         {!isEditing && msg.deliveryState === 'sending' && (
           <span className="msg-delivery is-sending">
             <Clock size={12} strokeWidth={1.8} /> {t('chat.sending')}
@@ -234,8 +253,14 @@ export function MessageRow(props: MessageRowProps) {
       {/* A sticker row has nothing to quote (quoting it inserts a bare `> `)
           and nothing to edit, so for someone else's sticker the popover would
           be an empty bordered chip on hover — don't render the wrapper at all. */}
-      {!isEditing && !msg.deliveryState && ((!msg.sticker_id && !voice) || canModify || !!props.onOpenReaders) && (
+      {!isEditing && !msg.deliveryState && ((!msg.sticker_id && !voice) || canModify || !!props.onOpenReaders || canAddReaction) && (
         <div className="msg-actions">
+          {canAddReaction && (
+            <button type="button" className="msg-action-btn" aria-label={t('chat.addReaction')} title={t('chat.addReaction')}
+              onMouseDown={(e) => e.stopPropagation()} onClick={openPicker}>
+              <SmilePlus size={15} strokeWidth={1.8} />
+            </button>
+          )}
           {!msg.sticker_id && !voice && (
             <button type="button" className="msg-action-btn" aria-label={t('chat.quote')} title={t('chat.quote')} onClick={props.onQuote}>
               <Quote size={15} strokeWidth={1.8} />
@@ -274,6 +299,14 @@ export function MessageRow(props: MessageRowProps) {
             <Trash2 size={15} strokeWidth={1.8} />
           </button>
         </div>
+      )}
+      {picker && !isEditing && props.reactions && (
+        <ReactionPicker
+          placement={picker}
+          stickers={props.reactions.stickers}
+          onPick={(key, sticker) => props.reactions?.onToggle(msg.id, key, sticker)}
+          onClose={() => props.reactions?.onTogglePicker?.(msg.id, null)}
+        />
       )}
     </div>
   );

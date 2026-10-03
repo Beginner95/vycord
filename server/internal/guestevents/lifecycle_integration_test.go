@@ -237,7 +237,7 @@ func TestGuestLifecycleEndToEnd(t *testing.T) {
 	// Гость пишет в чат канала.
 	messageUC := usecase.NewMessageUseCase(messageRepo, postgres.NewChannelRepository(pool),
 		postgres.NewServerRepository(pool), postgres.NewStickerRepository(pool), ownerPerms{},
-		postgres.NewAttachmentRepository(pool), nil)
+		postgres.NewAttachmentRepository(pool), nil, nil)
 	msg, err := messageUC.CreateGuestMessage(session, "привет из браузера")
 	require.NoError(t, err)
 	assert.Nil(t, msg.UserID)

@@ -354,6 +354,12 @@ function handleEvent(event: GuestGatewayEvent, set: Setter, get: Getter): void {
       set((s) => ({ messages: s.messages.filter((m) => m.id !== event.id) }));
       return;
 
+    case 'message_reactions':
+      set((s) => ({
+        messages: s.messages.map((m) => (m.id === event.message_id ? { ...m, reactions: event.reactions } : m)),
+      }));
+      return;
+
     case 'rejected':
       endCall('rejected', set, get);
       return;

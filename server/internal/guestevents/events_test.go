@@ -289,3 +289,9 @@ func TestChatMessageCarriesAttachmentsAndSticker(t *testing.T) {
 	assert.Equal(t, msg.Sticker, out.Sticker)
 	assert.Equal(t, &stickerID, out.StickerID)
 }
+
+func TestMessageReactionsGoesToGuestsWithoutUserIDs(t *testing.T) {
+	f := newFixture(t)
+	f.events.MessageReactions(f.channel, uuid.New(), []domain.Reaction{{Key: "👍", Emoji: "👍", Count: 1, UserIDs: []uuid.UUID{f.member}}})
+	assert.Equal(t, []string{"message_reactions"}, f.gw.broadcast[f.channel])
+}

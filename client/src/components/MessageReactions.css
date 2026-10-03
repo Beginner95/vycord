@@ -1,0 +1,92 @@
+/* VYC-106: реакции под сообщением. */
+.msg-reactions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 6px;
+}
+
+.msg-reaction,
+.msg-reaction-add {
+  display: inline-flex;
+  gap: 4px;
+  align-items: center;
+  height: 24px;
+  padding: 0 8px;
+  color: var(--ink);
+  font: inherit;
+  line-height: 1;
+  background: var(--canvas-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-pill);
+  cursor: pointer;
+  transition: border-color var(--transition), background-color var(--transition);
+}
+
+.msg-reaction-add {
+  color: var(--muted);
+}
+
+.msg-reaction:hover,
+.msg-reaction-add:hover {
+  border-color: var(--line-strong);
+}
+
+.msg-reaction.is-mine {
+  color: var(--accent-text);
+  background: var(--accent-soft);
+  border-color: var(--accent-border);
+}
+
+.msg-reaction.is-readonly {
+  cursor: default;
+}
+
+.msg-reaction:focus-visible,
+.msg-reaction-add:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.msg-reaction-emoji {
+  font-size: 15px;
+}
+
+.msg-reaction-sticker {
+  width: 20px;
+  height: 20px;
+  object-fit: contain;
+}
+
+.msg-reaction-count {
+  font-size: 12px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.reaction-tooltip {
+  position: fixed;
+  z-index: var(--z-tooltip);
+  max-width: 240px;
+  padding: 6px 10px;
+  color: var(--ink);
+  font-size: 12px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-chip);
+  box-shadow: var(--shadow-popover);
+  transform: translate(-50%, calc(-100% - 6px));
+  pointer-events: none;
+}
+
+/* Пикер реакций — тот же .expression-picker, привязанный к строке
+   сообщения (.msg-row: position: relative). По умолчанию над строкой, как
+   у композера; у верхнего края ленты — под ней (ReactionPicker решает). */
+.expression-picker.reaction-picker {
+  right: 10px;
+}
+
+.expression-picker.reaction-picker.is-below {
+  top: calc(100% + 4px);
+  bottom: auto;
+}

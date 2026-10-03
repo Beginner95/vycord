@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import type { ContextMenuItem } from '@/components/ContextMenu';
 import { BottomSheet } from './BottomSheet';
 
@@ -6,11 +7,13 @@ interface ActionSheetProps {
   onClose: () => void;
   title?: string;
   items: ContextMenuItem[];
+  /** Произвольный блок над группами пунктов (ряд быстрых реакций). */
+  header?: ReactNode;
 }
 
 /** Тач-замена ContextMenu (спека §4.3): тот же ContextMenuItem[], опасные
  *  пункты — отдельной группой в конце (board 1d), как у ContextMenu. */
-export function ActionSheet({ open, onClose, title, items }: ActionSheetProps) {
+export function ActionSheet({ open, onClose, title, items, header }: ActionSheetProps) {
   const plain = items.filter((i) => !i.danger);
   const danger = items.filter((i) => i.danger);
   const row = (item: ContextMenuItem) => (
@@ -32,6 +35,7 @@ export function ActionSheet({ open, onClose, title, items }: ActionSheetProps) {
   );
   return (
     <BottomSheet open={open} onClose={onClose} title={title}>
+      {header}
       <div className="action-sheet-group">{plain.map(row)}</div>
       {danger.length > 0 && <div className="action-sheet-group">{danger.map(row)}</div>}
     </BottomSheet>

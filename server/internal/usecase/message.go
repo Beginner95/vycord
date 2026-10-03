@@ -21,6 +21,8 @@ type messageUseCase struct {
 	stickerRepo domain.StickerRepository
 	perms       domain.PermissionUseCase
 	attachRepo  domain.AttachmentRepository
+	// reactionRepo — снимки реакций к ленте (VYC-106). nil — без реакций.
+	reactionRepo domain.ReactionRepository
 	// storage нужен только на удалении: строки вложений уносит каскад, а
 	// файлы после этого найти уже нечем — уборщик ищет по строкам в БД.
 	storage filestorage.Storage
@@ -33,16 +35,18 @@ func NewMessageUseCase(
 	stickerRepo domain.StickerRepository,
 	perms domain.PermissionUseCase,
 	attachRepo domain.AttachmentRepository,
+	reactionRepo domain.ReactionRepository,
 	storage filestorage.Storage,
 ) domain.MessageUseCase {
 	return &messageUseCase{
-		messageRepo: messageRepo,
-		channelRepo: channelRepo,
-		serverRepo:  serverRepo,
-		stickerRepo: stickerRepo,
-		perms:       perms,
-		attachRepo:  attachRepo,
-		storage:     storage,
+		messageRepo:  messageRepo,
+		channelRepo:  channelRepo,
+		serverRepo:   serverRepo,
+		stickerRepo:  stickerRepo,
+		perms:        perms,
+		attachRepo:   attachRepo,
+		reactionRepo: reactionRepo,
+		storage:      storage,
 	}
 }
 
@@ -246,6 +250,22 @@ func (uc *messageUseCase) GetMessages(channelID, userID uuid.UUID, limit, offset
 	return messages, nil
 }
 
+// attachReactions — снимки реакций пачкой. Как и вложения, не условие
+// ленты: сбой оставляет сообщения без реакций, а не роняет ответ.
+func (uc *messageUseCase) attachReactions(msgs []*domain.Message, ids []uuid.UUID) {
+	if uc.reactionRepo == nil {
+		return
+	}
+	byMsg, err := uc.reactionRepo.ListByMessageIDs(ids)
+	if err != nil {
+		slog.Error("list reactions failed", "error", err)
+		return
+	}
+	for _, m := range msgs {
+		m.Reactions = byMsg[m.ID]
+	}
+}
+
 // attachToMessages подтягивает вложения для пачки сообщений одним запросом:
 // иначе список из 50 сообщений дал бы 50 походов в БД. Для голосовых
 // проставляет Listened с точки зрения viewerID — тоже одним запросом.
@@ -257,6 +277,7 @@ func (uc *messageUseCase) attachToMessages(msgs []*domain.Message, viewerID uuid
 	for _, m := range msgs {
 		ids = append(ids, m.ID)
 	}
+	uc.attachReactions(msgs, ids)
 	byMsg, err := uc.attachRepo.ListByMessageIDs(ids)
 	if err != nil {
 		// Вложения — не критичная часть ответа: лучше отдать сообщения без
@@ -533,6 +554,17 @@ func (uc *messageUseCase) ListGuestMessages(guest *domain.GuestContext, afterID 
 	ids := make([]uuid.UUID, len(list))
 	for i, m := range list {
 		ids[i] = m.ID
+	}
+	if uc.reactionRepo != nil {
+		if byMsg, err := uc.reactionRepo.ListByMessageIDs(ids); err != nil {
+			slog.Error("list reactions for guest messages failed", "channel_id", guest.Guest.ChannelID, "error", err)
+		} else {
+			for _, m := range list {
+				if rs := byMsg[m.ID]; len(rs) > 0 {
+					m.Reactions = domain.ReactionsWithoutUsers(rs)
+				}
+			}
+		}
 	}
 	// Вложения — дополнение к ленте, не её условие: как и attachToMessages,
 	// сбой здесь оставляет сообщения без файлов, а не роняет весь список.

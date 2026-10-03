@@ -191,3 +191,11 @@ type StickerUseCase interface {
 	// DeleteSticker требует PermManageServer.
 	DeleteSticker(serverID, stickerID, userID uuid.UUID) error
 }
+
+// ReactionUseCase — реакции на сообщения (VYC-106 —
+// docs/superpowers/specs/2026-10-03-emoji-reactions-design.md). Оба метода
+// возвращают полный снимок реакций сообщения.
+type ReactionUseCase interface {
+	Add(userID, channelID, messageID uuid.UUID, rawKey string) ([]Reaction, error)
+	Remove(userID, channelID, messageID uuid.UUID, rawKey string) ([]Reaction, error)
+}
