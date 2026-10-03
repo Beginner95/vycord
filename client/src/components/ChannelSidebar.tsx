@@ -12,6 +12,7 @@ import { useCallStore } from '@/stores/callStore';
 import { useGuestManagementStore } from '@/stores/guestManagementStore';
 import { can, PERMISSIONS } from '@/utils/permissions';
 import { useT } from '@/i18n';
+import { useUnreadStore, formatUnread } from '@/stores/unreadStore';
 import './ChannelSidebar.css';
 
 interface ChannelSidebarProps {
@@ -61,6 +62,7 @@ export function ChannelSidebar({
   const isMuted = useCallStore((s) => s.isMuted);
   const remoteMicMuted = useCallStore((s) => s.remoteMicMuted);
 
+  const unreadByChannel = useUnreadStore((s) => s.channels);
   const permissions = useServerStore((s) => (server ? s.permissions.get(server.id) : undefined));
   const canManageChannels = can(permissions, PERMISSIONS.MANAGE_CHANNELS);
   const canManageServer = can(permissions, PERMISSIONS.MANAGE_SERVER) || server?.owner_id === user?.id;
@@ -166,6 +168,12 @@ export function ChannelSidebar({
           const participantIds = voiceParticipants?.get(channel.id) ?? [];
           const isCallChannel = callChannelId === channel.id;
           const isActive = currentChannel?.id === channel.id;
+          const unread = unreadByChannel[channel.id]?.count ?? 0;
+          const unreadPill = unread > 0 && (
+            <span className="channel-unread-pill" aria-label={t('sidebar.unreadCount', { count: String(unread) })}>
+              {formatUnread(unread)}
+            </span>
+          );
           const openMenu = (e: MouseEvent) => {
             if (!canManageChannels) return;
             e.preventDefault();
@@ -184,6 +192,7 @@ export function ChannelSidebar({
                 <div className="voice-card-row" onClick={() => onSelectChannel(channel)}>
                   <Volume2 size={16} strokeWidth={1.8} className="voice-card-icon" />
                   <span className="voice-card-name">{channel.name}</span>
+                  {unreadPill}
                   <span className="voice-card-count">{participantIds.length}</span>
                 </div>
                 <div className="voice-card-participants">
@@ -226,12 +235,13 @@ export function ChannelSidebar({
           return (
             <div
               key={channel.id}
-              className={`channel-row${isActive ? ' is-active' : ''}`}
+              className={`channel-row${isActive ? ' is-active' : ''}${unread > 0 ? ' has-unread' : ''}`}
               onClick={() => onSelectChannel(channel)}
               onContextMenu={openMenu}
             >
               <Hash size={16} strokeWidth={1.8} className="channel-hash" />
               <span className="channel-name">{channel.name}</span>
+              {unreadPill}
               <button
                 type="button"
                 className="channel-join-voice"

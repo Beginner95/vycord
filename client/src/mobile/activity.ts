@@ -1,3 +1,5 @@
+import { useUnreadStore, selectChannelUnread, selectServerUnread } from '@/stores/unreadStore';
+
 export interface ActivityPreview {
   authorName: string;
   kind: 'text' | 'attachment' | 'sticker' | 'call';
@@ -13,9 +15,8 @@ export interface ChannelActivity {
 
 type Override = ((id: string, scope: 'channel' | 'server') => ChannelActivity | null) | null;
 
-// Серверных меток прочтения ещё нет (спека §0: превью и счётчики — вне границ
-// VYC-95). Хуки возвращают null, строки списков это понимают и выглядят как в
-// §5.2/§5.3. Когда появится API, меняются ТОЛЬКО тела этих двух хуков.
+// Превью последнего сообщения сервер не отдаёт (вне рамок VYC-104) — только
+// счётчик непрочитанного из unreadStore. Override — для тестов и проб.
 let override: Override = null;
 
 /** Только для тестов и проб. */
@@ -23,10 +24,16 @@ export function __setActivityOverride(fn: Override): void {
   override = fn;
 }
 
+function fromCount(count: number): ChannelActivity | null {
+  return count > 0 ? { preview: null, timestamp: null, unreadCount: count, hasUnread: true } : null;
+}
+
 export function useChannelActivity(channelId: string): ChannelActivity | null {
-  return override ? override(channelId, 'channel') : null;
+  const count = useUnreadStore(selectChannelUnread(channelId));
+  return override ? override(channelId, 'channel') : fromCount(count);
 }
 
 export function useServerActivity(serverId: string): ChannelActivity | null {
-  return override ? override(serverId, 'server') : null;
+  const count = useUnreadStore(selectServerUnread(serverId));
+  return override ? override(serverId, 'server') : fromCount(count);
 }

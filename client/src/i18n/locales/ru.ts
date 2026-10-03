@@ -507,6 +507,7 @@ export const ru = {
     },
   },
   sidebar: {
+    unreadCount: 'Непрочитанных: {{count}}',
     hide: 'Скрыть сайдбар',
     show: 'Показать сайдбар',
   },

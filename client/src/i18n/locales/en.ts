@@ -493,6 +493,7 @@ export const en: Dictionary = {
     },
   },
   sidebar: {
+    unreadCount: 'Unread: {{count}}',
     hide: 'Hide sidebar',
     show: 'Show sidebar',
   },
