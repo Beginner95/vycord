@@ -5,6 +5,7 @@ import { FormattingToolbar } from '@/components/FormattingToolbar';
 import { MentionDropdown } from '@/components/MentionDropdown';
 import { LinkDialog } from '@/components/LinkDialog';
 import { MessageAttachments } from '@/components/MessageAttachments';
+import { ReadReceipt } from '@/components/ReadReceipt';
 import { useMentionAutocomplete } from '@/hooks/useMentionAutocomplete';
 import { toggleBullet, toggleNumbered, applyLineToggle, applyWrap, insertAtCaret, linkToken } from '@/utils/textTransforms';
 import { isVoiceMessage } from '@/voice/listened';
@@ -146,6 +147,11 @@ interface MessageRowProps {
   editActions?: boolean;
   /** См. Composer.enterSends — тот же смысл, для инлайн-редактора. */
   enterSends?: boolean;
+  /** VYC-104: галочка прочтения под своим сообщением. Только в ленте канала
+   *  участника — в гостевом чате квитанций нет. */
+  showReceipt?: boolean;
+  /** Открыть «Кто прочитал» (автор, владелец, администратор). */
+  onOpenReaders?: () => void;
 }
 
 export function MessageRow(props: MessageRowProps) {
@@ -220,6 +226,9 @@ export function MessageRow(props: MessageRowProps) {
           <button type="button" className="msg-delivery is-failed" onClick={props.onRetry}>
             {failedText} · {t('chat.retry')}
           </button>
+        )}
+        {!isEditing && props.showReceipt && isOwn && msg.kind === 'user' && !msg.guest && !msg.deliveryState && (
+          <ReadReceipt msg={msg} onOpen={props.onOpenReaders} />
         )}
       </div>
       {/* A sticker row has nothing to quote (quoting it inserts a bare `> `)

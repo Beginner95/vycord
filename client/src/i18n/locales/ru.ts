@@ -111,6 +111,8 @@ export const ru = {
     quietBody: 'Начните обсуждение в #{{channel}} — напишите первое сообщение.',
     writeFirst: 'Написать первое сообщение',
     newMessages: 'Новые сообщения',
+    receiptSent: 'Отправлено',
+    receiptRead: 'Прочитано',
     noServersTitle: 'Пока ни одного сервера',
     noServersBody: 'Создайте сервер — или найдите существующий через поиск в левой панели.',
     haveCode: 'У меня есть код',

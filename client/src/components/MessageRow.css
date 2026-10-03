@@ -507,3 +507,24 @@
   font-size: 11px;
   color: var(--muted-2);
 }
+
+/* ── Read receipt (VYC-104) ──
+   Под своим сообщением, у правого края колонки — там же, где индикатор
+   отправки. Серая — отправлено, акцентная — прочитано. */
+.msg-receipt {
+  display: flex;
+  width: fit-content;
+  margin: 2px 0 0 auto;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--faint);
+}
+
+.msg-receipt.is-read {
+  color: var(--accent-text);
+}
+
+.msg-receipt.is-action {
+  cursor: pointer;
+}

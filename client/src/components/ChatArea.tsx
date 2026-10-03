@@ -193,6 +193,12 @@ export function ChatArea({
     setUnreadAnchorId(firstUnreadId(useUnreadStore.getState().channels[channel.id]?.cursor, messages));
   }, [messages, loading, channel]);
 
+  // Галочки (VYC-104): самый дальний курсор других — при входе в канал,
+  // дальше его двигают события channel_read.
+  useEffect(() => {
+    if (channel?.id) void useUnreadStore.getState().loadReceipts(channel.id);
+  }, [channel?.id]);
+
   // Cache for user info (id → username)
   const [userCache, setUserCache] = useState<Map<string, { username: string; avatar_url?: string }>>(new Map());
   const userCacheRef = useRef(userCache);
@@ -892,6 +898,7 @@ logger.error('Failed to jump to message:', err, { module: 'chat' });
                     onLongPress={messageActions === 'sheet' && msg.deliveryState !== 'sending' ? () => setActionsMsg(msg) : undefined}
                     editActions={messageActions === 'sheet'}
                     enterSends={enterSends}
+                    showReceipt
                     onOpenAttachment={(index) => setLightbox(pickLightboxMedia(msg.attachments ?? [], index))}
                   />
                 )}
