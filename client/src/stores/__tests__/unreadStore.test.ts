@@ -153,6 +153,16 @@ describe('unreadStore', () => {
     useUnreadStore.getState().forgetServer('s1');
     expect(useUnreadStore.getState().channels).toEqual({});
   });
+
+  // Final review finding 4.
+  it('forgetServer also drops othersRead of that server\'s channels only', () => {
+    useUnreadStore.setState({
+      channels: { ...useUnreadStore.getState().channels, c9: { serverId: 's2', count: 0, cursor: { at: T(1), id: null } } },
+      othersRead: { c1: { at: T(5), id: 'm5' }, c2: { at: T(6), id: null }, c9: { at: T(7), id: null } },
+    });
+    useUnreadStore.getState().forgetServer('s1');
+    expect(useUnreadStore.getState().othersRead).toEqual({ c9: { at: T(7), id: null } });
+  });
 });
 
 describe('firstUnreadId', () => {

@@ -147,9 +147,13 @@ export const useUnreadStore = create<UnreadState>((set, get) => ({
     return { channels, othersRead };
   }),
 
-  forgetServer: (serverId) => set((s) => ({
-    channels: Object.fromEntries(Object.entries(s.channels).filter(([, c]) => c.serverId !== serverId)),
-  })),
+  forgetServer: (serverId) => set((s) => {
+    const gone = new Set(Object.entries(s.channels).filter(([, c]) => c.serverId === serverId).map(([id]) => id));
+    return {
+      channels: Object.fromEntries(Object.entries(s.channels).filter(([id]) => !gone.has(id))),
+      othersRead: Object.fromEntries(Object.entries(s.othersRead).filter(([id]) => !gone.has(id))),
+    };
+  }),
 
   reset: () => {
     // Хвостовые таймеры прошлой сессии (или прошлого теста) не должны

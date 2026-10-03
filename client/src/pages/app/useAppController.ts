@@ -8,6 +8,7 @@ import { logger } from '@/utils/logger';
 import { useCallStore, initCallBridge } from '@/stores/callStore';
 import { useFriendStore, initFriendBridge } from '@/stores/friendStore';
 import { initUnreadBridge } from '@/stores/unreadBridge';
+import { useUnreadStore } from '@/stores/unreadStore';
 import { initDirectCallBridge, resetDirectCall, useDirectCallStore } from '@/stores/directCallStore';
 import { useCallRing, type CallNotif } from './useCallRing';
 import { useVoiceParticipants } from './useVoiceParticipants';
@@ -233,6 +234,8 @@ export function useAppController(opts: AppControllerOptions): AppController {
   const handleServerRemoved = (removedServerId: string) => {
     if (handledRemovalsRef.current.has(removedServerId)) return;
     handledRemovalsRef.current.add(removedServerId);
+    // Выход/удаление: счётчики и галочки сервера больше не нужны.
+    useUnreadStore.getState().forgetServer(removedServerId);
 
     // Звонок больше не привязан к навигации: сервер со звонком может быть
     // удалён, пока мы смотрим другой сервер. Сервер шлёт один server_delete

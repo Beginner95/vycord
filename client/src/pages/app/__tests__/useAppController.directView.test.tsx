@@ -32,6 +32,7 @@ vi.mock('../useVoiceParticipants', () => ({ useVoiceParticipants: () => new Map(
 import { useAppController } from '../useAppController';
 import { useDirectCallStore } from '@/stores/directCallStore';
 import { useServerStore } from '@/stores/serverStore';
+import { useUnreadStore } from '@/stores/unreadStore';
 
 describe('useAppController: экран звонка 1:1 и навигация', () => {
   beforeEach(() => {
@@ -55,5 +56,15 @@ describe('useAppController: экран звонка 1:1 и навигация', 
     }));
     act(() => result.current.logout());
     expect(useDirectCallStore.getState()).toMatchObject({ phase: { kind: 'idle' }, missed: [], lastError: null, viewOpen: false });
+  });
+
+  // Final review finding 4.
+  it('удаление/выход из сервера очищает его счётчики непрочитанного', async () => {
+    const { result } = renderHook(() => useAppController({ autoOpenChannel: false }));
+    act(() => useUnreadStore.setState({
+      channels: { cx: { serverId: 'sx', count: 5, cursor: { at: '2026-10-03T10:00:00Z', id: null } } },
+    }));
+    act(() => result.current.serverRemoved('sx'));
+    expect(useUnreadStore.getState().channels.cx).toBeUndefined();
   });
 });
