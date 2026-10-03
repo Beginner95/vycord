@@ -1241,3 +1241,21 @@ func TestCreateMessage_VoiceAttachmentListenedFalse(t *testing.T) {
 	assert.False(t, *msg.Attachments[0].Listened)
 	assert.Nil(t, msg.Attachments[1].Listened, "у не-голосового поля нет")
 }
+
+// VYC-104, Review Focus №1: Postgres хранит микросекунды. Время из ответа и из
+// chat_message обязано совпадать с тем, что вернёт БД, иначе курсор прочтения
+// и сообщение сравниваются по разному времени.
+func TestCreateMessage_TimestampsTruncatedToMicroseconds(t *testing.T) {
+	channelID, serverID, userID := uuid.New(), uuid.New(), uuid.New()
+	msgRepo := new(MockMessageRepository)
+	chRepo := new(MockChannelRepository)
+	perms := permsWith(serverID, userID, domain.PermSendMessages)
+	chRepo.On("GetByID", channelID).Return(&domain.Channel{ID: channelID, ServerID: serverID}, nil)
+	msgRepo.On("Create", mock.AnythingOfType("*domain.Message")).Return(nil)
+
+	uc := usecase.NewMessageUseCase(msgRepo, chRepo, new(MockServerRepository), &MockStickerRepository{}, perms, new(MockAttachmentRepository), new(MockStorage))
+	msg, err := uc.CreateMessage(channelID, userID, "hello", nil, nil)
+	require.NoError(t, err)
+	assert.Zero(t, msg.CreatedAt.Nanosecond()%1000)
+	assert.Equal(t, msg.CreatedAt, msg.UpdatedAt)
+}

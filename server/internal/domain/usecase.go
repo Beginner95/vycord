@@ -115,6 +115,27 @@ type MessageUseCase interface {
 	ListGuestMessages(guest *GuestContext, afterID *uuid.UUID, limit int) ([]*GuestChatMessage, error)
 }
 
+// ReadStateUseCase — курсоры прочтения, счётчики непрочитанного и квитанции
+// (VYC-104 — docs/superpowers/specs/2026-10-03-unread-and-read-receipts-design.md).
+type ReadStateUseCase interface {
+	Unread(userID uuid.UUID) ([]*ChannelUnread, error)
+	// MarkRead двигает курсор userID в канале до messageID (только вперёд) и
+	// возвращает итоговый курсор и остаток непрочитанного.
+	MarkRead(userID, channelID, messageID uuid.UUID) (*MarkReadResult, error)
+	// OthersRead — самый дальний явный курсор других участников, nil — никто.
+	OthersRead(userID, channelID uuid.UUID) (*ReadCursor, error)
+	// Readers — кто прочитал сообщение. Только автору, владельцу сервера и
+	// PermAdministrator, только для пользовательских сообщений участников.
+	Readers(userID, channelID, messageID uuid.UUID) (*MessageReaders, error)
+	// AuthorRead двигает курсор автора на его только что созданное сообщение.
+	// Для гостевых и call-сообщений — no-op.
+	AuthorRead(msg *Message) error
+	MessageByID(id uuid.UUID) (*Message, error)
+	// Activity собирает событие channel_activity и его адресатов. nil, nil, nil
+	// для call-строк: они не влияют на счётчики.
+	Activity(msg *Message, op string) (*ChannelActivity, []uuid.UUID, error)
+}
+
 type TURNUseCase interface {
 	// GetCredentials returns ephemeral TURN credentials for the user, or
 	// (nil, nil) when no TURN server is configured.

@@ -207,3 +207,13 @@ func TestListGuestMessagesCarriesAttachments(t *testing.T) {
 	assert.Equal(t, []*domain.Attachment{file}, list[0].Attachments, "a guest sees the files members post")
 	assert.Empty(t, list[1].Attachments)
 }
+
+func TestCreateGuestMessage_TimestampsTruncatedToMicroseconds(t *testing.T) {
+	msgRepo := new(MockMessageRepository)
+	uc := guestMessageUseCase(msgRepo, new(MockPermissionUseCase))
+	msgRepo.On("CreateGuest", mock.AnythingOfType("*domain.Message")).Return(nil)
+
+	msg, err := uc.CreateGuestMessage(admittedGuest(uuid.New(), time.Now()), "привет")
+	require.NoError(t, err)
+	assert.Zero(t, msg.CreatedAt.Nanosecond()%1000)
+}
