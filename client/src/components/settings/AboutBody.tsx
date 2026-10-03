@@ -1,5 +1,6 @@
 import { ArrowUpRight } from 'lucide-react';
 import { useT } from '@/i18n';
+import logo from '@/assets/images/logo.png';
 import './AboutBody.css';
 
 const GITHUB_URL = 'https://github.com/Beginner95/vycord';
@@ -10,7 +11,7 @@ export function AboutBody() {
   return (
     <div className="settings-section">
       <div className="about-header">
-        <img src="/icon.png" alt="" className="about-logo" />
+        <img src={logo} alt="" className="about-logo" />
         <span className="about-name">Vycord</span>
         <p className="about-description">{t('settings.aboutDescription')}</p>
       </div>
