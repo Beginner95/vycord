@@ -28,7 +28,7 @@ describe('CallPill', () => {
 
   it('renders with .is-root or .is-stacked per the variant prop', () => {
     useCallStore.setState({
-      status: 'connected', callChannelId: 'c1', callChannelName: 'general', callServerId: 's1', callServerName: 'Alpha',
+      status: 'connected', callRoomId: 'c1', callChannelId: 'c1', callChannelName: 'general', callServerId: 's1', callServerName: 'Alpha',
     });
     const { rerender } = render(<CallPill variant="root" onGoToCall={() => {}} />);
     expect(document.querySelector('.call-pill.is-root')).not.toBeNull();
@@ -38,7 +38,7 @@ describe('CallPill', () => {
 
   it('clicking mic/video/leave calls the matching store methods', () => {
     useCallStore.setState({
-      status: 'connected', callChannelId: 'c1', callChannelName: 'general', callServerId: 's1', callServerName: 'Alpha',
+      status: 'connected', callRoomId: 'c1', callChannelId: 'c1', callChannelName: 'general', callServerId: 's1', callServerName: 'Alpha',
       isMuted: false, isVideoOff: false,
     });
     render(<CallPill variant="root" onGoToCall={() => {}} />);
@@ -55,14 +55,14 @@ describe('CallPill', () => {
     expect(useCallStore.getState().status).toBe('idle');
   });
 
-  it('clicking the target calls onGoToCall with the call server/channel', () => {
+  it('clicking the target calls onGoToCall with the channel target', () => {
     useCallStore.setState({
-      status: 'connected', callChannelId: 'c1', callChannelName: 'general', callServerId: 's1', callServerName: 'Alpha',
+      status: 'connected', callRoomId: 'c1', callChannelId: 'c1', callChannelName: 'general', callServerId: 's1', callServerName: 'Alpha',
     });
     useServerStore.setState({ currentServer: { id: 's2' } as never });
     const onGoToCall = vi.fn();
     render(<CallPill variant="stacked" onGoToCall={onGoToCall} />);
     fireEvent.click(document.querySelector('.call-pill-target')!);
-    expect(onGoToCall).toHaveBeenCalledWith('s1', 'c1');
+    expect(onGoToCall).toHaveBeenCalledWith({ kind: 'channel', serverId: 's1', channelId: 'c1' });
   });
 });

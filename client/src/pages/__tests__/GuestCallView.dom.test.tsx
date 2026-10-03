@@ -48,7 +48,7 @@ beforeEach(() => {
   vi.useFakeTimers({ toFake: ['Date'] });
   vi.setSystemTime(new Date('2026-09-23T12:00:00Z'));
   useCallStore.setState({
-    callChannelId: 'c1', callChannelName: 'general', callServerId: 's1', status: 'connected',
+    callRoomId: 'c1', callChannelId: 'c1', callChannelName: 'general', callServerId: 's1', status: 'connected',
     startedAt: Date.now(), isMuted: false, isVideoOff: true, isMicAvailable: true,
     participants: [], directory: {}, guestSelf: { id: 'g1', display_name: 'Аня' } as never,
   });

@@ -88,6 +88,9 @@ export function ChatArea({
   historyOverlays = false, active = true,
 }: ChatAreaProps) {
   const callChannelId = useCallStore((s) => s.callChannelId);
+  // «В другом звонке» — по комнате: канальный звонок и 1:1 оба занимают callRoomId.
+  const callRoomId = useCallStore((s) => s.callRoomId);
+  const callKind = useCallStore((s) => s.callKind);
   const t = useT();
   const tp = useTp();
   const { formatFullDate } = useDateFormat();
@@ -770,16 +773,18 @@ logger.error('Failed to jump to message:', err, { module: 'chat' });
                 title={
                   callChannelId === channel.id
                     ? t('call.inThisCall')
-                    : callChannelId
-                      ? t('call.goToCall')
-                      : t('call.joinVoice')
+                    : callKind === 'direct'
+                      ? t('directCall.joinEndsCurrent')
+                      : callRoomId
+                        ? t('call.goToCall')
+                        : t('call.joinVoice')
                 }
               >
                 <Headphones size={16} strokeWidth={1.8} />
                 <span>
                   {callChannelId === channel.id
                     ? t('call.inThisCall')
-                    : callChannelId
+                    : callRoomId
                       ? t('call.goToCall')
                       : t('call.joinVoice')}
                 </span>

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { MoreVertical, UserMinus, Ban, Undo2 } from 'lucide-react';
+import { MoreVertical, Phone, UserMinus, Ban, Undo2 } from 'lucide-react';
 import { Avatar } from '@/components/Avatar';
 import { ContextMenu } from '@/components/ContextMenu';
 import { useT } from '@/i18n';
@@ -8,16 +8,21 @@ import type { UserBrief } from '@/types';
 interface FriendRowProps {
   user: UserBrief;
   online: boolean;
-  /** Кнопки строки (например, «Принять»/«Отклонить» у заявок). В фазе 1
-   *  «Написать» и «Позвонить» НЕ передаются сюда — личные сообщения ещё не
-   *  существуют (придут отдельной фазой, VYC-91). Это не забытая доработка. */
+  /** Кнопки строки (например, «Принять»/«Отклонить» у заявок). «Позвонить» —
+   *  отдельный проп onCall, а не часть actions. «Написать» сюда по-прежнему
+   *  НЕ передаётся — личные сообщения ещё не существуют (VYC-91). Это не
+   *  забытая доработка. */
   actions?: React.ReactNode;
+  /** Позвонить другу (1:1 через SFU). Не передан — кнопки нет (друг не в сети). */
+  onCall?: () => void;
+  /** Звонок уже идёт: подсказка предупреждает, что новый завершит текущий. */
+  callEndsCurrent?: boolean;
   onRemove?: () => void;
   onBlock?: () => void;
   onUnblock?: () => void;
 }
 
-export function FriendRow({ user, online, actions, onRemove, onBlock, onUnblock }: FriendRowProps) {
+export function FriendRow({ user, online, actions, onCall, callEndsCurrent, onRemove, onBlock, onUnblock }: FriendRowProps) {
   const t = useT();
   // Координаты клика, а не просто boolean: ContextMenu — портал с фиксированным
   // позиционированием, ему нужен якорь. Тот же приём, что у ServerList/ServerMenu.
@@ -37,6 +42,17 @@ export function FriendRow({ user, online, actions, onRemove, onBlock, onUnblock 
       </div>
       <div className="friend-row-actions">
         {actions}
+        {onCall && (
+          <button
+            type="button"
+            className="panel-icon-btn friend-row-call-btn"
+            aria-label={t('friends.call', { name: user.username })}
+            title={callEndsCurrent ? t('directCall.callEndsCurrent', { name: user.username }) : t('friends.call', { name: user.username })}
+            onClick={onCall}
+          >
+            <Phone size={16} strokeWidth={1.8} />
+          </button>
+        )}
         {hasMenu && (
           <button
             type="button"

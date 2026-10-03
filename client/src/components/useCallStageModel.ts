@@ -16,6 +16,7 @@ import { useGuestManagementStore } from '@/stores/guestManagementStore';
 import { useMediaDeviceStore } from '@/stores/mediaDeviceStore';
 import { useMicLevel } from '@/hooks/useMicLevel';
 import { useT } from '@/i18n';
+import { useDirectCallStore } from '@/stores/directCallStore';
 import { applySinkToCallAudio } from '@/components/call/callAudioSinks';
 
 // Attaches a remote MediaStream to a video element and starts playback.
@@ -87,6 +88,8 @@ export interface CallStageModel {
   guestLinksEnabled: boolean;
   callChannelId: string | null;
   callChannelName: string | null;
+  callKind: 'channel' | 'direct' | null;
+  callPeer: { id: string; username: string; avatar_url?: string | null } | null;
   totalParticipants: number;
   nameFor: (id: string) => string;
 
@@ -198,13 +201,16 @@ export function useCallStageModel({ onLeave, externalAudio = false }: CallStageM
   const guestLinksEnabled = useServerStore(
     (store) => store.servers.find((srv) => srv.id === callServerId)?.guest_links_enabled ?? false,
   ) && !isGuestMode;
-  const isInGroupCall = callChannelId !== null;
+  // По комнате, а не по каналу: сцена нужна и звонку 1:1 (у него callChannelId = null).
+  const isInGroupCall = useCallStore((s) => s.callRoomId) !== null;
   // Гости звонка: их имена приходят событиями хаба, а не из userCache —
   // в users их нет и быть не может.
   const channelGuests = useGuestManagementStore((s) => s.channelGuests);
   const [invitePosition, setInvitePosition] = useState<{ top: number; left: number } | null>(null);
   const inviteBtnRef = useRef<HTMLButtonElement>(null);
   const callChannelName = useCallStore((s) => s.callChannelName);
+  const callKind = useCallStore((s) => s.callKind);
+  const callPeer = useCallStore((s) => s.callPeer);
   const status = useCallStore((s) => s.status);
   const isReconnecting = useCallStore((s) => s.status === 'reconnecting');
   const isMuted = useCallStore((s) => s.isMuted);
@@ -529,6 +535,12 @@ export function useCallStageModel({ onLeave, externalAudio = false }: CallStageM
       if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
       return;
     }
+    // Звонок 1:1: hangup() сразу показывает исход и шлёт call_end.
+    if (useCallStore.getState().callKind === 'direct') {
+      useDirectCallStore.getState().hangup();
+      if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+      return;
+    }
     // leave() сбрасывает стор к IDLE целиком — участники, шареры, фокус и флаги
     // экрана чистятся там же, отдельные setState здесь больше не нужны.
     useCallStore.getState().leave();
@@ -709,6 +721,8 @@ export function useCallStageModel({ onLeave, externalAudio = false }: CallStageM
     guestLinksEnabled,
     callChannelId,
     callChannelName,
+    callKind,
+    callPeer,
     totalParticipants,
     nameFor,
 

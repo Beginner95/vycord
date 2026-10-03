@@ -15,6 +15,7 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
 
 	ws "github.com/vycord/server/internal/delivery/ws"
 	"github.com/vycord/server/internal/domain"
@@ -113,21 +114,38 @@ func (m *mockUserUseCase) SetPrivacy(id uuid.UUID, showLastSeen *bool, friendReq
 
 type mockCallUseCase struct{ mock.Mock }
 
-func (m *mockCallUseCase) StartCall(callerID, receiverID uuid.UUID) (*domain.Call, error) {
+func (m *mockCallUseCase) Start(callerID, receiverID uuid.UUID) (*domain.Call, error) {
 	args := m.Called(callerID, receiverID)
 	c, _ := args.Get(0).(*domain.Call)
 	return c, args.Error(1)
 }
-func (m *mockCallUseCase) AcceptCall(callID uuid.UUID) error { return m.Called(callID).Error(0) }
-func (m *mockCallUseCase) RejectCall(callID uuid.UUID) error { return m.Called(callID).Error(0) }
-func (m *mockCallUseCase) EndCall(callID uuid.UUID) error    { return m.Called(callID).Error(0) }
-func (m *mockCallUseCase) GetActiveCall(userID uuid.UUID) (*domain.Call, error) {
-	args := m.Called(userID)
-	c, _ := args.Get(0).(*domain.Call)
-	return c, args.Error(1)
+func (m *mockCallUseCase) Accept(userID, callID uuid.UUID) error {
+	return m.Called(userID, callID).Error(0)
 }
-func (m *mockCallUseCase) EndAllActiveCalls(userID uuid.UUID) error {
-	return m.Called(userID).Error(0)
+func (m *mockCallUseCase) Reject(userID, callID uuid.UUID) error {
+	return m.Called(userID, callID).Error(0)
+}
+func (m *mockCallUseCase) End(userID, callID uuid.UUID, reason domain.CallEndReason) error {
+	return m.Called(userID, callID, reason).Error(0)
+}
+func (m *mockCallUseCase) OnConnect(userID uuid.UUID) *domain.CallSnapshot {
+	s, _ := m.Called(userID).Get(0).(*domain.CallSnapshot)
+	return s
+}
+func (m *mockCallUseCase) OnDisconnect(userID uuid.UUID) { m.Called(userID) }
+func (m *mockCallUseCase) IssueRoomToken(userID, callID uuid.UUID) (string, error) {
+	args := m.Called(userID, callID)
+	return args.String(0), args.Error(1)
+}
+func (m *mockCallUseCase) IsCallRoom(roomID uuid.UUID) bool { return m.Called(roomID).Bool(0) }
+func (m *mockCallUseCase) RecoverOnStartup() error          { return m.Called().Error(0) }
+
+// defaultCallUseCase — звонков нет: connect/disconnect — no-op.
+func defaultCallUseCase() *mockCallUseCase {
+	m := &mockCallUseCase{}
+	m.On("OnConnect", mock.Anything).Return(nil)
+	m.On("OnDisconnect", mock.Anything).Return()
+	return m
 }
 
 type mockChannelAccess struct{ mock.Mock }
@@ -167,8 +185,7 @@ func newTestHandler(t *testing.T, userID uuid.UUID) (*WebSocketHandler, *ws.Hub)
 	users.On("UpdateStatus", userID, mock.Anything).Return(nil)
 	users.On("UpdateLastSeen", userID, mock.Anything).Return(nil)
 
-	calls := &mockCallUseCase{}
-	calls.On("EndAllActiveCalls", userID).Return(nil)
+	calls := defaultCallUseCase()
 
 	hub := ws.NewHub(log)
 	go hub.Run()
@@ -257,8 +274,7 @@ func newMultiUserTestHandler(t *testing.T, users map[string]*domain.User) (*WebS
 	userUC.On("UpdateStatus", mock.Anything, mock.Anything).Return(nil)
 	userUC.On("UpdateLastSeen", mock.Anything, mock.Anything).Return(nil)
 
-	calls := &mockCallUseCase{}
-	calls.On("EndAllActiveCalls", mock.Anything).Return(nil)
+	calls := defaultCallUseCase()
 
 	hub := ws.NewHub(log)
 	go hub.Run()
@@ -767,12 +783,7 @@ func TestReadPump_RealDisconnect_UpdatesLastSeen(t *testing.T) {
 
 	mockUC := h.userUseCase.(*mockUserUseCase)
 	assert.Eventually(t, func() bool {
-		for _, c := range mockUC.Calls {
-			if c.Method == "UpdateLastSeen" {
-				return true
-			}
-		}
-		return false
+		return mockHasCall(mockUC, "UpdateLastSeen")
 	}, time.Second, 10*time.Millisecond, "UpdateLastSeen must be called after a real disconnect")
 }
 
@@ -816,11 +827,245 @@ func TestReadPump_StaleReconnectedConnection_DoesNotUpdateLastSeen(t *testing.T)
 	time.Sleep(300 * time.Millisecond)
 
 	mockUC := h.userUseCase.(*mockUserUseCase)
-	for _, c := range mockUC.Calls {
-		if c.Method == "UpdateLastSeen" {
-			t.Fatalf("UpdateLastSeen must not be called for the stale connection's teardown")
-		}
+	if mockHasCall(mockUC, "UpdateLastSeen") {
+		t.Fatalf("UpdateLastSeen must not be called for the stale connection's teardown")
 	}
 
 	oldConn.Close() // already dead on the server side — releases the client-side handle only
+}
+
+// newCallTestHandler — как newMultiUserTestHandler, но с заданным моком звонков.
+func newCallTestHandler(t *testing.T, users map[string]*domain.User, calls *mockCallUseCase) *WebSocketHandler {
+	t.Helper()
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	auth := &mockAuthUseCase{}
+	for token, user := range users {
+		auth.On("ValidateToken", token).Return(user, nil)
+	}
+	userUC := &mockUserUseCase{}
+	userUC.On("UpdateStatus", mock.Anything, mock.Anything).Return(nil)
+	userUC.On("UpdateLastSeen", mock.Anything, mock.Anything).Return(nil)
+	hub := ws.NewHub(log)
+	go hub.Run()
+	h := NewWebSocketHandler(hub, auth, calls, userUC, allowAllChannelAccess(), log)
+	h.pongWait = 200 * time.Millisecond
+	h.pingPeriod = 80 * time.Millisecond
+	h.writeWait = 100 * time.Millisecond
+	return h
+}
+
+func TestCallStart_ForwardsToUseCase(t *testing.T) {
+	a := &domain.User{ID: uuid.New(), Username: "a"}
+	b := uuid.New()
+	calls := defaultCallUseCase()
+	done := make(chan struct{})
+	calls.On("Start", a.ID, b).Return(&domain.Call{ID: uuid.New()}, nil).Run(func(mock.Arguments) { close(done) })
+	h := newCallTestHandler(t, map[string]*domain.User{"ta": a}, calls)
+	srv := httptest.NewServer(http.HandlerFunc(h.HandleWebSocket))
+	defer srv.Close()
+	conn := dialWSWithToken(t, srv, "ta")
+	defer conn.Close()
+
+	sendJSON(t, conn, "call_start", map[string]string{"receiver_id": b.String()})
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("Start не вызван")
+	}
+	assertNoMessageOfType(t, conn, "call_error", 200*time.Millisecond)
+}
+
+func TestCallStart_ErrorMapsToCallError(t *testing.T) {
+	cases := map[error]string{
+		domain.ErrInteractionForbidden: "forbidden",
+		domain.ErrSelfFriendship:       "forbidden",
+		domain.ErrUserNotFound:         "forbidden",
+		domain.ErrCallPeerOffline:      "offline",
+		domain.ErrCallBusy:             "busy",
+	}
+	for useErr, code := range cases {
+		t.Run(code+"/"+useErr.Error(), func(t *testing.T) {
+			a := &domain.User{ID: uuid.New(), Username: "a"}
+			b := uuid.New()
+			calls := defaultCallUseCase()
+			calls.On("Start", a.ID, b).Return(nil, useErr)
+			h := newCallTestHandler(t, map[string]*domain.User{"ta": a}, calls)
+			srv := httptest.NewServer(http.HandlerFunc(h.HandleWebSocket))
+			defer srv.Close()
+			conn := dialWSWithToken(t, srv, "ta")
+			defer conn.Close()
+
+			sendJSON(t, conn, "call_start", map[string]string{"receiver_id": b.String()})
+			raw := readUntilType(t, conn, "call_error", time.Second)
+			var msg struct {
+				Payload struct {
+					Code string `json:"code"`
+				} `json:"payload"`
+			}
+			require.NoError(t, json.Unmarshal(raw, &msg))
+			assert.Equal(t, code, msg.Payload.Code)
+		})
+	}
+}
+
+func TestCallEnd_PassesReason(t *testing.T) {
+	a := &domain.User{ID: uuid.New(), Username: "a"}
+	callID := uuid.New()
+	calls := defaultCallUseCase()
+	done := make(chan struct{})
+	calls.On("End", a.ID, callID, domain.CallEndFailed).Return(nil).Run(func(mock.Arguments) { close(done) })
+	h := newCallTestHandler(t, map[string]*domain.User{"ta": a}, calls)
+	srv := httptest.NewServer(http.HandlerFunc(h.HandleWebSocket))
+	defer srv.Close()
+	conn := dialWSWithToken(t, srv, "ta")
+	defer conn.Close()
+
+	sendJSON(t, conn, "call_end", map[string]string{"call_id": callID.String(), "reason": "failed"})
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("End не вызван")
+	}
+}
+
+func TestConnect_SendsCallState(t *testing.T) {
+	a := &domain.User{ID: uuid.New(), Username: "a"}
+	snap := &domain.CallSnapshot{CallID: uuid.New(), Status: domain.CallStatusActive}
+	calls := &mockCallUseCase{}
+	calls.On("OnConnect", a.ID).Return(snap)
+	calls.On("OnDisconnect", mock.Anything).Return()
+	h := newCallTestHandler(t, map[string]*domain.User{"ta": a}, calls)
+	srv := httptest.NewServer(http.HandlerFunc(h.HandleWebSocket))
+	defer srv.Close()
+	conn := dialWSWithToken(t, srv, "ta")
+	defer conn.Close()
+
+	raw := readUntilType(t, conn, "call_state", time.Second)
+	var msg struct {
+		Payload struct {
+			Call *domain.CallSnapshot `json:"call"`
+		} `json:"payload"`
+	}
+	require.NoError(t, json.Unmarshal(raw, &msg))
+	require.NotNil(t, msg.Payload.Call)
+	assert.Equal(t, snap.CallID, msg.Payload.Call.CallID)
+}
+
+func TestConnect_NoCall_SendsNullCallState(t *testing.T) {
+	a := &domain.User{ID: uuid.New(), Username: "a"}
+	h := newCallTestHandler(t, map[string]*domain.User{"ta": a}, defaultCallUseCase())
+	srv := httptest.NewServer(http.HandlerFunc(h.HandleWebSocket))
+	defer srv.Close()
+	conn := dialWSWithToken(t, srv, "ta")
+	defer conn.Close()
+
+	raw := readUntilType(t, conn, "call_state", time.Second)
+	assert.Contains(t, string(raw), `"call":null`)
+}
+
+func TestDisconnect_CallsOnDisconnectOnce(t *testing.T) {
+	a := &domain.User{ID: uuid.New(), Username: "a"}
+	calls := &mockCallUseCase{}
+	calls.On("OnConnect", a.ID).Return(nil)
+	done := make(chan struct{}, 4)
+	calls.On("OnDisconnect", a.ID).Return().Run(func(mock.Arguments) { done <- struct{}{} })
+	h := newCallTestHandler(t, map[string]*domain.User{"ta": a}, calls)
+	srv := httptest.NewServer(http.HandlerFunc(h.HandleWebSocket))
+	defer srv.Close()
+	conn := dialWSWithToken(t, srv, "ta")
+	readUntilType(t, conn, "call_state", time.Second)
+	conn.Close()
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("OnDisconnect не вызван после закрытия")
+	}
+	// «Ровно один раз»: даём время на возможный лишний вызов.
+	time.Sleep(200 * time.Millisecond)
+	calls.AssertNumberOfCalls(t, "OnDisconnect", 1)
+}
+
+func TestWebRTCRelayRemoved(t *testing.T) {
+	a := &domain.User{ID: uuid.New(), Username: "a"}
+	b := &domain.User{ID: uuid.New(), Username: "b"}
+	h := newCallTestHandler(t, map[string]*domain.User{"ta": a, "tb": b}, defaultCallUseCase())
+	srv := httptest.NewServer(http.HandlerFunc(h.HandleWebSocket))
+	defer srv.Close()
+	ca := dialWSWithToken(t, srv, "ta")
+	defer ca.Close()
+	cb := dialWSWithToken(t, srv, "tb")
+	defer cb.Close()
+
+	sendJSON(t, ca, "webrtc_offer", map[string]any{"target_user_id": b.ID.String(), "sdp": map[string]string{"type": "offer"}})
+	assertNoMessageOfType(t, cb, "webrtc_offer", 300*time.Millisecond)
+}
+
+// Вытесненное (stale) соединение при закрытии не вызывает OnDisconnect:
+// живая сессия пользователя продолжается, звонок трогать нельзя.
+func TestDisconnect_StaleConnection_DoesNotCallOnDisconnect(t *testing.T) {
+	a := &domain.User{ID: uuid.New(), Username: "a"}
+	calls := defaultCallUseCase()
+	h := newCallTestHandler(t, map[string]*domain.User{"ta": a}, calls)
+	srv := httptest.NewServer(http.HandlerFunc(h.HandleWebSocket))
+	defer srv.Close()
+
+	oldConn := dialWSWithToken(t, srv, "ta")
+	assert.Eventually(t, func() bool { return h.hub.IsOnline(a.ID) }, time.Second, 10*time.Millisecond)
+	newConn := dialWSWithToken(t, srv, "ta") // вытесняет oldConn
+	defer newConn.Close()
+	// Keepalive: без чтения новое соединение умрёт по pongWait.
+	go func() {
+		for {
+			if _, _, err := newConn.ReadMessage(); err != nil {
+				return
+			}
+		}
+	}()
+
+	time.Sleep(300 * time.Millisecond)
+	calls.AssertNotCalled(t, "OnDisconnect", mock.Anything)
+	oldConn.Close()
+}
+
+// quietT глушит ошибки AssertCalled: нужен только булев результат, а обход
+// mock.Calls напрямую гонится с вызовами из хендлера (Calls не под локом).
+type quietT struct{}
+
+func (quietT) Errorf(string, ...interface{}) {}
+func (quietT) Logf(string, ...interface{})   {}
+func (quietT) FailNow()                      {}
+
+// mockHasCall — потокобезопасная проверка «метод вызывался хотя бы раз».
+func mockHasCall(m *mockUserUseCase, method string) bool {
+	return m.AssertCalled(quietT{}, method, mock.Anything, mock.Anything)
+}
+
+// Петля «Позвонить → Отменить» спамит пропущенными и БД под mu звонков: после
+// лимита call_start отклоняется кодом rate_limited, не доходя до usecase.
+func TestCallStart_RateLimited(t *testing.T) {
+	a := &domain.User{ID: uuid.New(), Username: "a"}
+	b := uuid.New()
+	calls := defaultCallUseCase()
+	calls.On("Start", a.ID, b).Return(&domain.Call{ID: uuid.New()}, nil)
+	h := newCallTestHandler(t, map[string]*domain.User{"ta": a}, calls)
+	srv := httptest.NewServer(http.HandlerFunc(h.HandleWebSocket))
+	defer srv.Close()
+	conn := dialWSWithToken(t, srv, "ta")
+	defer conn.Close()
+
+	// Сообщения одного соединения обрабатываются по порядку: call_error придёт
+	// только на (лимит+1)-й, когда первые лимит уже дошли до Start.
+	for i := 0; i <= callStartRateLimit; i++ {
+		sendJSON(t, conn, "call_start", map[string]string{"receiver_id": b.String()})
+	}
+	raw := readUntilType(t, conn, "call_error", time.Second)
+	var msg struct {
+		Payload struct {
+			Code string `json:"code"`
+		} `json:"payload"`
+	}
+	require.NoError(t, json.Unmarshal(raw, &msg))
+	assert.Equal(t, "rate_limited", msg.Payload.Code)
+	calls.AssertNumberOfCalls(t, "Start", callStartRateLimit)
 }

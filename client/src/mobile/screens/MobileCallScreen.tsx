@@ -32,7 +32,8 @@ interface MobileCallScreenProps {
    *  гостевую сессию. Без пропа кнопка не рендерится (тот же приём, что
    *  `onOpenParticipants`/`chatUnreadCount` ниже). */
   onBack?: () => void;
-  onOpenChat: () => void;
+  /** Нет у звонка 1:1 (чата нет) — тогда кнопка чата не рисуется. */
+  onOpenChat?: () => void;
   onOpenOverflow: () => void;
   // Хедер: тап по индикатору качества связи открывает CallQualitySheet
   // напрямую (D6), в обход общего списка «⋯» — отдельный колбэк, а не второй
@@ -248,7 +249,7 @@ export function MobileCallScreen({ model: m, onBack, onOpenChat, onOpenOverflow,
           </button>
         )}
         <div className="mcs-title">
-          <span className="mcs-title-name">{m.callChannelName ? `#${m.callChannelName}` : t('call.groupCallTitle')}</span>
+          <span className="mcs-title-name">{m.callKind === 'direct' && m.callPeer ? m.callPeer.username : m.callChannelName ? `#${m.callChannelName}` : t('call.groupCallTitle')}</span>
           <span className="mcs-title-timer"><StageTimer /></span>
         </div>
         {onOpenParticipants && (
@@ -493,10 +494,12 @@ export function MobileCallScreen({ model: m, onBack, onOpenChat, onOpenOverflow,
             <Speaker size={22} strokeWidth={1.8} />
           </button>
         )}
-        <button type="button" className="mcs-panel-btn mcs-panel-btn-chat" onClick={onOpenChat} aria-label={t('mobile.callOpenChat')}>
-          <MessageSquare size={22} strokeWidth={1.8} />
-          {Boolean(chatUnreadCount) && <span className="mcs-chat-badge">{chatUnreadCount! > 99 ? '99+' : chatUnreadCount}</span>}
-        </button>
+        {onOpenChat && (
+          <button type="button" className="mcs-panel-btn mcs-panel-btn-chat" onClick={onOpenChat} aria-label={t('mobile.callOpenChat')}>
+            <MessageSquare size={22} strokeWidth={1.8} />
+            {Boolean(chatUnreadCount) && <span className="mcs-chat-badge">{chatUnreadCount! > 99 ? '99+' : chatUnreadCount}</span>}
+          </button>
+        )}
         <button type="button" className="mcs-panel-btn" onClick={() => onOpenOverflow()} aria-label={t('mobile.callActions')}>
           <MoreHorizontal size={22} strokeWidth={1.8} />
         </button>

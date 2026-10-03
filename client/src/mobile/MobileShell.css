@@ -70,6 +70,21 @@
   background: var(--canvas);
 }
 
+/* «Свернуть» на экране дозвона: ушли с экрана, звонок остаётся в пилюле. */
+.mobile-direct-collapse {
+  position: absolute;
+  top: calc(env(safe-area-inset-top) + 8px);
+  left: 12px;
+  width: 40px;
+  height: 40px;
+}
+
+/* Дозвон/исход 1:1 на весь экран: отступы под вырез и жестовую полосу. */
+.mobile-screen > .direct-call-view {
+  padding-top: calc(env(safe-area-inset-top) + 24px);
+  padding-bottom: calc(env(safe-area-inset-bottom) + 24px);
+}
+
 .mobile-call-dock {
   flex-shrink: 0;
   margin: 0 12px 8px;

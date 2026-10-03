@@ -1,4 +1,4 @@
-import { Ban, Headphones, Undo2, UserMinus } from 'lucide-react';
+import { Ban, Phone, Undo2, UserMinus } from 'lucide-react';
 import type { ContextMenuItem } from '@/components/ContextMenu';
 import type { UserBrief } from '@/types';
 import { useT } from '@/i18n';
@@ -17,7 +17,7 @@ export function useFriendMenuItems(user: UserBrief, a: FriendMenuActions): Conte
   const t = useT();
   const items: ContextMenuItem[] = [];
   if (a.onCall) {
-    items.push({ label: t('server.callUser', { name: user.username }), icon: <Headphones size={20} strokeWidth={1.8} />, onClick: a.onCall });
+    items.push({ label: t('server.callUser', { name: user.username }), icon: <Phone size={20} strokeWidth={1.8} />, onClick: a.onCall });
   }
   if (a.onUnblock) {
     items.push({ label: t('friends.unblock'), icon: <Undo2 size={20} strokeWidth={1.8} />, onClick: a.onUnblock });

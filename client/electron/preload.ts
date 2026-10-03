@@ -21,6 +21,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   visionAssetsUrl,
   setLocale: (locale: string) => ipcRenderer.send('locale:changed', locale),
   setTheme: (theme: string) => ipcRenderer.send('theme:changed', theme),
+  // Звонок 1:1 при неактивном окне: подсветка в панели задач.
+  flashFrame: () => ipcRenderer.send('window:flash'),
   update: {
     onAvailable: (cb: (version: string) => void) =>
       ipcRenderer.on('update:available', (_event, data: { version: string }) => cb(data.version)),

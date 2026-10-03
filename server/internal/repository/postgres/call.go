@@ -2,11 +2,12 @@ package postgres
 
 import (
 	"context"
-	"database/sql"
+	"errors"
 	"fmt"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/vycord/server/internal/domain"
 )
@@ -19,135 +20,100 @@ func NewCallRepository(db *pgxpool.Pool) domain.CallRepository {
 	return &callRepository{db: db}
 }
 
+const callColumns = `id, caller_id, receiver_id, status, started_at, accepted_at, ended_at`
+
+func scanCall(row pgx.Row) (*domain.Call, error) {
+	c := &domain.Call{}
+	err := row.Scan(&c.ID, &c.CallerID, &c.ReceiverID, &c.Status, &c.StartedAt, &c.AcceptedAt, &c.EndedAt)
+	return c, err
+}
+
 func (r *callRepository) Create(call *domain.Call) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-
-	query := `
-		INSERT INTO calls (id, caller_id, receiver_id, status, started_at)
-		VALUES ($1, $2, $3, $4, $5)
-		RETURNING id
-	`
-
-	err := r.db.QueryRow(
-		ctx,
-		query,
-		call.ID,
-		call.CallerID,
-		call.ReceiverID,
-		call.Status,
-		call.StartedAt,
-	).Scan(&call.ID)
-
+	_, err := r.db.Exec(ctx,
+		`INSERT INTO calls (id, caller_id, receiver_id, status, started_at) VALUES ($1, $2, $3, $4, $5)`,
+		call.ID, call.CallerID, call.ReceiverID, call.Status, call.StartedAt)
 	if err != nil {
-		return fmt.Errorf("failed to create call: %w", err)
+		return fmt.Errorf("create call: %w", err)
 	}
-
 	return nil
 }
 
 func (r *callRepository) GetByID(id uuid.UUID) (*domain.Call, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-
-	query := `
-		SELECT id, caller_id, receiver_id, status, started_at, ended_at
-		FROM calls
-		WHERE id = $1
-	`
-
-	call := &domain.Call{}
-	err := r.db.QueryRow(ctx, query, id).Scan(
-		&call.ID,
-		&call.CallerID,
-		&call.ReceiverID,
-		&call.Status,
-		&call.StartedAt,
-		&call.EndedAt,
-	)
-
-	if err == sql.ErrNoRows {
-		return nil, fmt.Errorf("call not found")
+	c, err := scanCall(r.db.QueryRow(ctx, `SELECT `+callColumns+` FROM calls WHERE id = $1`, id))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, domain.ErrCallNotFound
 	}
 	if err != nil {
-		return nil, fmt.Errorf("failed to get call: %w", err)
+		return nil, fmt.Errorf("get call: %w", err)
 	}
-
-	return call, nil
+	return c, nil
 }
 
-func (r *callRepository) GetActiveByUser(userID uuid.UUID) (*domain.Call, error) {
+func (r *callRepository) ListLiveByUser(userID uuid.UUID) ([]*domain.Call, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-
-	query := `
-		SELECT id, caller_id, receiver_id, status, started_at, ended_at
-		FROM calls
-		WHERE (caller_id = $1 OR receiver_id = $1)
-		  AND status IN ('ringing', 'active')
-		ORDER BY started_at DESC
-		LIMIT 1
-	`
-
-	call := &domain.Call{}
-	err := r.db.QueryRow(ctx, query, userID).Scan(
-		&call.ID,
-		&call.CallerID,
-		&call.ReceiverID,
-		&call.Status,
-		&call.StartedAt,
-		&call.EndedAt,
-	)
-
-	if err == sql.ErrNoRows {
-		return nil, nil // No active call
-	}
+	rows, err := r.db.Query(ctx, `
+		SELECT `+callColumns+` FROM calls
+		WHERE (caller_id = $1 OR receiver_id = $1) AND status IN ('ringing', 'active')
+		ORDER BY started_at DESC`, userID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get active call: %w", err)
+		return nil, fmt.Errorf("list live calls: %w", err)
 	}
-
-	return call, nil
+	defer rows.Close()
+	var out []*domain.Call
+	for rows.Next() {
+		c, err := scanCall(rows)
+		if err != nil {
+			return nil, fmt.Errorf("scan live call: %w", err)
+		}
+		out = append(out, c)
+	}
+	return out, rows.Err()
 }
 
-func (r *callRepository) UpdateStatus(id uuid.UUID, status domain.CallStatus) error {
+func (r *callRepository) Transition(id uuid.UUID, from []domain.CallStatus, to domain.CallStatus, at time.Time) (bool, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-
-	query := "UPDATE calls SET status = $1 WHERE id = $2"
-	_, err := r.db.Exec(ctx, query, status, id)
-	if err != nil {
-		return fmt.Errorf("failed to update call status: %w", err)
+	fromStr := make([]string, len(from))
+	for i, s := range from {
+		fromStr[i] = string(s)
 	}
-
-	return nil
+	tag, err := r.db.Exec(ctx, `
+		UPDATE calls SET
+			status      = $2::varchar,
+			accepted_at = CASE WHEN $2::varchar = 'active' THEN $4 ELSE accepted_at END,
+			ended_at    = CASE WHEN $2::varchar IN ('ended', 'missed', 'rejected') THEN $4 ELSE ended_at END
+		WHERE id = $1 AND status = ANY($3)`, id, string(to), fromStr, at)
+	if err != nil {
+		return false, fmt.Errorf("transition call: %w", err)
+	}
+	return tag.RowsAffected() == 1, nil
 }
 
-func (r *callRepository) EndAllActiveByUser(userID uuid.UUID) error {
+func (r *callRepository) CloseAllLive(at time.Time) (int64, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-
-	query := `
-		UPDATE calls
-		SET status = 'ended', ended_at = NOW()
-		WHERE (caller_id = $1 OR receiver_id = $1)
-		  AND status IN ('ringing', 'active')
-	`
-	_, err := r.db.Exec(ctx, query, userID)
+	tag, err := r.db.Exec(ctx, `
+		UPDATE calls SET
+			status   = CASE WHEN status = 'ringing' THEN 'missed' ELSE 'ended' END,
+			ended_at = $1
+		WHERE status IN ('ringing', 'active')`, at)
 	if err != nil {
-		return fmt.Errorf("failed to end stale calls: %w", err)
+		return 0, fmt.Errorf("close live calls: %w", err)
 	}
-	return nil
+	return tag.RowsAffected(), nil
 }
 
-func (r *callRepository) SetEndTime(id uuid.UUID) error {
+func (r *callRepository) Exists(id uuid.UUID) (bool, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-
-	query := "UPDATE calls SET ended_at = NOW() WHERE id = $1"
-	_, err := r.db.Exec(ctx, query, id)
-	if err != nil {
-		return fmt.Errorf("failed to set call end time: %w", err)
+	var ok bool
+	if err := r.db.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM calls WHERE id = $1)`, id).Scan(&ok); err != nil {
+		return false, fmt.Errorf("call exists: %w", err)
 	}
-
-	return nil
+	return ok, nil
 }

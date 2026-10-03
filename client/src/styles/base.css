@@ -123,14 +123,14 @@ a:hover {
    specificity instead — source order is a fact to diagnose with, not to ship
    on, and Vite HMR can re-inject a base-layer file out of order. */
 @media (prefers-reduced-motion: reduce) {
-  /* The four indefinite loops — the actual vestibular hazard.
-     stage-eq-bar 0.7s (CallStage.css:304) · p2p-pulse 2.5s (CallUI.css:43) ·
+  /* The indefinite loops — the actual vestibular hazard (p2p-pulse ушёл вместе
+     с CallUI в VYC-103).
+     stage-eq-bar 0.7s (CallStage.css:304) ·
      chat-shimmer 1.2s (ChatArea.css:220) · message-search-spin 0.7s
      (MessageSearch.css:175). Each element keeps a resting style that does not
      depend on its keyframes — see the note at CallStage.css's `.stage-eq span`,
      whose `height: 5px` exists so the bars survive exactly this rule. */
   :root .stage-eq span,
-  :root .p2p-modal-tile,
   :root .chat-skel-avatar,
   :root .chat-skel-line,
   :root .message-search-spinner {

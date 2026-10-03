@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Hash, Headphones, Search, UserPlus, Settings2 } from 'lucide-react';
+import { Hash, Headphones, Phone, Search, UserPlus, Settings2 } from 'lucide-react';
 import type { MemberWithUser } from '@/types';
 import { Avatar } from '@/components/Avatar';
 import { useMemberList } from '@/components/useMemberList';
@@ -10,7 +10,7 @@ import { ChannelMenuSheet } from '@/mobile/menus/ChannelMenuSheet';
 import { useServerStore } from '@/stores/serverStore';
 import { usePaletteStore } from '@/stores/paletteStore';
 import { useCallStore } from '@/stores/callStore';
-import { callService } from '@/services/call';
+import { useDirectCallStore } from '@/stores/directCallStore';
 import { can, PERMISSIONS } from '@/utils/permissions';
 import { useT } from '@/i18n';
 import type { ScreenCtx } from './types';
@@ -109,8 +109,8 @@ export function ChannelInfoScreen({ channelId, ctx }: { channelId: string; ctx: 
         title={callTarget?.username}
         items={callTarget ? [{
           label: t('server.callUser', { name: callTarget.username }),
-          icon: <Headphones size={20} strokeWidth={1.8} />,
-          onClick: () => { void callService.startCall(callTarget.user_id); },
+          icon: <Phone size={20} strokeWidth={1.8} />,
+          onClick: () => useDirectCallStore.getState().call({ id: callTarget.user_id, username: callTarget.username, avatar_url: callTarget.avatar_url }),
         }] : []}
       />
       <ChannelMenuSheet

@@ -18,7 +18,6 @@ vi.mock('@/mobile/screens/renderScreen', () => ({
   ),
 }));
 vi.mock('@/pages/app/AppOverlays', () => ({ AppOverlays: () => null }));
-vi.mock('@/components/CallUI', () => ({ CallUI: () => null }));
 vi.mock('@/components/CallDock', () => ({ CallDock: () => null }));
 vi.mock('@/mobile/components/CallPill', () => ({ CallPill: () => null }));
 

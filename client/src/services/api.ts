@@ -634,6 +634,10 @@ class ApiService {
     return this.request(`/api/v1/channels/${channelId}/voice-token`, { method: 'POST' });
   }
 
+  async getCallVoiceToken(callId: string): Promise<{ token: string }> {
+    return this.request(`/api/v1/calls/${callId}/voice-token`, { method: 'POST' });
+  }
+
   async deleteChannel(serverId: string, channelId: string) {
     return this.request(`/api/v1/servers/${serverId}/channels/${channelId}`, {
       method: 'DELETE',

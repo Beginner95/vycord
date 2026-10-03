@@ -104,6 +104,10 @@ const (
 	CodeChannelForbidden = "channel_forbidden"
 	CodeVoiceTokenFailed = "voice_token_failed"
 
+	// Звонки 1:1
+	CodeInvalidCallID = "invalid_call_id"
+	CodeCallNotFound  = "call_not_found"
+
 	// Инвайты
 	CodeInviteNotFound  = "invite_not_found"
 	CodeInviteForbidden = "invite_forbidden"

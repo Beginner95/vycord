@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent, type MouseEvent, type PointerEvent } from 'react';
-import { callService } from '@/services/call';
 import { useCallStore } from '@/stores/callStore';
 import { pauseCurrent } from '@/utils/chatMediaCoordinator';
 import { IDLE, reduce, type GestureEvent, type GestureState, type HintKind } from '@/voice/voiceGesture';
@@ -9,7 +8,7 @@ import { startVoiceRecorder, toRecorderFailure, type VoiceRecorderHandle, type V
 const TICK_MS = 200;
 const HINT_MS = 2500;
 
-const defaultInCall = () => useCallStore.getState().callChannelId !== null || callService.isInCallState;
+const defaultInCall = () => useCallStore.getState().callRoomId !== null;
 
 export interface UseVoiceRecording {
   state: GestureState;

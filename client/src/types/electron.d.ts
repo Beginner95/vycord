@@ -42,6 +42,8 @@ export interface ElectronAPI {
   // Опционально по той же причине, что и setLocale: старые сборки клиента
   // и веб-сборка этого метода не имеют.
   setTheme?: (theme: string) => void;
+  // Опционально по той же причине: старые сборки и веб-сборка метода не имеют.
+  flashFrame?: () => void;
   update: {
     onAvailable: (cb: (version: string) => void) => void;
     onManual: (cb: (version: string) => void) => void;

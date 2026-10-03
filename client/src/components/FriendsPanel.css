@@ -154,6 +154,23 @@
   flex-shrink: 0;
 }
 
+/* Кнопка звонка: по умолчанию скрыта, видна при наведении на строку и при
+   фокусе внутри (клавиатура); на устройствах без hover — всегда. */
+.friend-row-call-btn {
+  opacity: 0;
+}
+
+.friend-row:hover .friend-row-call-btn,
+.friend-row:focus-within .friend-row-call-btn {
+  opacity: 1;
+}
+
+@media (hover: none) {
+  .friend-row-call-btn {
+    opacity: 1;
+  }
+}
+
 .friends-row-btn {
   height: 30px;
   padding: 0 12px;

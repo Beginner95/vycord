@@ -1,5 +1,6 @@
 import { createContext, useEffect, useRef } from 'react';
 import { useCallStore } from '@/stores/callStore';
+import { useDirectCallStore } from '@/stores/directCallStore';
 import { groupCallService } from '@/services/groupCall';
 import { callBus } from '@/services/callBus';
 import { registerCallAudioElement, resetCallAudioSink } from '@/components/call/callAudioSinks';
@@ -152,7 +153,10 @@ function useCallMediaSession(): void {
     const ms = typeof navigator !== 'undefined' ? navigator.mediaSession : undefined;
     if (!ms) return;
     try { ms.playbackState = 'playing'; } catch { /* ignore */ }
-    setHandler(ms, HANGUP, () => useCallStore.getState().leave());
+    // Звонок 1:1 кладёт трубку через directCallStore (он шлёт call_end), канальный — leave().
+    setHandler(ms, HANGUP, () => (useCallStore.getState().callKind === 'direct'
+      ? useDirectCallStore.getState().hangup()
+      : useCallStore.getState().leave()));
     setHandler(ms, TOGGLE_MIC, toggleMute);
     return () => {
       setHandler(ms, HANGUP, null);

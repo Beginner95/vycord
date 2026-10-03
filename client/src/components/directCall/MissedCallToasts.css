@@ -1,0 +1,52 @@
+/* ── Пропущенные звонки: стопка справа сверху под шапкой (десктоп), сверху на
+   всю ширину (узкая). Снизу справа она закрывала микрофон/вложения композера и
+   карточку «Пригласить друзей» в списке участников; 68px = шапка 58px + 10px. ── */
+.missed-call-stack {
+  position: fixed;
+  top: 68px;
+  right: 16px;
+  z-index: var(--z-toast);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 360px;
+  max-width: calc(100vw - 32px);
+}
+
+.missed-call-toast {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  background: var(--canvas);
+  color: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-popover);
+}
+
+.missed-call-icon {
+  flex: none;
+  color: var(--danger-text);
+}
+
+.missed-call-text {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+}
+
+.missed-call-back {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+@media (width < 900px) {
+  .missed-call-stack {
+    inset: 52px 16px auto;
+    width: auto;
+    max-width: none;
+  }
+}

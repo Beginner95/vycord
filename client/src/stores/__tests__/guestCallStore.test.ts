@@ -54,6 +54,7 @@ vi.mock('@/services/groupCall', () => ({
 vi.mock('@/services/callCredentials', () => ({
   setCallCredentials: vi.fn(),
   accountCallCredentials: {},
+  markDirectCallRoom: vi.fn(),
 }));
 
 import { guestApi } from '@/services/guestApi';

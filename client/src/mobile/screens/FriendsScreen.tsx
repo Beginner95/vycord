@@ -3,7 +3,7 @@ import { Plus } from 'lucide-react';
 import { apiService, apiErrorText } from '@/services/api';
 import { useFriendStore } from '@/stores/friendStore';
 import { useOnlineIds } from '@/hooks/useOnlineIds';
-import { callService } from '@/services/call';
+import { useDirectCallStore } from '@/stores/directCallStore';
 import { Avatar } from '@/components/Avatar';
 import { AddFriendForm } from '@/components/AddFriendForm';
 import { ScreenHeader } from '@/mobile/components/ScreenHeader';
@@ -44,7 +44,7 @@ export function FriendsScreen() {
   const menuOnline = !!menuTarget && onlineIds.has(menuTarget.user_id);
   const menuBlocked = !!menuTarget && blocked.some((u) => u.user_id === menuTarget.user_id);
   const menuItems = useFriendMenuItems(menuTarget ?? { user_id: '', username: '' }, menuTarget ? {
-    onCall: (menuOnline && !menuBlocked) ? () => { void callService.startCall(menuTarget.user_id); } : undefined,
+    onCall: (menuOnline && !menuBlocked) ? () => useDirectCallStore.getState().call({ id: menuTarget.user_id, username: menuTarget.username, avatar_url: menuTarget.avatar_url }) : undefined,
     onRemove: menuBlocked ? undefined : () => act(() => apiService.removeFriend(menuTarget.user_id)),
     onBlock: menuBlocked ? undefined : () => act(() => apiService.blockUser(menuTarget.user_id)),
     onUnblock: menuBlocked ? () => act(() => apiService.unblockUser(menuTarget.user_id)) : undefined,

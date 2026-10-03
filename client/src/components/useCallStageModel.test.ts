@@ -23,7 +23,7 @@ beforeAll(stubBrowser);
 beforeEach(() => {
   localStorage.clear();
   useAuthStore.setState({ user: { id: 'u1', username: 'anna' } as never });
-  useCallStore.setState({ callChannelId: null, participants: [], directory: {}, guestSelf: null });
+  useCallStore.setState({ callRoomId: null, callChannelId: null, participants: [], directory: {}, guestSelf: null });
 });
 afterEach(() => { cleanup(); useCallStore.getState().reset(); useGuestManagementStore.getState().reset(); });
 
@@ -61,14 +61,19 @@ describe('useCallStageModel: nameFor resolution order', () => {
 });
 
 describe('useCallStageModel: derived booleans', () => {
-  it('isInGroupCall reflects callChannelId', () => {
-    useCallStore.setState({ callChannelId: null });
+  it('isInGroupCall reflects callRoomId (и 1:1 без канала)', () => {
+    useCallStore.setState({ callRoomId: null, callChannelId: null });
     const { result: notInCall } = renderHook(() => useCallStageModel());
     expect(notInCall.current.isInGroupCall).toBe(false);
 
-    useCallStore.setState({ callChannelId: 'c1' });
+    useCallStore.setState({ callRoomId: 'c1', callChannelId: 'c1' });
     const { result: inCall } = renderHook(() => useCallStageModel());
     expect(inCall.current.isInGroupCall).toBe(true);
+
+    // Звонок 1:1: callChannelId = null, но комната есть — сцена работает.
+    useCallStore.setState({ callRoomId: 'direct:x', callChannelId: null });
+    const { result: direct } = renderHook(() => useCallStageModel());
+    expect(direct.current.isInGroupCall).toBe(true);
   });
 
   it('totalParticipants is participants.length + 1 (self)', () => {

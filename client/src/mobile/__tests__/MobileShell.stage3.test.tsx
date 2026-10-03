@@ -14,7 +14,6 @@ import type { AppController } from '@/pages/app/useAppController';
 import type { Channel, Server } from '@/types';
 
 vi.mock('@/pages/app/AppOverlays', () => ({ AppOverlays: () => null }));
-vi.mock('@/components/CallUI', () => ({ CallUI: () => null }));
 vi.mock('@/components/CallDock', () => ({ CallDock: () => null }));
 vi.mock('@/services/api', async (orig) => {
   const actual = await orig<typeof import('@/services/api')>();

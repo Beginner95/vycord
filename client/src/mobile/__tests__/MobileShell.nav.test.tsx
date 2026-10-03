@@ -9,7 +9,6 @@ vi.mock('@/mobile/screens/renderScreen', () => ({
   renderScreen: (s: { kind: string }) => <div data-screen={s.kind} />,
 }));
 vi.mock('@/pages/app/AppOverlays', () => ({ AppOverlays: () => null }));
-vi.mock('@/components/CallUI', () => ({ CallUI: () => null }));
 vi.mock('@/components/CallDock', () => ({ CallDock: () => null }));
 
 import { MobileShell } from '@/mobile/MobileShell';

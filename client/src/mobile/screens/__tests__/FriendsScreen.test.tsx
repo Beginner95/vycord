@@ -5,7 +5,6 @@ import { render, cleanup, fireEvent, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { FriendsScreen } from '@/mobile/screens/FriendsScreen';
 import { useFriendStore } from '@/stores/friendStore';
-import { callService } from '@/services/call';
 import type { FriendProfile, FriendRequest, UserBrief } from '@/types';
 
 vi.mock('@/services/api', async (orig) => {
@@ -24,7 +23,11 @@ vi.mock('@/services/api', async (orig) => {
   };
 });
 vi.mock('@/services/websocket', () => ({ wsService: { on: vi.fn(() => () => {}), send: vi.fn() } }));
-vi.mock('@/services/call', () => ({ callService: { startCall: vi.fn(async () => null) } }));
+// Реальный стор тянет callStore/SFU; тесту нужен лишь вызов call(peer).
+const { callSpy } = vi.hoisted(() => ({ callSpy: vi.fn() }));
+vi.mock('@/stores/directCallStore', () => ({
+  useDirectCallStore: { getState: () => ({ call: callSpy }) },
+}));
 
 const boris: FriendProfile = { user_id: 'u2', username: 'Борис', friends_since: '' };
 const vera: FriendProfile = { user_id: 'u3', username: 'Вера', friends_since: '' };
@@ -75,13 +78,13 @@ describe('FriendsScreen (VYC-95 этап 5)', () => {
     await waitFor(() => expect(apiService.acceptFriendRequest).toHaveBeenCalledWith('r1'));
   });
 
-  it('тап по строке друга открывает ActionSheet, «Позвонить» зовёт callService', async () => {
+  it('тап по строке друга открывает ActionSheet, «Позвонить» зовёт directCallStore.call', async () => {
     mount();
     await waitFor(() => expect(document.body.textContent).toContain('Борис'));
     fireEvent.click(document.querySelector('.mobile-row')!);
     expect(document.body.textContent).toContain('Позвонить Борис');
     fireEvent.click([...document.querySelectorAll('.action-sheet-item')].find((b) => b.textContent?.includes('Позвонить'))!);
-    expect(callService.startCall).toHaveBeenCalledWith('u2');
+    expect(callSpy).toHaveBeenCalledWith(expect.objectContaining({ id: 'u2', username: 'Борис' }));
   });
 
   it('«+» открывает шторку с AddFriendForm', () => {
