@@ -104,6 +104,44 @@ describe('useReadTracker', () => {
     expect(markRead).not.toHaveBeenCalled();
   });
 
+  // Final review finding 2: сообщение выше окна — нижний край въезжает без
+  // пересечения порога, IntersectionObserver молчит; ловим по scroll.
+  it('tall row: marked read when its bottom edge scrolls in (no IO callback)', () => {
+    vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => { cb(0); return 1; });
+    const { container } = render(<Probe />);
+    const root = container.firstElementChild as HTMLElement;
+    const row = root.querySelector('[data-message-id="m2"]') as HTMLElement;
+    let rowBottom = 900;
+    row.getBoundingClientRect = () => ({ bottom: rowBottom }) as DOMRect;
+    root.getBoundingClientRect = () => ({ bottom: 500 }) as DOMRect;
+    act(() => {
+      ioCallback!([{ ...entry('m2', true), intersectionRatio: 0.1, boundingClientRect: { bottom: 900 } as DOMRectReadOnly }]);
+    });
+    expect(markRead).not.toHaveBeenCalled();
+    rowBottom = 480;
+    act(() => { root.dispatchEvent(new Event('scroll')); });
+    expect(markRead).toHaveBeenLastCalledWith('c1', expect.objectContaining({ id: 'm2' }));
+  });
+
+  it('tall row: scroll without attention does not read, listener removed on unmount', () => {
+    vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => { cb(0); return 1; });
+    focused = false;
+    const { container, unmount } = render(<Probe />);
+    const root = container.firstElementChild as HTMLElement;
+    const row = root.querySelector('[data-message-id="m2"]') as HTMLElement;
+    row.getBoundingClientRect = () => ({ bottom: 480 }) as DOMRect;
+    root.getBoundingClientRect = () => ({ bottom: 500 }) as DOMRect;
+    act(() => {
+      ioCallback!([{ ...entry('m2', true), intersectionRatio: 0.1, boundingClientRect: { bottom: 900 } as DOMRectReadOnly }]);
+    });
+    act(() => { root.dispatchEvent(new Event('scroll')); });
+    expect(markRead).not.toHaveBeenCalled();
+    unmount();
+    focused = true;
+    act(() => { root.dispatchEvent(new Event('scroll')); });
+    expect(markRead).not.toHaveBeenCalled();
+  });
+
   it('disabled: does not observe at all', () => {
     render(<Probe enabled={false} />);
     expect(ioCallback).toBeNull();

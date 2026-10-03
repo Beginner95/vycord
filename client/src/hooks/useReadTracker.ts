@@ -32,6 +32,9 @@ export function useReadTracker(
     const byId = new Map<string, ChatMessage>();
     for (const m of messages) byId.set(m.id, m);
     const visible = new Set<string>();
+    // Пересекают root, но ещё не «видны»: у сообщения выше окна нижний край
+    // въезжает без пересечения порога — IO молчит, их добирает scroll.
+    const pending = new Map<string, HTMLElement>();
 
     const commit = () => {
       if (!isAttentive()) return;
@@ -56,15 +59,34 @@ export function useReadTracker(
         const seen = e.isIntersecting && (e.intersectionRatio >= 0.5 || e.boundingClientRect.bottom <= rootBottom);
         if (seen) visible.add(id);
         else visible.delete(id);
+        if (e.isIntersecting && !seen) pending.set(id, e.target as HTMLElement);
+        else pending.delete(id);
       }
       commit();
     }, { root, threshold: [0, 0.5, 1] });
+
+    let raf = 0;
+    const recheck = () => {
+      raf = 0;
+      if (pending.size === 0) return;
+      const rootBottom = root.getBoundingClientRect().bottom;
+      for (const [id, el] of pending) {
+        if (el.getBoundingClientRect().bottom > rootBottom) continue;
+        visible.add(id);
+        pending.delete(id);
+      }
+      commit();
+    };
+    const onScroll = () => { if (!raf && pending.size > 0) raf = requestAnimationFrame(recheck); };
+    root.addEventListener('scroll', onScroll, { passive: true });
 
     root.querySelectorAll<HTMLElement>('[data-message-id]').forEach((el) => observer.observe(el));
     window.addEventListener('focus', commit);
     document.addEventListener('visibilitychange', commit);
     return () => {
       observer.disconnect();
+      root.removeEventListener('scroll', onScroll);
+      if (raf) cancelAnimationFrame(raf);
       window.removeEventListener('focus', commit);
       document.removeEventListener('visibilitychange', commit);
     };
