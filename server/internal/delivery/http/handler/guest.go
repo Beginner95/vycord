@@ -36,6 +36,7 @@ type GuestRateLimits struct {
 type GuestHandler struct {
 	guests    domain.GuestUseCase
 	guestChat GuestChatFanout
+	activity  ChannelActivityNotifier
 	messages  domain.MessageUseCase
 	hub       *ws.Hub
 	limits    GuestRateLimits
@@ -72,6 +73,9 @@ func (h *GuestHandler) SetAttachmentSigner(s *attachlink.Signer) { h.signer = s 
 
 // SetGuestChat installs the guest chat fan-out. Called once from main.go.
 func (h *GuestHandler) SetGuestChat(f GuestChatFanout) { h.guestChat = f }
+
+// SetActivity — см. MessageHandler.SetActivity.
+func (h *GuestHandler) SetActivity(n ChannelActivityNotifier) { h.activity = n }
 
 func (h *GuestHandler) Preview(w http.ResponseWriter, r *http.Request) {
 	ip := ratelimit.ClientIP(r)
@@ -174,6 +178,9 @@ func (h *GuestHandler) PostMessage(w http.ResponseWriter, r *http.Request) {
 	}
 	if h.guestChat != nil {
 		h.guestChat.ChatMessage(guest.Guest.ChannelID, msg, nil)
+	}
+	if h.activity != nil {
+		h.activity.Created(msg)
 	}
 	writeGuestJSON(w, http.StatusCreated, msg)
 }

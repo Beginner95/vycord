@@ -15,6 +15,8 @@ interface Props {
   onDelete: (m: ChatMessage) => void;
   onRetry: (m: ChatMessage) => void;
   onDiscard: (m: ChatMessage) => void;
+  canViewReaders: (m: ChatMessage) => boolean;
+  onReaders: (m: ChatMessage) => void;
 }
 
 /** Шторка действий над сообщением. Потока «после выбора» нет (подтверждение
@@ -25,12 +27,13 @@ export function MessageActionsSheet(props: Props) {
   return <Body {...props} msg={props.msg} />;
 }
 
-function Body({ msg, isOwn, members, onClose, onQuote, onEdit, onDelete, onRetry, onDiscard }: Props & { msg: ChatMessage }) {
+function Body({ msg, isOwn, members, onClose, onQuote, onEdit, onDelete, onRetry, onDiscard, canViewReaders, onReaders }: Props & { msg: ChatMessage }) {
   const t = useT();
   const items = useMessageActions({
     msg, members, canModify: isOwn,
     onQuote: () => onQuote(msg), onEdit: () => onEdit(msg), onDelete: () => onDelete(msg),
     onRetry: () => onRetry(msg), onDiscard: () => onDiscard(msg),
+    onReaders: canViewReaders(msg) ? () => onReaders(msg) : undefined,
   });
   // Пустое меню (отправляется, чужой стикер) — закрыть, не показывая пустую шторку.
   const empty = items.length === 0;

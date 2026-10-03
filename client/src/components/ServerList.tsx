@@ -6,6 +6,7 @@ import { useServerStore } from '@/stores/serverStore';
 import { ServerMenu } from '@/components/ServerMenu';
 import { can, PERMISSIONS } from '@/utils/permissions';
 import { useT } from '@/i18n';
+import { useUnreadStore, selectServerUnread, formatUnread } from '@/stores/unreadStore';
 import './ServerList.css';
 
 interface ServerListProps {
@@ -81,6 +82,7 @@ export function ServerList({
               <span className="server-icon-symbol">{server.name.charAt(0).toUpperCase()}</span>
             )}
             <span className="server-icon-name">{server.name}</span>
+            <ServerUnreadBadge serverId={server.id} />
           </div>
         ))}
         <div className="rail-bottom">
@@ -106,5 +108,17 @@ export function ServerList({
         />
       )}
     </>
+  );
+}
+
+/** VYC-104: сумма непрочитанного по каналам сервера. Тот же бейдж, что у «Дома». */
+function ServerUnreadBadge({ serverId }: { serverId: string }) {
+  const t = useT();
+  const count = useUnreadStore(selectServerUnread(serverId));
+  if (count === 0) return null;
+  return (
+    <span className="server-icon-badge" aria-label={t('sidebar.unreadCount', { count: String(count) })}>
+      {formatUnread(count)}
+    </span>
   );
 }

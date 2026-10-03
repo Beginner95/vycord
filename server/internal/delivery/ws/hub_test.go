@@ -912,3 +912,22 @@ func TestBroadcastVoiceParticipants_NotifiesObserver(t *testing.T) {
 
 	assert.Equal(t, []uuid.UUID{channelID}, got)
 }
+
+func TestSendToChannelExcept_SkipsReaderAndOtherChannels(t *testing.T) {
+	h := NewHub(slog.New(slog.NewTextHandler(io.Discard, nil)))
+	ch, other := uuid.New(), uuid.New()
+	reader := &Client{UserID: uuid.New(), CurrentChannelID: &ch, Send: make(chan []byte, 1)}
+	viewer := &Client{UserID: uuid.New(), CurrentChannelID: &ch, Send: make(chan []byte, 1)}
+	elsewhere := &Client{UserID: uuid.New(), CurrentChannelID: &other, Send: make(chan []byte, 1)}
+	h.mu.Lock()
+	for _, c := range []*Client{reader, viewer, elsewhere} {
+		h.clients[c.UserID] = c
+	}
+	h.mu.Unlock()
+
+	h.SendToChannelExcept(ch, reader.UserID, &Message{Type: "channel_read"})
+
+	assert.Len(t, viewer.Send, 1)
+	assert.Len(t, reader.Send, 0)
+	assert.Len(t, elsewhere.Send, 0)
+}

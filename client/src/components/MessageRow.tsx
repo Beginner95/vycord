@@ -1,10 +1,11 @@
 import { Fragment, useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
-import { Pencil, Trash2, Quote, Clock } from 'lucide-react';
+import { Pencil, Trash2, Quote, Clock, Eye } from 'lucide-react';
 import { Avatar } from '@/components/Avatar';
 import { FormattingToolbar } from '@/components/FormattingToolbar';
 import { MentionDropdown } from '@/components/MentionDropdown';
 import { LinkDialog } from '@/components/LinkDialog';
 import { MessageAttachments } from '@/components/MessageAttachments';
+import { ReadReceipt } from '@/components/ReadReceipt';
 import { useMentionAutocomplete } from '@/hooks/useMentionAutocomplete';
 import { toggleBullet, toggleNumbered, applyLineToggle, applyWrap, insertAtCaret, linkToken } from '@/utils/textTransforms';
 import { isVoiceMessage } from '@/voice/listened';
@@ -146,6 +147,11 @@ interface MessageRowProps {
   editActions?: boolean;
   /** См. Composer.enterSends — тот же смысл, для инлайн-редактора. */
   enterSends?: boolean;
+  /** VYC-104: галочка прочтения под своим сообщением. Только в ленте канала
+   *  участника — в гостевом чате квитанций нет. */
+  showReceipt?: boolean;
+  /** Открыть «Кто прочитал» (автор, владелец, администратор). */
+  onOpenReaders?: () => void;
 }
 
 export function MessageRow(props: MessageRowProps) {
@@ -221,11 +227,14 @@ export function MessageRow(props: MessageRowProps) {
             {failedText} · {t('chat.retry')}
           </button>
         )}
+        {!isEditing && props.showReceipt && isOwn && msg.kind === 'user' && !msg.guest && !msg.deliveryState && (
+          <ReadReceipt msg={msg} onOpen={props.onOpenReaders} />
+        )}
       </div>
       {/* A sticker row has nothing to quote (quoting it inserts a bare `> `)
           and nothing to edit, so for someone else's sticker the popover would
           be an empty bordered chip on hover — don't render the wrapper at all. */}
-      {!isEditing && !msg.deliveryState && ((!msg.sticker_id && !voice) || canModify) && (
+      {!isEditing && !msg.deliveryState && ((!msg.sticker_id && !voice) || canModify || !!props.onOpenReaders) && (
         <div className="msg-actions">
           {!msg.sticker_id && !voice && (
             <button type="button" className="msg-action-btn" aria-label={t('chat.quote')} title={t('chat.quote')} onClick={props.onQuote}>
@@ -240,6 +249,11 @@ export function MessageRow(props: MessageRowProps) {
           {canModify && (
             <button type="button" className="msg-action-btn is-danger" aria-label={t('common.delete')} title={t('common.delete')} onClick={props.onDelete}>
               <Trash2 size={15} strokeWidth={1.8} />
+            </button>
+          )}
+          {props.onOpenReaders && (
+            <button type="button" className="msg-action-btn" aria-label={t('chat.readersTitle')} title={t('chat.readersTitle')} onClick={props.onOpenReaders}>
+              <Eye size={15} strokeWidth={1.8} />
             </button>
           )}
         </div>

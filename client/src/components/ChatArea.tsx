@@ -21,6 +21,9 @@ import { MessageSearch } from '@/components/MessageSearch';
 import { MobileMessageSearch } from '@/mobile/components/MobileMessageSearch';
 import { BackDismissGate } from '@/mobile/sheets/BackDismissGate';
 import { MessageActionsSheet } from '@/mobile/chat/MessageActionsSheet';
+import { BottomSheet } from '@/mobile/sheets/BottomSheet';
+import { ReadersDialog, ReadersList } from '@/components/ReadersDialog';
+import { canViewReaders } from '@/utils/readers';
 import { MessageRow } from '@/components/MessageRow';
 import { CallEventRow } from '@/components/CallEventRow';
 import { Composer, type ComposerHandle } from '@/components/Composer';
@@ -31,6 +34,7 @@ import { VoiceBanner } from '@/components/VoiceBanner';
 import { MediaLightbox, pickLightboxMedia } from '@/components/MediaLightbox';
 import { useAttachmentUpload } from '@/hooks/useAttachmentUpload';
 import { useStickToBottom } from '@/hooks/useStickToBottom';
+import { useReadTracker } from '@/hooks/useReadTracker';
 import type { Attachment, Channel, User } from '@/types';
 import type { Sticker } from '@/types';
 import { useT, useTp, useDateFormat, isSameCalendarDay } from '@/i18n';
@@ -117,6 +121,7 @@ export function ChatArea({
   const openSearch = () => { setSearchSeed(null); setSearchOpen(true); };
   const closeSearch = () => { setSearchOpen(false); setSearchSeed(null); };
   const [actionsMsg, setActionsMsg] = useState<ChatMessage | null>(null);
+  const [readersFor, setReadersFor] = useState<string | null>(null);
   const paletteCommand = usePaletteStore((s) => s.command);
   const clearPaletteCommand = usePaletteStore((s) => s.clearCommand);
   const [historyMode, setHistoryMode] = useState(false);
@@ -181,7 +186,7 @@ export function ChatArea({
   }, [paletteCommand, channel, clearPaletteCommand, active]);
 
   // Unread divider anchor (spec §4.4): computed once per channel entry from
-  // the persisted mark, then pinned — new messages arriving while the user is
+  // the server read cursor, then pinned — new messages arriving while the user is
   // in the channel must not move it. Re-entering recomputes from scratch.
   const [unreadAnchorId, setUnreadAnchorId] = useState<string | null>(null);
   const anchorComputedRef = useRef(false);
@@ -189,8 +194,14 @@ export function ChatArea({
   useEffect(() => {
     if (anchorComputedRef.current || loading || !channel || messages.length === 0) return;
     anchorComputedRef.current = true;
-    setUnreadAnchorId(firstUnreadId(useUnreadStore.getState().lastRead[channel.id], messages));
+    setUnreadAnchorId(firstUnreadId(useUnreadStore.getState().channels[channel.id]?.cursor, messages));
   }, [messages, loading, channel]);
+
+  // Галочки (VYC-104): самый дальний курсор других — при входе в канал,
+  // дальше его двигают события channel_read.
+  useEffect(() => {
+    if (channel?.id) void useUnreadStore.getState().loadReceipts(channel.id);
+  }, [channel?.id]);
 
   // Cache for user info (id → username)
   const [userCache, setUserCache] = useState<Map<string, { username: string; avatar_url?: string }>>(new Map());
@@ -201,6 +212,7 @@ export function ChatArea({
   const pendingUserFetchesRef = useRef(new Set<string>());
 
   const permissions = useServerStore((s) => (currentServer ? s.permissions.get(currentServer.id) : undefined));
+  const readersAllowed = (m: ChatMessage) => !m.deliveryState && canViewReaders(m, user?.id, permissions);
   const canMentionEveryone = can(permissions, PERMISSIONS.MENTION_EVERYONE);
   const canManageStickers = can(permissions, PERMISSIONS.MANAGE_SERVER);
 
@@ -222,42 +234,14 @@ export function ChatArea({
     smoothToBottom: scrollToBottom,
   });
 
-  // Viewport mark-read: the persisted `lastRead` mark advances whenever the
-  // bottom sentinel is visible, but (per the divider-pin behavior above) this
-  // never moves the already-computed `unreadAnchorId` while the user stays in
-  // the channel. `messagesEndRef` is unconditional in the JSX below — it must
-  // exist through the loading skeleton and the empty-channel state too, or
-  // this observer attaches to nothing on those entry paths.
-  //
-  // Deps include `messages`, not just `channel?.id`: IntersectionObserver
-  // delivers a spec-guaranteed initial notification as soon as `observe()`
-  // is called if the target is already intersecting — which the sentinel
-  // usually is, since it's unconditional and the container rarely scrolls
-  // it out of view. On a channel switch that notification fires before the
-  // new channel's fetch has replaced `useMessageStore`'s `messages`, so a
-  // channel_id filter alone would go quiet (no crash, but also no mark) —
-  // it needs a fresh `observe()` once the real messages for THIS channel
-  // have actually landed, hence re-running this effect on `messages` too.
-  // The `m.channel_id === channel.id` filter is the other half: it stops a
-  // still-in-flight notification from a just-left channel's stale message
-  // list writing into the *new* channel's mark (verified empirically — see
-  // task-10-report.md).
-  useEffect(() => {
-    const sentinel = messagesEndRef.current;
-    const root = chatMessagesRef.current;
-    if (!sentinel || !root || !channel) return;
-    const observer = new IntersectionObserver((entries) => {
-      if (!entries.some((e) => e.isIntersecting)) return;
-      const msgs = useMessageStore.getState().messages;
-      const last = [...msgs].reverse().find((m) => !m.deliveryState && m.channel_id === channel.id && m.kind !== 'call');
-      if (last) useUnreadStore.getState().markRead(channel.id, last.id, last.created_at);
-    }, { root, threshold: 0 });
-    observer.observe(sentinel);
-    return () => observer.disconnect();
-  }, [channel?.id, messages]);
+  // Прочтение (VYC-104): строка во вьюпорте + окно в фокусе двигают серверный
+  // курсор канала. В режиме истории (jumpToMessage) и в скрытом под другим
+  // экраном чате — нет: пользователь там не читает ленту подряд.
+  useReadTracker(channel?.id, chatMessagesRef, active && !historyMode);
 
   useEffect(() => {
     setEditingId(null);
+    setReadersFor(null);
     setSearchOpen(false);
     // Иначе стартовавший в канале A запрос из палитры переживает переключение
     // канала и всплывает как initialQuery при следующем РУЧНОМ открытии через
@@ -914,12 +898,14 @@ logger.error('Failed to jump to message:', err, { module: 'chat' });
                     // Client-only row (never reached the server) — no API call,
                     // no confirm modal, just drop it from the store.
                     onDiscard={() => discardFailed(msg)}
+                    onOpenReaders={readersAllowed(msg) ? () => setReadersFor(msg.id) : undefined}
                     // pickLightboxMedia narrows the row-local index to the
                     // image/video subset and returns null for a non-media
                     // click (a pdf chip) — nothing to open fullscreen.
                     onLongPress={messageActions === 'sheet' && msg.deliveryState !== 'sending' ? () => setActionsMsg(msg) : undefined}
                     editActions={messageActions === 'sheet'}
                     enterSends={enterSends}
+                    showReceipt
                     onOpenAttachment={(index) => setLightbox(pickLightboxMedia(msg.attachments ?? [], index))}
                   />
                 )}
@@ -1029,8 +1015,17 @@ logger.error('Failed to jump to message:', err, { module: 'chat' });
           onDelete={(m) => setConfirmDeleteId(m.id)}
           onRetry={(m) => retrySend(m)}
           onDiscard={(m) => discardFailed(m)}
+          canViewReaders={readersAllowed}
+          onReaders={(m) => setReadersFor(m.id)}
         />
       )}
+      {readersFor && channel && (messageActions === 'sheet' ? (
+        <BottomSheet open onClose={() => setReadersFor(null)} title={t('chat.readersTitle')}>
+          <ReadersList channelId={channel.id} messageId={readersFor} />
+        </BottomSheet>
+      ) : (
+        <ReadersDialog channelId={channel.id} messageId={readersFor} onClose={() => setReadersFor(null)} />
+      ))}
     </main>
   );
 }

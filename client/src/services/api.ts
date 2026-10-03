@@ -1,5 +1,5 @@
 import { useAuthStore } from '@/stores/authStore';
-import type { Server, User, Role, PermissionsResponse, Invite, InvitePreview, Sticker, Attachment, LastSeenInfo, PrivacyMode, UserBrief, FriendProfile, FriendRequest, GuestCallState } from '@/types';
+import type { Server, User, Role, PermissionsResponse, Invite, InvitePreview, Sticker, Attachment, LastSeenInfo, PrivacyMode, UserBrief, FriendProfile, FriendRequest, GuestCallState, ChannelUnread, MarkReadResponse, ReadReceipts, MessageReaders } from '@/types';
 import { hasKey, type TFunc, type TKey } from '@/i18n';
 import { decodeJwtExpMs } from '@/utils/jwt';
 import { ACCESS_TOKEN_KEY, REFRESH_TOKEN_KEY } from '@/stores/authStore';
@@ -677,6 +677,26 @@ class ApiService {
     return this.request(`/api/v1/channels/${channelId}/messages/${messageId}`, {
       method: 'DELETE',
     });
+  }
+
+  // Непрочитанное и квитанции (VYC-104).
+  async getUnread() {
+    return this.request<ChannelUnread[]>('/api/v1/unread');
+  }
+
+  async markChannelRead(channelId: string, messageId: string) {
+    return this.request<MarkReadResponse>(`/api/v1/channels/${channelId}/read`, {
+      method: 'PUT',
+      body: JSON.stringify({ message_id: messageId }),
+    });
+  }
+
+  async getReadReceipts(channelId: string) {
+    return this.request<ReadReceipts>(`/api/v1/channels/${channelId}/read-receipts`);
+  }
+
+  async getMessageReaders(channelId: string, messageId: string) {
+    return this.request<MessageReaders>(`/api/v1/channels/${channelId}/readers/${messageId}`);
   }
 
   // Stickers

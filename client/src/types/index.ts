@@ -174,6 +174,55 @@ export interface MessageSearchResponse {
   total: number;
 }
 
+/** VYC-104: счётчик и курсор по одному каналу (GET /api/v1/unread). */
+export interface ChannelUnread {
+  server_id: string;
+  channel_id: string;
+  count: number;
+  last_read_at: string;
+  last_read_message_id: string | null;
+}
+
+export interface MarkReadResponse {
+  count: number;
+  last_read_at: string;
+  last_read_message_id: string | null;
+}
+
+/** Самый дальний курсор других участников канала — для галочек. */
+export interface ReadReceipts {
+  others_max_read_at: string | null;
+  others_max_read_message_id: string | null;
+}
+
+export interface MessageReader {
+  user_id: string;
+  username: string;
+  avatar_url?: string;
+}
+
+export interface MessageReaders {
+  read: MessageReader[];
+  unread: MessageReader[];
+}
+
+/** WS channel_activity: сообщение появилось/исчезло в канале одного из моих серверов. */
+export interface ChannelActivityEvent {
+  op: 'create' | 'delete';
+  server_id: string;
+  channel_id: string;
+  message_id: string;
+  created_at: string;
+  author_user_id: string | null;
+}
+
+/** WS channel_read: кто-то другой дочитал канал до этой позиции. */
+export interface ChannelReadEvent {
+  channel_id: string;
+  read_at: string;
+  message_id: string | null;
+}
+
 export interface Member {
   server_id: string;
   user_id: string;

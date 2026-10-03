@@ -132,7 +132,10 @@ func (uc *messageUseCase) CreateMessage(channelID, userID uuid.UUID, content str
 		}
 	}
 
-	now := time.Now()
+	// Postgres хранит микросекунды: время в ответе и в WS обязано совпадать
+	// с тем, что потом вернёт БД, — по нему сравнивается курсор прочтения
+	// (VYC-104).
+	now := time.Now().Truncate(time.Microsecond)
 	msg := &domain.Message{
 		ID:        uuid.New(),
 		ChannelID: channelID,
@@ -485,7 +488,8 @@ func (uc *messageUseCase) CreateGuestMessage(guest *domain.GuestContext, content
 		return nil, domain.ErrGuestMentionForbidden
 	}
 
-	now := time.Now()
+	// См. CreateMessage: курсор прочтения сравнивается по этому времени.
+	now := time.Now().Truncate(time.Microsecond)
 	guestID := guest.Guest.ID
 	msg := &domain.Message{
 		ID:        uuid.New(),

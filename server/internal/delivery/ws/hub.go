@@ -755,6 +755,26 @@ func (h *Hub) SendToChannel(channelID uuid.UUID, message *Message) {
 	}
 }
 
+// SendToChannelExcept — SendToChannel без клиента exceptUserID (VYC-104):
+// событие «кто-то дочитал» самому читателю не нужно.
+func (h *Hub) SendToChannelExcept(channelID, exceptUserID uuid.UUID, message *Message) {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	data := mustMarshal(message)
+	for _, client := range h.clients {
+		if client.UserID == exceptUserID {
+			continue
+		}
+		if client.CurrentChannelID != nil && *client.CurrentChannelID == channelID {
+			select {
+			case client.Send <- data:
+			default:
+				h.log.Warn("failed to send channel message to user", "user_id", client.UserID)
+			}
+		}
+	}
+}
+
 func mustMarshal(v interface{}) []byte {
 	data, _ := json.Marshal(v)
 	return data

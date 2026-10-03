@@ -13,6 +13,14 @@ const WS_URL = import.meta.env.VITE_WS_URL || 'ws://localhost:8080';
  */
 const MIN_HEALTHY_CONNECTION_MS = 10_000;
 
+/**
+ * Локальное событие: сокет (пере)открылся. Сервер его не шлёт — его
+ * испускает сам сервис, чтобы подписчики, которым после реконнекта нужно
+ * заново синхронизироваться (VYC-104: счётчики непрочитанного), не лезли
+ * во внутренности соединения.
+ */
+export const WS_OPEN_EVENT = 'ws_open';
+
 class WebSocketService {
   private ws: WebSocket | null = null;
   private reconnectTimer: number | null = null;
@@ -76,6 +84,7 @@ class WebSocketService {
         // Первым делом — заново объявить просматриваемый канал: у нового
         // соединения серверный Client создан с пустым CurrentChannelID.
         this.resendJoinChannel();
+        this.listeners.get(WS_OPEN_EVENT)?.forEach((listener) => listener(null));
         // Flush messages queued before the connection was ready
         const pending = this.pendingMessages.splice(0);
         for (const data of pending) {

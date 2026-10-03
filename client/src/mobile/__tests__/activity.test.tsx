@@ -2,9 +2,10 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import { render, cleanup } from '@testing-library/react';
 import { useChannelActivity, useServerActivity, __setActivityOverride, type ChannelActivity } from '@/mobile/activity';
+import { useUnreadStore } from '@/stores/unreadStore';
 import { ActivityMeta, useActivitySubtitle } from '@/mobile/components/ActivityMeta';
 
-afterEach(() => { __setActivityOverride(null); cleanup(); });
+afterEach(() => { __setActivityOverride(null); useUnreadStore.getState().reset(); cleanup(); });
 
 const base: ChannelActivity = { preview: null, timestamp: null, unreadCount: null, hasUnread: false };
 
@@ -22,6 +23,20 @@ describe('activity extension point', () => {
     render(<P />);
     expect(document.querySelector('i')?.getAttribute('data-ch')).toBe('null');
     expect(document.querySelector('i')?.getAttribute('data-sv')).toBe('null');
+  });
+
+  it('without an override: unread counter comes from the store', () => {
+    useUnreadStore.setState({ channels: { c1: { serverId: 's1', count: 4, cursor: { at: '2026-10-03T10:00:00Z', id: null } } } });
+    function P() {
+      const ch = useChannelActivity('c1');
+      const sv = useServerActivity('s1');
+      return <i data-ch={String(ch?.unreadCount)} data-sv={String(sv?.unreadCount)} data-zero={String(useChannelActivity('zz'))} />;
+    }
+    render(<P />);
+    const el = document.querySelector('i')!;
+    expect(el.getAttribute('data-ch')).toBe('4');
+    expect(el.getAttribute('data-sv')).toBe('4');
+    expect(el.getAttribute('data-zero')).toBe('null');
   });
 
   it('passes the id and the scope to the override', () => {
