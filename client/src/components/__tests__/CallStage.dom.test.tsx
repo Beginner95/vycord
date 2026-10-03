@@ -8,7 +8,7 @@ import { useServerStore } from '@/stores/serverStore';
 import { stubBrowser, participant } from './callHarness';
 
 vi.mock('@/services/groupCall', () => ({
-  groupCallService: { localStreamState: null, screenStreamState: null, toggleMuteAudio: vi.fn(), toggleMuteVideo: vi.fn(), stopScreenShare: vi.fn(), startScreenShare: vi.fn(), watchShare: vi.fn(), unwatchShare: vi.fn(), setCameraOutput: vi.fn(async () => {}) },
+  groupCallService: { localStreamState: null, screenStreamState: null, toggleMuteAudio: vi.fn(), toggleMuteVideo: vi.fn(), stopScreenShare: vi.fn(), startScreenShare: vi.fn(), watchShare: vi.fn(), unwatchShare: vi.fn(), setCameraOutput: vi.fn(async () => {}), cameraInputState: null, subscribeCameraInput: () => () => {}, setCameraEffectWanted: vi.fn() },
 }));
 vi.mock('@/services/callBus', () => ({ callBus: { send: vi.fn(), on: vi.fn(() => () => {}) } }));
 vi.mock('@/services/api', async (orig) => {

@@ -10,7 +10,7 @@ import { logger } from '@/utils/logger';
 // Нехуковый t: groupCall — обычный класс, useT() здесь вызвать нельзя.
 import { t } from '@/i18n';
 import { getDeniedMediaKinds } from './mediaPermissions';
-import { acquireUserMedia, buildCameraConstraints, buildMicConstraints } from '@/services/mediaDevices';
+import { acquireUserMedia, buildCameraConstraints, buildMicConstraints, captureCameraTrack } from '@/services/mediaDevices';
 
 const SFU_URL = import.meta.env.VITE_SFU_URL || 'ws://localhost:8081';
 
@@ -188,6 +188,9 @@ export interface GroupCallCallbacks {
   onSharingPeers?: (userIds: string[]) => void;
   // Fired periodically with the local user's uplink connection-quality sample.
   onLocalQuality?: (metrics: ConnectionQualityMetrics) => void;
+  // Turning the camera on failed to re-capture it (denied, busy, unplugged):
+  // the camera is back to off — the UI must show it as off. Non-fatal.
+  onCameraFailed?: () => void;
 }
 
 // ─── Internal state ──────────────────────────────────────────────────────────
@@ -346,10 +349,25 @@ class GroupCallService {
       void this.checkMicAfterForeground();
     }, 1500);
   };
-  // VYC-96: black placeholder on the camera sender while the mobile app is in
-  // the background (the real camera track is stopped) — see
-  // releaseCameraForBackground / reacquireCameraAfterBackground.
+  // Black placeholder on the camera sender while the camera is released (the
+  // real camera track is stopped) — see releaseCamera / reacquireCamera.
   private cameraPlaceholder: MediaStreamTrack | null = null;
+  // A disabled track only blacks out its frames: the device stays captured and
+  // the browser keeps showing "camera in use". So "camera off" releases the
+  // device and "camera on" re-captures it. Ops are coalesced (the mobile
+  // background hook calls release/reacquire directly too) and the
+  // toggle-driven sync plus setCameraOutput run one at a time on cameraChain.
+  private cameraReleaseInFlight: Promise<void> | null = null;
+  private cameraReacquireInFlight: Promise<boolean> | null = null;
+  private cameraChain: Promise<void> = Promise.resolve();
+  private cameraSyncQueued = false;
+  // The call UI's background effect is on (setCameraEffectWanted): a
+  // re-captured camera must not go out raw before the effect's canvas does.
+  private cameraEffectWanted = false;
+  // Raw camera for the background-effects engine (cameraInputState): a new
+  // stream per captured track, so the engine notices a re-capture.
+  private cameraInputStream: MediaStream | null = null;
+  private readonly cameraInputListeners = new Set<() => void>();
   private readonly onDeviceChange = (): void => {
     // Bluetooth profile flips fire devicechange in bursts; let the dust settle.
     if (this.micWatchDebounceId !== null) clearTimeout(this.micWatchDebounceId);
@@ -431,6 +449,14 @@ class GroupCallService {
       }
 
       const raw = await this.acquireMedia();
+      // The camera starts off. Capturing it proves it exists (and keeps the
+      // "has camera" track in localStream), but the device is freed right away
+      // — before the seconds-long createChain — so the browser's "camera in
+      // use" indicator only blinks. Turning it on re-captures (syncCamera).
+      raw?.getVideoTracks().forEach((t) => {
+        t.enabled = false;
+        t.stop();
+      });
       // Baseline BEFORE the seconds-long createChain: a device flip inside
       // that window must be detected, not recorded as the baseline.
       const micBaselineSig = raw !== null ? this.defaultMicSignature() : null;
@@ -443,8 +469,7 @@ class GroupCallService {
         // рендер всегда производит фреймы. Без аудиотреков createChain вернёт
         // raw как есть.
         this.localStream = await noiseCancellationService.createChain(raw);
-        // Video starts disabled to avoid immediate bandwidth spike.
-        this.localStream.getVideoTracks().forEach((t) => { t.enabled = false; });
+        this.cameraTrack = this.localStream.getVideoTracks()[0] ?? null;
         gcLog(userId, 'media acquired', {
           audioTracks: this.localStream.getAudioTracks().map((t) => ({
             id: t.id.slice(0, 8), label: t.label, enabled: t.enabled,
@@ -724,6 +749,8 @@ class GroupCallService {
     // The new PC creates its own dummy tracks in createPeerConnection.
     this.dummyVideoTrack?.stop();
     this.dummyVideoTrack = null;
+    this.cameraPlaceholder?.stop();
+    this.cameraPlaceholder = null;
     this.dummyScreenVideoTrack?.stop();
     this.dummyScreenVideoTrack = null;
     this.releaseDummyScreenAudio();
@@ -1191,6 +1218,7 @@ class GroupCallService {
     const t = this.localStream?.getVideoTracks()[0];
     if (!t) return false;
     t.enabled = !t.enabled;
+    this.syncCamera();
     return !t.enabled; // true = video off
   }
 
@@ -1200,7 +1228,11 @@ class GroupCallService {
    * placeholder и статистика видят актуальный трек. null — вернуть исходный
    * камерный трек. Аудио не трогается никогда.
    */
-  async setCameraOutput(track: MediaStreamTrack | null): Promise<void> {
+  setCameraOutput(track: MediaStreamTrack | null): Promise<void> {
+    return this.enqueueCameraOp(() => this.applyCameraOutput(track));
+  }
+
+  private async applyCameraOutput(track: MediaStreamTrack | null): Promise<void> {
     const stream = this.localStream;
     const current = stream?.getVideoTracks()[0] ?? null;
     if (!stream || !current) return;
@@ -1208,16 +1240,117 @@ class GroupCallService {
     const target = track ?? this.cameraTrack;
     if (target === current) return;
 
-    const sender = this.pc?.getSenders().find((s) => s.track === current) ?? null;
+    // While the camera is released the sender carries the placeholder, not
+    // `current`, and keeps it on a revert — reacquireCamera puts the output
+    // back. An effect's canvas does replace it: a camera re-captured with an
+    // effect on waits behind the placeholder for exactly this (see
+    // setCameraEffectWanted). Not while the camera is released, though: a
+    // canvas landing late (camera turned off before it was ready) stays off
+    // the sender, or a later revert would put the ended camera there.
+    const placeholder = this.cameraPlaceholder;
+    const cameraLive = this.cameraTrack.readyState === 'live';
+    const sender = this.pc?.getSenders().find(
+      (s) => s.track === current
+        || (track !== null && cameraLive && placeholder !== null && s.track === placeholder),
+    ) ?? null;
+    const fromPlaceholder = sender !== null && placeholder !== null && sender.track === placeholder;
     try {
       if (sender) await sender.replaceTrack(target);
     } catch {
       return;
     }
-    stream.removeTrack(current);
+    if (fromPlaceholder && this.cameraPlaceholder === placeholder) {
+      placeholder.stop();
+      this.cameraPlaceholder = null;
+    }
+    // Real content replaced the black placeholder — viewers need a keyframe.
+    if (fromPlaceholder) this.requestKeyframeWithRetry();
+    // A mic rebuild may have moved the video track into a new localStream
+    // during the await — swap it wherever it lives now.
+    const owner = this.localStream;
+    if (!owner?.getVideoTracks().includes(current)) return;
+    owner.removeTrack(current);
     target.enabled = current.enabled;
-    stream.addTrack(target);
+    owner.addTrack(target);
     gcLog(this.currentUserId, 'camera output swapped', { effect: track !== null });
+  }
+
+  /** Live raw camera for the background-effects engine; null while released.
+   *  Never the effect's own canvas track — see setCameraOutput. */
+  get cameraInputState(): MediaStream | null {
+    const cam = this.cameraTrack ?? this.localStream?.getVideoTracks()[0] ?? null;
+    if (!cam || cam.readyState !== 'live') {
+      this.cameraInputStream = null;
+      return null;
+    }
+    if (this.cameraInputStream?.getVideoTracks()[0] !== cam) {
+      this.cameraInputStream = new MediaStream([cam]);
+    }
+    return this.cameraInputStream;
+  }
+
+  /** The call UI turns its background effect on/off. While on, a re-captured
+   *  camera stays behind the black placeholder until the effect's canvas
+   *  replaces it — the raw camera never goes out, not even for a few frames. */
+  setCameraEffectWanted(wanted: boolean): void {
+    if (this.cameraEffectWanted === wanted) return;
+    this.cameraEffectWanted = wanted;
+    // Effect gone (off, failed, stage unmounted) while the camera waits behind
+    // the placeholder: put the camera itself out.
+    if (!wanted) this.syncCamera();
+  }
+
+  /** useSyncExternalStore subscription for cameraInputState. */
+  readonly subscribeCameraInput = (listener: () => void): (() => void) => {
+    this.cameraInputListeners.add(listener);
+    return () => {
+      this.cameraInputListeners.delete(listener);
+    };
+  };
+
+  private notifyCameraInput(): void {
+    this.cameraInputListeners.forEach((listener) => listener());
+  }
+
+  private enqueueCameraOp(op: () => Promise<void>): Promise<void> {
+    const run = this.cameraChain.then(op);
+    this.cameraChain = run.catch(() => {});
+    return run;
+  }
+
+  // Brings the device in line with the camera button: released while off,
+  // captured while on. Queued at most once — it reads the state it finds when
+  // it runs, so rapid toggles collapse into a pass matching the last one.
+  private syncCamera(): void {
+    if (this.cameraSyncQueued) return;
+    this.cameraSyncQueued = true;
+    void this.enqueueCameraOp(async () => {
+      this.cameraSyncQueued = false;
+      await this.syncCameraOnce();
+    });
+  }
+
+  private async syncCameraOnce(): Promise<void> {
+    const out = this.localStream?.getVideoTracks()[0];
+    if (!out) return;
+    const cam = this.cameraTrack ?? out;
+    if (!out.enabled) {
+      if (cam.readyState === 'live') await this.releaseCamera();
+      return;
+    }
+    if (cam.readyState === 'live' && this.cameraPlaceholder === null) return;
+    const epoch = this.sessionEpoch;
+    try {
+      await this.reacquireCamera();
+    } catch (err) {
+      gcLog(this.currentUserId, 'camera capture FAILED', { error: String(err) });
+      // Still wanted on (not toggled off meanwhile)? Then it is honestly off.
+      const cur = this.localStream?.getVideoTracks()[0];
+      if (epoch === this.sessionEpoch && cur?.enabled) {
+        cur.enabled = false;
+        this.callbacks?.onCameraFailed?.();
+      }
+    }
   }
 
   // ── Background audio diagnostics (VYC-96, read-only) ──────────────────────
@@ -1285,34 +1418,73 @@ class GroupCallService {
     return true;
   }
 
-  // ── Mobile background camera (VYC-96) ─────────────────────────────────────
-  // Used ONLY by the mobile shell's useBackgroundCamera: mobile browsers stop
-  // camera capture in the background, which freezes our last frame for the
-  // others. The caller first turns the camera off the usual way
-  // (toggleMuteVideo); this then frees the camera and puts a black placeholder
-  // frame on the camera sender instead of the frozen one.
+  // ── Camera release / re-capture ───────────────────────────────────────────
+  // "Camera off" frees the device: a black placeholder goes on the camera
+  // sender and the camera track is stopped, but the (ended) track object stays
+  // in localStream — the "has camera" checks and a reconnect's camera slot keep
+  // working. "Camera on" re-captures it. Driven by toggleMuteVideo (syncCamera);
+  // the mobile shell's useBackgroundCamera also calls the *ForBackground pair
+  // directly, which is why both ops are coalesced and re-check their state
+  // after every await.
+
+  /** Mobile shell only: frees the camera of an app going to the background.
+   *  The caller first turns the camera off the usual way (toggleMuteVideo). */
   async releaseCameraForBackground(): Promise<void> {
-    const stream = this.localStream;
-    const cam = stream?.getVideoTracks()[0];
-    if (!stream || !cam || this._isScreenSharing || cam.enabled) return;
+    if (this._isScreenSharing) return;
+    await this.releaseCamera();
+  }
+
+  /** Mobile shell only: counterpart of releaseCameraForBackground. The camera
+   *  keeps its on/off state — the caller turns it on the usual way
+   *  (toggleMuteVideo). Returns false when the call changed meanwhile; throws
+   *  if getUserMedia fails (the camera then stays released). */
+  reacquireCameraAfterBackground(): Promise<boolean> {
+    return this.reacquireCamera();
+  }
+
+  private releaseCamera(): Promise<void> {
+    if (this.cameraReleaseInFlight === null) {
+      const op: Promise<void> = this.doReleaseCamera().finally(() => {
+        if (this.cameraReleaseInFlight === op) this.cameraReleaseInFlight = null;
+      });
+      this.cameraReleaseInFlight = op;
+    }
+    return this.cameraReleaseInFlight;
+  }
+
+  private reacquireCamera(): Promise<boolean> {
+    if (this.cameraReacquireInFlight === null) {
+      const op: Promise<boolean> = this.doReacquireCamera().finally(() => {
+        if (this.cameraReacquireInFlight === op) this.cameraReacquireInFlight = null;
+      });
+      this.cameraReacquireInFlight = op;
+    }
+    return this.cameraReacquireInFlight;
+  }
+
+  private async doReleaseCamera(): Promise<void> {
+    const out = this.localStream?.getVideoTracks()[0];
+    if (!out || out.enabled) return;
+    // With a background effect on, `out` is the effect's canvas track: the
+    // device to free is the raw camera behind it, never the canvas.
+    const cam = this.cameraTrack ?? out;
     const epoch = this.sessionEpoch;
-    // Still ours to release? The app may have come back (reacquire + toggle
-    // turned the camera on) while we awaited replaceTrack.
+    // Still ours to release? The camera may have been turned back on (toggle,
+    // or the mobile app came back) while we awaited replaceTrack.
     const stillOff = (): boolean =>
       epoch === this.sessionEpoch &&
-      !this._isScreenSharing &&
-      (this.localStream?.getVideoTracks().includes(cam) ?? false) &&
-      !cam.enabled;
-    const sender = this.pc?.getSenders().find((s) => s.track === cam) ?? null;
-    if (sender && !this.cameraPlaceholder) {
+      (this.localStream?.getVideoTracks().includes(out) ?? false) &&
+      !out.enabled;
+    const sender = this.pc?.getSenders().find((s) => s.track === out) ?? null;
+    if (sender) {
       let placeholder: MediaStreamTrack | null = null;
       try {
         placeholder = this.createDummyVideoTrack();
         placeholder.enabled = true;
         await sender.replaceTrack(placeholder);
         if (!stillOff()) {
-          // Resumed meanwhile: put the live camera back, drop the placeholder,
-          // keep the camera running.
+          // Turned on meanwhile: put the live camera back, drop the
+          // placeholder, keep the camera running.
           const current = this.localStream?.getVideoTracks()[0] ?? null;
           if (epoch === this.sessionEpoch && sender.track === placeholder && current) {
             await sender.replaceTrack(current).catch((err: unknown) => {
@@ -1320,20 +1492,12 @@ class GroupCallService {
             });
           }
           placeholder.stop();
-          gcLog(this.currentUserId, 'camera release aborted — camera resumed meanwhile');
+          gcLog(this.currentUserId, 'camera release aborted — camera turned on meanwhile');
           return;
         }
+        this.cameraPlaceholder?.stop();
         this.cameraPlaceholder = placeholder;
-        // captureStream(0) emits only on request: one black frame replaces the
-        // last camera frame at the receivers; repeats cover encoder warm-up.
-        const frameTrack = placeholder as CanvasCaptureMediaStreamTrack;
-        const request = () => {
-          if (frameTrack.readyState !== 'live') return;
-          try { frameTrack.requestFrame?.(); } catch { /* best effort */ }
-        };
-        request();
-        setTimeout(request, 250);
-        setTimeout(request, 1000);
+        this.sendBlackFrames(placeholder);
       } catch (err) {
         placeholder?.stop();
         gcLog(this.currentUserId, 'camera placeholder swap failed', { error: String(err) });
@@ -1343,34 +1507,47 @@ class GroupCallService {
     // Frees the device (camera indicator off); the track object stays in
     // localStream so a reconnect meanwhile still fills the camera slot.
     cam.stop();
-    gcLog(this.currentUserId, 'camera released for background', { placeholder: this.cameraPlaceholder !== null });
+    this.notifyCameraInput();
+    gcLog(this.currentUserId, 'camera released', { placeholder: this.cameraPlaceholder !== null });
   }
 
-  // Counterpart of releaseCameraForBackground: re-captures the camera if its
-  // track ended and puts it back on the camera sender. The track is left
-  // DISABLED — the caller turns it on the usual way (toggleMuteVideo). Returns
-  // false when the call changed meanwhile; throws if getUserMedia fails (the
-  // camera then stays off and the placeholder stays on the sender).
-  async reacquireCameraAfterBackground(): Promise<boolean> {
-    const old = this.localStream?.getVideoTracks()[0];
-    if (!old) return false;
+  // captureStream(0) emits only on request: one black frame replaces the last
+  // camera frame at the receivers; repeats cover encoder warm-up.
+  private sendBlackFrames(placeholder: MediaStreamTrack): void {
+    const frameTrack = placeholder as CanvasCaptureMediaStreamTrack;
+    const request = () => {
+      if (frameTrack.readyState !== 'live') return;
+      try { frameTrack.requestFrame?.(); } catch { /* best effort */ }
+    };
+    request();
+    setTimeout(request, 250);
+    setTimeout(request, 1000);
+  }
+
+  private async doReacquireCamera(): Promise<boolean> {
+    const out = this.localStream?.getVideoTracks()[0];
+    if (!out) return false;
+    // The raw camera — behind the effect's canvas track when one is on.
+    const old = this.cameraTrack ?? out;
     const epoch = this.sessionEpoch;
+    // A mic rebuild may move the video tracks into a new localStream during
+    // the awaits — re-resolve the owner instead of bailing out.
     const owns = (): MediaStream | null => {
       const cur = this.localStream;
-      return epoch === this.sessionEpoch && cur && cur.getVideoTracks().includes(old) ? cur : null;
+      if (epoch !== this.sessionEpoch || !cur) return null;
+      return this.cameraTrack === old || cur.getVideoTracks().includes(old) ? cur : null;
     };
 
     let track = old;
     if (old.readyState === 'ended') {
-      const fresh = await navigator.mediaDevices.getUserMedia({ video: true });
-      const next = fresh.getVideoTracks()[0];
-      fresh.getAudioTracks().forEach((t) => t.stop());
-      if (!next) throw new Error('camera stream has no video track');
+      const next = await captureCameraTrack();
       if (!owns()) {
         next.stop();
         return false;
       }
-      next.enabled = false;
+      // Before it reaches the sender: a camera that is off must not send a
+      // single live frame (re-asserted after the swap below).
+      next.enabled = this.localStream?.getVideoTracks().includes(old) ? old.enabled : true;
       track = next;
     }
 
@@ -1378,33 +1555,53 @@ class GroupCallService {
     const sender = this.pc?.getSenders().find(
       (s) => s.track === old || (placeholder !== null && s.track === placeholder),
     );
+    // The sender carries the call's output: the camera itself, or the effect's
+    // canvas while one is on (the effect hook rebuilds it on the new camera).
+    const curOut = this.localStream?.getVideoTracks()[0];
+    const output = !curOut || curOut === old ? track : curOut;
+    // Effect on, raw camera about to go out: keep the placeholder instead —
+    // the effect's canvas replaces it (applyCameraOutput).
+    const holdForEffect = this.cameraEffectWanted && output === track
+      && placeholder !== null && sender?.track === placeholder;
+    const swapped = sender != null && !holdForEffect && sender.track !== output;
     try {
-      if (sender && sender.track !== track) await sender.replaceTrack(track);
+      if (swapped) await sender.replaceTrack(output);
     } catch (err) {
       if (track !== old) track.stop();
       throw err;
     }
-    // A mic rebuild may have moved the video tracks into a new localStream
-    // during the awaits — re-resolve the owner instead of bailing out.
     const cur = owns();
     if (!cur) {
       if (track !== old) track.stop();
       return false;
     }
     if (track !== old) {
-      cur.removeTrack(old);
-      cur.addTrack(track);
+      if (cur.getVideoTracks().includes(old)) {
+        // The on/off state carries over: a toggle re-captures a camera that is
+        // on, the mobile resume path one that is still off.
+        track.enabled = old.enabled;
+        cur.removeTrack(old);
+        cur.addTrack(track);
+      } else {
+        // Behind an effect: the canvas carries on/off, the engine needs frames.
+        track.enabled = true;
+      }
       // Свежий трек — новый «исходный» для setCameraOutput(null): старый
       // уже остановлен, откат на него отдал бы чёрный кадр.
       if (this.cameraTrack === old) this.cameraTrack = track;
     }
-    if (this.cameraPlaceholder === placeholder) {
+    if (!holdForEffect && this.cameraPlaceholder === placeholder) {
       placeholder?.stop();
       this.cameraPlaceholder = null;
     }
-    gcLog(this.currentUserId, 'camera reacquired after background', {
+    this.notifyCameraInput();
+    // replaceTrack doesn't renegotiate: ask the SFU for a keyframe, or viewers
+    // may sit on the placeholder's black frame (same as startScreenShare).
+    if (swapped) this.requestKeyframeWithRetry();
+    gcLog(this.currentUserId, 'camera reacquired', {
       recaptured: track !== old,
-      senderSwapped: sender != null,
+      senderSwapped: sender != null && !holdForEffect,
+      heldForEffect: holdForEffect,
     });
     return true;
   }
@@ -2269,7 +2466,21 @@ class GroupCallService {
       // see createDummyVideoTrack for why.
       if (localVideoTracks.length > 0) {
         for (const track of localVideoTracks) {
-          pc.addTrack(track, this.localStream);
+          if (track.readyState === 'ended') {
+            // Camera released (off at join, or turned off before a reconnect):
+            // the slot gets a placeholder, same as the no-camera branch below;
+            // reacquireCamera swaps the camera in once it is turned on.
+            // Primed with black frames: the slot carries RTP from join, as the
+            // disabled camera track did, so the SFU publishes the camera track
+            // at join rather than on the first camera-on.
+            this.cameraPlaceholder?.stop();
+            this.cameraPlaceholder = this.createDummyVideoTrack();
+            this.cameraPlaceholder.enabled = true;
+            pc.addTrack(this.cameraPlaceholder, this.localStream);
+            this.sendBlackFrames(this.cameraPlaceholder);
+          } else {
+            pc.addTrack(track, this.localStream);
+          }
           logAddedTrack(track);
         }
       } else {
@@ -2998,6 +3209,13 @@ class GroupCallService {
     this.dummyVideoTrack = null;
     this.cameraPlaceholder?.stop();
     this.cameraPlaceholder = null;
+    // A hung capture from this call must not wedge the camera of the next one.
+    this.cameraReleaseInFlight = null;
+    this.cameraReacquireInFlight = null;
+    this.cameraChain = Promise.resolve();
+    this.cameraSyncQueued = false;
+    this.cameraInputStream = null;
+    this.notifyCameraInput();
 
     this.remoteStreams.clear();
     this.remoteScreenStreams.clear();

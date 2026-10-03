@@ -180,6 +180,8 @@ export const en: Dictionary = {
     mediaSessionArtist: 'VYCORD',
     // Camera failed to turn back on after returning to the app (VYC-96).
     cameraResumeFailed: "Couldn't turn the camera back on. Turn it on manually.",
+    // The camera button failed to capture the camera (denied, busy, unplugged).
+    cameraStartFailed: "Couldn't turn on the camera.",
 
     // Screen source picker modal
     selectScreen: 'Select a screen to share',

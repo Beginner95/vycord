@@ -13,6 +13,9 @@ vi.mock('@/services/groupCall', () => ({
     stopScreenShare: vi.fn(), startScreenShare: vi.fn(),
     watchShare: vi.fn(), unwatchShare: vi.fn(),
     setCameraOutput: vi.fn(async () => {}),
+    cameraInputState: null,
+    subscribeCameraInput: () => () => {},
+    setCameraEffectWanted: vi.fn(),
   },
 }));
 vi.mock('@/services/callBus', () => ({

@@ -10,6 +10,7 @@ import {
 } from '@/stores/guestManagementStore';
 import { audioService } from '@/services/audio';
 import { logger } from '@/utils/logger';
+import { t } from '@/i18n';
 import type { ConnectionQualityMetrics, QualityLevel } from '@/utils/callQuality';
 
 export type CallStatus = 'idle' | 'joining' | 'connected' | 'reconnecting';
@@ -521,6 +522,11 @@ export function initCallBridge(): void {
       useCallStore.getState().reset();
       if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
       groupCallService.leaveGroupCall();
+    },
+    onCameraFailed: () => {
+      // Камера осталась выключенной — кнопка и объявление camera_off (подписка
+      // на isVideoOff ниже) должны это отражать; тост — через mediaWarning.
+      useCallStore.setState({ isVideoOff: true, mediaWarning: t('call.cameraStartFailed') });
     },
     onScreenShareEnded: () => {
       useCallStore.setState({ isScreenSharing: false });

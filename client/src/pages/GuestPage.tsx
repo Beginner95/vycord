@@ -8,6 +8,7 @@ import { GuestCallView } from './GuestCallView';
 import { GuestMobileCallShell } from './guest/GuestMobileCallShell';
 import { guestErrorText } from './guestErrors';
 import { isInAppBrowser } from './guest/inAppBrowser';
+import { useLocalPreview } from './guest/useLocalPreview';
 import './GuestPage.css';
 
 /**
@@ -135,40 +136,6 @@ function GuestHeader() {
   );
 }
 
-/** Локальное превью камеры и микрофона до входа. Гасится при уходе с экрана. */
-function useLocalPreview(enabled: boolean) {
-  const [stream, setStream] = useState<MediaStream | null>(null);
-  const [denied, setDenied] = useState(false);
-
-  useEffect(() => {
-    if (!enabled) return;
-    let cancelled = false;
-    let acquired: MediaStream | null = null;
-
-    navigator.mediaDevices
-      .getUserMedia({ audio: true, video: true })
-      .then((media) => {
-        if (cancelled) {
-          media.getTracks().forEach((track) => track.stop());
-          return;
-        }
-        acquired = media;
-        setStream(media);
-      })
-      .catch(() => {
-        if (!cancelled) setDenied(true);
-      });
-
-    return () => {
-      cancelled = true;
-      acquired?.getTracks().forEach((track) => track.stop());
-      setStream(null);
-    };
-  }, [enabled]);
-
-  return { stream, denied };
-}
-
 // ─── Экран входа ─────────────────────────────────────────────────────────────
 
 function GuestEntry({ secret, previewReady }: { secret: string; previewReady: boolean }) {
@@ -180,15 +147,15 @@ function GuestEntry({ secret, previewReady }: { secret: string; previewReady: bo
   const [name, setName] = useState(() => localStorage.getItem('vycord.guest.name') ?? '');
   const [muted, setMuted] = useState(false);
   const [videoOff, setVideoOff] = useState(false);
-  const { stream, denied } = useLocalPreview(true);
-  const level = useMicLevel(stream, muted);
+  const { mic, camera, denied } = useLocalPreview({ micOn: !muted, videoOn: !videoOff });
+  const level = useMicLevel(mic, muted);
   const videoRef = useRef<HTMLVideoElement>(null);
 
   useEffect(() => {
     if (videoRef.current) {
-      videoRef.current.srcObject = stream;
+      videoRef.current.srcObject = camera;
     }
-  }, [stream]);
+  }, [camera]);
 
   const submit = useCallback(() => {
     const trimmed = name.trim();

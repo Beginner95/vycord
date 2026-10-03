@@ -10,6 +10,7 @@ import { stubBrowser, participant } from '@/components/__tests__/callHarness';
 vi.mock('@/services/groupCall', () => ({
   groupCallService: {
     localStreamState: null, screenStreamState: null,
+    cameraInputState: null, subscribeCameraInput: () => () => {},
     toggleMuteAudio: vi.fn(), toggleMuteVideo: vi.fn(),
     stopScreenShare: vi.fn(), startScreenShare: vi.fn(),
     watchShare: vi.fn(), unwatchShare: vi.fn(),

@@ -30,6 +30,26 @@ export function buildCameraConstraints(): MediaTrackConstraints {
 }
 
 /**
+ * Захват одной камеры для включения посреди звонка: сначала выбранная
+ * (Настройки → Видео), при сбое — любая, как деградирует acquireUserMedia.
+ * Бросает, если камеры нет/доступ запрещён.
+ */
+export async function captureCameraTrack(): Promise<MediaStreamTrack> {
+  const constraints = buildCameraConstraints();
+  let stream: MediaStream;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ video: constraints });
+  } catch (err) {
+    if (constraints.deviceId === undefined) throw err;
+    stream = await navigator.mediaDevices.getUserMedia({ video: true });
+  }
+  stream.getAudioTracks().forEach((t) => t.stop());
+  const track = stream.getVideoTracks()[0];
+  if (!track) throw new Error('camera stream has no video track');
+  return track;
+}
+
+/**
  * Получение локального потока с учётом выбранных устройств. Если выбранное
  * устройство недоступно/занято, цепочка деградирует к системным дефолтам и
  * в самом конце — к звонку без локальных медиа. Не бросает.
