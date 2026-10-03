@@ -3,6 +3,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook, act, waitFor } from '@testing-library/react';
 
 vi.mock('@/services/websocket', () => ({
+  WS_OPEN_EVENT: 'ws_open',
   wsService: { send: vi.fn(), on: vi.fn(() => () => {}), connected: true, connect: vi.fn(), joinChannel: vi.fn() },
 }));
 vi.mock('@/services/api', async (orig) => {
@@ -19,6 +20,7 @@ vi.mock('@/services/api', async (orig) => {
       updateLastVisited: vi.fn(async () => {}),
       getFreshAccessToken: vi.fn(async () => null),
       getFriends: vi.fn(async () => []),
+      getUnread: vi.fn(async () => []),
       getMyPermissions: vi.fn(async () => ({})),
       logout: vi.fn(async () => {}),
     },

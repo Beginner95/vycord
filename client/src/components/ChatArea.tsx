@@ -189,7 +189,7 @@ export function ChatArea({
   useEffect(() => {
     if (anchorComputedRef.current || loading || !channel || messages.length === 0) return;
     anchorComputedRef.current = true;
-    setUnreadAnchorId(firstUnreadId(useUnreadStore.getState().lastRead[channel.id], messages));
+    setUnreadAnchorId(firstUnreadId(useUnreadStore.getState().channels[channel.id]?.cursor, messages));
   }, [messages, loading, channel]);
 
   // Cache for user info (id → username)
@@ -250,7 +250,7 @@ export function ChatArea({
       if (!entries.some((e) => e.isIntersecting)) return;
       const msgs = useMessageStore.getState().messages;
       const last = [...msgs].reverse().find((m) => !m.deliveryState && m.channel_id === channel.id && m.kind !== 'call');
-      if (last) useUnreadStore.getState().markRead(channel.id, last.id, last.created_at);
+      if (last) useUnreadStore.getState().markRead(channel.id, last);
     }, { root, threshold: 0 });
     observer.observe(sentinel);
     return () => observer.disconnect();
