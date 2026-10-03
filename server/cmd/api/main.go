@@ -152,12 +152,21 @@ func main() {
 	attachmentUseCase := usecase.NewAttachmentUseCase(attachmentRepo, channelRepo, permissionUseCase, quotaUseCase, storage)
 
 	attachmentSigner := attachlink.NewSigner(cfg.JWTSecret, cfg.AttachmentLinkTTL)
-	callUseCase := usecase.NewCallUseCase(callRepo)
 	turnUseCase := usecase.NewTURNUseCase(cfg.TURNSecret, cfg.TURNURLs, cfg.TURNTTL)
 
 	// Initialize hub for WebSocket connections
 	hub := ws.NewHub(log)
 	hub.SetVoiceAudienceResolver(serverUseCase.GetChannelAudience)
+
+	// Звонки 1:1 (VYC-103): создаётся после hub — нотификатор и presence это он.
+	callUseCase := usecase.NewCallUseCase(usecase.CallDeps{
+		Repo:       callRepo,
+		Notifier:   ws.NewCallNotifier(hub),
+		Presence:   hub,
+		Permission: friendUseCase,
+		Users:      userRepo,
+		JWTSecret:  cfg.JWTSecret,
+	})
 
 	// VYC-87: a call in a channel drops a system message into that
 	// channel's chat. The recorder writes the DB and broadcasts itself — the
@@ -207,6 +216,11 @@ func main() {
 		log.Error("failed to close orphaned call messages at startup", "error", err)
 	}
 
+	// Звонки 1:1, пережившие рестарт: их таймеры жили в памяти (VYC-103).
+	if err := callUseCase.RecoverOnStartup(); err != nil {
+		log.Error("failed to close orphaned direct calls at startup", "error", err)
+	}
+
 	go hub.Run()
 
 	// Общий контекст фоновых задач: его отмена останавливает и воркер
@@ -225,6 +239,7 @@ func main() {
 		fetcher := presencepkg.NewHTTPFetcher(cfg.SFUInternalURL, cfg.SFUInternalSecret)
 		presenceWorker := presencepkg.NewWorker(fetcher, hub, log)
 		presenceWorker.SetCallSweeper(callRecorder)
+		presenceWorker.SetRoomFilter(callUseCase.IsCallRoom)
 		go presenceWorker.Run(bgCtx)
 		log.Info("voice-presence reconciliation started", "sfu_url", cfg.SFUInternalURL, "interval", presencepkg.DefaultInterval)
 	} else {
@@ -258,6 +273,7 @@ func main() {
 	turnHandler := handler.NewTURNHandler(turnUseCase, log)
 	roleHandler := handler.NewRoleHandler(roleUseCase, permissionUseCase, log)
 	voiceTokenHandler := handler.NewVoiceTokenHandler(voiceTokenUseCase, log)
+	callHandler := handler.NewCallHandler(callUseCase, log)
 	attachmentHandler := handler.NewAttachmentHandler(attachmentUseCase, quotaUseCase, attachmentSigner, cfg.MaxUploadBytes, log)
 	attachmentHandler.SetVoiceListenedNotifier(func(ev *domain.VoiceListened) {
 		payload, _ := json.Marshal(ev)
@@ -402,6 +418,7 @@ func main() {
 
 	// Voice token — short-lived, room-scoped JWT for the SFU (see private channels design doc)
 	router.HandleFunc("POST /api/v1/channels/{channel_id}/voice-token", authMid.RequireAuth(voiceTokenHandler.IssueToken))
+	router.HandleFunc("POST /api/v1/calls/{call_id}/voice-token", authMid.RequireAuth(callHandler.IssueVoiceToken))
 
 	// TURN credentials for WebRTC (ephemeral, per-user)
 	router.HandleFunc("GET /api/v1/turn/credentials", authMid.RequireAuth(turnHandler.GetCredentials))

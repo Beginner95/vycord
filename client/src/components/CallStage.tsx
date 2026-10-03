@@ -125,9 +125,15 @@ export function CallStage({ onLeave, extraControls }: CallStageProps) {
           <span className="stage-live-dot" />
           {t('call.live')} <StageTimer />
         </div>
-        <h2 className="stage-title">{m.callChannelName ? `#${m.callChannelName}` : t('call.groupCallTitle')}</h2>
+        <h2 className="stage-title">
+          {m.callKind === 'direct' && m.callPeer
+            ? m.callPeer.username
+            : m.callChannelName ? `#${m.callChannelName}` : t('call.groupCallTitle')}
+        </h2>
         <div className="stage-topbar-right">
-          <span className="stage-count-chip">{tp('call.participants', m.totalParticipants)}</span>
+          {m.callKind !== 'direct' && (
+            <span className="stage-count-chip">{tp('call.participants', m.totalParticipants)}</span>
+          )}
           <button
             className="stage-fullscreen-btn"
             onClick={() => { void m.handleStageFullscreen(); }}

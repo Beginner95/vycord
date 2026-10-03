@@ -1,6 +1,9 @@
 import { useState } from 'react';
 import { apiService, apiErrorText } from '@/services/api';
 import { useFriendStore } from '@/stores/friendStore';
+import { useCallStore } from '@/stores/callStore';
+import { useDirectCallStore } from '@/stores/directCallStore';
+import type { UserBrief } from '@/types';
 import { FriendRow } from '@/components/FriendRow';
 import { AddFriendForm } from '@/components/AddFriendForm';
 import { useT } from '@/i18n';
@@ -19,6 +22,16 @@ interface FriendsPanelProps {
 }
 
 export function FriendsPanel({ onlineIds }: FriendsPanelProps) {
+  const callRoomId = useCallStore((s) => s.callRoomId);
+  // Звонить можно только другу в сети; без onCall FriendRow не рисует кнопку.
+  const callProps = (f: UserBrief) =>
+    onlineIds.has(f.user_id)
+      ? {
+          onCall: () =>
+            useDirectCallStore.getState().call({ id: f.user_id, username: f.username, avatar_url: f.avatar_url ?? undefined }),
+          callEndsCurrent: !!callRoomId,
+        }
+      : {};
   const t = useT();
   const [tab, setTab] = useState<Tab>('online');
   const { friends, incoming, outgoing, blocked, load } = useFriendStore();
@@ -74,6 +87,7 @@ export function FriendsPanel({ onlineIds }: FriendsPanelProps) {
                   <FriendRow
                     user={f}
                     online
+                    {...callProps(f)}
                     onRemove={() => act(() => apiService.removeFriend(f.user_id))}
                     onBlock={() => act(() => apiService.blockUser(f.user_id))}
                   />
@@ -93,6 +107,7 @@ export function FriendsPanel({ onlineIds }: FriendsPanelProps) {
                   <FriendRow
                     user={f}
                     online={onlineIds.has(f.user_id)}
+                    {...callProps(f)}
                     onRemove={() => act(() => apiService.removeFriend(f.user_id))}
                     onBlock={() => act(() => apiService.blockUser(f.user_id))}
                   />

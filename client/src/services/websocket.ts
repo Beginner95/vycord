@@ -169,11 +169,6 @@ class WebSocketService {
       if (listenerSet) {
         listenerSet.forEach((listener) => listener(message.payload));
       }
-
-      // Also dispatch custom events for CallUI
-      window.dispatchEvent(
-        new CustomEvent(`discrod:${message.type}`, { detail: message.payload })
-      );
     } catch (error) {
       logger.error('Failed to parse WebSocket message:', error, { module: 'ws' });
     }

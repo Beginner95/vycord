@@ -39,6 +39,8 @@ function baseModel(over: Partial<CallStageModel> = {}): CallStageModel {
     guestLinksEnabled: false,
     callChannelId: 'c1',
     callChannelName: 'general',
+    callKind: 'channel',
+    callPeer: null,
     totalParticipants: 1,
     nameFor: (id: string) => id,
 

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { groupCallService } from '@/services/groupCall';
-import { callService } from '@/services/call';
+import { useDirectCallStore } from '@/stores/directCallStore';
 import { useT } from '@/i18n';
 import './UpdateBanner.css';
 
@@ -8,8 +8,12 @@ type UpdateStatus = 'idle' | 'available' | 'manual' | 'ready' | 'error';
 
 const CALL_POLL_INTERVAL_MS = 5000;
 
-function isBusyWithCall(): boolean {
-  return groupCallService.isInGroupCallState || callService.isInCallState;
+const DIRECT_BUSY_PHASES = new Set(['outgoing', 'incoming', 'connecting', 'active']);
+
+/** Идёт ли звонок: комната SFU (канал или 1:1) или фаза 1:1 ещё до входа в неё
+ *  (дозвон, входящий, соединение) — перезапуск на обновление её бы оборвал. */
+export function isBusyWithCall(): boolean {
+  return groupCallService.isInGroupCallState || DIRECT_BUSY_PHASES.has(useDirectCallStore.getState().phase.kind);
 }
 
 export function UpdateBanner() {

@@ -15,7 +15,6 @@ import type { Server, Channel } from '@/types';
 
 // Настоящие renderScreen и экраны; заглушены только оверлеи и звонковый UI.
 vi.mock('@/pages/app/AppOverlays', () => ({ AppOverlays: () => null }));
-vi.mock('@/components/CallUI', () => ({ CallUI: () => null }));
 vi.mock('@/components/CallDock', () => ({ CallDock: () => null }));
 
 import { MobileShell } from '@/mobile/MobileShell';

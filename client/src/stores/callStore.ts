@@ -9,8 +9,10 @@ import {
   type GuestParticipantsEvent,
 } from '@/stores/guestManagementStore';
 import { audioService } from '@/services/audio';
+import { markDirectCallRoom } from '@/services/callCredentials';
 import { logger } from '@/utils/logger';
 import { t } from '@/i18n';
+import type { CallPeer } from '@/types/directCall';
 import type { ConnectionQualityMetrics, QualityLevel } from '@/utils/callQuality';
 
 export type CallStatus = 'idle' | 'joining' | 'connected' | 'reconnecting';
@@ -37,16 +39,30 @@ export interface CallDirectoryEntry {
   isGuest: boolean;
 }
 
-export interface JoinCallOptions {
-  channelId: string;
-  channelName: string;
-  serverId: string | null;
-  serverName: string | null;
-  userId: string;
-  userName: string;
-}
+export type CallKind = 'channel' | 'direct';
+
+export type JoinCallOptions =
+  | {
+      kind?: 'channel';
+      channelId: string;
+      channelName: string;
+      serverId: string | null;
+      serverName: string | null;
+      userId: string;
+      userName: string;
+    }
+  | { kind: 'direct'; callId: string; peer: CallPeer; userId: string; userName: string };
 
 interface CallState {
+  /** Вид текущего звонка; null — не в звонке. */
+  callKind: CallKind | null;
+  /** Комната SFU текущего звонка любого вида: id канала или call_id 1:1. «В звонке» = не null. */
+  callRoomId: string | null;
+  /** Собеседник звонка 1:1; у канального звонка null. */
+  callPeer: CallPeer | null;
+  /** Как закончился последний звонок: осознанный leave() или молчаливый reset(). */
+  lastExit: 'leave' | 'reset' | null;
+  /** Только канальный звонок: у 1:1 null (см. callRoomId). */
   callChannelId: string | null;
   callChannelName: string | null;
   callServerId: string | null;
@@ -113,6 +129,9 @@ interface CallState {
 // Функция, а не константа: Map/Set внутри — мутабельные объекты, и общий
 // литерал раздавал бы один и тот же пустой Map на все сбросы подряд.
 const idle = () => ({
+  callKind: null as CallKind | null,
+  callRoomId: null as string | null,
+  callPeer: null as CallPeer | null,
   callChannelId: null,
   callChannelName: null,
   callServerId: null,
@@ -142,31 +161,44 @@ const idle = () => ({
 
 export const useCallStore = create<CallState>((set, get) => ({
   ...idle(),
+  lastExit: null,
 
   join: async (opts) => {
     if (get().status === 'joining') return;
+    const direct = opts.kind === 'direct';
+    const roomId = opts.kind === 'direct' ? opts.callId : opts.channelId;
     // Уже активно в этой самой комнате (повторный клик по кнопке входа) — no-op.
     // Без этого гарда groupCallService.joinGroupCall упрётся в собственную
     // защиту «уже в звонке» и уронит ещё живой звонок через onError.
-    if (groupCallService.isInGroupCallState && groupCallService.currentRoomIdState === opts.channelId) {
+    if (groupCallService.isInGroupCallState && groupCallService.currentRoomIdState === roomId) {
       return;
+    }
+    // Звонок может быть только один: вход в другую комнату — осознанный выход
+    // из текущей (решение «принятие переключает»). Без этого groupCall упрётся
+    // в «Already in a call» и уронит оба звонка через onError.
+    const current = get().callRoomId;
+    if (current !== null && current !== roomId) {
+      get().leave();
     }
     // Мид-реконнект: inCall кратковременно false, но currentRoomId уже указывает
     // на восстанавливаемую комнату — тогда повторный voice_joined слать не нужно.
-    const alreadyInThisRoom = groupCallService.currentRoomIdState === opts.channelId;
+    const alreadyInThisRoom = groupCallService.currentRoomIdState === roomId;
 
-    set({ status: 'joining' });
+    set({ status: 'joining', lastExit: null });
+    markDirectCallRoom(direct ? roomId : null);
 
     let isFirst = false;
     try {
-      isFirst = await groupCallService.joinGroupCall(opts.channelId, opts.userId);
+      isFirst = await groupCallService.joinGroupCall(roomId, opts.userId);
     } catch (err) {
+      markDirectCallRoom(null);
       set({ status: 'idle' });
       throw err;
     }
 
-    if (!alreadyInThisRoom && groupCallService.currentRoomIdState === opts.channelId) {
-      callBus.send('voice_joined', { channel_id: opts.channelId });
+    // voice_* — только канальный звонок: у 1:1 присутствие ведёт сервер.
+    if (opts.kind !== 'direct' && !alreadyInThisRoom && groupCallService.currentRoomIdState === roomId) {
+      callBus.send('voice_joined', { channel_id: roomId });
       audioService.playUserJoined();
     }
 
@@ -175,10 +207,13 @@ export const useCallStore = create<CallState>((set, get) => ({
     set({
       status: 'connected',
       startedAt: Date.now(),
-      callChannelId: opts.channelId,
-      callChannelName: opts.channelName,
-      callServerId: opts.serverId,
-      callServerName: opts.serverName,
+      callKind: opts.kind === 'direct' ? 'direct' : 'channel',
+      callRoomId: roomId,
+      callPeer: opts.kind === 'direct' ? opts.peer : null,
+      callChannelId: opts.kind === 'direct' ? null : opts.channelId,
+      callChannelName: opts.kind === 'direct' ? null : opts.channelName,
+      callServerId: opts.kind === 'direct' ? null : opts.serverId,
+      callServerName: opts.kind === 'direct' ? null : opts.serverName,
       isMicAvailable: micAvailable,
       isMuted: !micAvailable,
       mediaWarning,
@@ -188,7 +223,7 @@ export const useCallStore = create<CallState>((set, get) => ({
     // остальным нужно знать сразу, а не после первого нажатия кнопки.
     announceCameraState();
 
-    if (isFirst) {
+    if (opts.kind !== 'direct' && isFirst) {
       callBus.send('voice_call_ring', {
         channel_id: opts.channelId,
         server_id: opts.serverId,
@@ -200,30 +235,33 @@ export const useCallStore = create<CallState>((set, get) => ({
   },
 
   leave: () => {
-    const channelId = groupCallService.currentRoomIdState;
+    const roomId = groupCallService.currentRoomIdState;
+    const direct = get().callKind === 'direct';
     if (groupCallService.isScreenSharing) {
       callBus.send('screen_share_stopped', {});
     }
-    if (channelId) {
+    if (roomId && !direct) {
       callBus.send('voice_call_cancel', {
-        channel_id: channelId,
+        channel_id: roomId,
         server_id: get().callServerId,
       });
-      callBus.send('voice_left', { channel_id: channelId });
-      // Звучит только осознанный выход. Обрыв, session_replaced и исчерпанный
-      // реконнект приходят в reset() и остаются молчаливыми.
-      audioService.playUserLeft();
+      callBus.send('voice_left', { channel_id: roomId });
     }
+    // Звучит только осознанный выход. Обрыв, session_replaced и исчерпанный
+    // реконнект приходят в reset() и остаются молчаливыми.
+    if (roomId) audioService.playUserLeft();
     groupCallService.leaveGroupCall();
+    markDirectCallRoom(null);
     useGuestManagementStore.getState().reset();
     cancelCameraReannounce();
-    set(idle());
+    set({ ...idle(), lastExit: 'leave' });
   },
 
   reset: () => {
+    markDirectCallRoom(null);
     useGuestManagementStore.getState().reset();
     cancelCameraReannounce();
-    set(idle());
+    set({ ...idle(), lastExit: 'reset' });
   },
 
   setStatus: (status) => set({ status }),
@@ -250,7 +288,7 @@ function localCameraOff(): boolean {
 
 /** Объявляет текущее состояние своей камеры участникам звонка. */
 export function announceCameraState(): void {
-  if (useCallStore.getState().callChannelId === null) return;
+  if (useCallStore.getState().callRoomId === null) return;
   callBus.send(localCameraOff() ? 'camera_off' : 'camera_on', {});
 }
 
@@ -291,7 +329,7 @@ function cancelCameraReannounce(): void {
  * потеряны).
  */
 export function announceLocalCallState(): void {
-  if (useCallStore.getState().callChannelId === null) return;
+  if (useCallStore.getState().callRoomId === null) return;
   callBus.send(useCallStore.getState().isMuted ? 'mic_muted' : 'mic_unmuted', {});
   announceCameraState();
 }
@@ -328,7 +366,7 @@ const qualitySend: { lastLevel: QualityLevel | null; lastSentAt: number } = {
  * авторизации. Подписки моста живут всё время работы приложения, поэтому те же
  * условия стали ранними выходами внутри обработчиков.
  */
-const inCall = (): boolean => useCallStore.getState().callChannelId !== null;
+const inCall = (): boolean => useCallStore.getState().callRoomId !== null;
 const selfId = (): string | undefined =>
   useCallStore.getState().guestSelf?.id ?? useAuthStore.getState().user?.id;
 const isCallParticipant = (userId: string): boolean =>
@@ -510,14 +548,18 @@ export function initCallBridge(): void {
     },
     onCallEnded: () => {
       const channelId = groupCallService.currentRoomIdState;
-      if (channelId) callBus.send('voice_left', { channel_id: channelId });
+      if (channelId && useCallStore.getState().callKind !== 'direct') {
+        callBus.send('voice_left', { channel_id: channelId });
+      }
       // Молчаливый сброс: обрыв/вытеснение сессии звука выхода не издаёт.
       useCallStore.getState().reset();
       if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
     },
     onError: (msg) => {
       const channelId = groupCallService.currentRoomIdState;
-      if (channelId) callBus.send('voice_left', { channel_id: channelId });
+      if (channelId && useCallStore.getState().callKind !== 'direct') {
+        callBus.send('voice_left', { channel_id: channelId });
+      }
       logger.error('[GroupCall] Error:', msg, { module: 'groupCallUI' });
       useCallStore.getState().reset();
       if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
@@ -640,11 +682,11 @@ export function initCallBridge(): void {
   // Единственная точка отправки: isVideoOff меняют кнопка сцены
   // (useCallStageModel), CallDock/CallPill (toggleVideo), useBackgroundCamera
   // при сворачивании мобильного приложения и вход гостя (guestCallStore) —
-  // все через стор. Сброс стора при выходе (callChannelId → null) сюда не
+  // все через стор. Сброс стора при выходе (callRoomId → null) сюда не
   // попадает: объявлять больше некому.
   useCallStore.subscribe((s, prev) => {
     if (s.isVideoOff === prev.isVideoOff) return;
-    if (s.callChannelId === null || prev.callChannelId === null) return;
+    if (s.callRoomId === null || prev.callRoomId === null) return;
     announceCameraState();
   });
 

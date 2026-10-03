@@ -7,6 +7,7 @@ import { apiService } from '@/services/api';
 import { logger } from '@/utils/logger';
 import { useCallStore, initCallBridge } from '@/stores/callStore';
 import { useFriendStore, initFriendBridge } from '@/stores/friendStore';
+import { initDirectCallBridge, resetDirectCall, useDirectCallStore } from '@/stores/directCallStore';
 import { useCallRing, type CallNotif } from './useCallRing';
 import { useVoiceParticipants } from './useVoiceParticipants';
 import type { Server, Channel, Message, MemberWithUser, User } from '@/types';
@@ -14,6 +15,11 @@ import type { Server, Channel, Message, MemberWithUser, User } from '@/types';
 export type AppNavEvent =
   | { type: 'serverOpened'; serverId: string }
   | { type: 'callJoined'; serverId: string | null; channelId: string };
+
+/** Куда вести «Перейти к звонку»: канал сервера или экран звонка 1:1. */
+export type CallTarget =
+  | { kind: 'channel'; serverId: string | null; channelId: string }
+  | { kind: 'direct' };
 
 export interface AppControllerOptions {
   autoOpenChannel: boolean; // десктоп: true
@@ -31,7 +37,7 @@ export interface AppController {
   selectChannel(channel: Channel): Promise<void>;
   selectHome(): void;
   joinVoice(channel: Channel): void;
-  goToCall(serverId: string | null, channelId: string): void;
+  goToCall(target: CallTarget): void;
   serverRemoved(id: string): void;
   channelRemoved(id: string): void;
   joinServer(server: Server): Promise<void>;
@@ -104,6 +110,9 @@ export function useAppController(opts: AppControllerOptions): AppController {
   // иначе WS-события друзей (новая заявка, бейдж) пропадают, пока пользователь
   // смотрит любой сервер. Тот же приём, что уже применён к initCallBridge выше.
   useEffect(() => initFriendBridge(), []);
+
+  // Протокол звонков 1:1 (VYC-103) — тоже на всю сессию, не на время экрана.
+  useEffect(() => initDirectCallBridge(), []);
 
   useEffect(() => {
     void useFriendStore.getState().load();
@@ -440,18 +449,31 @@ export function useAppController(opts: AppControllerOptions): AppController {
     }
   };
 
-  const handleGoToCall = (serverId: string | null, channelId: string) => {
-    const targetServer = servers.find((s) => s.id === serverId);
-    if (targetServer && targetServer.id !== currentServer?.id) {
-      handleSelectServer(targetServer);
+  // Пользовательская навигация закрывает экран звонка 1:1; автонавигация
+  // (loadServers, удаление сервера/канала) его не трогает — иначе после
+  // перезагрузки call_state открыл бы экран, а автовыбор канала тут же закрыл.
+  const userSelectHome = () => { useDirectCallStore.getState().closeView(); handleSelectHome(); };
+  const userSelectServer = (server: Server) => { useDirectCallStore.getState().closeView(); return handleSelectServer(server); };
+  const userSelectChannel = (channel: Channel) => { useDirectCallStore.getState().closeView(); return handleSelectChannel(channel); };
+
+  const handleGoToCall = (target: CallTarget) => {
+    if (target.kind === 'direct') {
+      useDirectCallStore.getState().openView();
+      return;
     }
-    const channel = useServerStore.getState().channels.find((c) => c.id === channelId);
-    if (channel) handleSelectChannel(channel);
+    const targetServer = servers.find((s) => s.id === target.serverId);
+    if (targetServer && targetServer.id !== currentServer?.id) {
+      userSelectServer(targetServer);
+    }
+    const channel = useServerStore.getState().channels.find((c) => c.id === target.channelId);
+    if (channel) userSelectChannel(channel);
   };
 
   const handleLogout = () => {
     void apiService.logout();
     useFriendStore.getState().reset();
+    // Фаза, пропущенные и экран звонка 1:1 принадлежат вышедшему пользователю.
+    resetDirectCall();
     logout();
   };
 
@@ -459,7 +481,7 @@ export function useAppController(opts: AppControllerOptions): AppController {
     const server = await apiService.createServer(name, isPrivate) as Server;
     setServers([...useServerStore.getState().servers, server]);
     setCreateServerOpen(false);
-    handleSelectServer(server);
+    userSelectServer(server);
     emit({ type: 'serverOpened', serverId: server.id });
   };
 
@@ -469,7 +491,7 @@ export function useAppController(opts: AppControllerOptions): AppController {
     if (!notif) return;
     const ch = channels.find((c) => c.id === notif.channelId);
     if (ch) {
-      handleSelectChannel(ch);
+      userSelectChannel(ch);
       handleJoinVoice(ch);
       emit({ type: 'callJoined', serverId: ch.server_id, channelId: ch.id });
     }
@@ -483,9 +505,9 @@ export function useAppController(opts: AppControllerOptions): AppController {
     pendingCount,
     voiceParticipants,
     callNotif: ring.callNotif,
-    selectServer: handleSelectServer,
-    selectChannel: handleSelectChannel,
-    selectHome: handleSelectHome,
+    selectServer: userSelectServer,
+    selectChannel: userSelectChannel,
+    selectHome: userSelectHome,
     joinVoice: handleJoinVoice,
     goToCall: handleGoToCall,
     serverRemoved: handleServerRemoved,

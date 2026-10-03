@@ -1,0 +1,128 @@
+/* ── Входящий звонок 1:1: плашка сверху по центру, без scrim ──
+   Не модалка: приложение под ней остаётся интерактивным. z-index на уровне
+   тостов (токен --z-toast), выше любых оверлеев, чтобы звонок не потерялся. */
+.incoming-call-card {
+  position: fixed;
+  top: 52px;
+  left: 50%;
+  transform: translateX(-50%);
+
+  /* Строго над --z-toast: стопка пропущенных и error-toast не должны перекрыть Принять/Отклонить. */
+  z-index: calc(var(--z-toast) + 1);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 360px;
+  max-width: calc(100vw - 32px);
+  padding: 12px 14px;
+  background: var(--canvas);
+  color: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-popover);
+  animation: slide-down 0.22s var(--ease-out);
+}
+
+.incoming-call-avatar {
+  width: 44px;
+  height: 44px;
+  flex: none;
+  border-radius: 50%;
+  object-fit: cover;
+
+  /* Буква-заглушка Avatar без url — div, ему нужно центрирование. */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+}
+
+.incoming-call-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.incoming-call-name {
+  font-size: 14px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.incoming-call-sub {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.incoming-call-warn {
+  font-size: 12px;
+  color: var(--danger-text);
+}
+
+.incoming-call-actions {
+  display: flex;
+  gap: 8px;
+  flex: none;
+}
+
+.incoming-call-accept,
+.incoming-call-reject {
+  width: 40px;
+  height: 40px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 50%;
+  color: var(--white);
+  cursor: pointer;
+  transition: filter var(--transition);
+}
+
+.incoming-call-accept {
+  /* --stage — тёмный в обеих темах: белое на светлом --online в dark не читается. */
+  background: var(--online);
+  color: var(--stage);
+}
+
+.incoming-call-reject {
+  background: var(--danger);
+}
+
+.incoming-call-accept:hover,
+.incoming-call-reject:hover {
+  filter: brightness(1.1);
+}
+
+.incoming-call-accept:focus-visible,
+.incoming-call-reject:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+/* Узкая ширина: полноширинная плашка с полями 16px. */
+@media (width < 900px) {
+  .incoming-call-card {
+    left: 16px;
+    right: 16px;
+    width: auto;
+    max-width: none;
+    transform: none;
+    animation: none;
+  }
+}
+
+/* Пока карточка на экране, остальные тосты уходят ниже неё (карточка с
+   предупреждением ~100px высотой от top: 52px), а не прячутся под ней. */
+body:has(.incoming-call-card) .call-error-toast {
+  top: 164px;
+}
+
+/* На любой ширине: стопка справа сверху при ширине < ~1110px заходит под карточку. */
+body:has(.incoming-call-card) .missed-call-stack {
+  inset-block-start: 164px;
+}

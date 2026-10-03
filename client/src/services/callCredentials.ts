@@ -12,8 +12,20 @@ export interface CallCredentials {
   getIceServers(): Promise<RTCIceServer[]>;
 }
 
+/**
+ * Комната текущего звонка 1:1 (room_id = call_id, VYC-103). groupCall просит
+ * токен по roomId и не знает, канал это или звонок, — различает здесь.
+ * Ставит callStore.join({kind: 'direct'}), снимает выход из звонка.
+ */
+let directRoomId: string | null = null;
+
+export function markDirectCallRoom(roomId: string | null): void {
+  directRoomId = roomId;
+}
+
 export const accountCallCredentials: CallCredentials = {
-  getVoiceToken: (roomId) => apiService.getVoiceToken(roomId),
+  getVoiceToken: (roomId) =>
+    roomId === directRoomId ? apiService.getCallVoiceToken(roomId) : apiService.getVoiceToken(roomId),
   getIceServers: () => accountIceServers(),
 };
 

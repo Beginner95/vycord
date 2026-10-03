@@ -1,8 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
 import { useCallStore } from '@/stores/callStore';
 import { useServerStore } from '@/stores/serverStore';
+import { useDirectCallStore } from '@/stores/directCallStore';
+import type { CallTarget } from '@/pages/app/useAppController';
 import { usePaletteStore } from '@/stores/paletteStore';
-import { CallUI } from '@/components/CallUI';
+import { IncomingCallCard } from '@/components/directCall/IncomingCallCard';
+import { MissedCallToasts } from '@/components/directCall/MissedCallToasts';
+import { CallErrorToast } from '@/components/directCall/CallErrorToast';
 import { CallPill } from './components/CallPill';
 import { CallAudioHost, CallAudioHostContext } from './call/CallAudioHost';
 import { useBackgroundCamera } from './call/useBackgroundCamera';
@@ -26,6 +30,13 @@ const keyOf = (s: Screen, i: number) => `${i}:${JSON.stringify(s)}`;
 export function MobileShell({ c }: { c: AppController }) {
   const nav = useMobileNav();
   const callStatus = useCallStore((s) => s.status);
+  const directPhase = useDirectCallStore((s) => s.phase);
+  const callRoomId = useCallStore((s) => s.callRoomId);
+  const directViewOpen = useDirectCallStore((s) => s.viewOpen);
+  // Звонок идёт (канальный или 1:1, в том числе дозвон/исход без комнаты) —
+  // экран `call` в стеке жив. Иначе reconcile срезал бы его на дозвоне, пока
+  // callStore.status ещё idle.
+  const anyCall = callStatus !== 'idle' || directPhase.kind !== 'idle';
   const serversLoaded = useServerStore((s) => s.serversLoaded);
   const shellRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<HTMLDivElement>(null);
@@ -55,7 +66,7 @@ export function MobileShell({ c }: { c: AppController }) {
       currentServerId: c.currentServer?.id ?? null,
       channels: c.channels,
       currentChannelId: c.currentChannel?.id ?? null,
-      callActive: callStatus !== 'idle',
+      callActive: anyCall,
     });
     if (r.stack !== nav.stack) { nav.replaceStack(r.stack); return; }
     const action = r.action;
@@ -66,7 +77,7 @@ export function MobileShell({ c }: { c: AppController }) {
       const ch = c.channels.find((x) => x.id === action.channelId);
       if (ch) void c.selectChannel(ch);
     }
-  }, [nav, serversLoaded, c, callStatus]);
+  }, [nav, serversLoaded, c, anyCall]);
 
   // События контроллера, требующие навигации.
   useEffect(() => c.subscribe((e) => {
@@ -93,6 +104,46 @@ export function MobileShell({ c }: { c: AppController }) {
     if (nav.top.kind !== 'search') nav.push({ kind: 'search' });
   }, [paletteOpen]); // nav — актуальный из рендера, эффект запускается сменой флага
 
+  // Экран звонка 1:1 ↔ viewOpen. Открылся вид (звоним/приняли/тап по пилюле) —
+  // кладём `call` в стек. Ушли с экрана жестом/кнопкой «назад», пока вид ещё
+  // открыт, — закрываем вид (closeView): пилюля берёт управление на себя, а
+  // эффект не пушит экран снова (иначе назад не работало бы вовсе). Обратный
+  // ход — когда звонок кончился и фаза стала idle — делает reconcile выше
+  // (срезает `call`, как для канального звонка).
+  const hasCallScreen = nav.stack.some((s) => s.kind === 'call');
+  const hadCallScreen = useRef(hasCallScreen);
+  // Экран `call` положил звонок 1:1 (а не канальный звонок) — убираем его сами,
+  // когда 1:1 кончился, а канальный звонок продолжается (reconcile такой экран
+  // не срежет, а CallScreen без своего канала рисует пустоту).
+  const pushedByDirect = useRef(false);
+  useEffect(() => {
+    const had = hadCallScreen.current;
+    hadCallScreen.current = hasCallScreen;
+    if (had && !hasCallScreen) pushedByDirect.current = false;
+    if (!directViewOpen) return;
+    if (had && !hasCallScreen) { useDirectCallStore.getState().closeView(); return; }
+    if (!hasCallScreen && directPhase.kind !== 'idle') { pushedByDirect.current = true; nav.push({ kind: 'call' }); }
+  }, [directViewOpen, hasCallScreen]);
+
+  useEffect(() => {
+    if (!hasCallScreen || directPhase.kind !== 'idle' || !pushedByDirect.current) return;
+    pushedByDirect.current = false;
+    // Без канального звонка экран срежет reconcile — второй pop был бы лишним.
+    if (callStatus !== 'idle' && useCallStore.getState().callKind !== 'direct' && nav.top.kind === 'call') nav.back();
+  }, [directPhase.kind, hasCallScreen]); // nav — актуальный из рендера, эффект запускается сменой флагов
+
+  const goToCall = (target: CallTarget) => {
+    if (target.kind === 'direct') {
+      // Вид был закрыт — openView сам вызовет push в эффекте выше; открыт —
+      // эффект не сработает, и экран надо положить здесь (иначе push дважды).
+      const wasOpen = useDirectCallStore.getState().viewOpen;
+      useDirectCallStore.getState().openView();
+      if (wasOpen && nav.top.kind !== 'call') { pushedByDirect.current = true; nav.push({ kind: 'call' }); }
+      return;
+    }
+    if (target.serverId) openChannelDeep(target.serverId, target.channelId, true);
+  };
+
   const joinVoice = (channel: Channel) => {
     c.joinVoice(channel);
     const onChat = nav.top.kind === 'chat' && nav.top.channelId === channel.id;
@@ -108,7 +159,11 @@ export function MobileShell({ c }: { c: AppController }) {
   };
 
   const root = isRoot(nav.stack);
-  const showPill = callStatus !== 'idle' && nav.top.kind !== 'call';
+  // Пилюля рисуется не всегда (звонит входящий, исход при закрытом виде) —
+  // обёртка только когда в ней есть содержимое, иначе пустая рамка с тенью.
+  const pillHasContent = callStatus !== 'idle'
+    || ((directPhase.kind === 'outgoing' || directPhase.kind === 'connecting') && callRoomId === null);
+  const showPill = pillHasContent && nav.top.kind !== 'call';
   useEdgeSwipeBack(stageRef, {
     enabled: !root && nav.top.kind !== 'call',
     onBack: nav.back,
@@ -141,11 +196,14 @@ export function MobileShell({ c }: { c: AppController }) {
         <div className={root ? 'mobile-call-dock' : undefined}>
           <CallPill
             variant={root ? 'root' : 'stacked'}
-            onGoToCall={(serverId, channelId) => serverId && openChannelDeep(serverId, channelId, true)}
+            onGoToCall={goToCall}
           />
         </div>
       )}
       {root && <TabBar active={nav.tab} onSelect={nav.switchTab} friendsBadge={c.pendingCount} />}
+      <IncomingCallCard />
+      <MissedCallToasts />
+      <CallErrorToast />
       <AppOverlays
         c={c}
         onOpenCreateServer={() => nav.push({ kind: 'createServer' })}
@@ -155,7 +213,6 @@ export function MobileShell({ c }: { c: AppController }) {
         onPaletteShowChat={() => {}}
         showPalette={false}
       />
-      <CallUI />
       {/* Звук звонка не зависит от стека: экран звонка может быть размонтирован. */}
       {callStatus !== 'idle' && <CallAudioHost />}
     </div>

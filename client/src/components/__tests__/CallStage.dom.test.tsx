@@ -21,7 +21,7 @@ beforeEach(() => {
   useAuthStore.setState({ user: { id: 'u1', username: 'anna' } as never });
   useServerStore.setState({ servers: [{ id: 's1', guest_links_enabled: true } as never] });
   useCallStore.setState({
-    callChannelId: 'c1', callChannelName: 'general', callServerId: 's1', status: 'connected',
+    callRoomId: 'c1', callChannelId: 'c1', callChannelName: 'general', callServerId: 's1', status: 'connected',
     startedAt: Date.now(), isMuted: false, isVideoOff: true, isMicAvailable: true,
     participants: [participant('u2'), participant('u3')], directory: {}, guestSelf: null,
   });

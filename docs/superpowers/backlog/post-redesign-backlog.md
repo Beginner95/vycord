@@ -19,8 +19,7 @@ repeatedly, deliberately declined; decisions that need a human before anyone can
 - **M6 owns** — the legacy `--text-muted` alias (still live in at least `ChannelSidebar.css:55`,
   `ErrorBoundary.css:76,139`, `MessageSearch.css:46,67`) and the rest of the alias-deletion sweep; the
   media-query range-syntax / iOS Safari <16.4 question (M2 ruling 17); `prefers-reduced-motion` for the four
-  looping animations (`chat-shimmer`, `stage-eq-bar`, `message-search-spin`, and `p2p-pulse` — which *is* the
-  incoming-call pulse, not a fifth entry; RESUME §6c carries the measured list); the
+  looping animations (`chat-shimmer`, `stage-eq-bar`, and `message-search-spin`; the former `p2p-pulse` went away with CallUI in VYC-103; RESUME §6c carries the measured list); the
   responsive 768→900 migration; the ~15 cosmetic call-surface deferrals catalogued in the M3 closeout.
 
 **Closed, contrary to an earlier record:** M1's closeout listed an *orphaned* `.chat-voice-btn.in-call` rule.

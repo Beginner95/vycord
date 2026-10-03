@@ -17,9 +17,10 @@ import { fileURLToPath } from 'node:url';
  * this test existed — `.screen-picker-backdrop` (hard-coded into the selector as
  * a result); VYC-82's `MediaLightbox`, which shipped `position: fixed; inset: 0;
  * z-index: 1000` with no `.modal-overlay`, so ⌘K opened the palette BEHIND an
- * open lightbox (M5.5 T4 fixed it); and `.p2p-overlay.is-incoming`, which was
- * still live and uncaught when this file was first written, because the
- * predicate below only recognised `inset: 0` and that scrim is `inset: 40px 0 0`.
+ * open lightbox (M5.5 T4 fixed it); and `.p2p-overlay.is-incoming` (старый CallUI,
+ * удалён в VYC-103), which was still live and uncaught when this file was first
+ * written, because the predicate below only recognised `inset: 0` and that scrim
+ * was `inset: 40px 0 0`.
  * Nothing caught any of the three.
  *
  * This test is meant to catch the fourth, and the lesson from the third is why
@@ -67,20 +68,6 @@ const ALLOWED_NON_PRIMITIVE_SCRIMS: {
       'ScreenSourcePicker/ScreenQualityPicker. Opted out of the primitive on purpose — it would ' +
       'have inherited --z-overlay, flex centring and the modal animation over an equal-specificity ' +
       'source-order conflict. Hard-coded into isBlockingOverlayOpen() instead.',
-  },
-  {
-    selector: '.p2p-overlay',
-    gateSelector: '.p2p-overlay.is-incoming',
-    inGate: true,
-    why:
-      'CallUI\'s 1:1 call surface — `position: fixed; inset: 40px 0 0` (the 40px clears the '
-      + 'TitleBar). Only the `.is-incoming` STATE is a blocking scrim: it adds var(--scrim) + '
-      + 'blur(6px) over the whole app (CallUI.css:17, rendered at CallUI.tsx:165), and ⌘K used to '
-      + 'open the palette on top of it at --z-palette over --z-overlay. The gate therefore names '
-      + '`.p2p-overlay.is-incoming`, NOT the base rule: `.p2p-overlay.is-active` is the in-call '
-      + 'view, has no scrim, and blocking ⌘K there would be a behaviour change nobody asked for. '
-      + 'It stays off the primitive on purpose — `.modal-overlay` would impose inset: 0, centring, '
-      + 'blur and fade-in, i.e. move and restyle the overlay.',
   },
   {
     selector: '.error-boundary-overlay',
@@ -223,7 +210,7 @@ function expandInset(value: string): [string, string, string, string] | null {
  *
  * WIDENED at M6 T11's fix wave. The first version required `inset: 0` or four
  * zero offsets, and a live third violation walked straight through it:
- * `.p2p-overlay` (`CallUI.css:8`) is `position: fixed; inset: 40px 0 0` — 40px
+ * `.p2p-overlay` (старый CallUI.css, удалён в VYC-103) was `position: fixed; inset: 40px 0 0` — 40px
  * down to clear the TitleBar — and `.p2p-overlay.is-incoming` paints
  * `var(--scrim)` + `blur(6px)` over the whole app for an incoming 1:1 call. A
  * predicate that only recognises one geometry is a census of that geometry, not
@@ -305,7 +292,7 @@ describe('overlay scrim contract', () => {
   });
 
   it('the allowlist has not grown quietly', () => {
-    expect(ALLOWED_NON_PRIMITIVE_SCRIMS).toHaveLength(3);
+    expect(ALLOWED_NON_PRIMITIVE_SCRIMS).toHaveLength(2);
   });
 
   it('every blocking allowlist entry is named in isBlockingOverlayOpen()', () => {

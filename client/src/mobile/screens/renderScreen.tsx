@@ -19,14 +19,22 @@ import { StickersScreen } from './StickersScreen';
 import { ChatScreen } from './ChatScreen';
 import { ChannelInfoScreen } from './ChannelInfoScreen';
 import { SearchScreen } from './SearchScreen';
+import { ChevronDown } from 'lucide-react';
+import { useT } from '@/i18n';
 import { useCallStore } from '@/stores/callStore';
+import { useDirectCallStore } from '@/stores/directCallStore';
+import { DirectCallView } from '@/components/directCall/DirectCallView';
 
 import type { ScreenCtx } from './types';
 
 export type { ScreenCtx } from './types';
 
 function CallScreen({ ctx }: { ctx: ScreenCtx }) {
+  const t = useT();
   const callChannelId = useCallStore((s) => s.callChannelId);
+  const callKind = useCallStore((s) => s.callKind);
+  const callRoomId = useCallStore((s) => s.callRoomId);
+  const directPhase = useDirectCallStore((s) => s.phase);
   // Единственный вызов useCallStageModel() для всего экрана звонка (Important
   // I1, task-final-fix-report.md): раньше `MobileCallScreen` звало хук сам, и
   // отдельно `onOpenOverflow`/`onOpenQuality` замораживали копию модели в
@@ -45,13 +53,38 @@ function CallScreen({ ctx }: { ctx: ScreenCtx }) {
   // open doesn't inherit a stale 'quality' from an earlier quality-open.
   const [overflowInitialSub, setOverflowInitialSub] = useState<CallOverflowSub>(null);
   const guestsPresent = useGuestManagementStore((s) => (callChannelId ? (s.channelGuests.get(callChannelId)?.length ?? 0) > 0 : false));
-  if (!callChannelId || callChannelId !== ctx.c.currentChannel?.id) return <div className="mobile-screen-loading" />;
+  // Звонок 1:1: сцена — только когда мы уже в комнате именно этого звонка.
+  // Пока join в полёте (callRoomId ещё null, callKind пуст), и на дозвоне/исходе
+  // показываем DirectCallView — с именем, «Соединение…» и отменой. Входящий Y
+  // поверх активного X не меняет условие: остаётся сцена X, карточку рисует шелл.
+  // outgoing (callId null) в комнату не входит: звоним Y из активного X — виден дозвон.
+  const phaseCallId = directPhase.kind === 'idle' || directPhase.kind === 'ending' || directPhase.kind === 'outgoing'
+    ? null : directPhase.callId;
+  const directInRoom = callKind === 'direct' && callRoomId !== null
+    && (directPhase.kind === 'incoming' || directPhase.kind === 'idle' || directPhase.kind === 'ending'
+      || (phaseCallId !== null && callRoomId === phaseCallId));
+  if (!directInRoom && (directPhase.kind === 'outgoing' || directPhase.kind === 'connecting'
+    || directPhase.kind === 'active' || directPhase.kind === 'ending')) {
+    // Свернуть: closeView + back — дальше пилюля. Крестик нужен, потому что
+    // edge-swipe на экране `call` выключен, а «Отмена» завершает звонок.
+    const collapse = () => { useDirectCallStore.getState().closeView(); ctx.nav.back(); };
+    return (
+      <>
+        <button type="button" className="panel-icon-btn mobile-direct-collapse" onClick={collapse} aria-label={t('call.collapseCall')}>
+          <ChevronDown size={22} strokeWidth={1.8} />
+        </button>
+        <DirectCallView ignoreViewOpen />
+      </>
+    );
+  }
+  const isDirect = callKind === 'direct';
+  if (!isDirect && (!callChannelId || callChannelId !== ctx.c.currentChannel?.id)) return <div className="mobile-screen-loading" />;
   return (
     <>
       <MobileCallScreen
         model={model}
         onBack={ctx.nav.back}
-        onOpenChat={() => ctx.nav.push({ kind: 'chat', channelId: callChannelId })}
+        onOpenChat={isDirect || !callChannelId ? undefined : () => ctx.nav.push({ kind: 'chat', channelId: callChannelId })}
         onOpenOverflow={() => { setOverflowInitialSub(null); setOverflowOpen(true); }}
         onOpenQuality={() => { setOverflowInitialSub('quality'); setOverflowOpen(true); }}
       />

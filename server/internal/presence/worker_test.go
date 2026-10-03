@@ -392,3 +392,24 @@ func TestTick_NilCallSweeperIsSafe(t *testing.T) {
 
 	w.tick(context.Background()) // must not panic
 }
+
+func TestTick_RoomFilterSkipsCallRooms(t *testing.T) {
+	channelID, callRoom, user := uuid.New(), uuid.New(), uuid.New()
+	fetcher := &fakeFetcher{snapshot: map[string][]string{
+		channelID.String(): {user.String()},
+		callRoom.String():  {user.String()},
+	}}
+	rec := newFakeReconciler(nil)
+	var buf bytes.Buffer
+	w := NewWorker(fetcher, rec, newTestLogger(&buf))
+	w.SetRoomFilter(func(id uuid.UUID) bool { return id == callRoom })
+
+	w.tick(context.Background())
+
+	if _, ok := rec.state[callRoom]; ok {
+		t.Fatal("комната звонка 1:1 не должна попадать в голосовое присутствие")
+	}
+	if _, ok := rec.state[channelID]; !ok {
+		t.Fatal("обычный канал должен остаться в присутствии")
+	}
+}

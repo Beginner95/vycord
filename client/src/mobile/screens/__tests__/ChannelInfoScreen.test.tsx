@@ -8,7 +8,6 @@ import type { MemberWithUser, PermissionSet } from '@/types';
 import { useServerStore } from '@/stores/serverStore';
 import { useCallStore } from '@/stores/callStore';
 import { usePaletteStore } from '@/stores/paletteStore';
-import { callService } from '@/services/call';
 import { controller, nav, ch, s1 } from './fixtures';
 
 vi.mock('@/services/api', async (orig) => {
@@ -23,7 +22,11 @@ vi.mock('@/services/api', async (orig) => {
   };
 });
 vi.mock('@/services/websocket', () => ({ wsService: { on: vi.fn(() => () => {}), send: vi.fn() } }));
-vi.mock('@/services/call', () => ({ callService: { startCall: vi.fn(async () => null) } }));
+// Реальный стор тянет callStore/SFU; тесту нужен лишь вызов call(peer).
+const { callSpy } = vi.hoisted(() => ({ callSpy: vi.fn() }));
+vi.mock('@/stores/directCallStore', () => ({
+  useDirectCallStore: { getState: () => ({ call: callSpy }) },
+}));
 
 const boris = { user_id: 'u2', username: 'Борис' } as MemberWithUser;
 const vera = { user_id: 'u3', username: 'Вера' } as MemberWithUser;
@@ -105,7 +108,7 @@ describe('ChannelInfoScreen', () => {
     const item = [...document.querySelectorAll('.sheet .action-sheet-item')]
       .find((i) => i.textContent?.includes(CALL_BORIS))!;
     fireEvent.click(item);
-    expect(callService.startCall).toHaveBeenCalledWith('u2');
+    expect(callSpy).toHaveBeenCalledWith(expect.objectContaining({ id: 'u2', username: 'Борис' }));
   });
 
   it('«Звонок» joins and REPLACES the info screen with the call screen', () => {

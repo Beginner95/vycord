@@ -37,6 +37,8 @@ class AudioService {
   private settings: AudioSettings;
   private ringtoneGain: GainNode | null = null;
   private isRinging = false;
+  private ringtoneQuiet = false;
+  private ringbackTimer: ReturnType<typeof setTimeout> | null = null;
   // Timestamps (performance.now()) of the last chime of each kind — see allowVoiceSound.
   // -Infinity, not 0: performance.now() starts near zero, so a 0 baseline would throttle
   // the very first chime of each kind within 250 ms of page load.
@@ -82,9 +84,11 @@ class AudioService {
    * Play ringtone for incoming calls.
    * Classic ring pattern: alternating 440Hz + 480Hz, repeated.
    */
-  startRingtone(): void {
+  startRingtone(opts: { quiet?: boolean } = {}): void {
     if (this.isRinging) return;
     this.isRinging = true;
+    // Тихий рингтон — входящий 1:1, пока мы уже в другом звонке.
+    this.ringtoneQuiet = opts.quiet ?? false;
 
     const ctx = this.getAudioContext();
     const vol = this.settings.volume * 0.4;
@@ -100,10 +104,11 @@ class AudioService {
     if (!this.isRinging || !this.ringtoneGain) return;
     const ctx = this.getAudioContext();
 
+    const k = this.ringtoneQuiet ? 0.3 : 1;
     // First tone: 440 Hz
-    this.playTone(ctx, 440, 0, 0.4, this.settings.volume * 0.3);
+    this.playTone(ctx, 440, 0, 0.4, this.settings.volume * 0.3 * k);
     // Second tone: 480 Hz (slight delay, classic ring)
-    this.playTone(ctx, 480, 0.02, 0.4, this.settings.volume * 0.3);
+    this.playTone(ctx, 480, 0.02, 0.4, this.settings.volume * 0.3 * k);
 
     // Repeat after 1.2s pause
     setTimeout(() => {
@@ -111,6 +116,21 @@ class AudioService {
         this.playRingPattern();
       }
     }, 1200);
+  }
+
+  /** Гудки, пока собеседнику звонит наш вызов (425 Гц, 1 с звука / 3 с тишины). */
+  startRingback(): void {
+    if (this.ringbackTimer !== null) return;
+    const loop = () => {
+      this.playTone(this.getAudioContext(), 425, 0, 1.0, this.settings.volume * 0.15);
+      this.ringbackTimer = setTimeout(loop, 4000);
+    };
+    loop();
+  }
+
+  stopRingback(): void {
+    if (this.ringbackTimer !== null) clearTimeout(this.ringbackTimer);
+    this.ringbackTimer = null;
   }
 
   /**

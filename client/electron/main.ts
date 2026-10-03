@@ -94,6 +94,9 @@ function createWindow(): BrowserWindow {
     }
   });
 
+  // Подсветка в панели задач гаснет, когда пользователь вернулся в окно.
+  mainWindow.on('focus', () => mainWindow?.flashFrame(false));
+
   mainWindow.on('closed', () => {
     mainWindow = null;
   });
@@ -155,6 +158,11 @@ ipcMain.on('locale:changed', (_event, locale: unknown) => {
   if (!isTrayLocale(locale) || locale === currentTrayLocale) return;
   currentTrayLocale = locale;
   buildTrayMenu();
+});
+
+// Звонок 1:1 при свёрнутом окне: подсветка в панели задач до фокуса.
+ipcMain.on('window:flash', () => {
+  if (mainWindow && !mainWindow.isFocused()) mainWindow.flashFrame(true);
 });
 
 ipcMain.on('theme:changed', (_event, theme: unknown) => {

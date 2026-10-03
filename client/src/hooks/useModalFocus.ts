@@ -216,18 +216,9 @@ export function useEscapeDismiss(
  *  Без неё в селекторе гейт был бы false, пока пикер экрана открыт — что
  *  реально достижимо на обеих платформах (CallStage.tsx: неэлектронная ветка
  *  шаринга экрана и electron-ветка после выбора источника).
- *  `.p2p-overlay.is-incoming` (CallUI.tsx:165) — четвёртый случай, найденный на
- *  ревью M6 T11: входящий 1:1-звонок кладёт var(--scrim) + blur(6%) поверх всего
- *  приложения, но живёт на `position: fixed; inset: 40px 0 0` (40px — под
- *  TitleBar) и примитив не носит. До этой правки ⌘K открывал палитру ПОВЕРХ
- *  входящего звонка (--z-palette 1150 над --z-overlay 1000), а Ctrl+Shift+F
- *  переключал поиск под ним.
- *  Гейт называет именно СОСТОЯНИЕ `.is-incoming`, а не базовое `.p2p-overlay`:
- *  `.p2p-overlay.is-active` — это вид активного звонка, скрима у него нет, и
- *  глушить над ним ⌘K было бы изменением поведения, которого никто не просил.
- *  На примитив он не переводится сознательно: `.modal-overlay` навязал бы
- *  inset: 0, центрирование, blur и fade-in — то есть сдвинул и перекрасил бы
- *  оверлей.
+ *  Бывший четвёртый случай — `.p2p-overlay.is-incoming` (входящий 1:1 в старом
+ *  CallUI) — снят вместе с CallUI в VYC-103; новая карточка входящего звонка
+ *  (IncomingCallCard) намеренно не блокирующая: без scrim, вне стека слоёв.
  *
  *  ЧЕГО ЭТА ФУНКЦИЯ НЕ ГАРАНТИРУЕТ (M6 T11, шаг 3). DOM-половина держится на
  *  СОГЛАШЕНИИ «каждый блокирующий scrim носит .modal-overlay», а не на
@@ -243,7 +234,7 @@ export function isBlockingOverlayOpen(): boolean {
   return (
     layerStack.some((l) => l.blocking) ||
     document.querySelector(
-      '.modal-overlay, .screen-picker-backdrop, .p2p-overlay.is-incoming',
+      '.modal-overlay, .screen-picker-backdrop',
     ) !== null
   );
 }

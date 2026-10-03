@@ -6,11 +6,15 @@ import { ChannelSidebar } from '@/components/ChannelSidebar';
 import { ChatArea } from '@/components/ChatArea';
 import { UserList } from '@/components/UserList';
 import { TitleBar } from '@/components/TitleBar';
-import { CallUI } from '@/components/CallUI';
 import { CallDock } from '@/components/CallDock';
 import { UserPanel } from '@/components/UserPanel';
 import { CallStage } from '@/components/CallStage';
+import { DirectCallView } from '@/components/directCall/DirectCallView';
+import { IncomingCallCard } from '@/components/directCall/IncomingCallCard';
+import { MissedCallToasts } from '@/components/directCall/MissedCallToasts';
+import { CallErrorToast } from '@/components/directCall/CallErrorToast';
 import { useCallStore } from '@/stores/callStore';
+import { useDirectCallStore } from '@/stores/directCallStore';
 import { useT } from '@/i18n';
 import type { AppController } from './useAppController';
 import { AppOverlays } from './AppOverlays';
@@ -40,6 +44,14 @@ export function DesktopShell({ c }: DesktopShellProps) {
     });
   };
   const callChannelId = useCallStore((s) => s.callChannelId);
+  const directViewOpen = useDirectCallStore(
+    (s) => s.viewOpen && s.phase.kind !== 'idle' && s.phase.kind !== 'incoming',
+  );
+  // Входящий Y поверх активного 1:1 X: сцена X остаётся на месте, карточка
+  // входящего (Task 10) рисуется поверх, а не переключает колонку на чат.
+  const incomingViewOpen = useDirectCallStore((s) => s.viewOpen && s.phase.kind === 'incoming');
+  const inDirectRoom = useCallStore((s) => s.callKind === 'direct' && s.callRoomId !== null);
+  const keepStageUnderIncoming = incomingViewOpen && inDirectRoom;
 
   // Высота сцены звонка в сплите «звонок сверху, чат снизу». Проценты, а не
   // пиксели: окно можно менять в размерах, а доля экрана под звонок — это то,
@@ -136,8 +148,7 @@ export function DesktopShell({ c }: DesktopShellProps) {
           pendingCount={pendingCount}
         />
 
-        {currentServer ? (
-          <>
+        {currentServer && (
             <ChannelSidebar
               server={currentServer}
               channels={channels}
@@ -151,7 +162,14 @@ export function DesktopShell({ c }: DesktopShellProps) {
               onServerDeleted={c.serverRemoved}
               onCreateChannel={() => c.ui.setCreateChannelOpen(true)}
             />
+        )}
 
+        {/* Экран звонка 1:1 занимает основную колонку; список серверов, сайдбар
+            канала и список участников остаются на месте. */}
+        {directViewOpen || keepStageUnderIncoming ? (
+          <DirectCallView />
+        ) : currentServer ? (
+          <>
             {/* Сцена звонка показывается только в том канале, где идёт звонок:
                 уход в другой канал размонтирует её, а сам звонок продолжается —
                 его состояние и подписки живут в сторе. */}
@@ -192,6 +210,10 @@ export function DesktopShell({ c }: DesktopShellProps) {
         )}
       </div>
 
+      <IncomingCallCard />
+      <MissedCallToasts />
+      <CallErrorToast />
+
       <AppOverlays
         c={c}
         onPaletteSelectChannel={c.selectChannel}
@@ -203,15 +225,13 @@ export function DesktopShell({ c }: DesktopShellProps) {
           used to render only from inside ChannelSidebar, which itself only
           renders while a server is selected — so both became unreachable
           while "Дом" (currentServer === null) showed HomeView instead. Hoisted
-          here, unconditionally, the same way CallUI already sits outside the
+          here, unconditionally, the same way IncomingCallCard (Task 10) will sit outside the
           currentServer ternary for call-related UI that must survive across
           top-level views. */}
       <div className="app-account-dock">
         <CallDock onGoToCall={c.goToCall} />
         <UserPanel user={user} onLogout={c.logout} onOpenSettings={() => c.ui.setSettingsOpen(true)} />
       </div>
-
-      <CallUI />
     </div>
   );
 }

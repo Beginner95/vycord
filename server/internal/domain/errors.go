@@ -131,6 +131,16 @@ var (
 	// Отдельно от ErrInteractionForbidden: то, что юзернейма не существует,
 	// не секрет (он же виден в /users поиске) — прятать тут нечего.
 	ErrUserNotFound = errors.New("user not found")
+	// ErrCallNotFound — звонка нет или вызывающий в нём не участник
+	// (неразличимо наружу: не раскрываем чужие звонки).
+	ErrCallNotFound = errors.New("call not found")
+	// ErrCallInvalidState — переход недопустим из текущего статуса (звонок
+	// уже принят, отклонён, завершён, истёк таймаут).
+	ErrCallInvalidState = errors.New("call invalid state")
+	// ErrCallPeerOffline — получатель не в сети.
+	ErrCallPeerOffline = errors.New("call peer offline")
+	// ErrCallBusy — у получателя уже звонит другой вызов.
+	ErrCallBusy = errors.New("call peer busy")
 	// ErrInvalidPhone — номер не прошёл нормализацию (phonecrypto).
 	ErrInvalidPhone = errors.New("invalid phone number")
 	// ErrPhoneTaken — номер уже привязан к другому аккаунту

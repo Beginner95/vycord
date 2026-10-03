@@ -1,0 +1,106 @@
+/* ── Экран звонка 1:1 в основной колонке: дозвон и исход по центру,
+   в соединённом состоянии — обычная сцена на всю высоту ── */
+.direct-call-view {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 24px;
+  background: var(--canvas);
+}
+
+.direct-call-view.is-stage {
+  align-items: stretch;
+  justify-content: flex-start;
+  gap: 0;
+  padding: 0;
+  background: var(--stage);
+}
+
+/* Вне .channel-body у сцены нет заданной высоты — растягиваем на колонку. */
+.direct-call-view.is-stage .call-stage {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.direct-call-avatar {
+  position: relative;
+  width: 96px;
+  height: 96px;
+  margin-bottom: 8px;
+}
+
+.direct-call-avatar-img {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  object-fit: cover;
+  font-size: 36px;
+
+  /* Буква-заглушка Avatar без url — div, ему нужно центрирование. */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Кольцо-пульс, пока идёт дозвон. */
+.direct-call-avatar.is-ringing::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  border: 2px solid var(--accent);
+  animation: direct-call-ring 1.6s var(--ease-out) infinite;
+  pointer-events: none;
+}
+
+@keyframes direct-call-ring {
+  from {
+    transform: scale(1);
+    opacity: 0.7;
+  }
+
+  to {
+    transform: scale(1.5);
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .direct-call-avatar.is-ringing::after {
+    animation: none;
+    opacity: 0.4;
+  }
+}
+
+.direct-call-name {
+  max-width: 100%;
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.direct-call-status {
+  font-size: 14px;
+  color: var(--muted);
+}
+
+.direct-call-cancel {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+
+  /* Пилюля вместо квадратной .btn — отмена дозвона крупнее и круглее обычной кнопки. */
+  padding: 11px 22px;
+  border-radius: var(--radius-pill);
+  font-weight: 700;
+}

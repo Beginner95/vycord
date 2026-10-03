@@ -31,6 +31,7 @@ import { CallAudioHost } from '@/mobile/call/CallAudioHost';
 import { MobileCallScreen } from '@/mobile/screens/MobileCallScreen';
 import { useCallStageModel } from '@/components/useCallStageModel';
 import { useCallStore } from '@/stores/callStore';
+import { useDirectCallStore } from '@/stores/directCallStore';
 import { useAuthStore } from '@/stores/authStore';
 import { callBus } from '@/services/callBus';
 import { stubBrowser } from '@/components/__tests__/callHarness';
@@ -64,7 +65,7 @@ describe('CallAudioHost: playback', () => {
     const s2 = fakeStream('s2');
     const s3 = fakeStream('s3');
     useCallStore.setState({
-      status: 'connected', callChannelId: 'c1',
+      status: 'connected', callRoomId: 'c1', callChannelId: 'c1',
       participants: [{ userId: 'u2', stream: s2 }, { userId: 'u3', stream: s3 }, { userId: 'u4', stream: null }],
       participantVolumes: { u3: 40 },
     });
@@ -85,7 +86,7 @@ describe('CallAudioHost: playback', () => {
 
   it('drops the element (and its srcObject) when a participant leaves', async () => {
     const s2 = fakeStream('s2');
-    useCallStore.setState({ status: 'connected', callChannelId: 'c1', participants: [{ userId: 'u2', stream: s2 }] });
+    useCallStore.setState({ status: 'connected', callRoomId: 'c1', callChannelId: 'c1', participants: [{ userId: 'u2', stream: s2 }] });
     render(<CallAudioHost />);
     await flush();
     const el = audios()[0];
@@ -97,7 +98,7 @@ describe('CallAudioHost: playback', () => {
   });
 
   it('rebinds when a participant stream is replaced', async () => {
-    useCallStore.setState({ status: 'connected', callChannelId: 'c1', participants: [{ userId: 'u2', stream: fakeStream('a') }] });
+    useCallStore.setState({ status: 'connected', callRoomId: 'c1', callChannelId: 'c1', participants: [{ userId: 'u2', stream: fakeStream('a') }] });
     render(<CallAudioHost />);
     await flush();
     const next = fakeStream('b');
@@ -108,7 +109,7 @@ describe('CallAudioHost: playback', () => {
 
   it('does not play screen-share streams (they sound from the focused main video)', async () => {
     useCallStore.setState({
-      status: 'connected', callChannelId: 'c1',
+      status: 'connected', callRoomId: 'c1', callChannelId: 'c1',
       participants: [{ userId: 'u2', stream: fakeStream('cam') }],
       remoteScreenStreams: new Map([['u2', fakeStream('screen')]]),
     });
@@ -121,7 +122,7 @@ describe('CallAudioHost: playback', () => {
     const setSinkId = vi.fn(async () => {});
     (HTMLMediaElement.prototype as unknown as { setSinkId: typeof setSinkId }).setSinkId = setSinkId;
     try {
-      useCallStore.setState({ status: 'connected', callChannelId: 'c1', participants: [{ userId: 'u2', stream: fakeStream('s') }] });
+      useCallStore.setState({ status: 'connected', callRoomId: 'c1', callChannelId: 'c1', participants: [{ userId: 'u2', stream: fakeStream('s') }] });
       let apply: ((id: string) => void) | null = null;
       function Probe() { apply = useCallStageModel({ externalAudio: true }).applySinkId; return null; }
       render(<><CallAudioHost /><Probe /></>);
@@ -143,7 +144,7 @@ describe('Call tiles with / without the audio host (double audio regression)', (
   const tileVideo = () => document.querySelector<HTMLVideoElement>('.mcs-grid-cell:not(.is-self) video')!;
 
   it('externalAudio: remote tile <video> stays muted after the stream is attached', async () => {
-    useCallStore.setState({ status: 'connected', callChannelId: 'c1', participants: [{ userId: 'u2', stream: fakeStream('s2') }] });
+    useCallStore.setState({ status: 'connected', callRoomId: 'c1', callChannelId: 'c1', participants: [{ userId: 'u2', stream: fakeStream('s2') }] });
     render(<Screen externalAudio />);
     await flush();
     const v = tileVideo();
@@ -154,7 +155,7 @@ describe('Call tiles with / without the audio host (double audio regression)', (
   });
 
   it('default (desktop / guest shell, no host): the tile unmutes after play, as before', async () => {
-    useCallStore.setState({ status: 'connected', callChannelId: 'c1', participants: [{ userId: 'u2', stream: fakeStream('s2') }] });
+    useCallStore.setState({ status: 'connected', callRoomId: 'c1', callChannelId: 'c1', participants: [{ userId: 'u2', stream: fakeStream('s2') }] });
     render(<Screen />);
     await flush();
     const v = tileVideo();
@@ -188,7 +189,7 @@ describe('CallAudioHost: MediaSession', () => {
   });
 
   it('sets metadata/playbackState/handlers during the call and clears them on unmount', async () => {
-    useCallStore.setState({ status: 'connected', callChannelId: 'c1', callChannelName: 'general', participants: [] });
+    useCallStore.setState({ status: 'connected', callRoomId: 'c1', callChannelId: 'c1', callChannelName: 'general', participants: [] });
     const { unmount } = render(<CallAudioHost />);
     await flush();
     const meta = session.metadata as { title: string; artist: string; artwork: { src: string }[] };
@@ -207,7 +208,7 @@ describe('CallAudioHost: MediaSession', () => {
   });
 
   it('falls back to the translated title without a channel name', async () => {
-    useCallStore.setState({ status: 'connected', callChannelId: 'c1', callChannelName: null });
+    useCallStore.setState({ status: 'connected', callRoomId: 'c1', callChannelId: 'c1', callChannelName: null });
     render(<CallAudioHost />);
     await flush();
     expect((session.metadata as { title: string }).title).toBeTruthy();
@@ -215,7 +216,7 @@ describe('CallAudioHost: MediaSession', () => {
   });
 
   it('togglemicrophone toggles mute; hangup leaves the call', async () => {
-    useCallStore.setState({ status: 'connected', callChannelId: 'c1', isMuted: false });
+    useCallStore.setState({ status: 'connected', callRoomId: 'c1', callChannelId: 'c1', isMuted: false });
     render(<CallAudioHost />);
     await flush();
     act(() => handlers.get('togglemicrophone')!());
@@ -228,8 +229,19 @@ describe('CallAudioHost: MediaSession', () => {
     expect(useCallStore.getState().status).toBe('idle');
   });
 
+  it('hangup в звонке 1:1 зовёт directCallStore.hangup, а не leave()', async () => {
+    const hangup = vi.fn();
+    useDirectCallStore.setState({ hangup });
+    useCallStore.setState({ status: 'connected', callRoomId: 'k1', callKind: 'direct', callChannelId: null });
+    render(<CallAudioHost />);
+    await flush();
+    act(() => handlers.get('hangup')!());
+    expect(hangup).toHaveBeenCalled();
+    expect(fakeService.leaveGroupCall).not.toHaveBeenCalled();
+  });
+
   it('togglemicrophone does nothing without a microphone (like the disabled mic button)', async () => {
-    useCallStore.setState({ status: 'connected', callChannelId: 'c1', isMuted: false, isMicAvailable: false });
+    useCallStore.setState({ status: 'connected', callRoomId: 'c1', callChannelId: 'c1', isMuted: false, isMicAvailable: false });
     render(<CallAudioHost />);
     await flush();
     act(() => handlers.get('togglemicrophone')!());
@@ -239,7 +251,7 @@ describe('CallAudioHost: MediaSession', () => {
   });
 
   it('resets setMicrophoneActive on unmount', async () => {
-    useCallStore.setState({ status: 'connected', callChannelId: 'c1', isMuted: false });
+    useCallStore.setState({ status: 'connected', callRoomId: 'c1', callChannelId: 'c1', isMuted: false });
     const { unmount } = render(<CallAudioHost />);
     await flush();
     session.setMicrophoneActive.mockClear();
@@ -249,7 +261,7 @@ describe('CallAudioHost: MediaSession', () => {
 
   it('survives a browser without the hangup/togglemicrophone actions', async () => {
     session.setActionHandler = (a) => { if (a === 'hangup' || a === 'togglemicrophone') throw new TypeError('unsupported'); };
-    useCallStore.setState({ status: 'connected', callChannelId: 'c1' });
+    useCallStore.setState({ status: 'connected', callRoomId: 'c1', callChannelId: 'c1' });
     const { unmount } = render(<CallAudioHost />);
     await flush();
     expect(session.playbackState).toBe('playing');

@@ -76,6 +76,16 @@ type Worker struct {
 	// CallSweeper's doc comment. Single-goroutine access via Run/tick, same
 	// as consecutiveEmptySuspicious below, so it needs no synchronization.
 	sweeper CallSweeper
+
+	// skipRoom отсекает комнаты SFU, которые не голосовые каналы — звонки 1:1
+	// (VYC-103). Без него комната звонка попала бы в voiceChannels и в
+	// «событие звонка» чата как несуществующий канал. nil — ничего не отсекать.
+	skipRoom func(uuid.UUID) bool
+}
+
+// SetRoomFilter ставит фильтр комнат; skip(id) == true — комнату пропустить.
+func (w *Worker) SetRoomFilter(skip func(uuid.UUID) bool) {
+	w.skipRoom = skip
 }
 
 func NewWorker(fetcher Fetcher, reconciler Reconciler, log *slog.Logger) *Worker {
@@ -128,6 +138,14 @@ func (w *Worker) tick(ctx context.Context) {
 		// cannot be trusted, same treatment as a fetch error.
 		w.log.Warn("presence: SFU snapshot contained an unparseable id, leaving voice state untouched", "error", err)
 		return
+	}
+
+	if w.skipRoom != nil {
+		for roomID := range actual {
+			if w.skipRoom(roomID) {
+				delete(actual, roomID)
+			}
+		}
 	}
 
 	if len(actual) == 0 {

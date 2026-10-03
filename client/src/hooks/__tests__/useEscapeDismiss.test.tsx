@@ -176,7 +176,7 @@ describe('surface stack — isBlockingOverlayOpen()', () => {
   it('the DOM half still counts a scrim the stack knows nothing about', () => {
     // The half CF-4b showed is load-bearing: a class alone satisfies the gate.
     const el = document.createElement('div');
-    el.className = 'p2p-overlay is-incoming';
+    el.className = 'screen-picker-backdrop';
     act(() => { document.body.appendChild(el); });
     expect(isBlockingOverlayOpen()).toBe(true);
     el.remove();

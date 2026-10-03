@@ -2,12 +2,14 @@ package handler
 
 import (
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"net/http"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
+	"github.com/vycord/server/internal/delivery/http/ratelimit"
 	"github.com/vycord/server/internal/delivery/ws"
 	"github.com/vycord/server/internal/domain"
 )
@@ -16,6 +18,12 @@ const (
 	defaultWriteWait  = 10 * time.Second
 	defaultPongWait   = 60 * time.Second
 	defaultPingPeriod = (defaultPongWait * 9) / 10
+
+	// callStartRateLimit/Window — сколько call_start пользователь может прислать
+	// за окно. Петля «Позвонить → Отменить» иначе спамит собеседника
+	// пропущенными и нагружает БД под общим mutex звонков.
+	callStartRateLimit  = 10
+	callStartRateWindow = time.Minute
 )
 
 var upgrader = websocket.Upgrader{
@@ -40,6 +48,7 @@ type WebSocketHandler struct {
 	userUseCase   domain.UserUseCase
 	channelAccess domain.ChannelAccessChecker
 	log           *slog.Logger
+	callStarts    *ratelimit.Limiter // ключ — user_id звонящего
 
 	writeWait  time.Duration
 	pongWait   time.Duration
@@ -54,6 +63,7 @@ func NewWebSocketHandler(hub *ws.Hub, authUseCase domain.AuthUseCase, callUseCas
 		userUseCase:   userUseCase,
 		channelAccess: channelAccess,
 		log:           log,
+		callStarts:    ratelimit.New(callStartRateLimit, callStartRateWindow),
 		writeWait:     defaultWriteWait,
 		pongWait:      defaultPongWait,
 		pingPeriod:    defaultPingPeriod,
@@ -95,15 +105,21 @@ func (h *WebSocketHandler) HandleWebSocket(w http.ResponseWriter, r *http.Reques
 		Send:   make(chan []byte, 512),
 	}
 
+	// Снимок звонка пишется прямо в client.Send, а не через хаб: регистрация
+	// в хабе асинхронна, и SendToUser сразу после RegisterClient может не
+	// найти клиента. Делается ДО RegisterClient: пока клиент не зарегистрирован,
+	// канал Send принадлежит только этому хендлеру (буфер пуст, запись не
+	// блокирует), а после регистрации дубль-сессия может сделать close(Send)
+	// и запись упала бы паникой «send on closed channel».
+	client.Send <- mustMarshal(&ws.Message{
+		Type:    "call_state",
+		Payload: mustMarshal(map[string]any{"call": h.callUseCase.OnConnect(user.ID)}),
+	})
+
 	h.hub.RegisterClient(client)
 
 	if err := h.userUseCase.UpdateStatus(user.ID, domain.StatusOnline); err != nil {
 		h.log.Warn("failed to set user online", "user_id", user.ID, "error", err)
-	}
-
-	// Clean up stale calls left from previous sessions (e.g. app crash / disconnect)
-	if err := h.callUseCase.EndAllActiveCalls(user.ID); err != nil {
-		h.log.Warn("failed to cleanup stale calls", "user_id", user.ID, "error", err)
 	}
 
 	go h.writePump(client)
@@ -125,6 +141,7 @@ func (h *WebSocketHandler) readPump(client *ws.Client) {
 			if err := h.userUseCase.UpdateLastSeen(client.UserID, time.Now()); err != nil {
 				h.log.Warn("failed to update last seen", "user_id", client.UserID, "error", err)
 			}
+			h.callUseCase.OnDisconnect(client.UserID)
 		}
 	}()
 
@@ -197,12 +214,6 @@ func (h *WebSocketHandler) handleMessage(client *ws.Client, msg *ws.Message) {
 		h.handleCallReject(client, msg)
 	case "call_end":
 		h.handleCallEnd(client, msg)
-	case "webrtc_offer":
-		h.handleWebRTCOffer(client, msg)
-	case "webrtc_answer":
-		h.handleWebRTCAnswer(client, msg)
-	case "webrtc_ice_candidate":
-		h.handleWebRTCICECandidate(client, msg)
 	case "voice_call_ring":
 		h.handleVoiceCallRing(client, msg)
 	case "voice_call_cancel":
@@ -293,300 +304,98 @@ func (h *WebSocketHandler) handleVoiceLeft(client *ws.Client, _ *ws.Message) {
 	h.hub.BroadcastVoiceParticipants(channelID, participants)
 }
 
-// --- Call Signalling ---
+// --- Звонки 1:1 (VYC-103) ---
+// Хендлеры только разбирают payload и переводят ошибки в call_error: события
+// звонка (call_ringing/accepted/ended) шлёт сам CallUseCase.
 
 func (h *WebSocketHandler) handleCallStart(client *ws.Client, msg *ws.Message) {
-	var payload struct {
+	if !h.callStarts.Allow(client.UserID.String()) {
+		h.log.Info("call_start rate limited", "caller_id", client.UserID)
+		h.sendCallError(client, "rate_limited", "")
+		return
+	}
+	var p struct {
 		ReceiverID string `json:"receiver_id"`
 	}
-	if err := json.Unmarshal(msg.Payload, &payload); err != nil {
-		h.sendError(client, "invalid call_start payload")
+	if err := json.Unmarshal(msg.Payload, &p); err != nil {
+		h.sendCallError(client, "not_found", "")
 		return
 	}
-
-	receiverID, err := uuid.Parse(payload.ReceiverID)
+	receiverID, err := uuid.Parse(p.ReceiverID)
 	if err != nil {
-		h.sendError(client, "invalid receiver_id")
+		h.sendCallError(client, "not_found", "")
 		return
 	}
-
-	call, err := h.callUseCase.StartCall(client.UserID, receiverID)
-	if err != nil {
-		h.log.Warn("call_start failed",
-			"caller_id", client.UserID,
-			"receiver_id", receiverID,
-			"error", err,
-		)
-		h.sendError(client, err.Error())
-		return
+	if _, err := h.callUseCase.Start(client.UserID, receiverID); err != nil {
+		h.log.Info("call_start refused", "caller_id", client.UserID, "receiver_id", receiverID, "error", err)
+		h.sendCallError(client, callErrorCode(err), "")
 	}
-
-	h.log.Info("call started",
-		"call_id", call.ID,
-		"caller_id", client.UserID,
-		"receiver_id", receiverID,
-	)
-
-	h.hub.SendToUser(receiverID, &ws.Message{
-		Type: "incoming_call",
-		Payload: mustMarshal(map[string]interface{}{
-			"call_id":   call.ID.String(),
-			"caller_id": call.CallerID.String(),
-		}),
-	})
-
-	h.hub.SendToUser(client.UserID, &ws.Message{
-		Type: "call_started",
-		Payload: mustMarshal(map[string]interface{}{
-			"call_id": call.ID.String(),
-		}),
-	})
 }
 
 func (h *WebSocketHandler) handleCallAccept(client *ws.Client, msg *ws.Message) {
-	var payload struct {
-		CallID string `json:"call_id"`
-	}
-	if err := json.Unmarshal(msg.Payload, &payload); err != nil {
-		h.sendError(client, "invalid call_accept payload")
-		return
-	}
-
-	callID, err := uuid.Parse(payload.CallID)
-	if err != nil {
-		h.sendError(client, "invalid call_id")
-		return
-	}
-
-	if err := h.callUseCase.AcceptCall(callID); err != nil {
-		h.log.Warn("call_accept failed",
-			"call_id", callID,
-			"user_id", client.UserID,
-			"error", err,
-		)
-		h.sendError(client, err.Error())
-		return
-	}
-
-	call, err := h.callUseCase.GetActiveCall(client.UserID)
-	if err != nil {
-		h.sendError(client, "failed to get call")
-		return
-	}
-
-	h.log.Info("call accepted",
-		"call_id", callID,
-		"caller_id", call.CallerID,
-		"receiver_id", client.UserID,
-	)
-
-	h.hub.SendToUser(call.CallerID, &ws.Message{
-		Type: "call_accepted",
-		Payload: mustMarshal(map[string]interface{}{
-			"call_id": call.ID.String(),
-		}),
-	})
-
-	h.hub.SendToUser(client.UserID, &ws.Message{
-		Type: "call_accepted",
-		Payload: mustMarshal(map[string]interface{}{
-			"call_id": call.ID.String(),
-		}),
-	})
+	h.withCallID(client, msg, func(callID uuid.UUID) error { return h.callUseCase.Accept(client.UserID, callID) })
 }
 
 func (h *WebSocketHandler) handleCallReject(client *ws.Client, msg *ws.Message) {
-	var payload struct {
-		CallID string `json:"call_id"`
-	}
-	if err := json.Unmarshal(msg.Payload, &payload); err != nil {
-		h.sendError(client, "invalid call_reject payload")
-		return
-	}
-
-	callID, err := uuid.Parse(payload.CallID)
-	if err != nil {
-		h.sendError(client, "invalid call_id")
-		return
-	}
-
-	call, err := h.callUseCase.GetActiveCall(client.UserID)
-	if err != nil {
-		h.sendError(client, "failed to get call")
-		return
-	}
-
-	if err := h.callUseCase.RejectCall(callID); err != nil {
-		h.log.Warn("call_reject failed",
-			"call_id", callID,
-			"user_id", client.UserID,
-			"error", err,
-		)
-		h.sendError(client, err.Error())
-		return
-	}
-
-	h.log.Info("call rejected",
-		"call_id", callID,
-		"caller_id", call.CallerID,
-		"rejected_by", client.UserID,
-	)
-
-	h.hub.SendToUser(call.CallerID, &ws.Message{
-		Type: "call_rejected",
-		Payload: mustMarshal(map[string]interface{}{
-			"call_id": callID.String(),
-		}),
-	})
+	h.withCallID(client, msg, func(callID uuid.UUID) error { return h.callUseCase.Reject(client.UserID, callID) })
 }
 
 func (h *WebSocketHandler) handleCallEnd(client *ws.Client, msg *ws.Message) {
-	var payload struct {
+	var p struct {
+		Reason string `json:"reason"`
+	}
+	_ = json.Unmarshal(msg.Payload, &p)
+	h.withCallID(client, msg, func(callID uuid.UUID) error {
+		return h.callUseCase.End(client.UserID, callID, domain.CallEndReason(p.Reason))
+	})
+}
+
+func (h *WebSocketHandler) withCallID(client *ws.Client, msg *ws.Message, fn func(uuid.UUID) error) {
+	var p struct {
 		CallID string `json:"call_id"`
 	}
-	if err := json.Unmarshal(msg.Payload, &payload); err != nil {
-		h.sendError(client, "invalid call_end payload")
+	if err := json.Unmarshal(msg.Payload, &p); err != nil {
+		h.sendCallError(client, "not_found", "")
 		return
 	}
-
-	callID, err := uuid.Parse(payload.CallID)
+	callID, err := uuid.Parse(p.CallID)
 	if err != nil {
-		h.sendError(client, "invalid call_id")
+		h.sendCallError(client, "not_found", p.CallID)
 		return
 	}
-
-	call, err := h.callUseCase.GetActiveCall(client.UserID)
-	if err != nil {
-		h.sendError(client, "failed to get call")
-		return
+	if err := fn(callID); err != nil {
+		h.log.Info("call action refused", "type", msg.Type, "user_id", client.UserID, "call_id", callID, "error", err)
+		h.sendCallError(client, callErrorCode(err), callID.String())
 	}
-
-	if err := h.callUseCase.EndCall(callID); err != nil {
-		h.log.Warn("call_end failed",
-			"call_id", callID,
-			"user_id", client.UserID,
-			"error", err,
-		)
-		h.sendError(client, err.Error())
-		return
-	}
-
-	otherID := call.CallerID
-	if otherID == client.UserID {
-		otherID = call.ReceiverID
-	}
-
-	h.log.Info("call ended",
-		"call_id", callID,
-		"ended_by", client.UserID,
-		"other_party", otherID,
-	)
-
-	h.hub.SendToUser(otherID, &ws.Message{
-		Type: "call_ended",
-		Payload: mustMarshal(map[string]interface{}{
-			"call_id": callID.String(),
-		}),
-	})
-
-	h.hub.SendToUser(client.UserID, &ws.Message{
-		Type: "call_ended",
-		Payload: mustMarshal(map[string]interface{}{
-			"call_id": callID.String(),
-		}),
-	})
 }
 
-// --- WebRTC Signalling ---
-
-func (h *WebSocketHandler) handleWebRTCOffer(client *ws.Client, msg *ws.Message) {
-	var payload struct {
-		TargetUserID string          `json:"target_user_id"`
-		SDP          json.RawMessage `json:"sdp"`
+// callErrorCode — код для клиента. Запрет, блокировка и «нет такого
+// пользователя» неразличимы наружу (как в canInteract).
+func callErrorCode(err error) string {
+	switch {
+	case errors.Is(err, domain.ErrInteractionForbidden),
+		errors.Is(err, domain.ErrSelfFriendship),
+		errors.Is(err, domain.ErrUserNotFound):
+		return "forbidden"
+	case errors.Is(err, domain.ErrCallPeerOffline):
+		return "offline"
+	case errors.Is(err, domain.ErrCallBusy):
+		return "busy"
+	case errors.Is(err, domain.ErrCallNotFound):
+		return "not_found"
+	case errors.Is(err, domain.ErrCallInvalidState):
+		return "invalid_state"
+	default:
+		return "internal"
 	}
-	if err := json.Unmarshal(msg.Payload, &payload); err != nil {
-		h.sendError(client, "invalid webrtc_offer payload")
-		return
-	}
-
-	targetID, err := uuid.Parse(payload.TargetUserID)
-	if err != nil {
-		h.sendError(client, "invalid target_user_id")
-		return
-	}
-
-	h.log.Info("forwarding WebRTC offer",
-		"from_user_id", client.UserID,
-		"target_user_id", targetID,
-	)
-
-	h.hub.SendToUser(targetID, &ws.Message{
-		Type: "webrtc_offer",
-		Payload: mustMarshal(map[string]interface{}{
-			"from_user_id": client.UserID.String(),
-			"sdp":          payload.SDP,
-		}),
-	})
 }
 
-func (h *WebSocketHandler) handleWebRTCAnswer(client *ws.Client, msg *ws.Message) {
-	var payload struct {
-		TargetUserID string          `json:"target_user_id"`
-		SDP          json.RawMessage `json:"sdp"`
+func (h *WebSocketHandler) sendCallError(client *ws.Client, code, callID string) {
+	payload := map[string]string{"code": code}
+	if callID != "" {
+		payload["call_id"] = callID
 	}
-	if err := json.Unmarshal(msg.Payload, &payload); err != nil {
-		h.sendError(client, "invalid webrtc_answer payload")
-		return
-	}
-
-	targetID, err := uuid.Parse(payload.TargetUserID)
-	if err != nil {
-		h.sendError(client, "invalid target_user_id")
-		return
-	}
-
-	h.log.Info("forwarding WebRTC answer",
-		"from_user_id", client.UserID,
-		"target_user_id", targetID,
-	)
-
-	h.hub.SendToUser(targetID, &ws.Message{
-		Type: "webrtc_answer",
-		Payload: mustMarshal(map[string]interface{}{
-			"from_user_id": client.UserID.String(),
-			"sdp":          payload.SDP,
-		}),
-	})
-}
-
-func (h *WebSocketHandler) handleWebRTCICECandidate(client *ws.Client, msg *ws.Message) {
-	var payload struct {
-		TargetUserID string          `json:"target_user_id"`
-		Candidate    json.RawMessage `json:"candidate"`
-	}
-	if err := json.Unmarshal(msg.Payload, &payload); err != nil {
-		h.sendError(client, "invalid webrtc_ice_candidate payload")
-		return
-	}
-
-	targetID, err := uuid.Parse(payload.TargetUserID)
-	if err != nil {
-		h.sendError(client, "invalid target_user_id")
-		return
-	}
-
-	h.log.Debug("forwarding WebRTC ICE candidate",
-		"from_user_id", client.UserID,
-		"target_user_id", targetID,
-	)
-
-	h.hub.SendToUser(targetID, &ws.Message{
-		Type: "webrtc_ice_candidate",
-		Payload: mustMarshal(map[string]interface{}{
-			"from_user_id": client.UserID.String(),
-			"candidate":    payload.Candidate,
-		}),
-	})
+	h.hub.SendToUser(client.UserID, &ws.Message{Type: "call_error", Payload: mustMarshal(payload)})
 }
 
 func (h *WebSocketHandler) handleVoiceCallRing(client *ws.Client, msg *ws.Message) {

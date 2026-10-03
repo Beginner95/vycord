@@ -31,7 +31,7 @@ beforeAll(() => {
 
 beforeEach(() => {
   useCallStore.setState({
-    callChannelId: 'c1', callChannelName: 'general', status: 'connected',
+    callRoomId: 'c1', callChannelId: 'c1', callChannelName: 'general', status: 'connected',
     startedAt: Date.now(), isMuted: false, isVideoOff: true, isMicAvailable: true,
     participants: [], directory: {}, guestSelf: { id: 'g1', display_name: 'Аня' } as never,
   });

@@ -3,7 +3,8 @@ import { Phone } from 'lucide-react';
 import { useAuthStore } from '@/stores/authStore';
 import { useServerStore } from '@/stores/serverStore';
 import { apiService, apiErrorText } from '@/services/api';
-import { callService } from '@/services/call';
+import { useCallStore } from '@/stores/callStore';
+import { useDirectCallStore } from '@/stores/directCallStore';
 import { Avatar } from '@/components/Avatar';
 import { useMemberList } from '@/components/useMemberList';
 import { can, PERMISSIONS } from '@/utils/permissions';
@@ -23,9 +24,8 @@ export function UserList({ voiceParticipants }: UserListProps) {
   const { user: currentUser } = useAuthStore();
   const { onlineMembers, offlineMembers, voiceNameFor, lastSeenFor } = useMemberList(voiceParticipants);
 
-  const handleCallUser = async (userId: string) => {
-    await callService.startCall(userId);
-  };
+  // Есть текущий звонок — новый 1:1 его завершит (тултип предупреждает).
+  const callRoomId = useCallStore((s) => s.callRoomId);
 
   const currentServer = useServerStore((s) => s.currentServer);
   const invitePerms = useServerStore((s) =>
@@ -92,8 +92,8 @@ export function UserList({ voiceParticipants }: UserListProps) {
         {online && currentUser && m.user_id !== currentUser.id && (
           <button
             className="call-user-btn"
-            onClick={() => handleCallUser(m.user_id)}
-            title={t('server.callUser', { name: m.username })}
+            onClick={() => useDirectCallStore.getState().call({ id: m.user_id, username: m.username, avatar_url: m.avatar_url })}
+            title={callRoomId ? t('directCall.callEndsCurrent', { name: m.username }) : t('server.callUser', { name: m.username })}
           >
             <Phone size={15} strokeWidth={1.8} />
           </button>
