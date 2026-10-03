@@ -125,6 +125,49 @@ func TestReadState_AdvanceBeforeJoinedAtIsRefused(t *testing.T) {
 	assert.Equal(t, 1, n, "курсор не откатился на сообщение до вступления")
 }
 
+// Finding 3: курсор пережил выход с сервера — после повторного вступления
+// сообщения между выходом и возвратом не должны стать непрочитанными.
+func TestReadState_RejoinResetsStaleCursor(t *testing.T) {
+	f := newReadFixture(t)
+	id, at := f.msg(t, f.a, time.Minute)
+	moved, err := f.repo.Advance(f.b, f.channelID, at, id)
+	require.NoError(t, err)
+	require.True(t, moved)
+
+	// b выходит, пока идёт переписка, и возвращается позже.
+	exec(t, f.pool, `DELETE FROM server_members WHERE server_id = $1 AND user_id = $2`, f.serverID, f.b)
+	f.msg(t, f.a, 2*time.Minute)
+	f.msg(t, f.a, 3*time.Minute)
+	rejoined := f.joined.Add(10 * time.Minute)
+	exec(t, f.pool, `INSERT INTO server_members (server_id, user_id, joined_at) VALUES ($1, $2, $3)`, f.serverID, f.b, rejoined)
+	f.msg(t, f.a, 11*time.Minute)
+
+	n, err := f.repo.CountUnread(f.b, f.channelID)
+	require.NoError(t, err)
+	assert.Equal(t, 1, n, "считаются только сообщения после возвращения")
+
+	cur, err := f.repo.Cursor(f.b, f.channelID)
+	require.NoError(t, err)
+	assert.True(t, cur.At.Equal(rejoined))
+	assert.Nil(t, cur.MessageID)
+
+	list, err := f.repo.ListUnread(f.b)
+	require.NoError(t, err)
+	require.Len(t, list, 1)
+	assert.Equal(t, 1, list[0].Count)
+	assert.True(t, list[0].At.Equal(rejoined))
+	assert.Nil(t, list[0].MessageID)
+
+	// Новый явный курсор после возвращения снова работает.
+	id2, at2 := f.msg(t, f.a, 12*time.Minute)
+	moved, err = f.repo.Advance(f.b, f.channelID, at2, id2)
+	require.NoError(t, err)
+	assert.True(t, moved)
+	n, err = f.repo.CountUnread(f.b, f.channelID)
+	require.NoError(t, err)
+	assert.Equal(t, 0, n)
+}
+
 func TestReadState_NonMember(t *testing.T) {
 	f := newReadFixture(t)
 	stranger := seedUser(t, f.pool)

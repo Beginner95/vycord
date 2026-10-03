@@ -22,11 +22,14 @@ func NewReadStateRepository(db *pgxpool.Pool) domain.ReadStateRepository {
 
 // effectiveCursors — эффективный курсор пользователя $1 по каждому каналу его
 // серверов: строка channel_read_states, а без неё — момент вступления в сервер.
+// Строка старше последнего вступления (курсор пережил выход с сервера) не
+// считается: эффективный курсор — (joined_at, NULL), иначе всё, что пришло
+// между выходом и возвратом, стало бы непрочитанным.
 // Вызывающий может дописать к WHERE своё условие через AND.
 const effectiveCursors = `
 	SELECT c.id AS channel_id, c.server_id,
-	       COALESCE(rs.last_read_at, sm.joined_at) AS at,
-	       rs.last_read_message_id AS mid
+	       CASE WHEN rs.last_read_at >= sm.joined_at THEN rs.last_read_at ELSE sm.joined_at END AS at,
+	       CASE WHEN rs.last_read_at >= sm.joined_at THEN rs.last_read_message_id END AS mid
 	FROM server_members sm
 	JOIN channels c ON c.server_id = sm.server_id
 	LEFT JOIN channel_read_states rs ON rs.user_id = sm.user_id AND rs.channel_id = c.id
