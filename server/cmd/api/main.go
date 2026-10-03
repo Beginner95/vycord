@@ -86,6 +86,7 @@ func main() {
 	blockRepo := postgres.NewBlockRepository(db)
 	channelRepo := postgres.NewChannelRepository(db)
 	messageRepo := postgres.NewMessageRepository(db)
+	readStateRepo := postgres.NewReadStateRepository(db)
 	callRepo := postgres.NewCallRepository(db)
 	roleRepo := postgres.NewRoleRepository(db)
 	inviteRepo := postgres.NewInviteRepository(db)
@@ -144,6 +145,7 @@ func main() {
 	friendUseCase := usecase.NewFriendUseCase(friendRepo, blockRepo, userRepo, serverRepo, phoneKey)
 	voiceTokenUseCase := usecase.NewVoiceTokenUseCase(serverUseCase, cfg.JWTSecret)
 	messageUseCase := usecase.NewMessageUseCase(messageRepo, channelRepo, serverRepo, stickerRepo, permissionUseCase, attachmentRepo, storage)
+	readStateUseCase := usecase.NewReadStateUseCase(readStateRepo, messageRepo, channelRepo, permissionUseCase)
 	stickerUseCase := usecase.NewStickerUseCase(stickerRepo, serverRepo, permissionUseCase, storage)
 
 	// Кэш плана на 5 минут: таблица крошечная и меняется редко, ходить в БД
@@ -267,6 +269,7 @@ func main() {
 	serverHandler := handler.NewServerHandler(serverUseCase, inviteUseCase, hub, log)
 	inviteHandler := handler.NewInviteHandler(inviteUseCase, log)
 	messageHandler := handler.NewMessageHandler(messageUseCase, hub, log, attachmentSigner)
+	readStateHandler := handler.NewReadStateHandler(readStateUseCase, hub, log)
 	stickerHandler := handler.NewStickerHandler(stickerUseCase, log)
 	onlineUsersHandler := handler.NewOnlineUsersHandler(hub, userRepo, log)
 	wsHandler := handler.NewWebSocketHandler(hub, authUseCase, callUseCase, userUseCase, serverUseCase, log)
@@ -403,6 +406,14 @@ func main() {
 	router.HandleFunc("GET /api/v1/channels/{channel_id}/messages/around/{message_id}", authMid.RequireAuth(messageHandler.GetMessagesAround))
 	router.HandleFunc("PATCH /api/v1/channels/{channel_id}/messages/{message_id}", authMid.RequireAuth(messageHandler.UpdateMessage))
 	router.HandleFunc("DELETE /api/v1/channels/{channel_id}/messages/{message_id}", authMid.RequireAuth(messageHandler.DeleteMessage))
+
+	// Непрочитанное и квитанции (VYC-104). Список читателей живёт под
+	// /readers/{message_id}, а не под /messages/{message_id}/readers: второй
+	// шаблон конфликтует в ServeMux с /messages/around/{message_id}.
+	router.HandleFunc("GET /api/v1/unread", authMid.RequireAuth(readStateHandler.GetUnread))
+	router.HandleFunc("PUT /api/v1/channels/{channel_id}/read", authMid.RequireAuth(readStateHandler.MarkRead))
+	router.HandleFunc("GET /api/v1/channels/{channel_id}/read-receipts", authMid.RequireAuth(readStateHandler.GetReadReceipts))
+	router.HandleFunc("GET /api/v1/channels/{channel_id}/readers/{message_id}", authMid.RequireAuth(readStateHandler.GetReaders))
 
 	// Вложения. Загрузка, метаданные и удаление — под авторизацией.
 	router.HandleFunc("POST /api/v1/attachments", authMid.RequireAuth(attachmentHandler.Upload))
